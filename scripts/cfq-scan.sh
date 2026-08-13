@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The single source of numbers for the dashboard. No arguments needed.
-# Prints one JSON object on stdout: { "repos": [ { "path", "batches": [ {name, priority, open, done, archived?} ] } ] }
+# Prints one JSON object on stdout: { "repos": [ { "path", "batches": [ {name, priority, open, done, archived, report} ] } ] }
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
@@ -55,7 +55,8 @@ while IFS= read -r repo; do
     open=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
     donec=$(find "$b/done" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
     priority=$(read_priority "$b")
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "$open" "$donec" "false" >>"$records"
+    report="false"; [ -f "$b/report.json" ] && report="true"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" >>"$records"
   done
 
   if [ -d "$qdir/done" ]; then
@@ -64,7 +65,8 @@ while IFS= read -r repo; do
       name=$(basename "$b")
       donec=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
       priority=$(read_priority "$b")
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "0" "$donec" "true" >>"$records"
+      report="false"; [ -f "$b/report.json" ] && report="true"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "0" "$donec" "true" "$report" >>"$records"
     done
   fi
 done <<<"$candidates"
@@ -74,8 +76,8 @@ jq -R -s '
   map({
     path: .[0], name: .[1], priority: .[2],
     open: (.[3] | tonumber), done: (.[4] | tonumber),
-    archived: (.[5] == "true")
+    archived: (.[5] == "true"), report: (.[6] == "true")
   }) |
   group_by(.path) |
-  map({ path: .[0].path, batches: map({name, priority, open, done, archived}) })
+  map({ path: .[0].path, batches: map({name, priority, open, done, archived, report}) })
 ' "$records" | jq -c '{repos: .}'

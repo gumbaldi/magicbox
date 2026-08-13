@@ -29,21 +29,25 @@ mkdir -p "$tmp/repo-d/.claude/code-for-queue/2026-01-03-legacy"
 echo hoch >"$tmp/repo-d/.claude/code-for-queue/2026-01-03-legacy/.priority"
 touch "$tmp/repo-d/.claude/code-for-queue/2026-01-03-legacy/01-a.md"
 
+# repo-a has a report.json — must not affect phase counts, only the report flag
+echo '{"repo":"x","batch":"2026-01-01-demo","started":"t","phases":[]}' \
+  >"$tmp/repo-a/.claude/code-for-queue/2026-01-01-demo/report.json"
+
 out=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan")
 
 a=$(jq -c --arg p "$tmp/repo-a" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$a" = '[{"name":"2026-01-01-demo","priority":"high","open":2,"done":1,"archived":false}]' ] \
+[ "$a" = '[{"name":"2026-01-01-demo","priority":"high","open":2,"done":1,"archived":false,"report":true}]' ] \
   || { echo "FAIL: repo-a batches = $a"; exit 1; }
 
 b=$(jq -c --arg p "$tmp/repo-b" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$b" = '[{"name":"2026-01-02-demo","priority":"medium","open":0,"done":2,"archived":true}]' ] \
+[ "$b" = '[{"name":"2026-01-02-demo","priority":"medium","open":0,"done":2,"archived":true,"report":false}]' ] \
   || { echo "FAIL: repo-b batches = $b"; exit 1; }
 
 c=$(jq -c --arg p "$tmp/repo-c" '[.repos[] | select(.path == $p)]' <<<"$out")
 [ "$c" = "[]" ] || { echo "FAIL: repo-c should not appear, got $c"; exit 1; }
 
 d=$(jq -c --arg p "$tmp/repo-d" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$d" = '[{"name":"2026-01-03-legacy","priority":"high","open":1,"done":0,"archived":false}]' ] \
+[ "$d" = '[{"name":"2026-01-03-legacy","priority":"high","open":1,"done":0,"archived":false,"report":false}]' ] \
   || { echo "FAIL: repo-d legacy priority mapping = $d"; exit 1; }
 
 echo PASS

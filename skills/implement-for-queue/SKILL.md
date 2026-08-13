@@ -66,6 +66,15 @@ still free. Different plans (even from the same repo) belong in separate context
    "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" add "<repo-root>"
    ```
    Red → **stop**, report, the file stays open. Do not move on to the next phase.
+5. Record the phase in the batch report — after green **and** after red, before anything else happens:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" append "<batch-dir>" '<phase-json>'
+   ```
+
+   `deviations` is not optional padding: whenever the implementation departed from the plan, name what
+   the plan said, what was built instead, and why. An honest empty array is fine; a glossed-over
+   deviation is not. On red, `errors` carries the actual failure output, trimmed to what identifies it.
 
 ## 5. Commit & Push (on green, every phase)
 
@@ -111,5 +120,14 @@ repo once more:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" add "<repo-root>"
 ```
+
+Then render the report and hand the path over with the closing summary:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" html "<repo-root>/.claude/code-for-queue/done/<batch>"
+```
+
+Report the terminal summary yourself (phases, green/red, deviations) and print the `file://` path to
+the HTML underneath — the detail lives there, not in the terminal.
 
 No manual bookkeeping is needed anymore — the dashboard (P4) counts live from disk.
