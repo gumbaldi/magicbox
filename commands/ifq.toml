@@ -1,0 +1,2 @@
+description = "Work off one batch from this repository's phase queue, one phase at a time"
+prompt = "Use the implement-for-queue skill. Work off one batch from this repository's queue, phase by phase."

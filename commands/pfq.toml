@@ -1,0 +1,2 @@
+description = "Plan a feature, bug series or rework and park phased plans in the queue"
+prompt = "Use the plan-for-queue skill. Follow it exactly, including the mandatory interview-depth question."

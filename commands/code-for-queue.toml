@@ -1,0 +1,2 @@
+description = "Show the cross-repo queue dashboard and manage cfq settings"
+prompt = "Use the code-for-queue skill: show the queue dashboard across all repositories, and handle settings or maintenance if asked."
