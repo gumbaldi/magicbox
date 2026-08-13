@@ -8,12 +8,17 @@ dashboard shows every queue across every repo at a glance.
 
 ```
 /plugin marketplace add gumbaldi/codeforqueue
-/plugin install code-for-queue@codeforqueue
+/plugin install cfq@codeforqueue
 ```
 
 Then run `/cfq` once for first-time setup.
 
-## The three commands
+Upgrading from 0.1.x: the plugin was renamed from `code-for-queue` to `cfq` so its skills show up as
+`cfq:plan-for-queue`. Claude Code treats that as a different plugin, so remove the old one once:
+`/plugin uninstall code-for-queue`, then install as above. Settings and the repo registry live in
+`~/.claude/code-for-queue/` and are kept.
+
+## The four commands
 
 | Command | Long form | Purpose |
 |---|---|---|
