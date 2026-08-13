@@ -17,7 +17,7 @@ Then run `/cfq` once for first-time setup.
 
 | Command | Long form | Purpose |
 |---|---|---|
-| `/pfq` | `/plan-for-queue` | Interview, resolve open questions, park phased plans — no implementation |
+| `/pfq` | `/plan-for-queue` | Interview (quick, thorough, or thorough-with-docs), resolve open questions, park phased plans — no implementation |
 | `/ifq` | `/implement-for-queue` | Work off one batch from the current repo's queue, phase by phase |
 | `/cfq` | `/code-for-queue` | Cross-repo dashboard, repo-local queue management, settings |
 
@@ -74,19 +74,26 @@ also blocks indirect calls.
 
 ## Optional dependencies
 
-- **`mattpocock-skills`** — powers `grillMode: classic`, the frontier-per-round interview mode.
-  Install: `/plugin marketplace add anthropics/claude-plugins-official`, then
-  `/plugin install mattpocock-skills@claude-plugins-official`.
+- **`mattpocock-skills`** — powers `grillMode: classic`, the frontier-per-round interview mode, and
+  the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
+  "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
+  then `/plugin install mattpocock-skills@claude-plugins-official`.
 - **`ponytail`** — powers the optional cleanup audit at the end of a planning session.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 
-Everything except classic grill mode and the cleanup audit works fully without either plugin.
+Everything except classic grill mode and the cleanup audit works fully without either plugin —
+"Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
 
 ## Credits
 
-The grilling procedure builds on `mattpocock-skills:grilling` (MIT) — the design-tree/frontier
-model is theirs; the one-question-per-round, select-box-with-recommendation format is cfq's
-addition.
+Adapted from Matt Pocock's skills (MIT) — <https://github.com/mattpocock/skills>. The design-tree /
+frontier model comes from `grilling`, the glossary-and-ADR discipline from `domain-modeling`, and the
+combination of the two from `grill-with-docs`. cfq's own additions are the one-question-per-round
+format, the select-box protocol, and the fallback that keeps all of it working without the plugin.
+
+- Grilling: <https://aihero.dev/skills-grilling>
+- Grill with docs: <https://aihero.dev/skills-grill-with-docs>
+- Domain modeling: <https://aihero.dev/skills-domain-modeling>
 
 MIT licensed.
