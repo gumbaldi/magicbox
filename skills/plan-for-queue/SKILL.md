@@ -74,8 +74,8 @@ committable unit. Three honest phases beat seven artificial ones.
 - Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
 - Batch directory: `<repo-root>/.claude/code-for-queue/<YYYY-MM-DD>-<topic-slug>/`
 - `NN-<slug>.md` per phase, numbered ascending
-- `.priority` with a single line (`niedrig`|`mittel`|`hoch`), asked via `AskUserQuestion`, with
-  `mittel` as the recommended option
+- `.priority` with a single line (`low`|`medium`|`high`), asked via `AskUserQuestion`, with
+  `medium` as the recommended option
 - Make sure `**/.claude/code-for-queue/` is in `<repo-root>/.git/info/exclude` (ignored locally,
   **not** in the versioned `.gitignore`)
 - `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" add "<repo-root>"`

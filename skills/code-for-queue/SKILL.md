@@ -52,11 +52,11 @@ the env vars — even with a plugin installed, it can be switched off again here
 ```
 
 Render a Markdown table from the JSON, sorted by repo, then within it by priority
-(`hoch` > `mittel` > `niedrig`), then by batch name:
+(`high` > `medium` > `low`), then by batch name:
 
 | Repo | Batch | Prio | Open | Done | Progress |
 |---|---|---|---|---|---|
-| kankuri | 2026-08-13-cfq-plugin | mittel | 4 | 2 | ▓▓▓░░░░░ 33% |
+| kankuri | 2026-08-13-cfq-plugin | medium | 4 | 2 | ▓▓▓░░░░░ 33% |
 
 - Repo column: basename only, resolve the full path once underneath.
 - Archived batches (`archived: true`) in their own, collapsed list below the table — they

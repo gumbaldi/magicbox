@@ -42,8 +42,8 @@ comment. Both lists may be empty.
 2. Check `<repo-root>/.claude/code-for-queue/` for open batches: directories directly beneath it
    (excluding `done/`) with at least one `*.md` at the top level.
 3. No open batches → report: "No open plans for this repo in the queue." End.
-4. Open batches exist → read `.priority` for each (file missing → `mittel`). Compute the default
-   order: priority first (`hoch` > `mittel` > `niedrig`), then folder name ascending (the name
+4. Open batches exist → read `.priority` for each (file missing → `medium`). Compute the default
+   order: priority first (`high` > `medium` > `low`), then folder name ascending (the name
    starts with the date, so it doubles as creation date and — as a tie-break on the same date —
    plan ID; oldest first).
 5. `AskUserQuestion`: "There are N open plans for this repo. How do you want to proceed?" with

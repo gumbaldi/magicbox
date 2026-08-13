@@ -40,7 +40,7 @@ belong in separate context windows.
   <YYYY-MM-DD>-<topic>/
     01-first-phase.md
     02-second-phase.md
-    .priority            # niedrig | mittel | hoch
+    .priority            # low | medium | high
     done/                # finished phases
   done/                  # finished batches
 ```

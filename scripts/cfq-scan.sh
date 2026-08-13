@@ -28,6 +28,18 @@ done
 
 trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 
+# Legacy queues wrote German priorities; map them so old batches keep sorting.
+read_priority() {
+  local p="medium"
+  [ -f "$1/.priority" ] && p=$(trim "$1/.priority")
+  case "$p" in
+    niedrig) echo low ;;
+    mittel)  echo medium ;;
+    hoch)    echo high ;;
+    *)       echo "$p" ;;
+  esac
+}
+
 records=$(mktemp)
 trap 'rm -f "$records"' EXIT
 
@@ -42,8 +54,7 @@ while IFS= read -r repo; do
     [ "$name" = "done" ] && continue
     open=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
     donec=$(find "$b/done" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
-    priority="mittel"
-    [ -f "$b/.priority" ] && priority=$(trim "$b/.priority")
+    priority=$(read_priority "$b")
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "$open" "$donec" "false" >>"$records"
   done
 
@@ -52,8 +63,7 @@ while IFS= read -r repo; do
       [ -d "$b" ] || continue
       name=$(basename "$b")
       donec=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
-      priority="mittel"
-      [ -f "$b/.priority" ] && priority=$(trim "$b/.priority")
+      priority=$(read_priority "$b")
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "0" "$donec" "true" >>"$records"
     done
   fi
