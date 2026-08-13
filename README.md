@@ -20,6 +20,7 @@ Then run `/cfq` once for first-time setup.
 | `/pfq` | `/plan-for-queue` | Interview (quick, thorough, or thorough-with-docs), resolve open questions, park phased plans — no implementation |
 | `/ifq` | `/implement-for-queue` | Work off one batch from the current repo's queue, phase by phase |
 | `/cfq` | `/code-for-queue` | Cross-repo dashboard, repo-local queue management, settings |
+| `/rfq` | `/report-for-queue` | Show implementation reports for finished batches — table and HTML |
 
 ## The workflow
 
@@ -47,6 +48,18 @@ belong in separate context windows.
 
 The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
 `.gitignore`, since the queue is local working state, not something to publish.
+
+## Reports
+
+Every phase `ifq` finishes — green or red — is recorded to `<batch-dir>/report.json`: which
+phases went green, which failed, where the implementation departed from the plan, what broke,
+which verification ran, and the commit SHA. It lives in the batch directory, so it travels with
+the batch into `done/` and is covered by the same `.git/info/exclude` entry as the rest of the
+queue.
+
+Run `/rfq` for a compact terminal table across all repos, or drill into a single batch for the
+detailed HTML report. The HTML is regenerated fresh on every request and can be deleted freely —
+`report.json` is the source of truth.
 
 ## Configuration
 

@@ -56,12 +56,14 @@ Render a Markdown table from the JSON, sorted by repo, then within it by priorit
 
 | Repo | Batch | Prio | Open | Done | Progress |
 |---|---|---|---|---|---|
-| kankuri | 2026-08-13-cfq-plugin | medium | 4 | 2 | ▓▓▓░░░░░ 33% |
+| kankuri | 2026-08-13-cfq-plugin 📄 | medium | 4 | 2 | ▓▓▓░░░░░ 33% |
 
 - Repo column: basename only, resolve the full path once underneath.
+- Batch name gets a trailing `📄` when `report: true`.
 - Archived batches (`archived: true`) in their own, collapsed list below the table — they
   shouldn't crowd out open work, but the work already done should stay visible.
 - End with a summary line: number of repos with open work, total open phases, total done phases.
+  If any batch has `report: true`, add one closing sentence pointing to `/rfq` — once, not per row.
 - For every repo with open batches, print the copyable sequence:
   `cd <repo>` → `/model sonnet` (or the first model from `implModels`) → `/ifq`.
 - No open batches → say so plainly instead of showing an empty table.
