@@ -13,7 +13,7 @@ defaults='{
   "planModels": ["opus", "fable"],
   "implModels": ["sonnet"],
   "allowAnyModel": false,
-  "stopPct": 50,
+  "stopPct": 40,
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
@@ -88,10 +88,10 @@ case "$cmd" in
         ;;
       stopPct)
         case "$val" in
-          ''|*[!0-9]*) echo "cfq-settings.sh: 'stopPct' must be 1-99" >&2; exit 1 ;;
+          ''|*[!0-9]*) echo "cfq-settings.sh: 'stopPct' must be 0-99" >&2; exit 1 ;;
         esac
-        if [ "$val" -lt 1 ] || [ "$val" -gt 99 ]; then
-          echo "cfq-settings.sh: 'stopPct' must be 1-99" >&2
+        if [ "$val" -gt 99 ]; then
+          echo "cfq-settings.sh: 'stopPct' must be 0-99" >&2
           exit 1
         fi
         jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write

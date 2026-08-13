@@ -99,6 +99,9 @@ git branch --show-current
 - `OK` → next phase of the same batch.
 - `UNKNOWN` → treat like `STOP` (hand off cleanly when in doubt).
 
+`stopPct: 0` is a deliberate setting, not a misconfiguration: the script then reports `STOP` after
+every single phase, so each phase gets its own context window. Hand off without commenting on it.
+
 ## 7. Batch Done
 
 No open `*.md` left at the top level → move the whole batch directory to

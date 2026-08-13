@@ -59,7 +59,7 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | models allowed to plan |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model gates |
-| `stopPct` | `CFQ_STOP_PCT` | `50` | context share at which `ifq` hands off the session |
+| `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
 | `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit |

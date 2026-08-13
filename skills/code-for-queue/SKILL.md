@@ -88,4 +88,5 @@ currently overridden by an env var (a `set` then only takes effect after removin
 point that out). Change requests go through `cfq-settings.sh set <key> <value>`. **All** keys
 are changeable here, including `planBlockedPlugins` / `implBlockedPlugins` (strict prohibition)
 and `planPreferredPlugins` / `implPreferredPlugins` (a pure recommendation to the planning or
-implementing skill).
+implementing skill). `stopPct` accepts `0`-`99`; `0` is a valid, deliberate value meaning "hand
+off after every phase", not an error — don't flag it as a misconfiguration.
