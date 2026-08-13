@@ -1,16 +1,16 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "gumbaldi claude plugins",
-  "description": "Queue-driven planning and implementation for Claude Code.",
+  "name": "gumbaclaude",
+  "description": "gumbaldi's Claude Code plugins.",
   "owner": {
     "name": "gumbaldi",
     "url": "https://github.com/gumbaldi"
   },
   "plugins": [
     {
-      "name": "claude-for-queue (cfq)",
+      "name": "cfq",
       "description": "Plan with an expensive model, implement with a cheap one — phased plans parked in a repo-local queue.",
-      "source": "./",
+      "source": "./plugins/cfq",
       "category": "productivity"
     }
   ]
