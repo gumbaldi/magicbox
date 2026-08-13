@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "cfq",
-      "description": "Plan with an expensive model, implement with a cheap one — phased plans parked in a repo-local queue.",
+      "description": "code-for-queue (cfq) — plan with an expensive model, implement with a cheap one, phased plans parked in a repo-local queue.",
       "source": "./plugins/cfq",
       "category": "productivity"
     }
