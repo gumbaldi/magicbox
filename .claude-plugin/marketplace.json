@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "cfq",
+      "name": "claude-for-queue (cfq)",
       "description": "Plan with an expensive model, implement with a cheap one — phased plans parked in a repo-local queue.",
       "source": "./",
       "category": "productivity"
