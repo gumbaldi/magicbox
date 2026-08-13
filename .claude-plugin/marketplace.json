@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "codeforqueue",
+  "description": "Queue-driven planning and implementation for Claude Code.",
+  "owner": {
+    "name": "gumbaldi",
+    "url": "https://github.com/gumbaldi"
+  },
+  "plugins": [
+    {
+      "name": "code-for-queue",
+      "description": "Plan with an expensive model, implement with a cheap one — phased plans parked in a repo-local queue.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
