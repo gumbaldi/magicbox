@@ -67,18 +67,28 @@ detail column.
 
 ## Queue layout
 
+Three queues, each with its own reader and writer:
+
 ```
 <repo>/.claude/code-for-queue/
-  <YYYY-MM-DD>-<topic>/
-    01-first-phase.md
-    02-second-phase.md
-    .priority            # low | medium | high
-    .dependsOn           # optional: one batch directory name per line
-    report.json          # written by ifq, includes telemetry
-    done/                # finished phases
-  done/                  # finished batches
+  impl/                  # phase-plan batches — ifq reads, pfq writes
+    <YYYY-MM-DD>-<topic>/
+      01-first-phase.md
+      02-second-phase.md
+      .priority          # low | medium | high
+      .dependsOn         # optional: one batch directory name per line
+      report.json        # written by ifq, includes telemetry
+      done/              # finished phases
+    done/                # finished batches
+  plan/                  # planning-request inbox — ifq writes, pfq reads
+    <YYYY-MM-DD>-<slug>.md
+    done/
+  todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
+    <YYYY-MM-DD>-<slug>.md
+    done/
   telemetry.jsonl        # one record per planning session and per phase
   .lock                  # held by the running ifq session
+  .maintenance           # marker for the periodic maintenance run
 ```
 
 The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
@@ -171,13 +181,26 @@ repo:
 { "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
 ```
 
+## Language and documentation
+
+`codeLanguage` governs everything executable or read as an instruction — code, comments, commit
+messages, `README`, `CLAUDE.md`, `SKILL.md`. `docs/**` is the only multilingual area: each
+additional language in `docLanguages` gets its own tree at `docs/<lang>/…`, mirroring the same
+files. `docLevel` controls how much documentation a repo keeps at all — see the table above.
+Override any of the three per repo via the `env` block shown above.
+
+The documentation standard itself lives in `references/doc-style.md` (page structure, formatting,
+translation rules); a repo overrides it by adding its own `docs/STYLE.md`, which wins whenever it
+exists.
+
 ## Optional dependencies
 
 - **`mattpocock-skills`** — powers `grillMode: classic`, the frontier-per-round interview mode, and
   the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
-- **`ponytail`** — powers the optional cleanup audit at the end of a planning session.
+- **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
+  maintenance run (`maintenanceEvery`), not the maintenance run itself.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 

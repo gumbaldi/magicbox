@@ -4,9 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), nine bash scripts
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), eleven bash scripts
 (`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
 other than `bash` and `jq` (every script hard-fails without jq).
+
+Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
+Conventions): plugin-level under `references/` (e.g. `doc-style.md`), or per-skill under
+`skills/<name>/references/` (e.g. `implement-for-queue/references/queues.md`). Either way they're
+loaded only on the path that actually needs them, not by every session.
 
 ## Commands
 
@@ -39,17 +44,25 @@ hands off on the context gate; `code-for-queue` is the cross-repo dashboard plus
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
-**The queue is the filesystem.** `<repo>/.claude/code-for-queue/<YYYY-MM-DD>-<topic>/NN-slug.md`, with
-`.priority` (`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks
-this batch until every named one is in `done/`; an unresolvable name is reported, never blocking),
+**The queue is the filesystem, split into three queues** under `<repo>/.claude/code-for-queue/`:
+`impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
+(`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks this batch
+until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
 `report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
-after every phase and travelling with the batch into `done/`), a `done/` for finished phases and a
-sibling `done/` for finished batches. Repo-level, alongside the batches: `telemetry.jsonl` (one line
-per planning session and per phase) and `.lock` (held by the currently running `implement-for-queue`
-session, liveness derived from the holder's transcript mtime). There is no index or bookkeeping
-file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is* the `mv` into
-`done/`. Anything that changes the layout must change `cfq-scan.sh` and `tests/test-scan.sh`
-together — and, for `report.json`, `tests/test-report.sh` as well.
+after every phase and travelling with the batch into `impl/done/`), a `done/` for finished phases
+and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
+(`<YYYY-MM-DD>-<slug>.md`, format in `references/queues.md`) that `implement-for-queue` drops for
+follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;
+`todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
+that `implement-for-queue` writes, `code-for-queue` works off (Step C, current repo only), and
+`report-for-queue` only lists. `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
+`plan-for-queue` reads `plan/`, writes `impl/`. `.lock`, `telemetry.jsonl` (one line per planning
+session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
+inside any of the three subdirectories — `.lock` is held by the currently running
+`implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
+index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
+the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
+`tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
 
 **Two state files, both outside any repo**, in `$HOME/.claude/code-for-queue/`: `repos.json` (registry
 of repos that ever had a queue, written by `cfq-registry.sh add` from both worker skills) and
@@ -65,7 +78,13 @@ combines `defaults` with the file (`with_entries(select(.key | in($d)))`) before
 ever touch it, so a newly introduced key reaches existing installations automatically and a removed
 one simply disappears — no migration step needed. `stopPct` is resolved by `ctx-usage.sh` through
 `cfq-settings.sh get stopPct`, not read from the environment directly — anyone reworking that script
-breaks the precedence chain at exactly that point.
+breaks the precedence chain at exactly that point. Four keys added or renamed since v0.4:
+`codeLanguage`, `docLanguages`, `docLevel` (language and doc-tree settings, read by `cfq-lang.sh`)
+and `maintenanceEvery` (renamed from the pre-v0.4 maintenance-interval setting, read by
+`cfq-maintenance.sh`). The
+language keys are global defaults; a repo overrides them per-repo via the `env` block in its own
+`<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.) — same precedence chain, just sourced
+from the target repo instead of `~/.claude/code-for-queue/settings.json`.
 
 **Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
 transcript (`ctx-usage.sh`'s path resolution, reused rather than reinvented) — never from a model's
@@ -84,7 +103,17 @@ that adding a field which happens to carry free text fails the test on purpose, 
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
   copies the block from `implement-for-queue/SKILL.md` and adds only its own `## Section Map`.
   `AskUserQuestion`, briefings, and data tables are exempt and stay prose. Change the block →
-  change it in all four `SKILL.md` files.
+  change it in all four `SKILL.md` files. Two forms are in use — the full block (`code-for-queue`,
+  `report-for-queue`) and a shortened one that says the same thing in fewer lines
+  (`implement-for-queue`, `plan-for-queue`), needed to stay inside the 200-line budget below.
+  Whichever form a skill uses, it must still be word-for-word identical across every skill using
+  that form.
+- **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything
+  happens. Content that would push a file past that moves to `references/` and is loaded only on
+  the path that needs it — pattern: `skills/plan-for-queue/references/grilling.md`.
+- **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
+  diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
+  prose costs that every session, even on the runs where the path never executes.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Bash style throughout: `set -eu`, jq for all JSON, write-to-`.tmp`-then-`mv`, `mktemp` + `trap` cleanup.
