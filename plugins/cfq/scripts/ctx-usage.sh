@@ -4,7 +4,10 @@
 # Primary source: the statusline payload captured to ~/.claude/.ctx/<sid>.json (Claude Code's own number).
 # Fallback: prompt tokens of the last assistant line in the transcript against a model-dependent limit.
 set -u
-stop_pct="${CFQ_STOP_PCT:-${CLAUDE_CTX_STOP_PCT:-50}}"
+# stopPct: env > settings.json > default, resolved by cfq-settings.sh (it applies CFQ_STOP_PCT itself).
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+stop_pct="${CLAUDE_CTX_STOP_PCT:-$("$script_dir/cfq-settings.sh" get stopPct 2>/dev/null || true)}"
+case "$stop_pct" in ''|*[!0-9]*) stop_pct=40 ;; esac
 sid="${CLAUDE_CODE_SESSION_ID:-}"
 p="$HOME/.claude/.ctx/$sid.json"
 

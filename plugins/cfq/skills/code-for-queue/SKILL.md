@@ -52,25 +52,31 @@ the env vars — even with a plugin installed, it can be switched off again here
 ```
 
 Render a Markdown table from the JSON, sorted by repo, then within it by priority
-(`hoch` > `mittel` > `niedrig`), then by batch name:
+(`high` > `medium` > `low`), then by batch name:
 
-| Repo | Batch | Prio | Open | Done | Progress |
-|---|---|---|---|---|---|
-| kankuri | 2026-08-13-cfq-plugin | mittel | 4 | 2 | ▓▓▓░░░░░ 33% |
+| Repo | Batch | Prio | Open | Done | Progress | Wartet auf |
+|---|---|---|---|---|---|---|
+| kankuri | ⛔ 2026-08-13-cfq-plugin 📄 | medium | 4 | 2 | ▓▓▓░░░░░ 33% | 2026-08-10-auth |
 
 - Repo column: basename only, resolve the full path once underneath.
+- Batch name gets a trailing `📄` when `report: true`.
+- `blocked: true` → prefix the batch name with `⛔`. A name in `unknownDeps` → append `⚠️
+  (<name>)` to the "Wartet auf" cell for that entry — it never blocks, it's only surfaced.
+  Explain once, not per row: blocked batches aren't offered by `ifq`; `⚠️` means the edge points
+  at a batch that no longer exists, deliberately non-blocking — fix or remove it via Step C.
 - Archived batches (`archived: true`) in their own, collapsed list below the table — they
   shouldn't crowd out open work, but the work already done should stay visible.
 - End with a summary line: number of repos with open work, total open phases, total done phases.
-- For every repo with open batches, print the copyable sequence:
-  `cd <repo>` → `/model sonnet` (or the first model from `implModels`) → `/ifq`.
+  If any batch has `report: true`, add one closing sentence pointing to `/rfq` — once, not per row.
+- For every repo with at least one open batch that is **not** `blocked`, print the copyable
+  sequence: `cd <repo>` → `/model sonnet` (or the first model from `implModels`) → `/ifq`.
 - No open batches → say so plainly instead of showing an empty table.
 
 **Other repos are read-only.** Step C only applies to the repo `cfq` is currently running in.
 
 ## Step C — Management (on request, always confirm before writing)
 
-Four actions, exclusively in the current repository (`git rev-parse --show-toplevel`):
+Five actions, exclusively in the current repository (`git rev-parse --show-toplevel`):
 
 1. **Change priority** — rewrite a batch's `.priority`.
 2. **Delete a batch** — remove the directory. Name the batch and the number of files that will
@@ -78,6 +84,10 @@ Four actions, exclusively in the current repository (`git rev-parse --show-tople
 3. **Archive a batch** — move to `<repo>/.claude/code-for-queue/done/<batch>/` without working it
    off. Open phases then count as done-but-not-implemented; say so in the confirmation text.
 4. **Clean the registry** — `cfq-registry.sh prune`, list the removed paths.
+5. **Set/remove a dependency** — write or delete `.dependsOn` in the chosen batch. Before writing,
+   check whether the named batch exists (open or in `done/`); if not, warn but write anyway on
+   request — the edge is fail-soft by design. As with the other actions: current repo only,
+   always with confirmation.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 
@@ -88,4 +98,5 @@ currently overridden by an env var (a `set` then only takes effect after removin
 point that out). Change requests go through `cfq-settings.sh set <key> <value>`. **All** keys
 are changeable here, including `planBlockedPlugins` / `implBlockedPlugins` (strict prohibition)
 and `planPreferredPlugins` / `implPreferredPlugins` (a pure recommendation to the planning or
-implementing skill).
+implementing skill). `stopPct` accepts `0`-`99`; `0` is a valid, deliberate value meaning "hand
+off after every phase", not an error — don't flag it as a misconfiguration.

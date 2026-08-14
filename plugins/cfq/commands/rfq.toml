@@ -1,0 +1,2 @@
+description = "Show implementation reports for finished queue batches"
+prompt = "Use the report-for-queue skill: show the implementation reports for the queue batches, and render the detailed HTML report if asked."
