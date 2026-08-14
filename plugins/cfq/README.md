@@ -149,8 +149,11 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
-| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit |
-| `ponytailAuditEvery` | `CFQ_PONYTAIL_AUDIT_EVERY` | `50` | commits since the last audit before it is due again; `0` disables the audit entirely |
+| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit — one of several maintenance tasks gated by `maintenanceEvery` |
+| `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | language of everything that is executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
+| `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
+| `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | how much documentation a repo keeps: `minimal` (README only), `standard`, `full` |
+| `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | commits since the last maintenance run before it is due again; `0` disables maintenance entirely |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
@@ -159,6 +162,14 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 There's no global "preferred plugins" setting anymore — recommendations now live **per phase** in
 the plan itself, since the planner knows what that specific phase needs. Only the prohibition
 stays global, and it's strict: it should be set sparingly, since it also blocks indirect calls.
+
+The language settings are global but a repo's language is its own: a repo overrides them by
+setting `"env"` in its versioned `<repo>/.claude/settings.json`, so the override travels with the
+repo:
+
+```json
+{ "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
+```
 
 ## Optional dependencies
 

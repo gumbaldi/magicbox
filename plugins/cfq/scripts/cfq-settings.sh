@@ -17,7 +17,10 @@ defaults='{
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
-  "ponytailAuditEvery": 50,
+  "codeLanguage": "en",
+  "docLanguages": [],
+  "docLevel": "minimal",
+  "maintenanceEvery": 50,
   "planBlockedPlugins": ["superpowers"],
   "implBlockedPlugins": ["superpowers"],
   "telemetrySyncRepo": "",
@@ -54,7 +57,10 @@ with_overrides() {
     --arg grillMode "${CFQ_GRILL_MODE:-}" \
     --arg useMattpocockGrilling "${CFQ_USE_MATTPOCOCK:-}" \
     --arg usePonytailAudit "${CFQ_USE_PONYTAIL:-}" \
-    --arg ponytailAuditEvery "${CFQ_PONYTAIL_AUDIT_EVERY:-}" \
+    --arg codeLanguage "${CFQ_CODE_LANGUAGE:-}" \
+    --arg docLanguages "${CFQ_DOC_LANGUAGES:-}" \
+    --arg docLevel "${CFQ_DOC_LEVEL:-}" \
+    --arg maintenanceEvery "${CFQ_MAINTENANCE_EVERY:-}" \
     --arg telemetrySyncRepo "${CFQ_TELEMETRY_SYNC_REPO:-}" \
     '
     if $planModels != "" then .planModels = ($planModels | split(",")) else . end
@@ -65,7 +71,10 @@ with_overrides() {
     | if $grillMode != "" then .grillMode = $grillMode else . end
     | if $useMattpocockGrilling != "" then .useMattpocockGrilling = ($useMattpocockGrilling == "1") else . end
     | if $usePonytailAudit != "" then .usePonytailAudit = ($usePonytailAudit == "1") else . end
-    | if $ponytailAuditEvery != "" then .ponytailAuditEvery = ($ponytailAuditEvery | tonumber) else . end
+    | if $codeLanguage != "" then .codeLanguage = $codeLanguage else . end
+    | if $docLanguages != "" then .docLanguages = ($docLanguages | split(",")) else . end
+    | if $docLevel != "" then .docLevel = $docLevel else . end
+    | if $maintenanceEvery != "" then .maintenanceEvery = ($maintenanceEvery | tonumber) else . end
     | if $telemetrySyncRepo != "" then .telemetrySyncRepo = $telemetrySyncRepo else . end
     '
 }
@@ -109,9 +118,9 @@ case "$cmd" in
         fi
         jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
         ;;
-      ponytailAuditEvery)
+      maintenanceEvery)
         case "$val" in
-          ''|*[!0-9]*) echo "cfq-settings.sh: 'ponytailAuditEvery' must be a non-negative integer" >&2; exit 1 ;;
+          ''|*[!0-9]*) echo "cfq-settings.sh: 'maintenanceEvery' must be a non-negative integer" >&2; exit 1 ;;
         esac
         jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
         ;;
@@ -121,7 +130,20 @@ case "$cmd" in
           *) echo "cfq-settings.sh: 'grillMode' must be stepwise or classic" >&2; exit 1 ;;
         esac
         ;;
-      planModels|implModels|scanRoots|planBlockedPlugins|implBlockedPlugins)
+      docLevel)
+        case "$val" in
+          minimal|standard|full) jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write ;;
+          *) echo "cfq-settings.sh: 'docLevel' must be minimal, standard or full" >&2; exit 1 ;;
+        esac
+        ;;
+      codeLanguage)
+        if [[ ! "$val" =~ ^[A-Za-z][A-Za-z-]*$ ]]; then
+          echo "cfq-settings.sh: 'codeLanguage' must match [A-Za-z][A-Za-z-]*" >&2
+          exit 1
+        fi
+        jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write
+        ;;
+      planModels|implModels|scanRoots|planBlockedPlugins|implBlockedPlugins|docLanguages)
         jq --arg k "$key" --arg v "$val" '.[$k] = ($v | split(","))' "$settings" | write
         ;;
       telemetrySyncRepo)
