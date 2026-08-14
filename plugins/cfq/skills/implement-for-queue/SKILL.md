@@ -47,8 +47,8 @@ Rules:
 |---|---|---|---|
 | PRECHECKS | 1 | `Model Gate` | `sonnet · implModels: sonnet` / on abort `❌ … allowed: sonnet · /model sonnet, then /ifq` |
 | PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
-| PRECHECKS | 3 | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
-| PRECHECKS | 3.5 | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
+| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
+| PRECHECKS | 3b | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
 | PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
 | PRECHECKS | 4b | `Size Gate` | `context 5 % · limit 20 %` / `❌ phase L, handoff instead of start` |
 | IMPLEMENTATION | 4c | `P<n> <slug>` | `green · 6 deviations`, each deviation as its own `   └ ` line |
@@ -84,7 +84,7 @@ Do not call blocked plugins/skills for the rest of the session — not even indi
 recommendations now live **per phase** in the plan itself, are non-binding, and any
 recommendation that's on `implBlockedPlugins` is ignored. Print the `Plugin Boundaries` status line.
 
-## 3. Choose a Batch
+## 3a. Choose a Batch
 
 1. Determine the repo root: `git rev-parse --show-toplevel`. No git repo in the current working
    directory → abort, report that `implement-for-queue` needs a repo. End.
@@ -107,7 +107,7 @@ recommendation that's on `implBlockedPlugins` is ignored. Print the `Plugin Boun
    - **Choose a specific plan** → leads to a second `AskUserQuestion` with the batches as options
      (label = topic slug, description = priority + number of open phases + date).
 6. Set the chosen batch (or, for "in order", the first one) as this session's batch and hand it to
-   Step 3.5 — **do not acquire the lock yet.** Nothing is locked and nothing is read in full until
+   Step 3b — **do not acquire the lock yet.** Nothing is locked and nothing is read in full until
    the user has approved the batch. Print the `Batch` status line once it is chosen.
 
 Steps 5 and 6 above (`AskUserQuestion` and its follow-up) stay prose — only the `Batch` status
@@ -116,7 +116,7 @@ line at the end is part of the status-line format.
 **Never two batches in the same session** — not even once the first one finishes and context is
 still free. Different plans (even from the same repo) belong in separate context windows.
 
-## 3.5 Batch Briefing and Go-Ahead
+## 3b. Batch Briefing and Go-Ahead
 
 Nothing is touched and no lock is taken until the user has seen what the batch contains. Read the
 batch metadata and one line per phase — **never the phase files in full**, that is Step 4's job and
@@ -153,7 +153,7 @@ Then exactly one `AskUserQuestion`, "Start implementing this batch?", with three
   batch and time, and note that a dead session is auto-taken-over after 30 minutes of inactivity.
   Output starts with `TAKEOVER` → proceed, printing the `Lock` status line with the takeover
   warning. Otherwise print `Lock` as acquired.
-- **A different batch** → back to Step 3, point 5, with the remaining batches; the declined one is
+- **A different batch** → back to Step 3a, point 5, with the remaining batches; the declined one is
   not offered again in this session. Nothing left to offer → report and end the session.
 - **Cancel** → report "aborted, nothing touched" and end the session. No lock was ever held, so
   there is nothing to release.
