@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The single source of numbers for the dashboard. No arguments needed.
-# Prints one JSON object on stdout: { "repos": [ { "path", "batches": [ {name, priority, open, done, archived, report} ] } ] }
+# Prints one JSON object on stdout: { "repos": [ { "path", "batches": [
+#   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps} ] } ] }
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
@@ -40,6 +41,12 @@ read_priority() {
   esac
 }
 
+read_deps() {
+  [ -f "$1/.dependsOn" ] || return 0
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1/.dependsOn" \
+    | sed '/^$/d' | paste -sd, -
+}
+
 records=$(mktemp)
 trap 'rm -f "$records"' EXIT
 
@@ -56,7 +63,23 @@ while IFS= read -r repo; do
     donec=$(find "$b/done" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
     priority=$(read_priority "$b")
     report="false"; [ -f "$b/report.json" ] && report="true"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" >>"$records"
+    deps=$(read_deps "$b")
+    blocked="false"; unknown=""
+    if [ -n "$deps" ]; then
+      old_ifs=$IFS; IFS=','
+      for d in $deps; do
+        if [ -d "$qdir/$d" ]; then
+          blocked="true"                    # dependency exists and is not finished
+        elif [ -d "$qdir/done/$d" ]; then
+          :                                 # finished — satisfied
+        else
+          unknown="${unknown:+$unknown,}$d" # unresolvable: reported, never blocking
+        fi
+      done
+      IFS=$old_ifs
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" "$deps" "$blocked" "$unknown" >>"$records"
   done
 
   if [ -d "$qdir/done" ]; then
@@ -66,7 +89,8 @@ while IFS= read -r repo; do
       donec=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
       priority=$(read_priority "$b")
       report="false"; [ -f "$b/report.json" ] && report="true"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$name" "$priority" "0" "$donec" "true" "$report" >>"$records"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "$name" "$priority" "0" "$donec" "true" "$report" "" "false" "" >>"$records"
     done
   fi
 done <<<"$candidates"
@@ -76,8 +100,12 @@ jq -R -s '
   map({
     path: .[0], name: .[1], priority: .[2],
     open: (.[3] | tonumber), done: (.[4] | tonumber),
-    archived: (.[5] == "true"), report: (.[6] == "true")
+    archived: (.[5] == "true"), report: (.[6] == "true"),
+    dependsOn:   (((.[7] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end),
+    blocked:     ((.[8] // "false") == "true"),
+    unknownDeps: (((.[9] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end)
   }) |
   group_by(.path) |
-  map({ path: .[0].path, batches: map({name, priority, open, done, archived, report}) })
+  map({ path: .[0].path,
+        batches: map({name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps}) })
 ' "$records" | jq -c '{repos: .}'
