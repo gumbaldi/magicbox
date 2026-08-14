@@ -7,6 +7,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 lint_sh="$repo_root/scripts/cfq-lint.sh"
 security_sh="$repo_root/scripts/cfq-security.sh"
 lang_sh="$repo_root/scripts/cfq-lang.sh"
+maint_sh="$repo_root/scripts/cfq-maintenance.sh"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -211,5 +212,49 @@ out=$(HOME="$langhome" bash "$lang_sh" "$minimalrepo" --changed HEAD) && rc=0 ||
   || { echo "FAIL: --changed in a non-git dir should fall back to scope repo: $out"; exit 1; }
 
 rm -rf "$langhome"
+
+# ============================================================ cfq-maintenance.sh =====
+
+mainthome=$(mktemp -d)
+maintrepo="$tmp/maintrepo"; mkdir -p "$maintrepo"; git init -q "$maintrepo"
+git -C "$maintrepo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m init
+
+out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
+[ "$out" = "DUE 0" ] || { echo "FAIL: no marker -> '$out', want 'DUE 0'"; exit 1; }
+
+HOME="$mainthome" bash "$maint_sh" stamp "$maintrepo" >/dev/null
+out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
+[ "$out" = "NOT_DUE 0" ] || { echo "FAIL: stamp then due -> '$out', want 'NOT_DUE 0'"; exit 1; }
+
+git -C "$maintrepo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m c1
+git -C "$maintrepo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m c2
+out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=2 bash "$maint_sh" due "$maintrepo")
+[ "$out" = "DUE 2" ] || { echo "FAIL: 2 commits, every=2 -> '$out', want 'DUE 2'"; exit 1; }
+
+out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=50 bash "$maint_sh" due "$maintrepo")
+[ "$out" = "NOT_DUE 2" ] || { echo "FAIL: 2 commits, every=50 -> '$out', want 'NOT_DUE 2'"; exit 1; }
+
+printf '2020-01-01 0000000\n' >"$maintrepo/.claude/code-for-queue/.maintenance"
+out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
+case "$out" in
+  DUE*) : ;;
+  *) echo "FAIL: garbage sha -> '$out', want DUE*"; exit 1 ;;
+esac
+
+printf '2020-01-01\n' >"$maintrepo/.claude/code-for-queue/.maintenance"
+out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
+case "$out" in
+  DUE*) : ;;
+  *) echo "FAIL: empty sha -> '$out', want DUE*"; exit 1 ;;
+esac
+
+HOME="$mainthome" bash "$maint_sh" stamp "$maintrepo" >/dev/null
+before=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
+out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=0 bash "$maint_sh" due "$maintrepo")
+[ "$out" = "OFF" ] || { echo "FAIL: maintenanceEvery=0 -> '$out', want 'OFF'"; exit 1; }
+after=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
+[ "$before" = "$after" ] || { echo "FAIL: OFF must not touch the marker"; exit 1; }
+
+rm -rf "$mainthome"
 
 echo PASS
