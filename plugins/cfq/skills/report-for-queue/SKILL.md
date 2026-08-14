@@ -100,6 +100,10 @@ used (`.phases[].telemetry`). For the HTML view, print the `POSTCHECKS` header, 
 (renders fresh, overwrites a stale file) and state the printed path as a `file://` URL, printing
 the `HTML` status line. Never open the file yourself — only print the path.
 
+List that repo's open `todo/*.md` entries too — title plus one line, nothing else. Purely
+read-only: no checking off, no moving, and never running the entries' `check:` commands. One
+sentence pointing to `/cfq` for checking them off. No entries → the section is left out entirely.
+
 ## Arguments
 
 No argument → all repos. With an argument, filter by repo name **or** batch name (substring is

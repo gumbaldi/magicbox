@@ -74,7 +74,7 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    | Plugin | What cfq uses it for | Installation | Docs |
    |---|---|---|---|
    | `mattpocock-skills` | classic grill mode (`grillMode: classic`) | `/plugin install mattpocock-skills@claude-plugins-official` — if the marketplace is missing: `/plugin marketplace add anthropics/claude-plugins-official` | `github.com/anthropics/claude-plugins-official`, locally the `SKILL.md` under `skills/productivity/grilling/` in the plugin cache |
-   | `ponytail` | optional cleanup audit at the end of a planning session | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
+   | `ponytail` | one of several tasks in the maintenance run: an optional cleanup audit | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
 
    Check availability yourself beforehand (the skill list in context, or
    `ls -d ~/.claude/plugins/cache/*/mattpocock-skills ~/.claude/plugins/cache/*/ponytail 2>/dev/null`)
@@ -114,12 +114,20 @@ repo, then within it by priority (`high` > `medium` > `low`), then by batch name
 - For every repo with at least one open batch that is **not** `blocked`, print the copyable
   sequence: `cd <repo>` → `/model sonnet` (or the first model from `implModels`) → `/ifq`.
 - No open batches → say so plainly instead of showing an empty table.
+- `cfq-scan.sh` also carries `plan` and `todo` counters per repo. Not two more table columns — the
+  table already has seven — but one line per repo with a nonzero counter, right after that repo's
+  batch rows: `codeforqueue · 2 Planungsaufträge · 1 offene Nacharbeit`. Both `0` → no line at all;
+  only one of the two counters nonzero → only that clause. If any repo has `plan > 0`, add one
+  sentence — once, not per repo — that `/pfq` picks them up. If any repo has `todo > 0`, add one
+  sentence — once — pointing to Step C.
+- The dashboard never executes `check:` commands. This stays an explicit rule so a future rework
+  doesn't drop it by accident.
 
 **Other repos are read-only.** Step C only applies to the repo `cfq` is currently running in.
 
 ## Step C — Management (on request, always confirm before writing)
 
-Five actions, exclusively in the current repository (`git rev-parse --show-toplevel`):
+Six actions, exclusively in the current repository (`git rev-parse --show-toplevel`):
 
 1. **Change priority** — rewrite a batch's `.priority`.
 2. **Delete a batch** — remove the directory. Name the batch and the number of files that will
@@ -131,6 +139,16 @@ Five actions, exclusively in the current repository (`git rev-parse --show-tople
    check whether the named batch exists (open or in `done/`); if not, warn but write anyway on
    request — the edge is fail-soft by design. As with the other actions: current repo only,
    always with confirmation.
+6. **Work off todos** — same current-repo-only rule:
+   1. List every entry under `todo/*.md`: title plus the one or two sentences describing what to
+      do.
+   2. For an entry with a `check:` line, **show** the command, then run it. Exit `0` → done, move
+      the file to `todo/done/`, and print a status line under the `ACTION` header naming the
+      reason (`✅ Todo   merge-v0.2: check green · moved to done`). Exit ≠ 0 → the entry stays
+      open, with one line explaining why.
+   3. Entries without a `check:` line are only shown, and only checked off on explicit
+      confirmation.
+   4. Never create or edit an entry here — those are written by `ifq` (P6).
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 
@@ -151,10 +169,25 @@ Show `cfq-settings.sh list`, with an explanation per key and a marker for which 
 currently overridden by an env var (a `set` then only takes effect after removing the variable —
 point that out). This value list is not a status line and stays as specified. Change requests go
 through `cfq-settings.sh set <key> <value>`. **All** keys are changeable here, including
-`planBlockedPlugins` / `implBlockedPlugins` (strict prohibition) and `planPreferredPlugins` /
-`implPreferredPlugins` (a pure recommendation to the planning or implementing skill). `stopPct`
-accepts `0`-`99`; `0` is a valid, deliberate value meaning "hand off after every phase", not an
-error — don't flag it as a misconfiguration.
+`planBlockedPlugins` / `implBlockedPlugins` (strict prohibition). `stopPct` accepts `0`-`99`; `0`
+is a valid, deliberate value meaning "hand off after every phase", not an error — don't flag it as
+a misconfiguration.
+
+- `codeLanguage` — language of everything executed or read as an instruction: code, comments,
+  commit messages, `README`, `CLAUDE.md`, `SKILL.md`.
+- `docLanguages` — additional languages kept under `docs/<lang>/`; empty means documentation
+  follows `codeLanguage` alone.
+- `docLevel` — how much documentation a repo keeps: `minimal` (README only), `standard`, `full`.
+- `maintenanceEvery` — commits since the last maintenance run before it's due again; `0` disables
+  maintenance entirely.
+- `usePonytailAudit` — gates only the optional cleanup audit, **one task among several** in the
+  maintenance run; it is not the switch for the maintenance run itself, which is controlled by
+  `maintenanceEvery`.
+
+The language settings are global but a repo's own language can differ: it overrides them via
+`"env"` in its versioned `<repo>/.claude/settings.json` (e.g. `CFQ_CODE_LANGUAGE`,
+`CFQ_DOC_LANGUAGES`, `CFQ_DOC_LEVEL`), so the override travels with the repo rather than living in
+global settings.
 
 After a `set` call, print one status line: `✅ Setting  stopPct: 50 → 40`, or, when an env var
 shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`.
