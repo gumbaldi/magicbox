@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# Self-test for scripts/cfq-lint.sh and scripts/cfq-security.sh. No framework, no fixtures beyond
+# what's built here — just `bash tests/test-checks.sh`.
+set -eu
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+lint_sh="$repo_root/scripts/cfq-lint.sh"
+security_sh="$repo_root/scripts/cfq-security.sh"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# ============================================================ cfq-lint.sh ============
+qdir="$tmp/lintrepo/.claude/code-for-queue"
+mkdir -p "$qdir"
+
+# --- dirty batch: exactly one violation per content/structural rule, plus one correct file ---
+dirty="$qdir/2026-01-01-dirty"
+mkdir -p "$dirty/done"
+target="$tmp/existing-target"; touch "$target"
+
+# 01-a: correct — all headings, one existing absolute path, no issues
+cat >"$dirty/01-a.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$target\` (ändern)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+# 02-b: sections violation — missing the Verifikation/Verification heading
+cat >"$dirty/02-b.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+## Änderungen
+x
+EOF
+
+# 03-c: abspath violation — relative path (existence is not checked for a non-absolute path)
+cat >"$dirty/03-c.md" <<'EOF'
+## Kontext
+x
+## Betroffene Dateien
+- `relative/path.sh` (ändern)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+# 04-d: missing violation — absolute path, marked "(ändern)", does not exist
+cat >"$dirty/04-d.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$tmp/does-not-exist.sh\` (ändern)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+# 05-e: stale-new violation — marked "(neu)" but the path already exists
+cat >"$dirty/05-e.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$target\` (neu)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+# done/07-f: numbering gap (06 is skipped). Deliberately full of content violations too, to prove
+# done/ phases are excluded from sections/abspath/missing/stale-new — only numbering must fire.
+cat >"$dirty/done/07-f.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`relative/also-bad.sh\` (ändern)
+- \`$tmp/also-does-not-exist.sh\` (ändern)
+## Änderungen
+x
+EOF
+
+# no .priority file -> priority violation
+
+if out=$(bash "$lint_sh" "$dirty" 2>&1); then
+  echo "FAIL: dirty batch should exit non-zero"; exit 1
+fi
+
+assert_once() {
+  local rule="$1" n
+  n=$(printf '%s\n' "$out" | grep -c ": $rule:") || true
+  [ "$n" = "1" ] || { printf 'FAIL: rule %s fired %s times, want 1. Output:\n%s\n' "$rule" "$n" "$out"; exit 1; }
+}
+assert_once sections
+assert_once numbering
+assert_once abspath
+assert_once missing
+assert_once stale-new
+assert_once priority
+
+printf '%s\n' "$out" | grep -q '^01-a\.md:' && { echo "FAIL: correct file 01-a.md appears in findings"; exit 1; }
+printf '%s\n' "$out" | grep -q '07-f\.md:' && { echo "FAIL: done/ file content should never be linted, got: $out"; exit 1; }
+
+# --- clean batch: valid content and priority, but a dangling .dependsOn entry ---
+clean="$qdir/2026-01-02-clean"
+mkdir -p "$clean"
+echo high >"$clean/.priority"
+echo gibtsnicht >"$clean/.dependsOn"
+cat >"$clean/01-a.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$target\` (ändern)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+out=$(bash "$lint_sh" "$clean") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: clean batch (dangling depends only) should exit 0, got $rc"; exit 1; }
+printf '%s\n' "$out" | grep -q '^OK 1 Phasen$' || { echo "FAIL: clean batch summary line missing/wrong: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q '^warn: .*: depends: gibtsnicht does not exist$' \
+  || { echo "FAIL: clean batch missing depends warning: $out"; exit 1; }
+
+# ============================================================ cfq-security.sh ========
+
+# Forge detection: pure string parsing, no network, no credentials.
+secrepo="$tmp/secrepo"; mkdir -p "$secrepo"; git init -q "$secrepo"
+
+git -C "$secrepo" remote add origin git@github.com:acme/widget.git
+out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+[ "$out" = "github github.com acme/widget" ] || { echo "FAIL: git@ form -> $out"; exit 1; }
+
+git -C "$secrepo" remote set-url origin https://github.com/acme/widget.git
+out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+[ "$out" = "github github.com acme/widget" ] || { echo "FAIL: https form -> $out"; exit 1; }
+
+git -C "$secrepo" remote set-url origin ssh://git@forge.example:10022/team/widget.git
+out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+[ "$out" = "unknown forge.example team/widget" ] || { echo "FAIL: ssh form (no login) -> $out"; exit 1; }
+out=$(CFQ_SECURITY_DETECT_ONLY=1 CFQ_TEA_LOGIN_HOSTS=forge.example bash "$security_sh" "$secrepo")
+[ "$out" = "gitea forge.example team/widget" ] || { echo "FAIL: ssh form (with login) -> $out"; exit 1; }
+
+git -C "$secrepo" remote set-url origin http://forge.example/team/widget.git
+out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+[ "$out" = "unknown forge.example team/widget" ] || { echo "FAIL: http form -> $out"; exit 1; }
+
+git -C "$secrepo" remote remove origin
+out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+[ "$out" = "none - -" ] || { echo "FAIL: no remote -> $out"; exit 1; }
+
+# Full run, no network-dependent branches reachable (no remote, no manifest): valid JSON, exit 0.
+out=$(bash "$security_sh" "$secrepo") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: security exit code = $rc, want 0"; exit 1; }
+printf '%s' "$out" | jq -e '.available == false and (.sources | length) == 0 and (.hint | length) > 0' >/dev/null \
+  || { echo "FAIL: no-source security output = $out"; exit 1; }
+
+# Full run with a package.json but no lockfile: still valid JSON, still exit 0, whatever npm says.
+mfrepo="$tmp/mfrepo"; mkdir -p "$mfrepo"; git init -q "$mfrepo"
+echo '{"name":"x","version":"1.0.0"}' >"$mfrepo/package.json"
+out=$(bash "$security_sh" "$mfrepo") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: manifest-only security exit code = $rc, want 0"; exit 1; }
+printf '%s' "$out" | jq -e 'type == "object"' >/dev/null \
+  || { echo "FAIL: manifest-only security output is not valid JSON: $out"; exit 1; }
+
+echo PASS

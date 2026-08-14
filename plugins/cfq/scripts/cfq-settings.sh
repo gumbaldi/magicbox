@@ -17,10 +17,9 @@ defaults='{
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
-  "planPreferredPlugins": [],
   "planBlockedPlugins": ["superpowers"],
-  "implPreferredPlugins": [],
   "implBlockedPlugins": ["superpowers"],
+  "telemetrySyncRepo": "",
   "setupDone": false
 }'
 
@@ -35,6 +34,14 @@ write() {
   mv "$tmp" "$settings"
 }
 
+# Defaults als Basis, Datei darüber, unbekannte Schlüssel fallen raus. So erreichen neu
+# eingeführte Schlüssel auch bestehende Installationen, und entfernte verschwinden.
+merged() {
+  jq -n --argjson d "$defaults" --slurpfile f "$settings" '
+    ($d + ($f[0] // {})) | with_entries(select(.key | in($d)))
+  '
+}
+
 # Applies env-var overrides on top of the settings file. Precedence: env > file > default.
 with_overrides() {
   jq \
@@ -46,6 +53,7 @@ with_overrides() {
     --arg grillMode "${CFQ_GRILL_MODE:-}" \
     --arg useMattpocockGrilling "${CFQ_USE_MATTPOCOCK:-}" \
     --arg usePonytailAudit "${CFQ_USE_PONYTAIL:-}" \
+    --arg telemetrySyncRepo "${CFQ_TELEMETRY_SYNC_REPO:-}" \
     '
     if $planModels != "" then .planModels = ($planModels | split(",")) else . end
     | if $implModels != "" then .implModels = ($implModels | split(",")) else . end
@@ -55,6 +63,7 @@ with_overrides() {
     | if $grillMode != "" then .grillMode = $grillMode else . end
     | if $useMattpocockGrilling != "" then .useMattpocockGrilling = ($useMattpocockGrilling == "1") else . end
     | if $usePonytailAudit != "" then .usePonytailAudit = ($usePonytailAudit == "1") else . end
+    | if $telemetrySyncRepo != "" then .telemetrySyncRepo = $telemetrySyncRepo else . end
     '
 }
 
@@ -62,20 +71,21 @@ cmd="${1:-}"
 case "$cmd" in
   list)
     ensure
-    with_overrides < "$settings"
+    merged | with_overrides
     ;;
   get)
     key="${2:?usage: cfq-settings.sh get <key>}"
     ensure
-    with_overrides < "$settings" | jq -r --arg k "$key" '
+    merged | with_overrides | jq -r --arg k "$key" '
       .[$k] | if type == "array" then join(",") else tostring end
     '
     ;;
   set)
     key="${2:?usage: cfq-settings.sh set <key> <value>}"
-    val="${3:?usage: cfq-settings.sh set <key> <value>}"
+    val="${3?usage: cfq-settings.sh set <key> <value>}"
     ensure
-    if ! jq -e --arg k "$key" 'has($k)' "$settings" >/dev/null; then
+    merged > "$settings.tmp" && mv "$settings.tmp" "$settings"
+    if ! jq -n --argjson d "$defaults" --arg k "$key" -e '$d | has($k)' >/dev/null; then
       echo "cfq-settings.sh: unknown key '$key'" >&2
       exit 1
     fi
@@ -102,8 +112,14 @@ case "$cmd" in
           *) echo "cfq-settings.sh: 'grillMode' must be stepwise or classic" >&2; exit 1 ;;
         esac
         ;;
-      planModels|implModels|scanRoots|planPreferredPlugins|planBlockedPlugins|implPreferredPlugins|implBlockedPlugins)
+      planModels|implModels|scanRoots|planBlockedPlugins|implBlockedPlugins)
         jq --arg k "$key" --arg v "$val" '.[$k] = ($v | split(","))' "$settings" | write
+        ;;
+      telemetrySyncRepo)
+        case "$val" in
+          ''|/*) jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write ;;
+          *) echo "cfq-settings.sh: 'telemetrySyncRepo' must be an absolute path or empty" >&2; exit 1 ;;
+        esac
         ;;
       *)
         jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write

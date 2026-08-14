@@ -44,7 +44,7 @@ The **decisions** are the user's. Put each to them and wait.
 
 Each answer reshapes the tree: settled decisions push the frontier outward. Recompute, ask the
 next single question. The session ends when the frontier is empty — then run the closing
-question from step 5 of the skill before writing any plans.
+question from step 6 of the skill before writing any plans.
 
 ## With-Docs Path
 
