@@ -47,6 +47,24 @@ belong in separate context windows. Only one `ifq` session works a given repo at
 second one aborts with the name of the holder, unless that session has been silent for 30
 minutes, in which case it's considered dead and taken over.
 
+## Output
+
+Progress is reported as status lines — one per step, printed as it happens:
+
+```
+PRECHECKS
+✅ Model Gate       sonnet · implModels: sonnet
+✅ Batch            2026-08-13-cfq-plugin · medium · 1 open phase
+➖ Failed Attempt   none
+⚠️ Security Diff    unavailable for this repo
+
+IMPLEMENTATION
+✅ P6 livetest      green · 6 deviations
+```
+
+`✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
+detail column.
+
 ## Queue layout
 
 ```

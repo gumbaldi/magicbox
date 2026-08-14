@@ -79,13 +79,20 @@ that adding a field which happens to carry free text fails the test on purpose, 
   `description`/`prompt`. Change one, change both.
 - Skill prose is English; every SKILL.md opens with "Always answer in the user's language", and the
   parked plan files in `.claude/code-for-queue/` are German. Match the language of the file you edit.
+- **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
+  identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
+  16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
+  copies the block from `implement-for-queue/SKILL.md` and adds only its own `## Section Map`.
+  `AskUserQuestion`, briefings, and data tables are exempt and stay prose. Change the block →
+  change it in all four `SKILL.md` files.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Bash style throughout: `set -eu`, jq for all JSON, write-to-`.tmp`-then-`mv`, `mktemp` + `trap` cleanup.
 - Bump `version` in `.claude-plugin/plugin.json` for user-visible changes. The plugin's `name` there is
   `cfq` (not `code-for-queue` — that was the pre-0.2 name), which is what Claude Code prefixes skill
-  names with. Distribution is via the GitHub marketplace, so nothing reaches an installed plugin until
-  it is pushed.
+  names with. Distribution is via the GitHub marketplace, which tracks this repo's default branch
+  (`main`) — nothing reaches an installed plugin until the change is merged into `main`, not merely
+  pushed to a feature branch.
 - `.claude-plugin/plugin.json` is plugin-local (lives in `plugins/cfq/.claude-plugin/`); the repo-level
   `.claude-plugin/marketplace.json` lives at the repo root and lists this plugin with
   `"source": "./plugins/cfq"`.
