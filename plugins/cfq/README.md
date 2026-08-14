@@ -37,7 +37,8 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 1. `/pfq` in an expensive-model session (default: opus/fable) to plan. Output is plan files
    only — no code, no commits.
 2. `/clear`, then `/model sonnet`.
-3. `/ifq` to implement, one batch per session, phase by phase. Every green phase is committed
+3. `/ifq` to implement, one batch per session, phase by phase. `/ifq` briefs the chosen batch and
+   waits for go-ahead before locking or writing anything. Every green phase is committed
    and pushed immediately. The session stops and hands off cleanly once the context window gets
    too full.
 

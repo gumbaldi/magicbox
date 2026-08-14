@@ -56,19 +56,56 @@ recommendation that's on `implBlockedPlugins` is ignored.
    - **Work through them in order** (show the computed order in the description)
    - **Choose a specific plan** → leads to a second `AskUserQuestion` with the batches as options
      (label = topic slug, description = priority + number of open phases + date).
-6. Set the chosen batch (or, for "in order", the first one) as this session's batch, then acquire
-   the repo lock **before** the first phase:
-
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lock.sh" acquire "<repo-root>" "<batch>"
-   ```
-
-   Exit ≠ 0 (output starts with `LOCKED`) → **end immediately**, touch nothing, name the holder,
-   batch and time, and note that a dead session is auto-taken-over after 30 minutes of inactivity.
-   Output starts with `TAKEOVER` → proceed, mentioning the takeover in one line.
+6. Set the chosen batch (or, for "in order", the first one) as this session's batch and hand it to
+   Step 3.5 — **do not acquire the lock yet.** Nothing is locked and nothing is read in full until
+   the user has approved the batch.
 
 **Never two batches in the same session** — not even once the first one finishes and context is
 still free. Different plans (even from the same repo) belong in separate context windows.
+
+## 3.5 Batch Briefing and Go-Ahead
+
+Nothing is touched and no lock is taken until the user has seen what the batch contains. Read the
+batch metadata and one line per phase — **never the phase files in full**, that is Step 4's job and
+its context budget:
+
+```bash
+cat "<batch-dir>/.priority" 2>/dev/null || echo medium
+cat "<batch-dir>/.dependsOn" 2>/dev/null
+for f in "<batch-dir>"/[0-9]*.md; do
+  awk '
+    /^# / && !t            { sub(/^# +/, ""); t = $0; next }
+    /^## (Größe|Size)/     { g = 1; next }
+    g && NF                { size = $1; g = 0; next }
+    /^## (Kontext|Context)/ { k = 1; next }
+    k && NF                { ctx = ctx $0 " "; if (++n >= 2) k = 0; next }
+    END { printf "%s\t%s\t%s\n", t, (size ? size : "M"), substr(ctx, 1, 220) }
+  ' "$f"
+done
+```
+
+Present it compactly: batch name, priority, phase count, and `.dependsOn` if the file exists, then
+one line per phase — number and title, size in brackets, the context excerpt. No prose around it, no
+repetition of the plan, no commentary on the phases.
+
+Then exactly one `AskUserQuestion`, "Start implementing this batch?", with three options:
+
+- **Start** → acquire the repo lock, then go to Step 4:
+
+  ```bash
+  "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lock.sh" acquire "<repo-root>" "<batch>"
+  ```
+
+  Exit ≠ 0 (output starts with `LOCKED`) → **end immediately**, touch nothing, name the holder,
+  batch and time, and note that a dead session is auto-taken-over after 30 minutes of inactivity.
+  Output starts with `TAKEOVER` → proceed, mentioning the takeover in one line.
+- **A different batch** → back to Step 3, point 5, with the remaining batches; the declined one is
+  not offered again in this session. Nothing left to offer → report and end the session.
+- **Cancel** → report "aborted, nothing touched" and end the session. No lock was ever held, so
+  there is nothing to release.
+
+A phase file without `## Größe`/`## Size` counts as `M`; one without `## Kontext`/`## Context` shows
+its title alone. An incomplete plan is worth showing, not worth aborting over.
 
 ## 4. Work Off a Phase
 
