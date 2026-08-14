@@ -11,7 +11,49 @@ description: >
 
 Always answer in the user's language.
 
+## Output Format
+
+Progress is reported as status lines, not prose. One line per step, printed **as soon as that
+step is done** — never collected and dumped at the end. Section headers are printed once, on
+entering the section.
+
+```
+SECTION HEADER IN CAPS
+<icon> <label padded to 16 chars><detail, one short clause>
+```
+
+Icons: `✅` done · `⚠️` warning, unavailable, degraded · `❌` failed · `➖` skipped, not
+applicable, nothing to do.
+
+Rules:
+
+- The detail says what the check found, not what you are about to do next. `sonnet · implModels:
+  sonnet`, not "the model gate is satisfied, I will now look at the batch".
+- A step that did not run still gets its line, with `➖` or `⚠️` and the reason — "no security
+  data for this repo" is exactly the information the user is after.
+- Sub-information belongs on an indented `   └ ` continuation line, never in the detail column.
+- Section headers, labels, and status-line content are always English — regardless of the
+  language the rest of the conversation is in. Only interactive prose (see below) follows the
+  user's language.
+- No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
+  what the lines already say.
+- The result section is a label/value list under the same padding, not a table.
+- Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
+  user stay in the user's language.
+- The data tables of this skill are not status lines and stay exactly as specified below — the
+  format applies to what happens around them.
+
+## Section Map
+
+| Section | Step | Label | Example detail |
+|---|---|---|---|
+| PRECHECKS | A | `Setup` | `➖ already done` / `⚠️ first run · 2 questions follow` |
+| PRECHECKS | B | `Scan` | `4 repos · 3 with open work` / `➖ no open batches` |
+| PRECHECKS | B | `Plugins` | `➖ mattpocock-skills and ponytail not installed · classic grill and audit off` |
+
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
+
+Print the `PRECHECKS` header on entering this step.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get setupDone
@@ -43,7 +85,8 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    either plugin** — no path may run into a dead end without them.
 
 Afterward set `setupDone` to `true`. Both switches remain changeable at any time via Step C or
-the env vars — even with a plugin installed, it can be switched off again here.
+the env vars — even with a plugin installed, it can be switched off again here. Print the `Setup`
+status line — `➖ already done` when this step didn't run at all.
 
 ## Step B — Dashboard (default behavior with no argument)
 
@@ -51,8 +94,8 @@ the env vars — even with a plugin installed, it can be switched off again here
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh"
 ```
 
-Render a Markdown table from the JSON, sorted by repo, then within it by priority
-(`high` > `medium` > `low`), then by batch name:
+Print the `Scan` and `Plugins` status lines, then render a Markdown table from the JSON, sorted by
+repo, then within it by priority (`high` > `medium` > `low`), then by batch name:
 
 | Repo | Batch | Prio | Open | Done | Progress | Waiting on |
 |---|---|---|---|---|---|---|
@@ -91,12 +134,27 @@ Five actions, exclusively in the current repository (`git rev-parse --show-tople
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 
+The confirmation question stays prose. After execution, print one line per action under an
+`ACTION` header — the label names the action (`Priority`, `Registry`, `Dependency`, etc.), the
+detail the before/after or a `⚠️` note:
+
+```
+ACTION
+✅ Priority        2026-08-13-cfq-plugin: medium → high
+✅ Registry        3 dead paths removed
+⚠️ Dependency      2026-08-10-auth does not exist · edge written anyway
+```
+
 ## Step D — Settings
 
 Show `cfq-settings.sh list`, with an explanation per key and a marker for which values are
 currently overridden by an env var (a `set` then only takes effect after removing the variable —
-point that out). Change requests go through `cfq-settings.sh set <key> <value>`. **All** keys
-are changeable here, including `planBlockedPlugins` / `implBlockedPlugins` (strict prohibition)
-and `planPreferredPlugins` / `implPreferredPlugins` (a pure recommendation to the planning or
-implementing skill). `stopPct` accepts `0`-`99`; `0` is a valid, deliberate value meaning "hand
-off after every phase", not an error — don't flag it as a misconfiguration.
+point that out). This value list is not a status line and stays as specified. Change requests go
+through `cfq-settings.sh set <key> <value>`. **All** keys are changeable here, including
+`planBlockedPlugins` / `implBlockedPlugins` (strict prohibition) and `planPreferredPlugins` /
+`implPreferredPlugins` (a pure recommendation to the planning or implementing skill). `stopPct`
+accepts `0`-`99`; `0` is a valid, deliberate value meaning "hand off after every phase", not an
+error — don't flag it as a misconfiguration.
+
+After a `set` call, print one status line: `✅ Setting  stopPct: 50 → 40`, or, when an env var
+shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`.
