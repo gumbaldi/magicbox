@@ -6,6 +6,7 @@ set -eu
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 lint_sh="$repo_root/scripts/cfq-lint.sh"
 security_sh="$repo_root/scripts/cfq-security.sh"
+lang_sh="$repo_root/scripts/cfq-lang.sh"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -171,5 +172,44 @@ out=$(bash "$security_sh" "$mfrepo") && rc=0 || rc=$?
 [ "$rc" = "0" ] || { echo "FAIL: manifest-only security exit code = $rc, want 0"; exit 1; }
 printf '%s' "$out" | jq -e 'type == "object"' >/dev/null \
   || { echo "FAIL: manifest-only security output is not valid JSON: $out"; exit 1; }
+
+# ============================================================ cfq-lang.sh ============
+
+langhome=$(mktemp -d)
+langrepo="$tmp/langrepo"; mkdir -p "$langrepo/docs/en"
+echo "# a" >"$langrepo/docs/en/a.md"
+
+out=$(HOME="$langhome" CFQ_DOC_LANGUAGES=de bash "$lang_sh" "$langrepo")
+[ "$(jq -c '.missing' <<<"$out")" = '["docs/de/a.md"]' ] \
+  || { echo "FAIL: missing translation not reported: $out"; exit 1; }
+
+mkdir -p "$langrepo/docs/de"
+echo "# a" >"$langrepo/docs/de/a.md"
+out=$(HOME="$langhome" CFQ_DOC_LANGUAGES=de bash "$lang_sh" "$langrepo")
+[ "$(jq -c '.missing' <<<"$out")" = '[]' ] \
+  || { echo "FAIL: missing should be empty once translated: $out"; exit 1; }
+
+echo "# nur hier" >"$langrepo/docs/de/nur-hier.md"
+out=$(HOME="$langhome" CFQ_DOC_LANGUAGES=de bash "$lang_sh" "$langrepo")
+[ "$(jq -c '.stray' <<<"$out")" = '["docs/de/nur-hier.md"]' ] \
+  || { echo "FAIL: stray file not reported: $out"; exit 1; }
+
+echo "# intro" >"$langrepo/docs/intro.md"
+out=$(HOME="$langhome" CFQ_DOC_LANGUAGES=de bash "$lang_sh" "$langrepo")
+[ "$(jq -c '.unfiled' <<<"$out")" = '["docs/intro.md"]' ] \
+  || { echo "FAIL: unfiled file not reported: $out"; exit 1; }
+
+minimalrepo="$tmp/minimalrepo"; mkdir -p "$minimalrepo"
+out=$(HOME="$langhome" CFQ_DOC_LEVEL=minimal bash "$lang_sh" "$minimalrepo") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: minimal/no-docs should exit 0, got $rc"; exit 1; }
+jq -e '.missing == [] and .stray == [] and .unfiled == [] and (.note | length) > 0' <<<"$out" >/dev/null \
+  || { echo "FAIL: minimal/no-docs output wrong: $out"; exit 1; }
+
+out=$(HOME="$langhome" bash "$lang_sh" "$minimalrepo" --changed HEAD) && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: --changed in a non-git dir should exit 0, got $rc"; exit 1; }
+[ "$(jq -r '.scope' <<<"$out")" = "repo" ] \
+  || { echo "FAIL: --changed in a non-git dir should fall back to scope repo: $out"; exit 1; }
+
+rm -rf "$langhome"
 
 echo PASS
