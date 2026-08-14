@@ -17,6 +17,10 @@ defaults='{
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
+  "codeLanguage": "en",
+  "docLanguages": [],
+  "docLevel": "minimal",
+  "maintenanceEvery": 50,
   "planBlockedPlugins": ["superpowers"],
   "implBlockedPlugins": ["superpowers"],
   "telemetrySyncRepo": "",
@@ -34,8 +38,8 @@ write() {
   mv "$tmp" "$settings"
 }
 
-# Defaults als Basis, Datei darüber, unbekannte Schlüssel fallen raus. So erreichen neu
-# eingeführte Schlüssel auch bestehende Installationen, und entfernte verschwinden.
+# Defaults as the base, the file layered on top, unknown keys dropped. This way newly
+# introduced keys reach existing installations too, and removed ones simply disappear.
 merged() {
   jq -n --argjson d "$defaults" --slurpfile f "$settings" '
     ($d + ($f[0] // {})) | with_entries(select(.key | in($d)))
@@ -53,6 +57,10 @@ with_overrides() {
     --arg grillMode "${CFQ_GRILL_MODE:-}" \
     --arg useMattpocockGrilling "${CFQ_USE_MATTPOCOCK:-}" \
     --arg usePonytailAudit "${CFQ_USE_PONYTAIL:-}" \
+    --arg codeLanguage "${CFQ_CODE_LANGUAGE:-}" \
+    --arg docLanguages "${CFQ_DOC_LANGUAGES:-}" \
+    --arg docLevel "${CFQ_DOC_LEVEL:-}" \
+    --arg maintenanceEvery "${CFQ_MAINTENANCE_EVERY:-}" \
     --arg telemetrySyncRepo "${CFQ_TELEMETRY_SYNC_REPO:-}" \
     '
     if $planModels != "" then .planModels = ($planModels | split(",")) else . end
@@ -63,6 +71,10 @@ with_overrides() {
     | if $grillMode != "" then .grillMode = $grillMode else . end
     | if $useMattpocockGrilling != "" then .useMattpocockGrilling = ($useMattpocockGrilling == "1") else . end
     | if $usePonytailAudit != "" then .usePonytailAudit = ($usePonytailAudit == "1") else . end
+    | if $codeLanguage != "" then .codeLanguage = $codeLanguage else . end
+    | if $docLanguages != "" then .docLanguages = ($docLanguages | split(",")) else . end
+    | if $docLevel != "" then .docLevel = $docLevel else . end
+    | if $maintenanceEvery != "" then .maintenanceEvery = ($maintenanceEvery | tonumber) else . end
     | if $telemetrySyncRepo != "" then .telemetrySyncRepo = $telemetrySyncRepo else . end
     '
 }
@@ -106,13 +118,32 @@ case "$cmd" in
         fi
         jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
         ;;
+      maintenanceEvery)
+        case "$val" in
+          ''|*[!0-9]*) echo "cfq-settings.sh: 'maintenanceEvery' must be a non-negative integer" >&2; exit 1 ;;
+        esac
+        jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
+        ;;
       grillMode)
         case "$val" in
           stepwise|classic) jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write ;;
           *) echo "cfq-settings.sh: 'grillMode' must be stepwise or classic" >&2; exit 1 ;;
         esac
         ;;
-      planModels|implModels|scanRoots|planBlockedPlugins|implBlockedPlugins)
+      docLevel)
+        case "$val" in
+          minimal|standard|full) jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write ;;
+          *) echo "cfq-settings.sh: 'docLevel' must be minimal, standard or full" >&2; exit 1 ;;
+        esac
+        ;;
+      codeLanguage)
+        if [[ ! "$val" =~ ^[A-Za-z][A-Za-z-]*$ ]]; then
+          echo "cfq-settings.sh: 'codeLanguage' must match [A-Za-z][A-Za-z-]*" >&2
+          exit 1
+        fi
+        jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$settings" | write
+        ;;
+      planModels|implModels|scanRoots|planBlockedPlugins|implBlockedPlugins|docLanguages)
         jq --arg k "$key" --arg v "$val" '.[$k] = ($v | split(","))' "$settings" | write
         ;;
       telemetrySyncRepo)

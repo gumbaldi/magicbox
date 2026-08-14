@@ -57,4 +57,61 @@ if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
 
+# 6. maintenanceEvery: default, set 0, invalid, env override
+got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)
+[ "$got" = "50" ] || { echo "FAIL: default maintenanceEvery = '$got', want 50"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set maintenanceEvery 0
+got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)
+[ "$got" = "0" ] || { echo "FAIL: set maintenanceEvery 0 -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set maintenanceEvery abc 2>/dev/null; then
+  echo "FAIL: set maintenanceEvery abc should fail"; exit 1
+fi
+
+got=$(HOME="$home" CFQ_MAINTENANCE_EVERY=10 bash "$settings_sh" get maintenanceEvery)
+[ "$got" = "10" ] || { echo "FAIL: env override maintenanceEvery -> got '$got'"; exit 1; }
+
+# 7. codeLanguage, docLanguages, docLevel: defaults, set, invalid, env override, gone key
+got=$(HOME="$home" bash "$settings_sh" get codeLanguage)
+[ "$got" = "en" ] || { echo "FAIL: default codeLanguage = '$got', want en"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" get docLanguages)
+[ "$got" = "" ] || { echo "FAIL: default docLanguages = '$got', want empty"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" get docLevel)
+[ "$got" = "minimal" ] || { echo "FAIL: default docLevel = '$got', want minimal"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set docLevel standard
+got=$(HOME="$home" bash "$settings_sh" get docLevel)
+[ "$got" = "standard" ] || { echo "FAIL: set docLevel standard -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set docLevel bogus 2>/dev/null; then
+  echo "FAIL: set docLevel bogus should fail"; exit 1
+fi
+
+HOME="$home" bash "$settings_sh" set codeLanguage de
+got=$(HOME="$home" bash "$settings_sh" get codeLanguage)
+[ "$got" = "de" ] || { echo "FAIL: set codeLanguage de -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set codeLanguage "de DE" 2>/dev/null; then
+  echo "FAIL: set codeLanguage 'de DE' should fail"; exit 1
+fi
+
+HOME="$home" bash "$settings_sh" set docLanguages de,fr
+got=$(HOME="$home" bash "$settings_sh" get docLanguages)
+[ "$got" = "de,fr" ] || { echo "FAIL: set docLanguages de,fr -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_CODE_LANGUAGE=pt-BR bash "$settings_sh" get codeLanguage)
+[ "$got" = "pt-BR" ] || { echo "FAIL: env override codeLanguage -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_DOC_LANGUAGES=es bash "$settings_sh" get docLanguages)
+[ "$got" = "es" ] || { echo "FAIL: env override docLanguages -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_DOC_LEVEL=full bash "$settings_sh" get docLevel)
+[ "$got" = "full" ] || { echo "FAIL: env override docLevel -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
+[ "$got" = "null" ] || { echo "FAIL: ponytailAuditEvery still present, got '$got'"; exit 1; }
+
 echo PASS

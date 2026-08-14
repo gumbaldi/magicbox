@@ -47,20 +47,48 @@ belong in separate context windows. Only one `ifq` session works a given repo at
 second one aborts with the name of the holder, unless that session has been silent for 30
 minutes, in which case it's considered dead and taken over.
 
+## Output
+
+Progress is reported as status lines — one per step, printed as it happens:
+
+```
+PRECHECKS
+✅ Model Gate       sonnet · implModels: sonnet
+✅ Batch            2026-08-13-cfq-plugin · medium · 1 open phase
+➖ Failed Attempt   none
+⚠️ Security Diff    unavailable for this repo
+
+IMPLEMENTATION
+✅ P6 livetest      green · 6 deviations
+```
+
+`✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
+detail column.
+
 ## Queue layout
+
+Three queues, each with its own reader and writer:
 
 ```
 <repo>/.claude/code-for-queue/
-  <YYYY-MM-DD>-<topic>/
-    01-first-phase.md
-    02-second-phase.md
-    .priority            # low | medium | high
-    .dependsOn           # optional: one batch directory name per line
-    report.json          # written by ifq, includes telemetry
-    done/                # finished phases
-  done/                  # finished batches
+  impl/                  # phase-plan batches — ifq reads, pfq writes
+    <YYYY-MM-DD>-<topic>/
+      01-first-phase.md
+      02-second-phase.md
+      .priority          # low | medium | high
+      .dependsOn         # optional: one batch directory name per line
+      report.json        # written by ifq, includes telemetry
+      done/              # finished phases
+    done/                # finished batches
+  plan/                  # planning-request inbox — ifq writes, pfq reads
+    <YYYY-MM-DD>-<slug>.md
+    done/
+  todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
+    <YYYY-MM-DD>-<slug>.md
+    done/
   telemetry.jsonl        # one record per planning session and per phase
   .lock                  # held by the running ifq session
+  .maintenance           # marker for the periodic maintenance run
 ```
 
 The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
@@ -131,7 +159,11 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
-| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit |
+| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit — one of several maintenance tasks gated by `maintenanceEvery` |
+| `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | language of everything that is executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
+| `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
+| `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | how much documentation a repo keeps: `minimal` (README only), `standard`, `full` |
+| `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | commits since the last maintenance run before it is due again; `0` disables maintenance entirely |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
@@ -141,13 +173,34 @@ There's no global "preferred plugins" setting anymore — recommendations now li
 the plan itself, since the planner knows what that specific phase needs. Only the prohibition
 stays global, and it's strict: it should be set sparingly, since it also blocks indirect calls.
 
+The language settings are global but a repo's language is its own: a repo overrides them by
+setting `"env"` in its versioned `<repo>/.claude/settings.json`, so the override travels with the
+repo:
+
+```json
+{ "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
+```
+
+## Language and documentation
+
+`codeLanguage` governs everything executable or read as an instruction — code, comments, commit
+messages, `README`, `CLAUDE.md`, `SKILL.md`. `docs/**` is the only multilingual area: each
+additional language in `docLanguages` gets its own tree at `docs/<lang>/…`, mirroring the same
+files. `docLevel` controls how much documentation a repo keeps at all — see the table above.
+Override any of the three per repo via the `env` block shown above.
+
+The documentation standard itself lives in `references/doc-style.md` (page structure, formatting,
+translation rules); a repo overrides it by adding its own `docs/STYLE.md`, which wins whenever it
+exists.
+
 ## Optional dependencies
 
 - **`mattpocock-skills`** — powers `grillMode: classic`, the frontier-per-round interview mode, and
   the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
-- **`ponytail`** — powers the optional cleanup audit at the end of a planning session.
+- **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
+  maintenance run (`maintenanceEvery`), not the maintenance run itself.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 

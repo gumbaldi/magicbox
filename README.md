@@ -12,13 +12,13 @@ Then install individual plugins from the table below.
 
 ## Plugins
 
-| Plugin | Verzeichnis | Zweck |
+| Plugin | Directory | Purpose |
 |---|---|---|
-| `cfq` | [`plugins/cfq/`](plugins/cfq/README.md) | Plan teuer, implementier billig — phasierte Pläne in einer repo-lokalen Queue |
+| `cfq` | [`plugins/cfq/`](plugins/cfq/README.md) | Plan expensive, implement cheap — phased plans in a repo-local queue |
 
-## Struktur
+## Structure
 
-Jedes Plugin liegt in `plugins/<name>/` mit eigener `.claude-plugin/plugin.json`; im Root steht nur
-`.claude-plugin/marketplace.json`.
+Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json`; the root only
+holds `.claude-plugin/marketplace.json`.
 
 MIT licensed.

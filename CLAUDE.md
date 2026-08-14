@@ -22,4 +22,5 @@ here.
 
 `.claude/code-for-queue/` at the repo root is this repo's own planning queue (used to drive development
 of the `cfq` plugin itself via `/pfq` / `/ifq`) and is ignored via the versioned `.gitignore`. It is not
-part of any plugin.
+part of any plugin. Batches park under `.claude/code-for-queue/impl/`, alongside the sibling `plan/`
+and `todo/` queues — see "The queue is the filesystem" in `plugins/cfq/CLAUDE.md` for what each holds.
