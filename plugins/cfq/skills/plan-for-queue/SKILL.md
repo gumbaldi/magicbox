@@ -15,7 +15,59 @@ Always answer in the user's language.
 The output of this session is plan files only — no code edits, no builds, no commits, not even
 "just this one line."
 
+## Output Format
+
+Progress is reported as status lines, not prose. One line per step, printed **as soon as that
+step is done** — never collected and dumped at the end. Section headers are printed once, on
+entering the section.
+
+```
+SECTION HEADER IN CAPS
+<icon> <label padded to 16 chars><detail, one short clause>
+```
+
+Icons: `✅` done · `⚠️` warning, unavailable, degraded · `❌` failed · `➖` skipped, not
+applicable, nothing to do.
+
+Rules:
+
+- The detail says what the check found, not what you are about to do next. `sonnet · implModels:
+  sonnet`, not "the model gate is satisfied, I will now look at the batch".
+- A step that did not run still gets its line, with `➖` or `⚠️` and the reason — "no security
+  data for this repo" is exactly the information the user is after.
+- Sub-information belongs on an indented `   └ ` continuation line, never in the detail column.
+- Section headers, labels, and status-line content are always English — regardless of the
+  language the rest of the conversation is in. Only interactive prose (see below) follows the
+  user's language.
+- No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
+  what the lines already say.
+- The result section is a label/value list under the same padding, not a table.
+- Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
+  user stay in the user's language.
+
+## Section Map
+
+| Section | Step | Label | Example detail |
+|---|---|---|---|
+| INTERVIEW | 1 | `Interview Depth` | `Quick` / `Grilling` / `Grilling + Docs` |
+| INTERVIEW | 3 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
+| INTERVIEW | 5 | `Queue Check` | `➖ no open batches` / `⚠️ overlap with <batch>: <n> files` |
+| PLANNING | 7 | `Phases` | `5 phases · 2 M, 3 S` |
+| PLANNING | 8 | `Security` | `3 low, 1 medium` / `⚠️ unavailable: <hint>` / `➖ no findings` |
+| PLANNING | 9 | `Priority` | `high` |
+| POSTCHECKS | 10 | `Park` | `5 files · <batch-dir>` |
+| POSTCHECKS | 10 | `Git Exclude` | `already set` / `added` |
+| POSTCHECKS | 10 | `Registry` | `registered` |
+| POSTCHECKS | 11 | `Lint` | `OK 5 phases` / `❌ <finding>` (fixed, re-checked) |
+| POSTCHECKS | 12 | `Audit` | `➖ disabled (ponytailAuditEvery=0)` / `➖ not due (12 commits)` / `3 findings` |
+| POSTCHECKS | 13 | `Telemetry` | `recorded · synced` / `⚠️ sync failed` |
+
+The security snapshot (Step 8, `cfq-report.sh security`) is written only after parking and gets no
+line of its own — it's covered by the `Park` line.
+
 ## Step 1 — Interview Depth (unconditional, always, before anything else)
+
+Print the `INTERVIEW` header on entering this step.
 
 Ask this before anything else, every single time, even when the task looks small and even when
 you already know the codebase. Do not skip it, do not infer the answer. Exactly one
@@ -37,7 +89,7 @@ unclear the requirement is, how far the consequences reach) and justify it in th
 don't always mark the same option.
 
 On **Thorough** or **Grilling with docs**, read `references/grilling.md` and follow it — it covers
-both paths.
+both paths. Print the `Interview Depth` status line once the answer is in.
 
 ## Step 2 — Understand
 
@@ -51,7 +103,7 @@ unlimited, writing is not.
 ```
 
 Blocked plugins are used neither directly nor indirectly — and are not recommended in the phase
-files this session produces either.
+files this session produces either. Print the `Plugin Boundaries` status line.
 
 ## Step 4 — Interview
 
@@ -83,7 +135,8 @@ Intersect this path set against the files the new work will touch. Then:
 - The outcome is mentioned explicitly in the priority question's text (Step 9) — a batch waiting
   on another is rarely `high`.
 
-No repo / no open batches → skip the step without mentioning it.
+No repo / no open batches → skip the step without mentioning it. Either way, print the
+`Queue Check` status line — `➖` when there was nothing to check.
 
 ## Step 6 — Closing Question (mandatory)
 
@@ -98,6 +151,9 @@ afterward.
 
 ## Step 7 — Cut Phases
 
+The confirmation dialogue stays prose; entering this step closes `INTERVIEW` and opens the
+`PLANNING` section.
+
 Propose a split and get it confirmed. Rule of thumb: one phase = one self-testable, individually
 committable unit. Three honest phases beat seven artificial ones.
 
@@ -109,6 +165,8 @@ For each phase, additionally estimate:
 - **Recommended skills** — optional, only where it actually helps, each with a half-sentence
   reason. Never a skill from `implBlockedPlugins`. No recommendation is the normal case and isn't
   commented on.
+
+Once the split is confirmed, print the `Phases` status line — the phase count and size mix.
 
 ## Step 8 — Security Check
 
@@ -127,6 +185,8 @@ jq -c '{available, sources, counts, fixable}' /tmp/cfq-sec.json
   ```bash
   "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security "<batch-dir>" "$(cat /tmp/cfq-sec.json)"
   ```
+- Print the `Security` status line — the hint or the AskUserQuestion stays prose either way, but
+  the count-per-severity (or `➖ no findings`) line is the status-line format.
 
 ## Step 9 — Priority (unconditional, always)
 
@@ -136,9 +196,12 @@ another question. Exactly one `AskUserQuestion` with the three options `low`, `m
 
 `medium` is the default recommendation, but derive it honestly from what was discussed — a hotfix batch
 is `high`, and saying so in the option text is better than a reflex `medium`. The answer is written to
-`.priority` in Step 10; nothing is parked before it has been asked.
+`.priority` in Step 10; nothing is parked before it has been asked. Print the `Priority` status
+line once the answer is in.
 
 ## Step 10 — Park
+
+Entering this step closes `PLANNING` and opens the `POSTCHECKS` section.
 
 - Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
 - Batch directory: `<repo-root>/.claude/code-for-queue/<YYYY-MM-DD>-<topic-slug>/`
@@ -152,6 +215,9 @@ is `high`, and saying so in the option text is better than a reflex `medium`. Th
 - On the grilling path: write the decisions made as a `## Decisions` table into the **first**
   phase file. No separate ADR directory.
 
+Print three status lines for this step: `Park` (file count and batch directory — this also covers
+the Step 8 security snapshot, which gets no line of its own), `Git Exclude`, and `Registry`.
+
 ## Step 11 — Plan Lint
 
 ```bash
@@ -160,7 +226,7 @@ is `high`, and saying so in the option text is better than a reflex `medium`. Th
 
 Findings are fixed **immediately** and the lint re-run until it's clean. A batch never goes into
 handoff with open lint findings. `warn:` lines (an unresolvable `.dependsOn` edge) are mentioned
-but don't block.
+but don't block. Print the `Lint` status line — clean pass, or the fixed finding on re-check.
 
 ## Step 12 — Optional Audit
 
@@ -185,6 +251,9 @@ The audit reports, it does not plan. Run it, then:
    batch. No selection is a valid answer → no batch, accepted without comment or a second attempt.
 4. A cleanup batch is created only for what was selected. Step 14 then lists it as a second batch.
 
+Print the `Audit` status line — `➖ disabled`/`➖ not due` when it didn't run, otherwise the
+finding count. The findings list and the `AskUserQuestion` stay prose.
+
 ## Step 13 — Telemetry and Sync
 
 ```bash
@@ -192,22 +261,40 @@ The audit reports, it does not plan. Run it, then:
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-telemetry.sh" sync "<repo-root>"
 ```
 
-Failures of either call are non-fatal and get one line in the final report, not a comment.
+Failures of either call are non-fatal and get one line in the final report, not a comment. Print
+the `Telemetry` status line.
 
 ## Step 14 — Final Report
 
-Full format, kept short:
+A `RESULT` header, then a label/value list under the `Output Format` padding rule:
 
-1. Batch path (absolute) and phase list in order, each with its size.
-2. Priority and, if set, the `.dependsOn` edge with its reason.
-3. Interview depth and planning cost from the telemetry record (turns, output tokens, model,
-   effort) — one line.
-4. Security in one line: the count, or "unavailable" with the hint, or "no findings".
-5. Handoff: `/clear` → `/model <first model from implModels>` → `/ifq`.
-6. If a cleanup batch came out of Step 12: list it as a second batch with a note that it can be
-   worked off independently.
+1. `Batch` — batch path (absolute).
+2. `Phases` — phase list in order, each with its size.
+3. `Priority` — the value from Step 9.
+4. `Waiting on` — the `.dependsOn` edge with its reason, if any. Omit this line entirely when no
+   `.dependsOn` was written.
+5. `Cost` — interview depth and planning cost from the telemetry record (turns, output tokens,
+   model, effort) — one line.
+6. `Security` — the count, or "unavailable" with the hint, or "no findings".
+7. `Handoff` — `/clear` → `/model <first model from implModels>` → `/ifq`.
+
+If a cleanup batch came out of Step 12, print a second `RESULT` block built the same way, noting
+it can be worked off independently.
 
 No repetition of the plan contents — that's what the files are for.
+
+Example:
+
+```
+RESULT
+Batch      /home/…/.claude/code-for-queue/2026-08-14-cfq-output-format/
+Phases     P1 setting-ponytail-audit-every [M] · P2 ifq-ausgabeformat [M] · …
+Priority   high
+Waiting on –
+Cost       18 turns · 12,480 tok · claude-opus-5 · high · interview: Quick
+Security   ⚠️ unavailable
+Handoff    /clear → /model sonnet → /ifq
+```
 
 ## Phase File Structure
 

@@ -41,7 +41,7 @@ Rules:
 - Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
   user stay in the user's language.
 
-Section map used throughout this skill:
+## Section Map
 
 | Section | Step | Label | Example detail |
 |---|---|---|---|
