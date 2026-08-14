@@ -4,15 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), five bash scripts
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), nine bash scripts
 (`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
 other than `bash` and `jq` (every script hard-fails without jq).
 
 ## Commands
 
 ```bash
+bash plugins/cfq/tests/test-settings.sh      # cfq-settings.sh merge/precedence, prints PASS
 bash plugins/cfq/tests/test-scan.sh          # builds temp repos, asserts scan JSON, prints PASS
 bash plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh append/summary/html, prints PASS
+bash plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
+bash plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
+bash plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
@@ -36,12 +40,16 @@ hands off on the context gate; `code-for-queue` is the cross-repo dashboard plus
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
 **The queue is the filesystem.** `<repo>/.claude/code-for-queue/<YYYY-MM-DD>-<topic>/NN-slug.md`, with
-`.priority` (`low|medium|high`), `report.json` (per-phase implementation report, appended by
-`implement-for-queue` after every phase and travelling with the batch into `done/`), a `done/` for
-finished phases and a sibling `done/` for finished batches. There is no index or bookkeeping file:
-`cfq-scan.sh` counts live from disk every time, and "phase finished" *is* the `mv` into `done/`.
-Anything that changes the layout must change `cfq-scan.sh` and `tests/test-scan.sh` together — and, for
-`report.json`, `tests/test-report.sh` as well.
+`.priority` (`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks
+this batch until every named one is in `done/`; an unresolvable name is reported, never blocking),
+`report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
+after every phase and travelling with the batch into `done/`), a `done/` for finished phases and a
+sibling `done/` for finished batches. Repo-level, alongside the batches: `telemetry.jsonl` (one line
+per planning session and per phase) and `.lock` (held by the currently running `implement-for-queue`
+session, liveness derived from the holder's transcript mtime). There is no index or bookkeeping
+file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is* the `mv` into
+`done/`. Anything that changes the layout must change `cfq-scan.sh` and `tests/test-scan.sh`
+together — and, for `report.json`, `tests/test-report.sh` as well.
 
 **Two state files, both outside any repo**, in `$HOME/.claude/code-for-queue/`: `repos.json` (registry
 of repos that ever had a queue, written by `cfq-registry.sh add` from both worker skills) and
@@ -52,9 +60,18 @@ so a repo is discovered even if it was never registered.
 `with_overrides()` applies the `CFQ_*` vars on read only — a `set` on an env-overridden key writes the
 file but stays invisible until the variable is gone. Adding a setting means touching three places:
 the `defaults` JSON, the validation `case` in `set` (unlisted keys fall through to a bare string
-write), and the README table; plus `with_overrides()` if it gets an env var. `stopPct` is resolved by
-`ctx-usage.sh` through `cfq-settings.sh get stopPct`, not read from the environment directly — anyone
-reworking that script breaks the precedence chain at exactly that point.
+write), and the README table; plus `with_overrides()` if it gets an env var. Since v0.3, `merged()`
+combines `defaults` with the file (`with_entries(select(.key | in($d)))`) before `list`/`get`/`set`
+ever touch it, so a newly introduced key reaches existing installations automatically and a removed
+one simply disappears — no migration step needed. `stopPct` is resolved by `ctx-usage.sh` through
+`cfq-settings.sh get stopPct`, not read from the environment directly — anyone reworking that script
+breaks the precedence chain at exactly that point.
+
+**Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
+transcript (`ctx-usage.sh`'s path resolution, reused rather than reinvented) — never from a model's
+own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
+`tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
+that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
 ## Conventions
 

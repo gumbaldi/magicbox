@@ -42,7 +42,9 @@ once: `/plugin uninstall code-for-queue`, then install as above.
    too full.
 
 Never two batches in the same session, even if the first finishes early — different plans
-belong in separate context windows.
+belong in separate context windows. Only one `ifq` session works a given repo at a time: a
+second one aborts with the name of the holder, unless that session has been silent for 30
+minutes, in which case it's considered dead and taken over.
 
 ## Queue layout
 
@@ -52,12 +54,20 @@ belong in separate context windows.
     01-first-phase.md
     02-second-phase.md
     .priority            # low | medium | high
+    .dependsOn           # optional: one batch directory name per line
+    report.json          # written by ifq, includes telemetry
     done/                # finished phases
   done/                  # finished batches
+  telemetry.jsonl        # one record per planning session and per phase
+  .lock                  # held by the running ifq session
 ```
 
 The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
 `.gitignore`, since the queue is local working state, not something to publish.
+
+`.dependsOn` blocks a batch for as long as any batch it names hasn't landed in `done/` yet; a
+name that resolves to neither an open nor a finished batch is deliberately never blocking —
+it's flagged in the dashboard instead.
 
 ## Reports
 
@@ -70,6 +80,41 @@ queue.
 Run `/rfq` for a compact terminal table across all repos, or drill into a single batch for the
 detailed HTML report. The HTML is regenerated fresh on every request and can be deleted freely —
 `report.json` is the source of truth.
+
+## Telemetry
+
+Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
+by kind, broken down by model, reasoning effort, skill, plugin, tool, and the subagent share —
+plus the skills the plan recommended for that phase.
+
+What's deliberately **not** recorded: no prompt text, no responses, no tool arguments, no file
+contents. Numbers, timestamps and names only.
+
+It's stored in the batch (`report.json`) and repo-locally (`telemetry.jsonl`), both covered by
+the same `.git/info/exclude` line as the rest of the queue — nothing is written globally.
+Optionally, point `telemetrySyncRepo` at a dedicated telemetry git repo: cfq then appends the new
+lines to `<repo-name>.jsonl` there, commits and pushes, at the end of every planning or
+implementation session. Failures there are never fatal.
+
+cfq only collects this data — it doesn't analyze it.
+
+## Security
+
+`pfq` checks before the priority question, `ifq` checks again at the end of the batch. The forge
+is detected from the origin remote; both common CLIs are supported:
+
+| Forge | CLI | Source |
+|---|---|---|
+| GitHub | `gh` | Dependabot advisories and code-scanning alerts — SARIF results from a Checkmarx or CodeQL action land there too, so cfq needs no scanner CLI of its own |
+| Gitea / Forgejo | `tea` | the forge has no security-alerts API; `tea` only confirms login and reachability, and that's reported openly |
+| any | — | `npm audit` whenever a `package.json` exists, always in addition |
+
+The host is checked explicitly against the CLI's own login list, since `tea` otherwise silently
+falls back to a mismatched login and queries the wrong instance. A missing CLI or login produces
+a hint naming the exact fix (`gh auth login` or `tea login add --url <host>`), never a generic one.
+
+Only `critical`/`high` findings **with** an available fix get planned as a phase — everything else
+stays a warning line.
 
 ## Configuration
 
@@ -86,14 +131,14 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
 | `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit |
-| `planPreferredPlugins` | — | `[]` | **recommendation**: give these plugins extra consideration while planning |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
-| `implPreferredPlugins` | — | `[]` | recommendation for implementation |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
+| `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
+| `setupDone` | — | `false` | internal marker: first-time setup (`/cfq` Step A) has run |
 
-Preferred and blocked are deliberately asymmetric: preferred is a hint, not a requirement —
-nothing is forced if none of them fit. Blocked is strict and should be set sparingly, since it
-also blocks indirect calls.
+There's no global "preferred plugins" setting anymore — recommendations now live **per phase** in
+the plan itself, since the planner knows what that specific phase needs. Only the prohibition
+stays global, and it's strict: it should be set sparingly, since it also blocks indirect calls.
 
 ## Optional dependencies
 
