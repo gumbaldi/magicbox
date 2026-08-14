@@ -38,4 +38,15 @@ bash "$rep" security "$batch" '{"status":"ok","critical":0,"high":1}'
 sec=$(jq '.security | length' "$batch/report.json")
 [ "$sec" = "2" ] || { echo "FAIL: security snapshots = $sec, want 2"; exit 1; }
 
+# security on a fresh batch must create report.json — this is the planning-time path, where no
+# phase has been appended yet.
+fresh="$tmp/2026-01-02-fresh"
+mkdir -p "$fresh"
+HOME="$home" bash "$rep" security "$fresh" '{"available":false,"counts":{}}'
+[ -f "$fresh/report.json" ] || { echo "FAIL: security did not create report.json"; exit 1; }
+n=$(jq '.security | length' "$fresh/report.json")
+[ "$n" = "1" ] || { echo "FAIL: fresh security snapshots = $n, want 1"; exit 1; }
+b=$(jq -r '.batch' "$fresh/report.json")
+[ "$b" = "2026-01-02-fresh" ] || { echo "FAIL: batch = $b"; exit 1; }
+
 echo PASS

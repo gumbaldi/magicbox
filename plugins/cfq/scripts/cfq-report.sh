@@ -8,6 +8,16 @@ set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-report.sh: jq is required" >&2; exit 1; }
 
+# report.json is created by whoever writes to it first — planning-time security snapshot or the
+# first phase. Same shape in both cases.
+ensure_report() {
+  [ -f "$1/report.json" ] && return 0
+  jq -n --arg repo "$(cd "$1" && git rev-parse --show-toplevel 2>/dev/null || echo '')" \
+        --arg batch "$(basename "$1")" \
+        --arg started "$(date -Iseconds)" \
+        '{repo: $repo, batch: $batch, started: $started, phases: []}' >"$1/report.json"
+}
+
 cmd="${1:-}"
 case "$cmd" in
   append)
@@ -15,12 +25,7 @@ case "$cmd" in
     phase="${3:?usage: cfq-report.sh append <batch-dir> <phase-json>}"
     [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
     f="$dir/report.json"
-    if [ ! -f "$f" ]; then
-      jq -n --arg repo "$(cd "$dir" && git rev-parse --show-toplevel 2>/dev/null || echo '')" \
-            --arg batch "$(basename "$dir")" \
-            --arg started "$(date -Iseconds)" \
-            '{repo: $repo, batch: $batch, started: $started, phases: []}' >"$f"
-    fi
+    ensure_report "$dir"
     jq --argjson p "$phase" '.phases += [$p]' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
@@ -30,8 +35,9 @@ case "$cmd" in
   security)
     dir="${2:?usage: cfq-report.sh security <batch-dir> <security-json>}"
     snap="${3:?usage: cfq-report.sh security <batch-dir> <security-json>}"
+    [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
     f="$dir/report.json"
-    [ -f "$f" ] || { echo "cfq-report.sh: no report.json in $dir" >&2; exit 1; }
+    ensure_report "$dir"
     jq --argjson s "$snap" --arg at "$(date -Iseconds)" \
        '.security = ((.security // []) + [$s + {at: $at}])' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     ;;
