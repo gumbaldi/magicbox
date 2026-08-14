@@ -34,13 +34,13 @@ older batches never got one. Do not render an empty table.
 From the TSV lines, sorted by date **descending** (newest first — here the latest run is what
 matters, unlike the dashboard):
 
-| Repo | Batch | Phasen | ✓ | ✗ | Abw. | Datum | Kosten | Plan |
+| Repo | Batch | Phases | ✓ | ✗ | Dev. | Date | Cost | Plan |
 |---|---|---|---|---|---|---|---|---|
 | codeforqueue | 2026-08-13-cfq-v02 | 6 | 5 | 1 | 2 | 2026-08-14 | 67k | 12k |
 
-**Kosten** (Feld 7) und **Plan** (Feld 8) sind Output-Token, gerundet auf ganze Tausender ohne
-Nachkommastelle (`67k`). Batches ohne Telemetrie (Reports gibt es seit v0.2, Telemetrie erst seit
-v0.3) liefern hier `0` aus dem TSV — zeige in der Tabelle stattdessen `–`.
+**Cost** (field 7) and **Plan** (field 8) are output tokens, rounded to whole thousands with no
+decimal (`67k`). Batches without telemetry (reports have existed since v0.2, telemetry only since
+v0.3) return `0` here from the TSV — show `–` in the table instead.
 
 Repo column: basename only, resolve the full path once underneath. Visibly mark batches with
 `✗ > 0`. Below the table, one `file://` path to the HTML per row.
@@ -48,8 +48,8 @@ Repo column: basename only, resolve the full path once underneath. Visibly mark 
 ## 3. Detail
 
 On request for a single batch: read `report.json` and render the phases in prose — status,
-summary, deviations, errors, and, sofern vorhanden, Modell, Effort und die tatsächlich benutzten
-Skills der Phase (`.phases[].telemetry`). For the HTML view, call:
+summary, deviations, errors, and, if present, the phase's model, effort, and the skills actually
+used (`.phases[].telemetry`). For the HTML view, call:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" html "<batch-dir>"

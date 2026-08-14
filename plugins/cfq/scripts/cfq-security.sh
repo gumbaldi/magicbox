@@ -90,7 +90,7 @@ add_findings() { findings=$(jq -c -n --argjson a "$findings" --argjson b "$1" '$
 add_source()   { sources=$(jq -c -n --argjson a "$sources" --arg s "$1" '$a + [$s]'); }
 
 if [ "$forge" = "github" ] && command -v gh >/dev/null 2>&1 && timeout 30 gh api user >/dev/null 2>&1; then
-  hint="Dependabot und Code-Scanning liefern für dieses Repo nichts (deaktiviert oder nie konfiguriert) — lokaler Audit ist die einzige Quelle."
+  hint="Dependabot and code scanning return nothing for this repo (disabled or never configured) — local audit is the only source."
   dep=$(timeout 30 gh api --paginate "repos/$slug/dependabot/alerts?state=open" 2>/dev/null || true)
   if [ -n "$dep" ] && printf '%s' "$dep" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
     add_source dependabot
@@ -116,7 +116,7 @@ if [ "$forge" = "github" ] && command -v gh >/dev/null 2>&1 && timeout 30 gh api
 elif [ "$forge" = "gitea" ] && command -v tea >/dev/null 2>&1; then
   if timeout 30 tea api "repos/$slug" >/dev/null 2>&1; then
     add_source "gitea:none"
-    hint="Diese Forge bietet keine Security-Alert-API — Quelle ist der lokale Audit."
+    hint="This forge offers no security-alert API — local audit is the source."
   else
     hint="tea login add --url $host"
   fi
@@ -149,7 +149,7 @@ if [ "$(printf '%s' "$sources" | jq 'length')" = "0" ]; then
     case "$forge" in
       github) hint="gh auth login" ;;
       gitea)  hint="tea login add --url $host" ;;
-      *)      hint="kein unterstütztes Manifest gefunden" ;;
+      *)      hint="no supported manifest found" ;;
     esac
   fi
   jq -n --arg forge "$forge" --arg hint "$hint" \

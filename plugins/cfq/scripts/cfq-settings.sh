@@ -35,8 +35,8 @@ write() {
   mv "$tmp" "$settings"
 }
 
-# Defaults als Basis, Datei darüber, unbekannte Schlüssel fallen raus. So erreichen neu
-# eingeführte Schlüssel auch bestehende Installationen, und entfernte verschwinden.
+# Defaults as the base, the file layered on top, unknown keys dropped. This way newly
+# introduced keys reach existing installations too, and removed ones simply disappear.
 merged() {
   jq -n --argjson d "$defaults" --slurpfile f "$settings" '
     ($d + ($f[0] // {})) | with_entries(select(.key | in($d)))

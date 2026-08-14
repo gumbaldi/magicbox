@@ -11,7 +11,56 @@ description: >
 
 Always answer in the user's language.
 
+## Output Format
+
+Progress is reported as status lines, not prose. One line per step, printed **as soon as that
+step is done** — never collected and dumped at the end. Section headers are printed once, on
+entering the section.
+
+```
+SECTION HEADER IN CAPS
+<icon> <label padded to 16 chars><detail, one short clause>
+```
+
+Icons: `✅` done · `⚠️` warning, unavailable, degraded · `❌` failed · `➖` skipped, not
+applicable, nothing to do.
+
+Rules:
+
+- The detail says what the check found, not what you are about to do next. `sonnet · implModels:
+  sonnet`, not "the model gate is satisfied, I will now look at the batch".
+- A step that did not run still gets its line, with `➖` or `⚠️` and the reason — "no security
+  data for this repo" is exactly the information the user is after.
+- Sub-information belongs on an indented `   └ ` continuation line, never in the detail column.
+- Section headers, labels, and status-line content are always English — regardless of the
+  language the rest of the conversation is in. Only interactive prose (see below) follows the
+  user's language.
+- No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
+  what the lines already say.
+- The result section is a label/value list under the same padding, not a table.
+- Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
+  user stay in the user's language.
+
+Section map used throughout this skill:
+
+| Section | Step | Label | Example detail |
+|---|---|---|---|
+| PRECHECKS | 1 | `Model Gate` | `sonnet · implModels: sonnet` / on abort `❌ … allowed: sonnet · /model sonnet, then /ifq` |
+| PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
+| PRECHECKS | 3 | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
+| PRECHECKS | 3.5 | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
+| PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
+| PRECHECKS | 4b | `Size Gate` | `context 5 % · limit 20 %` / `❌ phase L, handoff instead of start` |
+| IMPLEMENTATION | 4c | `P<n> <slug>` | `green · 6 deviations`, each deviation as its own `   └ ` line |
+| IMPLEMENTATION | 5 | `Commit` | `v0.2 · 1 commit pushed` / `⚠️ branch v0.3 created` |
+| POSTCHECKS | 6/7 | `Security Diff` | `no new findings` / `⚠️ no planning snapshot · comparison skipped` / `⚠️ unavailable: <hint>` |
+| POSTCHECKS | 6/7 | `Telemetry` | `synced` / `⚠️ sync failed` |
+| POSTCHECKS | 6/7 | `Lock` | `released` |
+| POSTCHECKS | 7 | `Report` | `rendered` |
+
 ## 1. Model Gate
+
+Print the `PRECHECKS` header on entering this step.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implModels
@@ -22,7 +71,8 @@ The running model's name is in your system prompt's environment block. If `allow
 `true`, skip this check. Otherwise the running model must match one of the entries in
 `implModels` (a substring match is enough: `sonnet` matches `claude-sonnet-5`). No match →
 **stop immediately**, touch nothing, and report which models are allowed, that `/model <x>`
-followed by `/ifq` is the way forward, and that `CFQ_IMPL_MODELS` or `cfq` changes the list.
+followed by `/ifq` is the way forward, and that `CFQ_IMPL_MODELS` or `cfq` changes the list. Print
+the `Model Gate` status line either way (see Output Format's section map).
 
 ## 2. Plugin Boundaries
 
@@ -32,7 +82,7 @@ followed by `/ifq` is the way forward, and that `CFQ_IMPL_MODELS` or `cfq` chang
 
 Do not call blocked plugins/skills for the rest of the session — not even indirectly. Skill
 recommendations now live **per phase** in the plan itself, are non-binding, and any
-recommendation that's on `implBlockedPlugins` is ignored.
+recommendation that's on `implBlockedPlugins` is ignored. Print the `Plugin Boundaries` status line.
 
 ## 3. Choose a Batch
 
@@ -58,7 +108,10 @@ recommendation that's on `implBlockedPlugins` is ignored.
      (label = topic slug, description = priority + number of open phases + date).
 6. Set the chosen batch (or, for "in order", the first one) as this session's batch and hand it to
    Step 3.5 — **do not acquire the lock yet.** Nothing is locked and nothing is read in full until
-   the user has approved the batch.
+   the user has approved the batch. Print the `Batch` status line once it is chosen.
+
+Steps 5 and 6 above (`AskUserQuestion` and its follow-up) stay prose — only the `Batch` status
+line at the end is part of the status-line format.
 
 **Never two batches in the same session** — not even once the first one finishes and context is
 still free. Different plans (even from the same repo) belong in separate context windows.
@@ -98,7 +151,8 @@ Then exactly one `AskUserQuestion`, "Start implementing this batch?", with three
 
   Exit ≠ 0 (output starts with `LOCKED`) → **end immediately**, touch nothing, name the holder,
   batch and time, and note that a dead session is auto-taken-over after 30 minutes of inactivity.
-  Output starts with `TAKEOVER` → proceed, mentioning the takeover in one line.
+  Output starts with `TAKEOVER` → proceed, printing the `Lock` status line with the takeover
+  warning. Otherwise print `Lock` as acquired.
 - **A different batch** → back to Step 3, point 5, with the remaining batches; the declined one is
   not offered again in this session. Nothing left to offer → report and end the session.
 - **Cancel** → report "aborted, nothing touched" and end the session. No lock was ever held, so
@@ -111,7 +165,7 @@ its title alone. An incomplete plan is worth showing, not worth aborting over.
 
 Before reading the phase file, two checks:
 
-**a) Earlier failed attempt.** If `report.json` exists, look for an entry for this exact phase:
+**(4a) Earlier failed attempt.** If `report.json` exists, look for an entry for this exact phase:
 
 ```bash
 jq -c --arg p "<phase-slug>" '[.phases[] | select(.phase == $p and .status == "red")] | last // empty' \
@@ -120,9 +174,10 @@ jq -c --arg p "<phase-slug>" '[.phases[] | select(.phase == $p and .status == "r
 
 A hit → read its `errors` and `summary` as context and don't blindly repeat the phase: check
 first whether the original cause still holds. Mention this in the new report entry ("second
-attempt after ..."). No hit → skip this check without mentioning it.
+attempt after ..."). No hit → skip this check without mentioning it. Either way, print the
+`Failed Attempt` status line.
 
-**b) Size gate.** If the phase carries a `## Size` (or `## Größe`) heading of `L` and the current
+**(4b) Size gate.** If the phase carries a `## Size` (or `## Größe`) heading of `L` and the current
 context value is already above **half** the `stopPct` threshold, don't start the phase — hand off
 cleanly as in Step 6 instead, so it doesn't tear off mid-limit. `S` and `M` always start; a
 missing size counts as `M`.
@@ -132,7 +187,11 @@ missing size counts as `M`.
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get stopPct
 ```
 
-At `stopPct: 0` the gate doesn't apply — a handoff already happens after every phase there.
+At `stopPct: 0` the gate doesn't apply — a handoff already happens after every phase there. Print
+the `Size Gate` status line. This closes `PRECHECKS`; the next line printed is the `IMPLEMENTATION`
+header.
+
+**(4c) Implementation.**
 
 1. Read the lowest-numbered open `NN-*.md` in full.
 2. Implement it — completely, not just the easy parts.
@@ -153,6 +212,9 @@ At `stopPct: 0` the gate doesn't apply — a handoff already happens after every
    from the plan, name what the plan said, what was built instead, and why. An honest empty array
    is fine; a glossed-over deviation is not. On red, `errors` carries the actual failure output,
    trimmed to what identifies it.
+
+   Print the `P<n> <slug>` status line now — `✅` and `green` on a green phase, `❌` and `red` on a
+   red one, each deviation (or the trimmed error) as its own `   └ ` continuation line.
 
 ## 5. Commit & Push (on green, every phase)
 
@@ -175,21 +237,24 @@ git branch --show-current
 - Branch is already a feature/version branch (e.g. `v0.48`) → commit and push directly on it (the
   remote branch usually already exists, no `-u` needed).
 
+Print the `Commit` status line — the branch and number of commits pushed, with a `⚠️` note if a
+new branch was created.
+
 ## 6. Context Check After Every Phase
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"
 ```
 
-- `STOP` → sync telemetry and release the lock, then end the session here:
+- `STOP` → print the `POSTCHECKS` header, then sync telemetry and release the lock, printing the
+  `Telemetry` and `Lock` status lines, then end the session here:
   ```bash
   "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-telemetry.sh" sync "<repo-root>"
   "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lock.sh" release "<repo-root>"
   ```
   The lock is released on handoff — the follow-up session is a new session and acquires it fresh;
-  a half-finished batch must not stay locked forever. Report: phases completed, phases still open,
-  the context value, and the instruction to run `/clear`, then `/implement-for-queue` (or `/ifq`)
-  again.
+  a half-finished batch must not stay locked forever. Print the `HANDOFF` short format from Step 8
+  (phases completed, phases still open, the context value, and `/clear` → `/ifq`).
 - `OK` → next phase of the same batch.
 - `UNKNOWN` → treat like `STOP` (hand off cleanly when in doubt).
 
@@ -210,21 +275,22 @@ Fresh security snapshot, compared against the one taken at planning time:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-security.sh" "<repo-root>" > /tmp/cfq-sec-end.json
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security "<batch-dir>" "$(cat /tmp/cfq-sec-end.json)"
-jq -c '{planung: .security[0].counts, jetzt: .security[-1].counts}' "<batch-dir>/report.json"
+jq -c '{planning: .security[0].counts, now: .security[-1].counts}' "<batch-dir>/report.json"
 ```
 
 Report only the **difference** from the planning-time snapshot — newly appeared findings per
 severity. No repeat of the overall count, no new planning, no automatic fix. Missing planning
-snapshot (a batch from an older version) → skip the comparison without comment.
+snapshot (a batch from an older version) → skip the comparison without comment. Print the
+`POSTCHECKS` header on entering this step, then the `Security Diff` status line.
 
-Sync telemetry and release the lock:
+Sync telemetry and release the lock, printing the `Telemetry` and `Lock` status lines:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-telemetry.sh" sync "<repo-root>"
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lock.sh" release "<repo-root>"
 ```
 
-Render the HTML report:
+Render the HTML report, printing the `Report` status line:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" html "<repo-root>/.claude/code-for-queue/done/<batch>"
@@ -234,35 +300,61 @@ Hand the batch to Step 8 for the closing report.
 
 ## 8. Closing Reports
 
-One format, two lengths. Both end the session.
+One format, two lengths. Both end the session. Both are a label/value list under the `Output
+Format` padding rule, not a table — this is the `RESULT` (full) or `HANDOFF` (short) section.
 
-**Full format (batch done):**
+**Full format (batch done)** — `RESULT` header, then:
 
-1. Batch and repo, phases total, green/red, number of deviations.
-2. One cost line: turns, output tokens, models and effort levels used, from the telemetry blocks;
-   plus the planning cost from `.planning`, if present.
-3. **Skills used**, from `.phases[].telemetry.by_skill` — and, where the plan recommended any,
-   whether they were actually used:
+1. `Batch` — batch and repo, phases total, green/red split:
+   `2026-08-13-cfq-plugin (codeforqueue) · 6/6 phases · 5 green, 1 red`
+2. `Cost` — one line: turns, output tokens, models and effort levels used, from the telemetry
+   blocks; plus the planning cost from `.planning`, if present:
+   `40 turns · 35,229 tok · claude-sonnet-5 · high · planning 12k`
+3. `Skills` — from `.phases[].telemetry.by_skill`, and, where the plan recommended any, whether
+   they were actually used:
    ```bash
-   jq -c '{empfohlen: [.phases[].telemetry.skills_recommended // []] | flatten | unique,
-           benutzt:   [.phases[].telemetry.by_skill // {} | keys[]] | unique | map(select(. != "-"))}' \
+   jq -c '{recommended: [.phases[].telemetry.skills_recommended // []] | flatten | unique,
+           used:        [.phases[].telemetry.by_skill // {} | keys[]] | unique | map(select(. != "-"))}' \
      "<batch-dir>/report.json"
    ```
-4. Security difference in one line.
-5. **Merge hint**: current branch, number of commits against `main`, and the ready-to-run command
-   — print it, **don't** run it:
+   `recommended: – · used: cfq:implement-for-queue`
+4. `Security` — the difference in one line: `no new findings` / severities that newly appeared.
+5. `Merge` — current branch, number of commits against `main`, and the ready-to-run command as an
+   indented `   └ ` line — print it, **don't** run it:
    ```bash
    git branch --show-current
    git rev-list --count main..HEAD
    ```
-   From that: `gh pr create --base main --head <branch>` or
-   `git checkout main && git merge --no-ff <branch>`.
-6. `file://` path to the HTML report. The details live there, not in the terminal.
+   `v0.2, 13 commits ahead of main` then `   └ gh pr create --base main --head v0.2` (or
+   `git checkout main && git merge --no-ff v0.2` if no `gh` remote).
+6. `Report` — `file://` path to the HTML report. The details live there, not in the terminal.
 
-**Short format (context handoff):** three to four lines — phases done, phases open, the `PCT`
-value, and `/clear` → `/ifq`. No cost breakdown, no merge hint.
+Example:
+
+```
+RESULT
+Batch      2026-08-13-cfq-plugin (codeforqueue) · 6/6 phases · 5 green, 1 red
+Cost       40 turns · 35,229 tok · claude-sonnet-5 · high · planning 12k
+Skills     recommended: – · used: cfq:implement-for-queue
+Security   no new findings
+Merge      v0.2, 13 commits ahead of main
+           └ gh pr create --base main --head v0.2
+Report     file:///…/done/2026-08-13-cfq-plugin/report.html
+```
+
+**Short format (context handoff)** — `HANDOFF` header, three to four lines: phases done, phases
+open, the `PCT` value, and `/clear` → `/ifq`. No cost breakdown, no merge hint.
+
+```
+HANDOFF
+Phases     3 done · 3 open
+Context    52 % · limit 40 %
+Next       /clear → /ifq
+```
 
 **Red case:** the report still gets printed, in full format, naming the red phase and noting that
-the next run will pick it up again with the failed-attempt context.
+the next run will pick it up again with the failed-attempt context. The red phase's line already
+appeared with `❌` in `IMPLEMENTATION` (Step 4); Step 8 does not repeat the error text, only the
+`5 green, 1 red` split in `Batch`.
 
 No manual bookkeeping is needed anymore — the dashboard (P4) counts live from disk.

@@ -54,14 +54,14 @@ the env vars — even with a plugin installed, it can be switched off again here
 Render a Markdown table from the JSON, sorted by repo, then within it by priority
 (`high` > `medium` > `low`), then by batch name:
 
-| Repo | Batch | Prio | Open | Done | Progress | Wartet auf |
+| Repo | Batch | Prio | Open | Done | Progress | Waiting on |
 |---|---|---|---|---|---|---|
 | kankuri | ⛔ 2026-08-13-cfq-plugin 📄 | medium | 4 | 2 | ▓▓▓░░░░░ 33% | 2026-08-10-auth |
 
 - Repo column: basename only, resolve the full path once underneath.
 - Batch name gets a trailing `📄` when `report: true`.
 - `blocked: true` → prefix the batch name with `⛔`. A name in `unknownDeps` → append `⚠️
-  (<name>)` to the "Wartet auf" cell for that entry — it never blocks, it's only surfaced.
+  (<name>)` to the "Waiting on" cell for that entry — it never blocks, it's only surfaced.
   Explain once, not per row: blocked batches aren't offered by `ifq`; `⚠️` means the edge points
   at a batch that no longer exists, deliberately non-blocking — fix or remove it via Step C.
 - Archived batches (`archived: true`) in their own, collapsed list below the table — they
