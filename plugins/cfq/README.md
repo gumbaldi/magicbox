@@ -132,6 +132,7 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
 | `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit |
+| `ponytailAuditEvery` | `CFQ_PONYTAIL_AUDIT_EVERY` | `50` | commits since the last audit before it is due again; `0` disables the audit entirely |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |

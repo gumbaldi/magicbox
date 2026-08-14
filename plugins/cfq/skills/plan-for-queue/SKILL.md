@@ -164,13 +164,16 @@ but don't block.
 
 ## Step 12 — Optional Audit
 
-Only if `cfq-settings.sh get usePonytailAudit` is `true` **and** `ponytail:ponytail-audit` is
-available. Due date works as before, via the marker
-`<repo-root>/.claude/code-for-queue/.ponytail-audit` (one line:
-`<YYYY-MM-DD> <commit-sha>`); due when the marker is missing, the SHA no longer resolves, or
-`git rev-list --count "$sha..HEAD"` is ≥ 50. Keep the `[ -n "$sha" ]` check — with an empty SHA,
-`git rev-list --count "..HEAD"` silently returns `0` and would look like "just audited". If the
-setting is `false`, neither ask nor check — the skill works fully without ponytail.
+First `cfq-settings.sh get ponytailAuditEvery`. `0` → the audit is disabled: don't ask, don't
+check, don't touch the marker, skip this step without comment. This runs **before**
+`usePonytailAudit`, so `0` stays the number-with-off-switch the user expects. Otherwise, as
+before: only if `cfq-settings.sh get usePonytailAudit` is `true` **and** `ponytail:ponytail-audit`
+is available. Due date works via the marker `<repo-root>/.claude/code-for-queue/.ponytail-audit`
+(one line: `<YYYY-MM-DD> <commit-sha>`); due when the marker is missing, the SHA no longer
+resolves, or `git rev-list --count "$sha..HEAD"` is ≥ the value just read. Keep the
+`[ -n "$sha" ]` check — with an empty SHA, `git rev-list --count "..HEAD"` silently returns `0`
+and would look like "just audited". If `usePonytailAudit` is `false`, neither ask nor check — the
+skill works fully without ponytail.
 
 The audit reports, it does not plan. Run it, then:
 

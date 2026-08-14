@@ -57,4 +57,19 @@ if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
 
+# 6. ponytailAuditEvery: default, set 0, invalid, env override
+got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
+[ "$got" = "50" ] || { echo "FAIL: default ponytailAuditEvery = '$got', want 50"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set ponytailAuditEvery 0
+got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
+[ "$got" = "0" ] || { echo "FAIL: set ponytailAuditEvery 0 -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set ponytailAuditEvery abc 2>/dev/null; then
+  echo "FAIL: set ponytailAuditEvery abc should fail"; exit 1
+fi
+
+got=$(HOME="$home" CFQ_PONYTAIL_AUDIT_EVERY=10 bash "$settings_sh" get ponytailAuditEvery)
+[ "$got" = "10" ] || { echo "FAIL: env override ponytailAuditEvery -> got '$got'"; exit 1; }
+
 echo PASS

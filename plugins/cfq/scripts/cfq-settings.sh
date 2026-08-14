@@ -17,6 +17,7 @@ defaults='{
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
+  "ponytailAuditEvery": 50,
   "planBlockedPlugins": ["superpowers"],
   "implBlockedPlugins": ["superpowers"],
   "telemetrySyncRepo": "",
@@ -53,6 +54,7 @@ with_overrides() {
     --arg grillMode "${CFQ_GRILL_MODE:-}" \
     --arg useMattpocockGrilling "${CFQ_USE_MATTPOCOCK:-}" \
     --arg usePonytailAudit "${CFQ_USE_PONYTAIL:-}" \
+    --arg ponytailAuditEvery "${CFQ_PONYTAIL_AUDIT_EVERY:-}" \
     --arg telemetrySyncRepo "${CFQ_TELEMETRY_SYNC_REPO:-}" \
     '
     if $planModels != "" then .planModels = ($planModels | split(",")) else . end
@@ -63,6 +65,7 @@ with_overrides() {
     | if $grillMode != "" then .grillMode = $grillMode else . end
     | if $useMattpocockGrilling != "" then .useMattpocockGrilling = ($useMattpocockGrilling == "1") else . end
     | if $usePonytailAudit != "" then .usePonytailAudit = ($usePonytailAudit == "1") else . end
+    | if $ponytailAuditEvery != "" then .ponytailAuditEvery = ($ponytailAuditEvery | tonumber) else . end
     | if $telemetrySyncRepo != "" then .telemetrySyncRepo = $telemetrySyncRepo else . end
     '
 }
@@ -104,6 +107,12 @@ case "$cmd" in
           echo "cfq-settings.sh: 'stopPct' must be 0-99" >&2
           exit 1
         fi
+        jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
+        ;;
+      ponytailAuditEvery)
+        case "$val" in
+          ''|*[!0-9]*) echo "cfq-settings.sh: 'ponytailAuditEvery' must be a non-negative integer" >&2; exit 1 ;;
+        esac
         jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
         ;;
       grillMode)
