@@ -35,16 +35,18 @@ no commentary around the block.
 | PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
 | PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
 | PRECHECKS | 3b | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
+| PRECHECKS | 3b | `Branch` | `v0.11-example-topic on v0.10-previous` / `➖ branchPerBatch off` / `⚠️ existing branch checked out` |
 | PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
 | PRECHECKS | 4b | `Size Gate` | `context 5 % · limit 20 %` / `❌ phase L, handoff instead of start` |
 | IMPLEMENTATION | 4c | `P<n> <slug>` | `green · 6 deviations`, each deviation as its own `   └ ` line |
-| IMPLEMENTATION | 5 | `Commit` | `v0.2 · 1 commit pushed` / `⚠️ branch v0.3 created` |
+| IMPLEMENTATION | 5 | `Commit` | `v0.11-example-topic · 1 commit pushed` |
 | POSTCHECKS | 7 | `Language` | `✅ no issues` / `⚠️ 3 issues` |
 | POSTCHECKS | 7 | `Maintenance` | `➖ off` / `➖ not due (12 commits)` / `⚠️ due (63 commits) · run /pfq` |
 | POSTCHECKS | 6/7 | `Security Diff` | `no new findings` / `⚠️ no planning snapshot · comparison skipped` / `⚠️ unavailable: <hint>` |
+| POSTCHECKS | 7 | `Changelog` | `v0.11 done · 4 phases` / `➖ changelogFile empty` |
 | POSTCHECKS | 6/7 | `Telemetry` | `synced` / `⚠️ sync failed` |
 | POSTCHECKS | 6/7 | `Lock` | `released` |
-| POSTCHECKS | 7 | `Report` | `rendered` |
+| POSTCHECKS | 7 | `Report` | `rendered` / `➖ off · /rfq renders on demand` |
 
 ## 1. Model Gate
 
@@ -92,12 +94,15 @@ Nothing is touched, no lock taken, until the user has seen what the batch contai
 phase files in full here, that's Step 4's job. Extract the briefing data per
 `references/queues.md` and present it compactly, then ask exactly one `AskUserQuestion`, "Start
 implementing this batch?":
-- **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`), then go to
-  Step 4. Exit ≠ 0 (`LOCKED`) → **end immediately**, touch nothing, name the holder, batch and
-  time, note the 30-minute stale takeover. `TAKEOVER` → proceed, printing `Lock` with the takeover
-  warning; otherwise print `Lock` as acquired.
-- **A different batch** → back to Step 3a's question, with the remaining batches; the declined
-  one isn't offered again this session. Nothing left → report and end.
+- **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
+  **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
+  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. Unless `branchPerBatch`
+  is `false` (`Branch: ➖ branchPerBatch off`, skip to Step 4): an existing branch for this batch → check
+  it out, `Branch` notes the existing checkout, no version bump, no changelog entry; else determine
+  version/base, `git checkout -b <version>-<slug>`, `cfq-changelog.sh init` (all per
+  `references/queues.md`), `Branch` shows branch and base. Then Step 4.
+- **A different batch** → back to Step 3a's question, with the remaining batches; the declined one isn't
+  offered again this session. Nothing left → report and end.
 - **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.
 
 ## 4. Work Off a Phase
@@ -108,7 +113,6 @@ select(.phase == $p and .status == "red")] | last // empty' "<batch-dir>/report.
 read its `errors`/`summary`, check whether the cause still holds before repeating, and mention it
 in the new entry ("second attempt after …"); no hit → skip silently. Print the `Failed Attempt`
 status line either way.
-
 **(4b) Size gate.** A `## Size`/`## Größe` of `L`, with context already above **half** the
 `stopPct` threshold → don't start, hand off cleanly (Step 6) instead. `S`/`M` always start, a
 missing size counts as `M`; at `stopPct: 0` the gate doesn't apply since a handoff already happens
@@ -118,7 +122,6 @@ after every phase.
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get stopPct
 ```
 Print the `Size Gate` status line; this closes `PRECHECKS`, next comes `IMPLEMENTATION`.
-
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full, implement it completely,
 run the plan's verification with output filtered. A phase touching `docs/<codeLanguage>/…` →
 write the counterparts in every `docLanguages` entry before it goes green, per
@@ -137,13 +140,10 @@ line now — `✅ green` or `❌ red`, each deviation (or the trimmed error) as 
 ## 5. Commit & Push (on green, every phase)
 
 Automatically, right after moving the file to `done/`, even if more phases follow — never
-collected until batch end or a `/clear`. **Never commit/push to `main` automatically** — check
-`git branch --show-current` first. Branch is `main` → create a new branch first: highest existing
-`vX.Y` branch (local + remote, `git branch -a | grep -oE 'v[0-9]+\.[0-9]+' | sort -t. -k1,1V
--k2,2n | tail -1`), increment the digit after the dot (`v0.48` → `v0.49`; none found → start at
-`v0.1`), `git checkout -b v0.<N+1>`, commit and push with `-u origin v0.<N+1>`. Already a
-feature/version branch → commit and push directly (remote branch usually exists, no `-u` needed).
-Print the `Commit` status line — branch and commits pushed, `⚠️` if a new branch was created.
+collected until batch end or a `/clear`. The branch already exists (Step 3b created it or checked
+an existing one out) — commit, message in `codeLanguage`, and push: `-u origin <branch>` on this
+session's first push, a plain `git push` after that. Print the `Commit` status line — branch and
+commits pushed.
 
 ## 6. Context Check After Every Phase
 
@@ -164,7 +164,6 @@ register the repo again (`cfq-registry.sh add "<repo-root>"`). Run
 required language, comments/identifiers/commit messages in `codeLanguage`. A finding → `⚠️` with
 the count, details as `   └ ` lines; nothing found → `✅ no issues`. No repair here — findings
 become `todo/` entries per `references/queues.md`. Print the `Language` status line.
-
 Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-maintenance.sh" due "<repo-root>"` — report only, never
 run, never stamp: `➖ off` · `➖ not due (12 commits)` · `⚠️ due (63 commits) · run /pfq`. Print the
 `Maintenance` status line. Fresh security snapshot, diffed against the planning-time one:
@@ -175,11 +174,14 @@ jq -c '{planning: .security[0].counts, now: .security[-1].counts}' "<batch-dir>/
 ```
 Report only the **difference** — newly appeared findings per severity, no repeat of the overall
 count, no new planning, no automatic fix. Missing planning snapshot (older batch) → skip without
-comment. Print the `POSTCHECKS` header on entering this step, then the `Security Diff` line. Sync
-telemetry and release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release
-"<repo-root>"`), printing `Telemetry`/`Lock`. Render the HTML report (`cfq-report.sh html
-"<repo-root>/.claude/code-for-queue/impl/done/<batch>"`), printing `Report`. Hand the batch to
-Step 8 for the closing report.
+comment. Print the `POSTCHECKS` header on entering this step, then the `Security Diff` line.
+Complete the changelog with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" finish "<repo-root>" "<branch>"
+"<batch-dir>"` — a no-op when `changelogFile` is empty, the script handles that itself; print `Changelog` —
+version and phase count done, or `➖ changelogFile empty`. Sync telemetry and release the lock
+(`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`), printing `Telemetry`/`Lock`.
+Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
+"<repo-root>/.claude/code-for-queue/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
+/rfq renders on demand` and no `file://` line in Step 8. Hand the batch to Step 8 for the closing report.
 
 ## 8. Closing Reports
 
@@ -188,10 +190,9 @@ padding rule — `RESULT` (full) or `HANDOFF` (short). **Full format** — `RESU
 (batch and repo, phases total, green/red split) · `Cost` (turns, tokens, model/effort from
 telemetry, plus planning cost from `.planning` if present) · `Skills` (recommended vs. used, query
 in `references/queues.md`) · `Security` (the difference, one line) · `Merge` (current branch,
-commits ahead of `main` via `git branch --show-current` and `git rev-list --count main..HEAD`,
-ready-to-run command as an indented `   └ ` line, printed not run; also becomes a `todo/` entry
-per `references/queues.md` without asking, so a forgotten merge is never lost) · `Report`
-(`file://` path to the HTML report — the details live there).
+commits ahead of `main`, ready-to-run command as an indented `   └ ` line, printed not run; also a
+`todo/` entry per `references/queues.md` without asking, so a forgotten merge is never lost) ·
+`Report` (`file://` path, only when Step 7 rendered one — else the line is omitted).
 
 **Short format** — `HANDOFF` header, three to four lines: phases done, phases open, the `PCT`
 value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the full format,

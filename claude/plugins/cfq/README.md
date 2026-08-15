@@ -7,16 +7,16 @@ dashboard shows every queue across every repo at a glance.
 ## Installation
 
 ```
-/plugin marketplace add gumbaldi/gumbaclaude
-/plugin install cfq@gumbaclaude
+/plugin marketplace add gumbaldi/magicbox
+/plugin install cfq@magicbox
 ```
 
 Then run `/cfq` once for first-time setup.
 
-Upgrading from a `codeforqueue` marketplace install: the GitHub repo was renamed from
-`gumbaldi/codeforqueue` to `gumbaldi/gumbaclaude` (it now hosts all of gumbaldi's Claude Code
-plugins, not just this one), and the marketplace name changed to match. Remove the old marketplace
-entry and reinstall: `/plugin marketplace remove codeforqueue`, then run the two commands above.
+Upgrading from a `gumbaclaude` marketplace install: the GitHub repo was renamed from
+`gumbaldi/gumbaclaude` to `gumbaldi/magicbox` (it now hosts skills for other AI providers too, not
+just Claude Code plugins), and the marketplace name changed to match. Remove the old marketplace
+entry and reinstall: `/plugin marketplace remove gumbaclaude`, then run the two commands above.
 Settings and the repo registry live in `~/.claude/code-for-queue/` and are kept.
 
 Upgrading from 0.1.x: the plugin itself was also renamed from `code-for-queue` to `cfq` so its skills
@@ -38,9 +38,10 @@ once: `/plugin uninstall code-for-queue`, then install as above.
    only — no code, no commits.
 2. `/clear`, then `/model sonnet`.
 3. `/ifq` to implement, one batch per session, phase by phase. `/ifq` briefs the chosen batch and
-   waits for go-ahead before locking or writing anything. Every green phase is committed
-   and pushed immediately. The session stops and hands off cleanly once the context window gets
-   too full.
+   waits for go-ahead before locking or writing anything, then creates that batch's own branch
+   (unless `branchPerBatch` is off) and records progress in `cfq.changelog.yml` as it goes. Every
+   green phase is committed and pushed immediately. The session stops and hands off cleanly once
+   the context window gets too full.
 
 Never two batches in the same session, even if the first finishes early — different plans
 belong in separate context windows. Only one `ifq` session works a given repo at a time: a
@@ -164,6 +165,9 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
 | `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | how much documentation a repo keeps: `minimal` (README only), `standard`, `full` |
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | commits since the last maintenance run before it is due again; `0` disables maintenance entirely |
+| `branchPerBatch` | — | `true` | `ifq` creates one branch per batch right after the go-ahead |
+| `changelogFile` | — | `cfq.changelog.yml` | path (repo-root-relative) `ifq` records batch progress to; empty disables the changelog |
+| `htmlReport` | — | `false` | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |

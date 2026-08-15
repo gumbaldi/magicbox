@@ -1,8 +1,9 @@
 # Language Rules for Planning
 
-Only read when Step 7 finds a phase that touches documentation. `codeLanguage`, `docLanguages`,
-and `docLevel` were already read in Step 7 — this file only covers the documentation-specific
-consequences.
+The general rule (Step 7): the interview runs in the user's language, everything written runs in
+`codeLanguage`, documentation additionally in `docLanguages`. This file is only read when Step 7
+finds a phase that touches documentation — `codeLanguage`, `docLanguages`, and `docLevel` were
+already read in Step 7, so it only covers the documentation-specific consequences.
 
 - List every language path under "Affected Files": `docs/<codeLanguage>/<path>` plus one
   `docs/<lang>/<path>` per `docLanguages` entry. These additional files count toward the phase's

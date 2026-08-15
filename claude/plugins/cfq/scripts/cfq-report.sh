@@ -106,7 +106,7 @@ case "$cmd" in
       " · Green: " + ([.phases[] | select(.status == "green")] | length | tostring) +
       " · Red: " + ([.phases[] | select(.status == "red")] | length | tostring) + "</p>" +
       (if (.planning // null) != null then
-        "<p class=\"summary\">Planung: " + (.planning.totals.output | tostring) + " out · " +
+        "<p class=\"summary\">Planning: " + (.planning.totals.output | tostring) + " out · " +
         (.planning.totals.turns | tostring) + " Turns · " + (.planning.by_model | keys | join(", ")) +
         " · Implementierung: " + ([.phases[].telemetry.totals.output // 0] | add | tostring) + " out</p>"
        else "" end) +

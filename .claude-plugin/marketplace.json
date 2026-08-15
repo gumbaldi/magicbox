@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "gumbaclaude",
+  "name": "magicbox",
   "description": "gumbaldi's Claude Code plugins.",
   "owner": {
     "name": "gumbaldi",
@@ -10,7 +10,7 @@
     {
       "name": "cfq",
       "description": "code-for-queue (cfq) — plan with an expensive model, implement with a cheap one, phased plans parked in a repo-local queue.",
-      "source": "./plugins/cfq",
+      "source": "./claude/plugins/cfq",
       "category": "productivity"
     }
   ]

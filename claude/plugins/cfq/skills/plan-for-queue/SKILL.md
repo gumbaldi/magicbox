@@ -110,9 +110,9 @@ Proceed only once the user says no; if something comes up, work it in and ask ag
 Entering this step closes `INTERVIEW`, opens `PLANNING`; the confirmation dialogue stays prose.
 Read once per session: `cfq-settings.sh get codeLanguage`, `docLanguages`, `docLevel`.
 `codeLanguage` governs everything a phase specifies without exception — code, comments, commit
-messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/`. A phase touching
-documentation → read `references/language.md` and follow it. Print the `Language` status line
-once read.
+messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own output
+too: plan files, `## Decisions`, the batch directory name. A phase touching documentation → read
+`references/language.md` and follow it. Print the `Language` status line once read.
 
 Propose a split and get it confirmed — one phase = one self-testable, individually committable
 unit; three honest phases beat seven artificial ones. For each phase, estimate **Size** `S`/`M`/`L`
@@ -149,8 +149,9 @@ parked before this is asked. Print the `Priority` status line once answered.
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 - Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
-- Batch directory `<repo-root>/.claude/code-for-queue/impl/<YYYY-MM-DD>-<topic-slug>/`;
-  `NN-<slug>.md` per phase, numbered ascending; `.priority` with the Step 9 value, nothing else.
+- Batch directory `<repo-root>/.claude/code-for-queue/impl/<YYYY-MM-DD>-<topic-slug>/` (slug in `codeLanguage`,
+  lowercase, hyphen-separated, ASCII only — no umlauts, it becomes a git branch name); `NN-<slug>.md` per
+  phase, numbered ascending; `.priority` with the Step 9 value, nothing else.
 - Step 5 concluded a dependency → write `.dependsOn`, one batch name per line; no dependency →
   don't create the file.
 - Ensure `**/.claude/code-for-queue/` is in `<repo-root>/.git/info/exclude` (local only, never the

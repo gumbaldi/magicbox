@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), eleven bash scripts
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), twelve bash scripts
 (`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
 other than `bash` and `jq` (every script hard-fails without jq).
 
@@ -16,25 +16,26 @@ loaded only on the path that actually needs them, not by every session.
 ## Commands
 
 ```bash
-bash plugins/cfq/tests/test-settings.sh      # cfq-settings.sh merge/precedence, prints PASS
-bash plugins/cfq/tests/test-scan.sh          # builds temp repos, asserts scan JSON, prints PASS
-bash plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh append/summary/html, prints PASS
-bash plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
-bash plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
-bash plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
+bash claude/plugins/cfq/tests/test-settings.sh      # cfq-settings.sh merge/precedence, prints PASS
+bash claude/plugins/cfq/tests/test-scan.sh          # builds temp repos, asserts scan JSON, prints PASS
+bash claude/plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh append/summary/html, prints PASS
+bash claude/plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
+bash claude/plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
+bash claude/plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
+bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/finish, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
 
 ```bash
-HOME=$(mktemp -d) bash plugins/cfq/scripts/cfq-settings.sh list
-HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture bash plugins/cfq/scripts/cfq-scan.sh | jq .
-bash plugins/cfq/scripts/ctx-usage.sh        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
+HOME=$(mktemp -d) bash claude/plugins/cfq/scripts/cfq-settings.sh list
+HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture bash claude/plugins/cfq/scripts/cfq-scan.sh | jq .
+bash claude/plugins/cfq/scripts/ctx-usage.sh        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
 ```
 
 Skills call scripts as `"${CLAUDE_PLUGIN_ROOT}/scripts/<x>.sh"` — that variable only exists in an
-installed-plugin session, so use relative paths (`plugins/cfq/scripts/...`) when testing from a checkout.
+installed-plugin session, so use relative paths (`claude/plugins/cfq/scripts/...`) when testing from a checkout.
 
 ## Architecture
 
@@ -96,8 +97,10 @@ that adding a field which happens to carry free text fails the test on purpose, 
 
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
   `description`/`prompt`. Change one, change both.
-- Skill prose is English; every SKILL.md opens with "Always answer in the user's language", and the
-  parked plan files in `.claude/code-for-queue/` are German. Match the language of the file you edit.
+- Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
+  interview is the only part that runs in the user's language. Everything written into a repo (plan
+  files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
+  documentation additionally `docLanguages`.
 - **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
   identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
@@ -122,14 +125,16 @@ that adding a field which happens to carry free text fails the test on purpose, 
   names with. Distribution is via the GitHub marketplace, which tracks this repo's default branch
   (`main`) — nothing reaches an installed plugin until the change is merged into `main`, not merely
   pushed to a feature branch.
-- `.claude-plugin/plugin.json` is plugin-local (lives in `plugins/cfq/.claude-plugin/`); the repo-level
+- `.claude-plugin/plugin.json` is plugin-local (lives in `claude/plugins/cfq/.claude-plugin/`); the repo-level
   `.claude-plugin/marketplace.json` lives at the repo root and lists this plugin with
-  `"source": "./plugins/cfq"`.
+  `"source": "./claude/plugins/cfq"`.
 
 ## Self-hosting quirk
 
 This repo drives its own development through its own queue: `<repo-root>/.claude/code-for-queue/` holds
 the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root (target repos
-use `.git/info/exclude` instead). The queue lives in the **repo root**, not inside `plugins/cfq/` — it
+use `.git/info/exclude` instead). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
-against the repo root and, per the skill, branch to `v0.<N+1>` rather than committing to `main`.
+against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
+to `v<N>-<slug>` per batch and record progress in `cfq.changelog.yml` (`cfq-changelog.sh`) rather
+than committing to `main` directly.

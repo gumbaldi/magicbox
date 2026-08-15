@@ -21,6 +21,9 @@ defaults='{
   "docLanguages": [],
   "docLevel": "minimal",
   "maintenanceEvery": 50,
+  "branchPerBatch": true,
+  "changelogFile": "cfq.changelog.yml",
+  "htmlReport": false,
   "planBlockedPlugins": ["superpowers"],
   "implBlockedPlugins": ["superpowers"],
   "telemetrySyncRepo": "",
@@ -102,7 +105,7 @@ case "$cmd" in
       exit 1
     fi
     case "$key" in
-      allowAnyModel|useMattpocockGrilling|usePonytailAudit|setupDone)
+      allowAnyModel|useMattpocockGrilling|usePonytailAudit|setupDone|branchPerBatch|htmlReport)
         case "$val" in
           true|false) jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write ;;
           *) echo "cfq-settings.sh: '$key' must be true or false" >&2; exit 1 ;;

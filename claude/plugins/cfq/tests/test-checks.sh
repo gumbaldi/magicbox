@@ -129,9 +129,28 @@ EOF
 
 out=$(bash "$lint_sh" "$clean") && rc=0 || rc=$?
 [ "$rc" = "0" ] || { echo "FAIL: clean batch (dangling depends only) should exit 0, got $rc"; exit 1; }
-printf '%s\n' "$out" | grep -q '^OK 1 Phasen$' || { echo "FAIL: clean batch summary line missing/wrong: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q '^OK 1 phases$' || { echo "FAIL: clean batch summary line missing/wrong: $out"; exit 1; }
 printf '%s\n' "$out" | grep -q '^warn: .*: depends: gibtsnicht does not exist$' \
   || { echo "FAIL: clean batch missing depends warning: $out"; exit 1; }
+
+# --- English "(new)" marker: same stale-new rule as the German "(neu)" alias ---
+newmarker="$qdir/2026-01-03-newmarker"
+mkdir -p "$newmarker"
+cat >"$newmarker/01-a.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$target\` (new)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+if out=$(bash "$lint_sh" "$newmarker" 2>&1); then
+  echo "FAIL: English (new) marker on an existing path should fail lint"; exit 1
+fi
+printf '%s\n' "$out" | grep -q ': stale-new:' \
+  || { echo "FAIL: English (new) marker did not fire stale-new: $out"; exit 1; }
 
 # ============================================================ cfq-security.sh ========
 

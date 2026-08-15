@@ -114,4 +114,36 @@ got=$(HOME="$home" CFQ_DOC_LEVEL=full bash "$settings_sh" get docLevel)
 got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
 [ "$got" = "null" ] || { echo "FAIL: ponytailAuditEvery still present, got '$got'"; exit 1; }
 
+# 8. branchPerBatch, changelogFile, htmlReport: defaults, boolean validation, arbitrary string
+list=$(HOME="$home" bash "$settings_sh" list)
+[ "$(jq -r '.branchPerBatch' <<<"$list")" = "true" ] \
+  || { echo "FAIL: default branchPerBatch = $(jq -r '.branchPerBatch' <<<"$list"), want true"; exit 1; }
+[ "$(jq -r '.changelogFile' <<<"$list")" = "cfq.changelog.yml" ] \
+  || { echo "FAIL: default changelogFile = $(jq -r '.changelogFile' <<<"$list"), want cfq.changelog.yml"; exit 1; }
+[ "$(jq -r '.htmlReport' <<<"$list")" = "false" ] \
+  || { echo "FAIL: default htmlReport = $(jq -r '.htmlReport' <<<"$list"), want false"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set branchPerBatch nope 2>/dev/null; then
+  echo "FAIL: set branchPerBatch nope should fail"; exit 1
+fi
+if HOME="$home" bash "$settings_sh" set htmlReport nope 2>/dev/null; then
+  echo "FAIL: set htmlReport nope should fail"; exit 1
+fi
+
+HOME="$home" bash "$settings_sh" set branchPerBatch false
+got=$(HOME="$home" bash "$settings_sh" get branchPerBatch)
+[ "$got" = "false" ] || { echo "FAIL: set branchPerBatch false -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set htmlReport true
+got=$(HOME="$home" bash "$settings_sh" get htmlReport)
+[ "$got" = "true" ] || { echo "FAIL: set htmlReport true -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set changelogFile my.changelog.yml
+got=$(HOME="$home" bash "$settings_sh" get changelogFile)
+[ "$got" = "my.changelog.yml" ] || { echo "FAIL: set changelogFile -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set changelogFile ""
+got=$(HOME="$home" bash "$settings_sh" get changelogFile)
+[ "$got" = "" ] || { echo "FAIL: set changelogFile empty -> got '$got'"; exit 1; }
+
 echo PASS
