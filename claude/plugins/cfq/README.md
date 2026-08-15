@@ -164,6 +164,9 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
 | `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | how much documentation a repo keeps: `minimal` (README only), `standard`, `full` |
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | commits since the last maintenance run before it is due again; `0` disables maintenance entirely |
+| `branchPerBatch` | — | `true` | `ifq` creates one branch per batch right after the go-ahead |
+| `changelogFile` | — | `cfq.changelog.yml` | path (repo-root-relative) `ifq` records batch progress to; empty disables the changelog |
+| `htmlReport` | — | `false` | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
 | `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
