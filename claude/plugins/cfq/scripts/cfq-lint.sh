@@ -45,7 +45,7 @@ while IFS= read -r f; do
     case "$path" in
       /*)
         case "$line" in
-          *'(neu)'*)
+          *'(neu)'*|*'(new)'*)
             [ -e "$path" ] && findings+=("$name: stale-new: $path already exists")
             ;;
           *)
@@ -105,7 +105,7 @@ for line in "${warn_findings[@]:-}"; do
 done
 
 if [ "${#findings[@]}" -eq 0 ]; then
-  echo "OK $n Phasen"
+  echo "OK $n phases"
   exit 0
 fi
 exit 1

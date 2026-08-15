@@ -96,8 +96,10 @@ that adding a field which happens to carry free text fails the test on purpose, 
 
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
   `description`/`prompt`. Change one, change both.
-- Skill prose is English; every SKILL.md opens with "Always answer in the user's language", and the
-  parked plan files in `.claude/code-for-queue/` are German. Match the language of the file you edit.
+- Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
+  interview is the only part that runs in the user's language. Everything written into a repo (plan
+  files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
+  documentation additionally `docLanguages`.
 - **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
   identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
