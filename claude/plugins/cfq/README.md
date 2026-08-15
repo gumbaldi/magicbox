@@ -7,16 +7,16 @@ dashboard shows every queue across every repo at a glance.
 ## Installation
 
 ```
-/plugin marketplace add gumbaldi/gumbaclaude
-/plugin install cfq@gumbaclaude
+/plugin marketplace add gumbaldi/magicbox
+/plugin install cfq@magicbox
 ```
 
 Then run `/cfq` once for first-time setup.
 
-Upgrading from a `codeforqueue` marketplace install: the GitHub repo was renamed from
-`gumbaldi/codeforqueue` to `gumbaldi/gumbaclaude` (it now hosts all of gumbaldi's Claude Code
-plugins, not just this one), and the marketplace name changed to match. Remove the old marketplace
-entry and reinstall: `/plugin marketplace remove codeforqueue`, then run the two commands above.
+Upgrading from a `gumbaclaude` marketplace install: the GitHub repo was renamed from
+`gumbaldi/gumbaclaude` to `gumbaldi/magicbox` (it now hosts skills for other AI providers too, not
+just Claude Code plugins), and the marketplace name changed to match. Remove the old marketplace
+entry and reinstall: `/plugin marketplace remove gumbaclaude`, then run the two commands above.
 Settings and the repo registry live in `~/.claude/code-for-queue/` and are kept.
 
 Upgrading from 0.1.x: the plugin itself was also renamed from `code-for-queue` to `cfq` so its skills

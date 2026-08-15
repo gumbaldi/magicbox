@@ -48,7 +48,7 @@ Rules:
 | Section | Step | Label | Example detail |
 |---|---|---|---|
 | PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report (only exists since v0.2)` |
-| PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: codeforqueue → detail view` |
+| PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: magicbox → detail view` |
 | POSTCHECKS | 3 | `HTML` | `rendered · file:///…` |
 
 ## 1. Collect
@@ -78,7 +78,7 @@ matters, unlike the dashboard):
 
 | Repo | Batch | Phases | ✓ | ✗ | Dev. | Date | Cost | Plan |
 |---|---|---|---|---|---|---|---|---|
-| codeforqueue | 2026-08-13-cfq-v02 | 6 | 5 | 1 | 2 | 2026-08-14 | 67k | 12k |
+| magicbox | 2026-08-13-cfq-v02 | 6 | 5 | 1 | 2 | 2026-08-14 | 67k | 12k |
 
 **Cost** (field 7) and **Plan** (field 8) are output tokens, rounded to whole thousands with no
 decimal (`67k`). Batches without telemetry (reports have existed since v0.2, telemetry only since
