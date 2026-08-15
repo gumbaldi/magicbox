@@ -38,9 +38,10 @@ once: `/plugin uninstall code-for-queue`, then install as above.
    only — no code, no commits.
 2. `/clear`, then `/model sonnet`.
 3. `/ifq` to implement, one batch per session, phase by phase. `/ifq` briefs the chosen batch and
-   waits for go-ahead before locking or writing anything. Every green phase is committed
-   and pushed immediately. The session stops and hands off cleanly once the context window gets
-   too full.
+   waits for go-ahead before locking or writing anything, then creates that batch's own branch
+   (unless `branchPerBatch` is off) and records progress in `cfq.changelog.yml` as it goes. Every
+   green phase is committed and pushed immediately. The session stops and hands off cleanly once
+   the context window gets too full.
 
 Never two batches in the same session, even if the first finishes early — different plans
 belong in separate context windows. Only one `ifq` session works a given repo at a time: a

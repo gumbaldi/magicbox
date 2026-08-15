@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), eleven bash scripts
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), twelve bash scripts
 (`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
 other than `bash` and `jq` (every script hard-fails without jq).
 
@@ -22,6 +22,7 @@ bash claude/plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh ap
 bash claude/plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
 bash claude/plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
 bash claude/plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
+bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/finish, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
@@ -134,4 +135,6 @@ This repo drives its own development through its own queue: `<repo-root>/.claude
 the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root (target repos
 use `.git/info/exclude` instead). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
-against the repo root and, per the skill, branch to `v0.<N+1>` rather than committing to `main`.
+against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
+to `v<N>-<slug>` per batch and record progress in `cfq.changelog.yml` (`cfq-changelog.sh`) rather
+than committing to `main` directly.
