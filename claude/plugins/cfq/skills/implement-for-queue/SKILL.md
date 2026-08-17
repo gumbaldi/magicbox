@@ -33,7 +33,7 @@ no commentary around the block.
 |---|---|---|---|
 | PRECHECKS | 1 | `Model Gate` | `sonnet · implModels: sonnet` / on abort `❌ … allowed: sonnet · /model sonnet, then /ifq` |
 | PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
-| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
+| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` / `resumed 2026-08-17-pfq-explore-and-doc-upgrade · 1/4 phases done` |
 | PRECHECKS | 3b | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
 | PRECHECKS | 3b | `Branch` | `v0.11-example-topic on v0.10-previous` / `➖ branchPerBatch off` / `⚠️ existing branch checked out` |
 | PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
@@ -80,6 +80,18 @@ never offered**; if every open batch is blocked, print the wait list (batch → 
 and end, never falling back to a blocked one. `unknownDeps` are shown at selection time with `⚠️`
 and the unresolvable name but don't block (`/cfq` fixes it) — one sentence, no more.
 
+Among the batches that pass the blocked filter above, check `inProgress` (from the same
+`cfq-scan.sh` output already read for `blocked`/`unknownDeps`): **exactly one** → skip the
+`AskUserQuestion` below entirely, select it, print the `Batch` status line as `resumed <name> ·
+<priority> · <done>/<done+open> phases done`, hand it straight to Step 3b. **Zero** → the picker
+below runs unchanged. **More than one** → this violates the one-in-progress-batch-per-repo
+invariant; **stop immediately**, touch nothing, name every in-progress batch found, and say this
+must be resolved via `/cfq` Step C (archive or reprioritize one) before `/ifq` can proceed — never
+silently pick one, never fall through to the picker below. A batch that is both `blocked` and
+`inProgress` is excluded from this check by the blocked filter above (it doesn't reach here) and
+surfaces only through the existing wait-list path — auto-resuming it would restart work whose
+dependency reappeared after the batch was started, so it waits like any other blocked batch.
+
 One `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
 through them in order** (show the computed order) or **Choose a specific plan** (a second
 `AskUserQuestion`, batches as options, label = topic slug, description = priority + open phase
@@ -102,6 +114,9 @@ implementing this batch?":
   Then Step 4.
 - **A different batch** → back to Step 3a's question, with the remaining batches; the declined one isn't
   offered again this session. Nothing left → report and end.
+  Not offered when Step 3a auto-resumed an in-progress batch (no picker ran, and offering one here
+  would let a different batch start while this one stays half-done, recreating the very invariant
+  Step 3a just checked) — the go-ahead question then has only **Start** / **Cancel**.
 - **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.
 
 ## 4. Work Off a Phase
