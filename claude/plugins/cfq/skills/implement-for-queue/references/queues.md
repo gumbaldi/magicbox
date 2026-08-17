@@ -46,19 +46,20 @@ jq -c '{recommended: [.phases[].telemetry.skills_recommended // []] | flatten | 
   "<batch-dir>/report.json"
 ```
 
-## Planungsauftrag (`plan/<YYYY-MM-DD>-<slug>.md`)
+## Planungsauftrag / Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
 
 H1 title, then:
 
-- `## Fund` — what was noticed
-- `## Fundort` — files and locations, absolute paths
-- `## Warum nicht hier` — why it's out of scope for the current phase
-- `## Herkunft` — batch and phase it came from
+- `## Fund` / `## Finding` — what was noticed
+- `## Fundort` / `## Location` — files and locations, absolute paths
+- `## Warum nicht hier` / `## Why Not Here` — why it's out of scope for the current phase
+- `## Herkunft` / `## Origin` — batch and phase it came from
 
-## Nacharbeit (`todo/<YYYY-MM-DD>-<slug>.md`)
+## Nacharbeit / Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 H1 title, one or two sentences describing what to do, optionally a `check: <shell-command>` line
 (exit `0` means done). For the merge case: `check: git branch --merged main | grep -q <branch>`.
-Plus `## Herkunft`, same as above.
+Plus `## Herkunft` / `## Origin`, same as above.
 
-Both formats: filename `<YYYY-MM-DD>-<slug>.md`, written in `codeLanguage`.
+Both formats: filename `<YYYY-MM-DD>-<slug>.md`, written in `codeLanguage` — use the heading
+variant matching that language.
