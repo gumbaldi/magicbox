@@ -1,0 +1,6 @@
+- version: v0.3
+  branch: v0.3-readme-and-workflow-scripts
+  base: main
+  batch: 2026-08-16-readme-and-workflow-scripts
+  started: 2026-08-17
+  status: in-progress
