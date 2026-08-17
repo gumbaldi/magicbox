@@ -41,3 +41,9 @@
     - phase: "04-cfq-readme-hub"
       status: "green"
       summary: "README.md is now a hub: new Guides section linking to docs/{setup,usage,configuration}.md, Configuration section replaced with a short pointer, legacy Language-and-documentation section and the stale preferred-plugins sentence removed."
+- version: v0.5
+  branch: v0.5-cfq-config-overview-german-cleanup
+  base: v0.4-pfq-explore-and-doc-upgrade
+  batch: 2026-08-17-cfq-config-overview-german-cleanup
+  started: 2026-08-17
+  status: in-progress
