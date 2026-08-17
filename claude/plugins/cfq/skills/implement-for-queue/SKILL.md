@@ -156,28 +156,25 @@ commenting on it.
 
 ## 7. Batch Done
 
-No open `*.md` left → move the batch directory to `<repo-root>/.claude/code-for-queue/impl/done/`,
-register the repo again (`cfq-registry.sh add "<repo-root>"`). Run
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lang.sh" "<repo-root>" --changed main`: structural findings
-(`missing`/`stray`/`unfiled`) plus a content read of the same changed files — prose in the
-required language, comments/identifiers/commit messages in `codeLanguage`. A finding → `⚠️` with
-the count, details as `   └ ` lines; nothing found → `✅ no issues`. No repair here — findings
-become `todo/` entries per `references/queues.md`. Print the `Language` status line.
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-maintenance.sh" due "<repo-root>"` — report only, never
-run, never stamp: `➖ off` · `➖ not due (12 commits)` · `⚠️ due (63 commits) · run /pfq`. Print the
-`Maintenance` status line. Fresh security snapshot, diffed against the planning-time one:
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-security.sh" "<repo-root>" > /tmp/cfq-sec-end.json
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security "<batch-dir>" "$(cat /tmp/cfq-sec-end.json)"
-jq -c '{planning: .security[0].counts, now: .security[-1].counts}' "<batch-dir>/report.json"
-```
-Report only the **difference** — newly appeared findings per severity, no repeat of the overall
-count, no new planning, no automatic fix. Missing planning snapshot (older batch) → skip without
-comment. Print the `POSTCHECKS` header on entering this step, then the `Security Diff` line.
-Complete the changelog with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" finish "<repo-root>" "<branch>"
-"<batch-dir>"` — a no-op when `changelogFile` is empty, the script handles that itself; print `Changelog` —
-version and phase count done, or `➖ changelogFile empty`. Sync telemetry and release the lock
-(`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`), printing `Telemetry`/`Lock`.
+No open `*.md` left → print the `POSTCHECKS` header, then run
+`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-finish.sh" "<repo-root>" "<batch-dir>" "<branch>"`, which moves
+the batch into `impl/done/`, registers the repo, runs the language/maintenance/security/changelog/
+telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
+never leave the repo locked), and prints one JSON object. Render its fields:
+- `Language`: `.lang.issues` from the JSON is the structural count (`missing`/`stray`/`unfiled`);
+  separately read the same changed files for prose in the required language and
+  comments/identifiers/commit messages in `codeLanguage` — that judgment isn't scriptable. Either
+  source finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
+  issues`. No repair here — every finding becomes a `todo/` entry per `references/queues.md`.
+- `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
+  run /pfq`.
+- `Security Diff` from `.security.new` — the difference only, no repeat of the overall count, no
+  new planning, no automatic fix; an empty `.security` block (older batch, no planning snapshot)
+  → skip without comment.
+- `Changelog` from `.changelog` as-is.
+- `Telemetry` from `.telemetry`, `Lock` from `.lock`.
+- Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
+
 Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
 "<repo-root>/.claude/code-for-queue/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
 /rfq renders on demand` and no `file://` line in Step 8. Hand the batch to Step 8 for the closing report.

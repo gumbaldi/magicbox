@@ -64,7 +64,7 @@ rm "$home/.claude/code-for-queue/settings.json"
 
 # --- a branch ahead of main appears in candidates, base is null ---
 git -C "$repo" checkout -q -b v0.50-ahead
-git -C "$repo" commit --allow-empty -q -m ahead
+git -C "$repo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m ahead
 git -C "$repo" checkout -q main
 out=$(run "2026-01-02-newtopic")
 [ "$(jq -r '.mode' <<<"$out")" = "new" ] || { echo "FAIL: candidates-case mode -> $out"; exit 1; }
