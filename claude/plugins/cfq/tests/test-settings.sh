@@ -146,4 +146,15 @@ HOME="$home" bash "$settings_sh" set changelogFile ""
 got=$(HOME="$home" bash "$settings_sh" get changelogFile)
 [ "$got" = "" ] || { echo "FAIL: set changelogFile empty -> got '$got'"; exit 1; }
 
+# 9. planExploreModel: default, set, env override
+got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
+[ "$got" = "haiku" ] || { echo "FAIL: default planExploreModel = '$got', want haiku"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set planExploreModel opus
+got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
+[ "$got" = "opus" ] || { echo "FAIL: set planExploreModel opus -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get planExploreModel)
+[ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
+
 echo PASS

@@ -12,6 +12,7 @@ defaults='{
   "grillMode": "stepwise",
   "planModels": ["opus", "fable"],
   "implModels": ["sonnet"],
+  "planExploreModel": "haiku",
   "allowAnyModel": false,
   "stopPct": 40,
   "scanRoots": ["~/git"],
@@ -54,6 +55,7 @@ with_overrides() {
   jq \
     --arg planModels "${CFQ_PLAN_MODELS:-}" \
     --arg implModels "${CFQ_IMPL_MODELS:-}" \
+    --arg planExploreModel "${CFQ_PLAN_EXPLORE_MODEL:-}" \
     --arg allowAnyModel "${CFQ_ALLOW_ANY_MODEL:-}" \
     --arg stopPct "${CFQ_STOP_PCT:-}" \
     --arg scanRoots "${CFQ_SCAN_ROOTS:-}" \
@@ -68,6 +70,7 @@ with_overrides() {
     '
     if $planModels != "" then .planModels = ($planModels | split(",")) else . end
     | if $implModels != "" then .implModels = ($implModels | split(",")) else . end
+    | if $planExploreModel != "" then .planExploreModel = $planExploreModel else . end
     | if $allowAnyModel != "" then .allowAnyModel = ($allowAnyModel == "1") else . end
     | if $stopPct != "" then .stopPct = ($stopPct | tonumber) else . end
     | if $scanRoots != "" then .scanRoots = ($scanRoots | split(":")) else . end

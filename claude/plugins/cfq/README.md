@@ -244,6 +244,7 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | models allowed to plan |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement |
+| `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | model pfq's research subagents run on |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model gates |
 | `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |

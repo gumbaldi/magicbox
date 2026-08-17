@@ -21,3 +21,9 @@
     - phase: "05-script-finish"
       status: "green"
       summary: "Added cfq-finish.sh (move to done/, register, lang/maintenance/security-diff/changelog/telemetry, unconditional lock release via trap) and tests/test-finish.sh (happy path, injected changelog-write failure, changelogFile empty, missing planning snapshot). Rewired implement-for-queue SKILL.md Step 7. Bumped CLAUDE.md script count to sixteen and plugin.json to 0.7.0."
+- version: v0.4
+  branch: v0.4-pfq-explore-and-doc-upgrade
+  base: v0.3-readme-and-workflow-scripts
+  batch: 2026-08-17-pfq-explore-and-doc-upgrade
+  started: 2026-08-17
+  status: in-progress
