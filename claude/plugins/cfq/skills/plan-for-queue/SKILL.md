@@ -33,6 +33,7 @@ no commentary around the block.
 
 | Section | Step | Label | Example detail |
 |---|---|---|---|
+| INTERVIEW | 1 | `Model Check` | `opus · planModels: opus,fable` / `⚠️ sonnet not in planModels: opus,fable` / `➖ allowAnyModel` |
 | INTERVIEW | 1 | `Interview Depth` | `Quick` / `Grilling` / `Grilling + Docs` |
 | INTERVIEW | 3 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
 | INTERVIEW | 5 | `Queue Check` | `➖ no open batches` / `⚠️ overlap with <batch>: <n> files` |
@@ -51,14 +52,24 @@ The Step 8 security snapshot is written only after parking; it's covered by the 
 
 ## Step 0 — Inbox
 
-List `"<repo-root>/.claude/code-for-queue/plan"/*.md`. Existing orders are offered as topics
-(filename plus first line); the user picks one or declines. The chosen order file moves to
-`plan/done/` once parked. No orders → skip silently, no status line, no mention.
+List `"<repo-root>/.claude/code-for-queue/plan"/*.md`, sorted by filename ascending (the
+`<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). No entries → skip silently, no status
+line, no mention. One or more entries → read `references/plan-inbox.md` and follow it.
 
 ## Step 1 — Interview Depth (unconditional, always, before anything else)
 
-Print the `INTERVIEW` header on entering. Ask this before anything else, every time, even for a
-small task or a familiar codebase — never skip, never infer. One `AskUserQuestion` with three
+Print the `INTERVIEW` header on entering, then check the running model:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planModels
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get allowAnyModel
+```
+`allowAnyModel: true` → skip, `Model Check` is `➖ allowAnyModel`. Otherwise substring-match the
+running model (from the system prompt) against `planModels`, like `ifq`'s gate — no match → warn
+naming the model and the list, and continue; this never blocks, unlike `ifq`. Print `Model Check`
+either way.
+
+Ask this before anything else, every time, even for a small task or a familiar codebase — never
+skip, never infer. One `AskUserQuestion` with three
 options, the recommendation derived from scope (components touched, how unclear the requirement
 is, how far consequences reach) and justified in the option text — don't always mark the same one:
 
@@ -77,6 +88,12 @@ On **Thorough** or **Grilling with docs**, read `references/grilling.md` and fol
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not.
+
+For research spanning multiple files or unclear scope, delegate to Explore agents instead of
+reading everything inline — one for a narrow, known area, up to three in parallel for broad scope,
+each with a specific focus. Run them on
+`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel` (default `haiku`), not this
+session's own model — research is delegatable, the planning model is the expensive part.
 
 ## Step 3 — Plugin Boundaries
 
