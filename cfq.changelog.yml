@@ -1,0 +1,23 @@
+- version: v0.3
+  branch: v0.3-readme-and-workflow-scripts
+  base: main
+  batch: 2026-08-16-readme-and-workflow-scripts
+  started: 2026-08-17
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-grilling-batched-rounds"
+      status: "green"
+      summary: "Batched AskUserQuestion rounds (up to 4) replace one-question-per-round in grilling.md; added preview guidance; fixed classic-branch justification and credits footer; fixed a leftover contradiction on line 58 (\"next single question\" -> \"next round\")."
+    - phase: "02-readme-features-modules"
+      status: "green"
+      summary: "Reworked README.md: overview+workflow diagram, four-commands table with full sentences, per-skill subsections with ifq sequence diagram, three-queues section with dataflow diagram, new Batch lifecycle section with state diagram; kept Installation, Configuration, Language/docs, Optional dependencies, Credits, MIT line. All 4 mermaid blocks rendered without error via mermaid-cli."
+    - phase: "03-script-brief-park"
+      status: "green"
+      summary: "Added cfq-brief.sh (moves the briefing awk block out of queues.md) and cfq-park.sh (mkdir/.priority/.dependsOn/git-exclude/registry as one idempotent call), rewired queues.md and plan-for-queue SKILL.md Step 10 to call them, added tests/test-brief-park.sh. All tests PASS, SKILL.md now 199 lines (was 200)."
+    - phase: "04-script-branch"
+      status: "green"
+      summary: "Added cfq-branch.sh (mode off/continue/new, version arithmetic with the lexical-sort fix, base candidates as JSON), rewired queues.md and implement-for-queue SKILL.md Step 3b to call it. Added tests/test-branch.sh covering all modes and the v0.9/v0.10 sort trap. SKILL.md now 199 lines."
+    - phase: "05-script-finish"
+      status: "green"
+      summary: "Added cfq-finish.sh (move to done/, register, lang/maintenance/security-diff/changelog/telemetry, unconditional lock release via trap) and tests/test-finish.sh (happy path, injected changelog-write failure, changelogFile empty, missing planning snapshot). Rewired implement-for-queue SKILL.md Step 7. Bumped CLAUDE.md script count to sixteen and plugin.json to 0.7.0."

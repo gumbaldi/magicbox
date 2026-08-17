@@ -149,13 +149,12 @@ parked before this is asked. Print the `Priority` status line once answered.
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 - Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
-- Batch directory `<repo-root>/.claude/code-for-queue/impl/<YYYY-MM-DD>-<topic-slug>/` (slug in `codeLanguage`,
-  lowercase, hyphen-separated, ASCII only — no umlauts, it becomes a git branch name); `NN-<slug>.md` per
-  phase, numbered ascending; `.priority` with the Step 9 value, nothing else.
-- Step 5 concluded a dependency → write `.dependsOn`, one batch name per line; no dependency →
-  don't create the file.
-- Ensure `**/.claude/code-for-queue/` is in `<repo-root>/.git/info/exclude` (local only, never the
-  versioned `.gitignore`), then `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" add "<repo-root>"`.
+- Batch directory name `<YYYY-MM-DD>-<topic-slug>` (slug in `codeLanguage`, lowercase, hyphen-separated,
+  ASCII only — no umlauts, it becomes a git branch name); write `NN-<slug>.md` per phase into it, numbered
+  ascending.
+- `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-park.sh" "<repo-root>" "<batch-dir-name>" "<priority>"
+  [<dependsOn-entry>...]` creates the directory, writes `.priority`/`.dependsOn` (Step 5's dependency, if
+  any), ensures the local git-exclude entry, and registers the repo — idempotent, safe to re-run.
 - Grilling path: write decisions as a `## Decisions` table into the **first** phase file, no
   separate ADR directory.
 

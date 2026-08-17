@@ -9,8 +9,8 @@ mode switch:
 ```
 
 - `grillMode = classic` **and** `useMattpocockGrilling = true` **and** the skill
-  `mattpocock-skills:grilling` is available → call that skill and follow it. It saves context
-  because it asks the whole frontier per round.
+  `mattpocock-skills:grilling` is available → call that skill and follow it, using its own round
+  format.
 - Otherwise (default) → the step-by-step procedure below. If `classic` is configured but the
   plugin isn't available, fall back to the step-by-step procedure without fuss, and mention it
   once.
@@ -21,19 +21,31 @@ Interview the user until you reach a shared understanding. Map the work as a **d
 every decision branches into the decisions that hang off it. The **frontier** is every decision
 whose prerequisites are already settled.
 
-Work the frontier **one question per round**. Never two questions in one round, even when they
-look independent — the user asked for it this way.
+Work the frontier **in rounds of up to 4 questions**, passed in a single `AskUserQuestion` call.
+Claude Code presents them to the user one after another, so the user still decides one question at
+a time; batching saves the agent a full think-and-turn cycle per question, not the user's
+attention. **Hard constraint:** only batch questions whose prerequisites are already settled and
+which are mutually independent. A question whose meaning depends on another question's answer in
+the same round is not on the frontier yet — it goes into the next round. This is the frontier
+definition applied literally, and it is the one thing batching must not break. Fewer than 4 ready
+questions is normal and fine; never pad a round to fill it.
 
 Each round:
-1. State the question in prose first: what is being decided, what makes it non-obvious, what
-   the trade-off is. Two or three sentences, no essay.
-2. Give your recommendation explicitly, marked with `➡️`, before asking.
-3. Ask it via `AskUserQuestion` with 3–4 options: the recommended one **first**, labelled
-   `(Recommended)`, then the genuine alternatives with their real downsides, and always a final
-   option "I have a follow-up question about this" so the user can dig in instead of deciding.
-   The built-in "Other" entry covers free-text answers.
-4. If the user picks the follow-up option, answer their question and re-ask the same decision
-   afterwards.
+1. State each question in prose first: what is being decided, what makes it non-obvious, what
+   the trade-off is. Two or three sentences each, no essay. For a round of several questions, this
+   prose block covers them in order before the call.
+2. Give your recommendation explicitly, marked with `➡️`, per question, before asking.
+3. Pass the round as one `AskUserQuestion` call, each question with 3–4 options: the recommended
+   one **first**, labelled `(Recommended)`, then the genuine alternatives with their real
+   downsides, and always a final option "I have a follow-up question about this" so the user can
+   dig in instead of deciding. The built-in "Other" entry covers free-text answers.
+4. Any question answered with the follow-up option: answer it, then re-ask that single decision in
+   the next round. The other answers from the round stand.
+
+Where a concrete artifact makes a decision clearer — a layout, a config shape, two competing code
+snippets — attach a `preview` to that option. Previews are single-select only and render as
+monospace. Do not generate them for architecture decisions where they show nothing; they cost
+output tokens without adding information.
 
 Finding **facts** is your job, never the user's. When a question depends on something you could
 look up — a file, a config, an installed tool, a remote — look it up before asking. Never ask
@@ -43,8 +55,8 @@ prerequisite: skip that branch for now and ask a question that is ready instead.
 The **decisions** are the user's. Put each to them and wait.
 
 Each answer reshapes the tree: settled decisions push the frontier outward. Recompute, ask the
-next single question. The session ends when the frontier is empty — then run the closing
-question from step 6 of the skill before writing any plans.
+next round. The session ends when the frontier is empty — then run the closing question from
+step 6 of the skill before writing any plans.
 
 ## With-Docs Path
 
@@ -91,8 +103,8 @@ disk.
 
 Adapted from Matt Pocock's skills (MIT) — <https://github.com/mattpocock/skills>. The design-tree /
 frontier model comes from `grilling`, the glossary-and-ADR discipline from `domain-modeling`, and the
-combination of the two from `grill-with-docs`. cfq's own additions are the one-question-per-round
-format, the select-box protocol, and the fallback that keeps all of it working without the plugin.
+combination of the two from `grill-with-docs`. cfq's own additions are the batched-round format,
+the select-box protocol, and the fallback that keeps all of it working without the plugin.
 
 - Grilling: <https://aihero.dev/skills-grilling>
 - Grill with docs: <https://aihero.dev/skills-grill-with-docs>
