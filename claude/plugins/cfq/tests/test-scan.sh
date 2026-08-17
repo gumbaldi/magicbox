@@ -62,18 +62,18 @@ out=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan")
 
 # Regression: batches without .dependsOn get [] / false / [], never null.
 a=$(jq -c --arg p "$tmp/repo-a" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$a" = '[{"name":"2026-01-01-demo","priority":"high","open":2,"done":1,"archived":false,"report":true,"dependsOn":[],"blocked":false,"unknownDeps":[]}]' ] \
+[ "$a" = '[{"name":"2026-01-01-demo","priority":"high","open":2,"done":1,"archived":false,"report":true,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":true}]' ] \
   || { echo "FAIL: repo-a batches = $a"; exit 1; }
 
 b=$(jq -c --arg p "$tmp/repo-b" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$b" = '[{"name":"2026-01-02-demo","priority":"medium","open":0,"done":2,"archived":true,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[]}]' ] \
+[ "$b" = '[{"name":"2026-01-02-demo","priority":"medium","open":0,"done":2,"archived":true,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":false}]' ] \
   || { echo "FAIL: repo-b batches = $b"; exit 1; }
 
 c=$(jq -c --arg p "$tmp/repo-c" '[.repos[] | select(.path == $p)]' <<<"$out")
 [ "$c" = "[]" ] || { echo "FAIL: repo-c should not appear, got $c"; exit 1; }
 
 d=$(jq -c --arg p "$tmp/repo-d" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$d" = '[{"name":"2026-01-03-legacy","priority":"high","open":1,"done":0,"archived":false,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[]}]' ] \
+[ "$d" = '[{"name":"2026-01-03-legacy","priority":"high","open":1,"done":0,"archived":false,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":false}]' ] \
   || { echo "FAIL: repo-d legacy priority mapping = $d"; exit 1; }
 
 e_blocked=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-blocked") | {blocked, dependsOn}' <<<"$out")

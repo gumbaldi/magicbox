@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The single source of numbers for the dashboard. No arguments needed.
 # Prints one JSON object on stdout: { "repos": [ { "path", "plan", "todo", "batches": [
-#   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps} ] } ] }
+#   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress} ] } ] }
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
@@ -109,10 +109,11 @@ jq -n --rawfile recs "$records" --rawfile cnts "$counts" '
     archived: (.[5] == "true"), report: (.[6] == "true"),
     dependsOn:   (((.[7] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end),
     blocked:     ((.[8] // "false") == "true"),
-    unknownDeps: (((.[9] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end)
+    unknownDeps: (((.[9] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end),
+    inProgress:  ((.[3] | tonumber) > 0 and (.[4] | tonumber) > 0)
   }) | group_by(.path)
      | map({key: .[0].path,
-            value: map({name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps})})
+            value: map({name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress})})
      | from_entries) as $batchmap
   |
   ($cnts | parse_tsv

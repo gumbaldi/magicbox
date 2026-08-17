@@ -61,3 +61,9 @@
     - phase: "04-translate-dashboard-example"
       status: "green"
       summary: ""
+- version: v0.6
+  branch: v0.6-ifq-auto-resume-batch
+  base: v0.5-cfq-config-overview-german-cleanup
+  batch: 2026-08-17-ifq-auto-resume-batch
+  started: 2026-08-17
+  status: in-progress
