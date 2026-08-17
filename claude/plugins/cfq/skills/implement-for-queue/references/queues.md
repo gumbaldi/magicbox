@@ -3,18 +3,7 @@
 ## Batch Briefing Extraction (Step 3b)
 
 ```bash
-cat "<batch-dir>/.priority" 2>/dev/null || echo medium
-cat "<batch-dir>/.dependsOn" 2>/dev/null
-for f in "<batch-dir>"/[0-9]*.md; do
-  awk '
-    /^# / && !t            { sub(/^# +/, ""); t = $0; next }
-    /^## (Größe|Size)/     { g = 1; next }
-    g && NF                { size = $1; g = 0; next }
-    /^## (Kontext|Context)/ { k = 1; next }
-    k && NF                { ctx = ctx $0 " "; if (++n >= 2) k = 0; next }
-    END { printf "%s\t%s\t%s\n", t, (size ? size : "M"), substr(ctx, 1, 220) }
-  ' "$f"
-done
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-brief.sh" "<batch-dir>"
 ```
 
 Present it compactly: batch name, priority, phase count, and `.dependsOn` if the file exists, then
