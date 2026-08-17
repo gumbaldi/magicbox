@@ -53,7 +53,7 @@ Precedence is env var > `settings.json` > default.
 | `planBlockedPlugins` | — | `superpowers` | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `setupDone` | — | `false` | internal marker: first-time setup (`/cfq`) has run |
+| `setupDone` | — | `false` | internal marker: first-time setup (`/cfq`) has run; separately, a repo new to the registry gets a one-time config overview at park time (`pfq` Step 10a) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are the only global-only settings
 worth being conservative with — they also block indirect calls, so set them sparingly.

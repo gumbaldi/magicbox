@@ -44,6 +44,7 @@ no commentary around the block.
 | POSTCHECKS | 10 | `Park` | `5 files · <batch-dir>` |
 | POSTCHECKS | 10 | `Git Exclude` | `already set` / `added` |
 | POSTCHECKS | 10 | `Registry` | `registered` |
+| POSTCHECKS | 10a | `Config` | `➖ known repo` / `⚠️ new repo · reviewed` / `⚠️ new repo · adjusted <n>` |
 | POSTCHECKS | 11 | `Lint` | `OK 5 phases` / `❌ <finding>` (fixed, re-checked) |
 | POSTCHECKS | 12 | `Maintenance` | `➖ off` / `➖ not due (12 commits)` / `3 findings` |
 | POSTCHECKS | 13 | `Telemetry` | `recorded · synced` / `⚠️ sync failed` |
@@ -177,6 +178,17 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 
 Print three status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
 `Git Exclude`, `Registry`.
+
+## Step 10a — New Repo: Config Overview
+
+Determine this **before** Step 10 calls `cfq-park.sh` (which performs the registry `add` as a side
+effect):
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" list | grep -qxF "<repo-root>"
+```
+A match means the repo was already known → skip this step entirely, print `➖ Config          known
+repo` under `POSTCHECKS`, and move straight to Step 11. No match (genuinely new) → read
+`references/config-overview.md` and follow it, then print the `Config` status line.
 
 ## Step 11 — Plan Lint
 
