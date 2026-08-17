@@ -66,4 +66,12 @@
   base: v0.5-cfq-config-overview-german-cleanup
   batch: 2026-08-17-ifq-auto-resume-batch
   started: 2026-08-17
-  status: in-progress
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-scan-in-progress-field"
+      status: "green"
+      summary: ""
+    - phase: "02-step-3a-auto-resume"
+      status: "green"
+      summary: ""
