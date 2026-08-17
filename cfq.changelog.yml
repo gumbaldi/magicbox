@@ -46,4 +46,18 @@
   base: v0.4-pfq-explore-and-doc-upgrade
   batch: 2026-08-17-cfq-config-overview-german-cleanup
   started: 2026-08-17
-  status: in-progress
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-extract-settings-explanations"
+      status: "green"
+      summary: ""
+    - phase: "02-step-10a-new-repo-config-overview"
+      status: "green"
+      summary: ""
+    - phase: "03-bilingual-headings-queues"
+      status: "green"
+      summary: ""
+    - phase: "04-translate-dashboard-example"
+      status: "green"
+      summary: ""
