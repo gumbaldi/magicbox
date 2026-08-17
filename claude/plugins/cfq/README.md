@@ -12,6 +12,14 @@ flowchart LR
   C -->|"context full"| B
 ```
 
+## Guides
+
+- [Setup](docs/setup.md) — install the plugin and run first-time setup
+- [Usage](docs/usage.md) — what each skill does, step by step, with a "how do I…" for every
+  common task
+- [Configuration](docs/configuration.md) — every setting, how to view and change them globally
+  or per repo
+
 ## Installation
 
 ```
@@ -236,55 +244,17 @@ stays a warning line.
 
 ## Configuration
 
-Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by editing
-`~/.claude/code-for-queue/settings.json` directly.
-
-| Key | Env | Default | Meaning |
-|---|---|---|---|
-| `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
-| `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | models allowed to plan |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement |
-| `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | model pfq's research subagents run on |
-| `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model gates |
-| `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
-| `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
-| `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
-| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit — one of several maintenance tasks gated by `maintenanceEvery` |
-| `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | language of everything that is executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
-| `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
-| `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | how much documentation a repo keeps: `minimal` (README only), `standard`, `full` |
-| `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | commits since the last maintenance run before it is due again; `0` disables maintenance entirely |
-| `branchPerBatch` | — | `true` | `ifq` creates one branch per batch right after the go-ahead |
-| `changelogFile` | — | `cfq.changelog.yml` | path (repo-root-relative) `ifq` records batch progress to; empty disables the changelog |
-| `htmlReport` | — | `false` | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
-| `planBlockedPlugins` | — | `superpowers` | **prohibition**: never used while planning |
-| `implBlockedPlugins` | — | `superpowers` | prohibition for implementation |
-| `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `setupDone` | — | `false` | internal marker: first-time setup (`/cfq` Step A) has run |
-
-There's no global "preferred plugins" setting anymore — recommendations now live **per phase** in
-the plan itself, since the planner knows what that specific phase needs. Only the prohibition
-stays global, and it's strict: it should be set sparingly, since it also blocks indirect calls.
-
-The language settings are global but a repo's language is its own: a repo overrides them by
-setting `"env"` in its versioned `<repo>/.claude/settings.json`, so the override travels with the
-repo:
+Precedence: **env var > `settings.json` > default**. Change via `/cfq`, or
+`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set <key> <value>`, or by editing
+`~/.claude/code-for-queue/settings.json` directly. A repo overrides any setting for itself via
+the `env` block in its own `<repo>/.claude/settings.json`:
 
 ```json
 { "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
 ```
 
-## Language and documentation
-
-`codeLanguage` governs everything executable or read as an instruction — code, comments, commit
-messages, `README`, `CLAUDE.md`, `SKILL.md`. `docs/**` is the only multilingual area: each
-additional language in `docLanguages` gets its own tree at `docs/<lang>/…`, mirroring the same
-files. `docLevel` controls how much documentation a repo keeps at all — see the table above.
-Override any of the three per repo via the `env` block shown above.
-
-The documentation standard itself lives in `references/doc-style.md` (page structure, formatting,
-translation rules); a repo overrides it by adding its own `docs/STYLE.md`, which wins whenever it
-exists.
+See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
+the language and documentation-level settings.
 
 ## Optional dependencies
 
