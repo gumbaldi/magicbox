@@ -1,8 +1,16 @@
 # code-for-queue (cfq)
 
-Plan with an expensive model, implement with a cheap one. Phased plans get parked as numbered
-markdown files in a repo-local queue, then worked off one batch per session, phase by phase. A
-dashboard shows every queue across every repo at a glance.
+Plan with an expensive model, implement with a cheap one. Phased plans park as numbered markdown
+files in a repo-local queue and get worked off one batch per session, phase by phase. A dashboard
+shows every queue across every repo at a glance.
+
+```mermaid
+flowchart LR
+  A["/pfq — expensive model<br/>interview, phase plans"] --> B["/clear<br/>/model sonnet"]
+  B --> C["/ifq — cheap model<br/>one batch, phase by phase"]
+  C --> D["/rfq — reports"]
+  C -->|"context full"| B
+```
 
 ## Installation
 
@@ -27,48 +35,59 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 | Command | Long form | Purpose |
 |---|---|---|
-| `/pfq` | `/plan-for-queue` | Interview (quick, thorough, or thorough-with-docs), resolve open questions, park phased plans — no implementation |
-| `/ifq` | `/implement-for-queue` | Work off one batch from the current repo's queue, phase by phase |
-| `/cfq` | `/code-for-queue` | Cross-repo dashboard, repo-local queue management, settings |
-| `/rfq` | `/report-for-queue` | Show implementation reports for finished batches — table and HTML |
+| `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. |
+| `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
+| `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
+| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or a detailed HTML report. |
 
-## The workflow
+## What each skill does
 
-1. `/pfq` in an expensive-model session (default: opus/fable) to plan. Output is plan files
-   only — no code, no commits.
-2. `/clear`, then `/model sonnet`.
-3. `/ifq` to implement, one batch per session, phase by phase. `/ifq` briefs the chosen batch and
-   waits for go-ahead before locking or writing anything, then creates that batch's own branch
-   (unless `branchPerBatch` is off) and records progress in `cfq.changelog.yml` as it goes. Every
-   green phase is committed and pushed immediately. The session stops and hands off cleanly once
-   the context window gets too full.
+### `/pfq`
 
-Never two batches in the same session, even if the first finishes early — different plans
-belong in separate context windows. Only one `ifq` session works a given repo at a time: a
-second one aborts with the name of the holder, unless that session has been silent for 30
-minutes, in which case it's considered dead and taken over.
+Asks for interview depth first (quick / thorough grilling / grilling with docs), reads the code,
+clarifies open points, proposes a phase split, asks for a priority, and parks numbered plan files.
+Never edits code.
 
-## Output
+### `/ifq`
 
-Progress is reported as status lines — one per step, printed as it happens:
+Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
+takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
+green phase immediately, and hands the session off when the context window fills.
 
+Never two batches in the same session, even if the first finishes early — different plans belong
+in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
+aborts with the name of the holder, unless that session has been silent for 30 minutes, in which
+case it's considered dead and taken over.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant I as ifq
+  participant R as Repo
+  I->>I: model gate
+  I->>U: which batch?
+  I->>U: briefing, start?
+  U-->>I: go ahead
+  I->>R: lock, branch
+  loop per phase
+    I->>R: implement, verify
+    I->>R: commit and push
+    I->>I: context check
+  end
+  I->>U: handoff or batch done
 ```
-PRECHECKS
-✅ Model Gate       sonnet · implModels: sonnet
-✅ Batch            2026-08-13-cfq-plugin · medium · 1 open phase
-➖ Failed Attempt   none
-⚠️ Security Diff    unavailable for this repo
 
-IMPLEMENTATION
-✅ P6 livetest      green · 6 deviations
-```
+### `/cfq`
 
-`✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
-detail column.
+First-time setup, the cross-repo dashboard, management of the current repo's queue, and the
+settings.
 
-## Queue layout
+### `/rfq`
 
-Three queues, each with its own reader and writer:
+Read-only: the compact terminal table across all repos, and the detailed HTML report for a single
+batch.
+
+## The three queues
 
 ```
 <repo>/.claude/code-for-queue/
@@ -92,12 +111,81 @@ Three queues, each with its own reader and writer:
   .maintenance           # marker for the periodic maintenance run
 ```
 
+- `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
+- `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
+  the phase it was working; `pfq` offers those as topics at the start of its next session.
+- `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
+  look later: an unmerged branch, a language-drift finding, a check that could not be automated.
+  `ifq` writes them, `/cfq` works them off for the current repo, `/rfq` lists them. An entry may
+  carry a `check: <shell-command>` line — exit 0 means it is done.
+
+```mermaid
+flowchart TB
+  subgraph repo["&lt;repo&gt;/.claude/code-for-queue/"]
+    impl["impl/ — phase-plan batches"]
+    plan["plan/ — planning requests"]
+    todo["todo/ — leftovers"]
+  end
+  subgraph home["~/.claude/code-for-queue/"]
+    reg["repos.json — repo registry"]
+    set["settings.json — settings"]
+  end
+  pfq["/pfq"] -->|writes| impl
+  plan -->|reads| pfq
+  impl -->|reads| ifq["/ifq"]
+  ifq -->|writes| plan
+  ifq -->|writes| todo
+  todo -->|works off| cfq["/cfq"]
+  todo -->|lists| rfq["/rfq"]
+  impl -->|reads| rfq
+  pfq --- reg
+  ifq --- reg
+  cfq --- set
+```
+
 The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
 `.gitignore`, since the queue is local working state, not something to publish.
 
 `.dependsOn` blocks a batch for as long as any batch it names hasn't landed in `done/` yet; a
 name that resolves to neither an open nor a finished batch is deliberately never blocking —
 it's flagged in the dashboard instead.
+
+## Batch lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> Parked: pfq parks the batch
+  Parked --> Blocked: dependsOn not landed
+  Blocked --> Parked: dependency done
+  Parked --> InProgress: ifq locks and branches
+  InProgress --> PhaseGreen: verification passes
+  PhaseGreen --> InProgress: phases left
+  InProgress --> PhaseRed: verification fails
+  PhaseRed --> [*]: session stops, phase stays open
+  PhaseGreen --> Done: no phases left
+  Done --> [*]
+```
+
+A green phase means the plan file moved into the batch's `done/` and the commit is pushed; a
+finished batch means the whole batch directory moved into `impl/done/`.
+
+## Output
+
+Progress is reported as status lines — one per step, printed as it happens:
+
+```
+PRECHECKS
+✅ Model Gate       sonnet · implModels: sonnet
+✅ Batch            2026-08-13-cfq-plugin · medium · 1 open phase
+➖ Failed Attempt   none
+⚠️ Security Diff    unavailable for this repo
+
+IMPLEMENTATION
+✅ P6 livetest      green · 6 deviations
+```
+
+`✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
+detail column.
 
 ## Reports
 
@@ -153,7 +241,7 @@ Precedence: **env var > `settings.json` > default**. Change via `/cfq` or by edi
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
-| `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | `stepwise` = one question per round; `classic` = the whole round at once (needs `mattpocock-skills`) |
+| `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | models allowed to plan |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model gates |
@@ -215,8 +303,8 @@ Everything except classic grill mode and the cleanup audit works fully without e
 
 Adapted from Matt Pocock's skills (MIT) — <https://github.com/mattpocock/skills>. The design-tree /
 frontier model comes from `grilling`, the glossary-and-ADR discipline from `domain-modeling`, and the
-combination of the two from `grill-with-docs`. cfq's own additions are the one-question-per-round
-format, the select-box protocol, and the fallback that keeps all of it working without the plugin.
+combination of the two from `grill-with-docs`. cfq's own additions are the batched-round format,
+the select-box protocol, and the fallback that keeps all of it working without the plugin.
 
 - Grilling: <https://aihero.dev/skills-grilling>
 - Grill with docs: <https://aihero.dev/skills-grill-with-docs>
