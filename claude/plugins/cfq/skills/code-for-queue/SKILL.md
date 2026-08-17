@@ -116,7 +116,7 @@ repo, then within it by priority (`high` > `medium` > `low`), then by batch name
 - No open batches → say so plainly instead of showing an empty table.
 - `cfq-scan.sh` also carries `plan` and `todo` counters per repo. Not two more table columns — the
   table already has seven — but one line per repo with a nonzero counter, right after that repo's
-  batch rows: `magicbox · 2 Planungsaufträge · 1 offene Nacharbeit`. Both `0` → no line at all;
+  batch rows: `magicbox · 2 plan entries · 1 open todo`. Both `0` → no line at all;
   only one of the two counters nonzero → only that clause. If any repo has `plan > 0`, add one
   sentence — once, not per repo — that `/pfq` picks them up. If any repo has `todo > 0`, add one
   sentence — once — pointing to Step C.
