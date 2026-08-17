@@ -26,4 +26,18 @@
   base: v0.3-readme-and-workflow-scripts
   batch: 2026-08-17-pfq-explore-and-doc-upgrade
   started: 2026-08-17
-  status: in-progress
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-plan-explore-model-setting"
+      status: "green"
+      summary: "Added planExploreModel setting (default haiku) to cfq-settings.sh defaults/with_overrides, test-settings.sh section 9, and README settings table row."
+    - phase: "02-pfq-model-check-explore-inbox"
+      status: "green"
+      summary: "Added Model Check (Section Map + Step 1), Explore-agent guidance (Step 2), and reworked plan-inbox (Step 0) to plan-for-queue/SKILL.md, per plan."
+    - phase: "03-cfq-docs-standard-tree"
+      status: "green"
+      summary: "Added .claude/settings.json (CFQ_DOC_LEVEL=standard override) and three new docs pages (setup.md, usage.md, configuration.md) under claude/plugins/cfq/docs/, moved verbatim from the plan."
+    - phase: "04-cfq-readme-hub"
+      status: "green"
+      summary: "README.md is now a hub: new Guides section linking to docs/{setup,usage,configuration}.md, Configuration section replaced with a short pointer, legacy Language-and-documentation section and the stale preferred-plugins sentence removed."
