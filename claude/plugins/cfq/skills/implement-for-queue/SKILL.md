@@ -96,11 +96,10 @@ phase files in full here, that's Step 4's job. Extract the briefing data per
 implementing this batch?":
 - **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
-  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. Unless `branchPerBatch`
-  is `false` (`Branch: ➖ branchPerBatch off`, skip to Step 4): an existing branch for this batch → check
-  it out, `Branch` notes the existing checkout, no version bump, no changelog entry; else determine
-  version/base, `git checkout -b <version>-<slug>`, `cfq-changelog.sh init` (all per
-  `references/queues.md`), `Branch` shows branch and base. Then Step 4.
+  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. Then
+  `cfq-branch.sh plan` decides `off` / `continue` / `new` and, on `new`, `cfq-changelog.sh init`
+  runs too (all per `references/queues.md`); `Branch` renders whichever of the three happened.
+  Then Step 4.
 - **A different batch** → back to Step 3a's question, with the remaining batches; the declined one isn't
   offered again this session. Nothing left → report and end.
 - **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.

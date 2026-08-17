@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), fourteen bash scripts
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), fifteen bash scripts
 (`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
 other than `bash` and `jq` (every script hard-fails without jq).
 
@@ -24,6 +24,7 @@ bash claude/plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/releas
 bash claude/plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
 bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/finish, prints PASS
 bash claude/plugins/cfq/tests/test-brief-park.sh    # cfq-brief.sh + cfq-park.sh, prints PASS
+bash claude/plugins/cfq/tests/test-branch.sh        # cfq-branch.sh mode/version/base, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
