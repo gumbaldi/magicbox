@@ -53,7 +53,11 @@ Behaviour lives in the SKILL.md prose — the scripts only supply numbers and st
 (`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
 `report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
-after every phase and travelling with the batch into `impl/done/`), a `done/` for finished phases
+after every phase and travelling with the batch into `impl/done/`), `.planning` (written by
+`cfq-park.sh` when the batch directory is created, refreshed on every re-park during the same
+`plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch
+younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
+never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `references/queues.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;

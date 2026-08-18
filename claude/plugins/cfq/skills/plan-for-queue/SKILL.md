@@ -195,7 +195,8 @@ repo` under `POSTCHECKS`, and move straight to Step 11. No match (genuinely new)
 Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lint.sh" "<batch-dir>"`. Findings are fixed
 **immediately** and the lint re-run until it's clean — a batch never goes into handoff with open
 lint findings. `warn:` lines (an unresolvable `.dependsOn` edge) are mentioned but don't block.
-Print the `Lint` status line — clean pass, or the fixed finding on re-check.
+Once clean, `rm -f "<batch-dir>/.planning"` — the batch is now complete and consistent, so `/ifq`
+may pick it up. Print the `Lint` status line — clean pass, or the fixed finding on re-check.
 
 ## Step 12 — Maintenance
 

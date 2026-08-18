@@ -80,7 +80,12 @@ never offered**; if every open batch is blocked, print the wait list (batch → 
 and end, never falling back to a blocked one. `unknownDeps` are shown at selection time with `⚠️`
 and the unresolvable name but don't block (`/cfq` fixes it) — one sentence, no more.
 
-Among the batches that pass the blocked filter above, check `inProgress` (from the same
+Same output also carries `planning` — a batch `/pfq` is still writing (marker not yet cleared by
+its lint step). **Batches with `planning: true` are never offered either**, separately from the
+`dependsOn` wait list: "Batch `<name>` is still being planned — try again once `/pfq` finishes."
+one line per such batch, no more.
+
+Among the batches that pass the planning/blocked filters above, check `inProgress` (from the same
 `cfq-scan.sh` output already read for `blocked`/`unknownDeps`): **exactly one** → skip the
 `AskUserQuestion` below entirely, select it, print the `Batch` status line as `resumed <name> ·
 <priority> · <done>/<done+open> phases done`, hand it straight to Step 3b. **Zero** → the picker

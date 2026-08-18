@@ -20,6 +20,10 @@ esac
 
 dir="$repo_root/.claude/code-for-queue/impl/$batch_name"
 mkdir -p "$dir"
+# .planning is written on creation, idempotent (a re-run during the same pfq session refreshes
+# the timestamp as a heartbeat), and removed by plan-for-queue's lint step once the batch is
+# complete — this is what keeps ifq from picking up a batch pfq is still writing.
+date -Iseconds > "$dir/.planning"
 printf '%s\n' "$priority" > "$dir/.priority"
 
 if [ "${#depends[@]}" -gt 0 ]; then
