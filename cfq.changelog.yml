@@ -89,3 +89,9 @@
     - phase: "02-ifq-cost-line"
       status: "green"
       summary: "Extended cfq-report.sh summary with turns/models/efforts fields (9-11), wired implement-for-queue Step 8's Cost line to that call, and fixed the test-report.sh expected TSV string."
+- version: v0.8
+  branch: v0.8-pfq-plan-only-rule
+  base: v0.7-cfq-race-and-cost
+  batch: 2026-08-18-pfq-plan-only-rule
+  started: 2026-08-18
+  status: in-progress
