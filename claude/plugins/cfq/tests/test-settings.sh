@@ -5,6 +5,11 @@ set -eu
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 settings_sh="$repo_root/scripts/cfq-settings.sh"
 
+# This repo's own .claude/settings.json sets CFQ_* env vars for its own dogfooding (e.g.
+# CFQ_DOC_LEVEL) — strip them so default-value assertions below see real defaults, not this
+# repo's config. Assertions that test env overrides still set their own CFQ_* var inline per call.
+for v in "${!CFQ_@}"; do unset "$v"; done
+
 home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 
