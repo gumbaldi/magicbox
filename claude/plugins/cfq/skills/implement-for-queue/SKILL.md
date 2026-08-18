@@ -194,9 +194,11 @@ the batch into `impl/done/`, registers the repo, runs the language/maintenance/s
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
 never leave the repo locked), and prints one JSON object. Render its fields:
 - `Language`: `.lang.issues` from the JSON is the structural count (`missing`/`stray`/`unfiled`);
-  separately read the same changed files for prose in the required language and
-  comments/identifiers/commit messages in `codeLanguage` — that judgment isn't scriptable. Either
-  source finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
+  judge `.lang.prose.sample` for prose, comments, identifiers and commit messages not in
+  `codeLanguage` — any language, never hardcode one to look for. `.lang.prose.truncated: true`
+  means the sample is exactly that, a sample, so the status line says so (`⚠️ 2 issues ·
+  sampled`); an empty sample (no git repo, unknown ref) is `➖`, not a finding. Either source
+  finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
   issues`. No repair here — every finding becomes a `todo/` entry per `references/queues.md`.
 - `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
   run /pfq`.

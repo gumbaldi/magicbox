@@ -319,4 +319,51 @@ after=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
 
 rm -rf "$mainthome"
 
+# ============================================================ cfq-lang.sh prose mode =
+
+prosehome=$(mktemp -d)
+proserepo="$tmp/proserepo"; mkdir -p "$proserepo"; git init -q "$proserepo"
+printf 'line one\nline two\n' >"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "base commit"
+base_ref=$(git -C "$proserepo" rev-parse HEAD)
+
+sed -i '1d' "$proserepo/f.txt"
+echo "added line" >>"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "small change with added line"
+
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$proserepo" "$base_ref")
+printf '%s' "$out" | jq -e '.truncated == false' >/dev/null \
+  || { echo "FAIL: small commit should not be truncated: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "added line" \
+  || { echo "FAIL: added line missing from sample: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "line one" \
+  && { echo "FAIL: removed line leaked into sample: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "small change with added line" \
+  || { echo "FAIL: commit message missing from sample: $out"; exit 1; }
+
+small_ref=$(git -C "$proserepo" rev-parse HEAD)
+for i in $(seq 1 400); do echo "padding line number $i to blow the cap with some extra filler text"; done >>"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "big change"
+
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$proserepo" "$small_ref")
+printf '%s' "$out" | jq -e '.truncated == true' >/dev/null \
+  || { echo "FAIL: big commit should be truncated: $out"; exit 1; }
+sample_bytes=$(printf '%s' "$(printf '%s' "$out" | jq -r '.sample')" | wc -c | tr -d ' ')
+[ "$sample_bytes" -le 8192 ] || { echo "FAIL: sample exceeds byte cap: $sample_bytes"; exit 1; }
+
+nogitdir="$tmp/nogitdir"; mkdir -p "$nogitdir"
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$nogitdir" HEAD) && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: prose on non-git dir should exit 0, got $rc"; exit 1; }
+printf '%s' "$out" | jq -e '.sample == "" and (.note | length) > 0' >/dev/null \
+  || { echo "FAIL: non-git prose output wrong: $out"; exit 1; }
+
+out=$(HOME="$prosehome" bash "$lang_sh" "$proserepo")
+printf '%s' "$out" | jq -e '(keys | sort) == (["codeLanguage","docLanguages","docLevel","missing","note","scope","stray","unfiled"] | sort)' >/dev/null \
+  || { echo "FAIL: unchanged invocation key set changed: $out"; exit 1; }
+
+rm -rf "$prosehome"
+
 echo PASS
