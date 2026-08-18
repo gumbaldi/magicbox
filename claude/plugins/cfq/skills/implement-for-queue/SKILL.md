@@ -33,7 +33,7 @@ no commentary around the block.
 |---|---|---|---|
 | PRECHECKS | 1 | `Model Gate` | `sonnet · implModels: sonnet` / on abort `❌ … allowed: sonnet · /model sonnet, then /ifq` |
 | PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
-| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` / `resumed 2026-08-17-pfq-explore-and-doc-upgrade · 1/4 phases done` |
+| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · 1 open phase` / `resumed 2026-08-17-pfq-explore-and-doc-upgrade · 1/4 phases done` |
 | PRECHECKS | 3b | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
 | PRECHECKS | 3b | `Branch` | `v0.11-example-topic on v0.10-previous` / `➖ branchPerBatch off` / `⚠️ existing branch checked out` |
 | PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
@@ -73,9 +73,9 @@ recommendations on this list are ignored. Print the `Plugin Boundaries` status l
 Repo root via `git rev-parse --show-toplevel`; no git repo → abort, report, end. Check
 `<repo-root>/.claude/code-for-queue/impl/` for open batches (directories beneath it, excluding
 `done/`, with at least one top-level `*.md`); none → report "No open plans for this repo in the
-queue.", end. Read `.priority` per batch (missing → `medium`); default order: priority first
-(`high` > `medium` > `low`), then folder name ascending (date-prefixed; oldest first, ties broken
-by name). `cfq-scan.sh`'s output carries `blocked`/`unknownDeps` per batch — **blocked batches are
+queue.", end. Read `.priority` per batch (missing → not flagged); default order: flagged batches
+first, then folder name ascending (date-prefixed; oldest first, ties broken by name). `cfq-scan.sh`'s
+output carries `blocked`/`unknownDeps` per batch — **blocked batches are
 never offered**; if every open batch is blocked, print the wait list (batch → waiting on batch)
 and end, never falling back to a blocked one. `unknownDeps` are shown at selection time with `⚠️`
 and the unresolvable name but don't block (`/cfq` fixes it) — one sentence, no more.
@@ -88,7 +88,8 @@ one line per such batch, no more.
 Among the batches that pass the planning/blocked filters above, check `inProgress` (from the same
 `cfq-scan.sh` output already read for `blocked`/`unknownDeps`): **exactly one** → skip the
 `AskUserQuestion` below entirely, select it, print the `Batch` status line as `resumed <name> ·
-<priority> · <done>/<done+open> phases done`, hand it straight to Step 3b. **Zero** → the picker
+<done>/<done+open> phases done` (prefix with `high · ` when the batch is flagged), hand it
+straight to Step 3b. **Zero** → the picker
 below runs unchanged. **More than one** → this violates the one-in-progress-batch-per-repo
 invariant; **stop immediately**, touch nothing, name every in-progress batch found, and say this
 must be resolved via `/cfq` Step C (archive or reprioritize one) before `/ifq` can proceed — never
@@ -99,8 +100,9 @@ dependency reappeared after the batch was started, so it waits like any other bl
 
 One `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
 through them in order** (show the computed order) or **Choose a specific plan** (a second
-`AskUserQuestion`, batches as options, label = topic slug, description = priority + open phase
-count + date). Set the chosen batch (or the first, for "in order") and hand it to Step 3b — **do
+`AskUserQuestion`, batches as options, label = topic slug, description = open phase count + date,
+prefixed with `high · ` only when the batch is flagged). Set the chosen batch (or the first, for
+"in order") and hand it to Step 3b — **do
 not acquire the lock yet**. Print the `Batch` status line once chosen; both questions stay prose.
 **Never two batches in the same session**, not even once the first finishes and context is still
 free — different plans, even from the same repo, belong in separate context windows.

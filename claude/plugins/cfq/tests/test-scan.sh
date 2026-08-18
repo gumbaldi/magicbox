@@ -24,11 +24,6 @@ touch "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/01-a.md" \
 # repo-c: no .claude/code-for-queue/impl/ at all — must not show up
 mkdir -p "$tmp/repo-c"
 
-# repo-d: legacy German priority — must be mapped to the English value
-mkdir -p "$tmp/repo-d/.claude/code-for-queue/impl/2026-01-03-legacy"
-echo hoch >"$tmp/repo-d/.claude/code-for-queue/impl/2026-01-03-legacy/.priority"
-touch "$tmp/repo-d/.claude/code-for-queue/impl/2026-01-03-legacy/01-a.md"
-
 # repo-a has a report.json — must not affect phase counts, only the report flag
 echo '{"repo":"x","batch":"2026-01-01-demo","started":"t","phases":[]}' \
   >"$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/report.json"
@@ -75,15 +70,11 @@ a=$(jq -c --arg p "$tmp/repo-a" '[.repos[] | select(.path == $p)][0].batches' <<
   || { echo "FAIL: repo-a batches = $a"; exit 1; }
 
 b=$(jq -c --arg p "$tmp/repo-b" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$b" = '[{"name":"2026-01-02-demo","priority":"medium","open":0,"done":2,"archived":true,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":false,"planning":false}]' ] \
-  || { echo "FAIL: repo-b batches = $b"; exit 1; }
+[ "$b" = '[{"name":"2026-01-02-demo","priority":"","open":0,"done":2,"archived":true,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":false,"planning":false}]' ] \
+  || { echo "FAIL: repo-b batches (unflagged -> empty priority) = $b"; exit 1; }
 
 c=$(jq -c --arg p "$tmp/repo-c" '[.repos[] | select(.path == $p)]' <<<"$out")
 [ "$c" = "[]" ] || { echo "FAIL: repo-c should not appear, got $c"; exit 1; }
-
-d=$(jq -c --arg p "$tmp/repo-d" '[.repos[] | select(.path == $p)][0].batches' <<<"$out")
-[ "$d" = '[{"name":"2026-01-03-legacy","priority":"high","open":1,"done":0,"archived":false,"report":false,"dependsOn":[],"blocked":false,"unknownDeps":[],"inProgress":false,"planning":false}]' ] \
-  || { echo "FAIL: repo-d legacy priority mapping = $d"; exit 1; }
 
 e_blocked=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-blocked") | {blocked, dependsOn}' <<<"$out")
 [ "$e_blocked" = '{"blocked":true,"dependsOn":["target-open"]}' ] \

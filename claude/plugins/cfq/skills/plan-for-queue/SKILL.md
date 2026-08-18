@@ -43,7 +43,6 @@ no commentary around the block.
 | PLANNING | 7 | `Language` | `en · docs: de · level standard` / `➖ minimal` |
 | PLANNING | 7 | `Phases` | `5 phases · 2 M, 3 S` |
 | PLANNING | 8 | `Security` | `3 low, 1 medium` / `⚠️ unavailable: <hint>` / `➖ no findings` |
-| PLANNING | 9 | `Priority` | `high` |
 | POSTCHECKS | 10 | `Park` | `5 files · <batch-dir>` |
 | POSTCHECKS | 10 | `Git Exclude` | `already set` / `added` |
 | POSTCHECKS | 10 | `Registry` | `registered` |
@@ -143,8 +142,10 @@ file as a `## Size` heading (structural markers are always English, independent 
 `codeLanguage`) with the letter alone on the next non-empty line — this is what `cfq-brief.sh` and `ifq`'s size gate
 parse; a missing or malformed heading silently degrades to `M`. Also add optional **Recommended
 skills** (only where it helps, half-sentence reason each, never from `implBlockedPlugins`; no
-recommendation is the normal case). Print the `Phases` status line once confirmed — phase count
-and size mix.
+recommendation is the normal case). Same confirmation also asks whether this batch should be
+flagged high priority — flagged batches are picked first by `ifq`'s automatic ordering and marked
+in the `/cfq` dashboard; not flagging is the normal case and needs no answer. Print the `Phases`
+status line once confirmed — phase count and size mix.
 
 ## Step 8 — Security Check
 
@@ -161,14 +162,6 @@ with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security "<batch-dir>" "$(ca
 /tmp/cfq-sec.json)"` so `ifq` can diff it later. Print the `Security` status line — count per
 severity, or `➖ no findings`.
 
-## Step 9 — Priority (unconditional, always)
-
-Ask this for every batch, every time, even a two-phase batch or an obvious urgency — never skip,
-never infer, never fold into another question. One `AskUserQuestion` with `low`/`medium`/`high`;
-`medium` is the default, but derive it honestly — a hotfix batch is `high`, say so in the option
-text rather than reflexively picking `medium`. Written to `.priority` in Step 10; nothing is
-parked before this is asked. Print the `Priority` status line once answered.
-
 ## Step 10 — Park
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
@@ -176,9 +169,10 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 - Batch directory name `<YYYY-MM-DD>-<topic-slug>` (slug in `codeLanguage`, lowercase, hyphen-separated,
   ASCII only — no umlauts, it becomes a git branch name); write `NN-<slug>.md` per phase into it, numbered
   ascending.
-- `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-park.sh" "<repo-root>" "<batch-dir-name>" "<priority>"
+- `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-park.sh" "<repo-root>" "<batch-dir-name>" "<high|normal>"
   [<dependsOn-entry>...]` creates the directory, writes `.priority`/`.dependsOn` (Step 5's dependency, if
-  any), ensures the local git-exclude entry, and registers the repo — idempotent, safe to re-run.
+  any; `.priority` only when Step 7's flag answer was high), ensures the local git-exclude entry, and
+  registers the repo — idempotent, safe to re-run.
 - Grilling path: write decisions as a `## Decisions` table into the **first** phase file, no
   separate ADR directory.
 
@@ -219,7 +213,8 @@ line in the final report, not a comment. Print the `Telemetry` status line.
 ## Step 14 — Final Report
 
 A `RESULT` header, then a label/value list under the `Output Format` padding rule: `Batch`
-(absolute path) · `Phases` (in order, each with its size) · `Priority` (Step 9's value) ·
+(absolute path) · `Phases` (in order, each with its size) · `Priority` (only when Step 7's flag
+answer was high, omit the line entirely otherwise) ·
 `Waiting on` (the `.dependsOn` edge and its reason, omit the line entirely when there is none) ·
 `Cost` (interview depth, turns, tokens, model, effort) · `Security` (count, "unavailable"+hint, or
 "no findings") · `Handoff` (`/clear` → `/model <first implModels>` → `/ifq`).

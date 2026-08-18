@@ -8,13 +8,17 @@ dir="${dir%/}"
 [ -d "$dir" ] || { echo "cfq-brief.sh: no such batch directory: $dir" >&2; exit 1; }
 
 name="$(basename "$dir")"
-priority=$(cat "$dir/.priority" 2>/dev/null || echo medium)
+priority=$(cat "$dir/.priority" 2>/dev/null || true)
 
 shopt -s nullglob
 files=("$dir"/[0-9][0-9]-*.md)
 shopt -u nullglob
 
-printf '%s  priority=%s  phases=%s\n' "$name" "$priority" "${#files[@]}"
+if [ "$priority" = high ]; then
+  printf '%s  priority=high  phases=%s\n' "$name" "${#files[@]}"
+else
+  printf '%s  phases=%s\n' "$name" "${#files[@]}"
+fi
 
 if [ -f "$dir/.dependsOn" ]; then
   while IFS= read -r d; do

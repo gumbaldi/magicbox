@@ -126,7 +126,8 @@ x
 x
 EOF
 
-# no .priority file -> priority violation
+# invalid .priority value -> priority violation (a missing file is now the normal, unflagged case)
+echo medium >"$dirty/.priority"
 
 if out=$(bash "$lint_sh" "$dirty" 2>&1); then
   echo "FAIL: dirty batch should exit non-zero"; exit 1
@@ -191,6 +192,8 @@ if out=$(bash "$lint_sh" "$newmarker" 2>&1); then
 fi
 printf '%s\n' "$out" | grep -q ': stale-new:' \
   || { echo "FAIL: English (new) marker did not fire stale-new: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q ': priority:' \
+  && { echo "FAIL: batch without .priority should not fire priority: $out"; exit 1; }
 
 # ============================================================ cfq-security.sh ========
 

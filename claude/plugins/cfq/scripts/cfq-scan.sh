@@ -33,16 +33,10 @@ done
 
 trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 
-# Legacy queues wrote German priorities; map them so old batches keep sorting.
 read_priority() {
-  local p="medium"
-  [ -f "$1/.priority" ] && p=$(trim "$1/.priority")
-  case "$p" in
-    niedrig) echo low ;;
-    mittel)  echo medium ;;
-    hoch)    echo high ;;
-    *)       echo "$p" ;;
-  esac
+  [ -f "$1/.priority" ] || return 0
+  local p; p=$(trim "$1/.priority")
+  [ "$p" = high ] && echo high
 }
 
 read_deps() {

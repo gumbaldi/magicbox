@@ -50,7 +50,8 @@ Behaviour lives in the SKILL.md prose — the scripts only supply numbers and st
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/code-for-queue/`:
 `impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
-(`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks this batch
+(optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
+(optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
 `report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
 after every phase and travelling with the batch into `impl/done/`), `.planning` (written by

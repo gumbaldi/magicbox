@@ -21,8 +21,8 @@ edits code.
    ADRs for hard-to-reverse decisions).
 4. Reads the code — for anything spanning multiple files, it delegates to Explore subagents
    running on `planExploreModel` rather than reading everything in the main session.
-5. Clarifies open points, proposes a phase split, checks for security findings, asks for a
-   priority.
+5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
+   high-priority flag (optional — not flagging is the normal case).
 6. Parks the batch as numbered phase files under `.claude/code-for-queue/impl/<date>-<topic>/`.
 
 Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
@@ -42,7 +42,7 @@ green phase.
 1. Gates on the model — **aborts** if the running model isn't in `implModels` (unless
    `allowAnyModel` is set); this is the one hard gate in cfq, everywhere else a mismatch only
    warns.
-2. Picks a batch: work through the open ones in priority order, or choose a specific one. Skips
+2. Picks a batch: work through the open ones flagged-first, or choose a specific one. Skips
    any batch still blocked by `.dependsOn`.
 3. Shows the batch briefing and asks for a go-ahead before touching anything — no lock is taken
    before that.

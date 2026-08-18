@@ -17,5 +17,5 @@ resulting path set against the files the new work will touch.
   `.dependsOn` on that batch · deliberately parallel (note that whichever batch runs first will
   change the file) · fold into the existing batch instead of creating a new one.
 
-Name the outcome explicitly in Step 9's priority question — a batch waiting on another is rarely
-`high`.
+A batch waiting on another is rarely worth flagging high — say so when offering the flag in
+Step 7.

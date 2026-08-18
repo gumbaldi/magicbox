@@ -48,6 +48,18 @@ printf '%s\n' "$out" | grep -q '^01  Complete phase  \[S\]  First context line. 
 printf '%s\n' "$out" | grep -q '^02  Incomplete phase  \[M\]' \
   || { echo "FAIL: incomplete phase should default to [M]: $out"; exit 1; }
 
+# unflagged batch (no .priority file): header line omits the priority clause entirely
+unflagged="$tmp/2026-01-03-unflagged"
+mkdir -p "$unflagged"
+cat > "$unflagged/01-a.md" <<'EOF'
+# A phase
+
+## Affected Files
+EOF
+out=$(bash "$brief_sh" "$unflagged")
+printf '%s\n' "$out" | grep -qx '2026-01-03-unflagged  phases=1' \
+  || { echo "FAIL: unflagged header line wrong: $out"; exit 1; }
+
 # ============================================================ cfq-park.sh ============
 
 parkhome=$(mktemp -d)
@@ -66,10 +78,17 @@ grep -qxF '**/.claude/code-for-queue/' "$parkrepo/.git/info/exclude" \
 grep -q "$parkrepo" "$parkhome/.claude/code-for-queue/repos.json" \
   || { echo "FAIL: repo not registered"; exit 1; }
 
-# no dependsOn entries -> no file
-d2=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-02-nodeps" medium)
+# no dependsOn entries -> no file; normal priority -> no .priority file either
+d2=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-02-nodeps" normal)
 [ ! -e "$parkrepo/.claude/code-for-queue/impl/2026-01-02-nodeps/.dependsOn" ] \
   || { echo "FAIL: .dependsOn should not exist when no entries were passed"; exit 1; }
+[ ! -e "$parkrepo/.claude/code-for-queue/impl/2026-01-02-nodeps/.priority" ] \
+  || { echo "FAIL: .priority should not exist for normal priority"; exit 1; }
+
+# re-park an existing high batch as normal: .priority must be removed, not left stale
+d1normal=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-01-test" normal)
+[ "$d1" = "$d1normal" ] || { echo "FAIL: re-park printed a different dir"; exit 1; }
+[ ! -e "$batchdir/.priority" ] || { echo "FAIL: re-park to normal should remove .priority"; exit 1; }
 
 # re-run with the same arguments: idempotent, no duplicate exclude line
 before=$(cat "$parkrepo/.git/info/exclude")

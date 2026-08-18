@@ -53,8 +53,7 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 ### `/pfq`
 
 Asks for interview depth first (quick / thorough grilling / grilling with docs), reads the code,
-clarifies open points, proposes a phase split, asks for a priority, and parks numbered plan files.
-Never edits code.
+clarifies open points, proposes a phase split, and parks numbered plan files. Never edits code.
 
 ### `/ifq`
 
@@ -103,7 +102,7 @@ batch.
     <YYYY-MM-DD>-<topic>/
       01-first-phase.md
       02-second-phase.md
-      .priority          # low | medium | high
+      .priority          # optional, contains "high"
       .dependsOn         # optional: one batch directory name per line
       report.json        # written by ifq, includes telemetry
       done/              # finished phases
@@ -184,7 +183,7 @@ Progress is reported as status lines — one per step, printed as it happens:
 ```
 PRECHECKS
 ✅ Model Gate       sonnet · implModels: sonnet
-✅ Batch            2026-08-13-cfq-plugin · medium · 1 open phase
+✅ Batch            2026-08-13-cfq-plugin · 1 open phase
 ➖ Failed Attempt   none
 ⚠️ Security Diff    unavailable for this repo
 
@@ -226,7 +225,7 @@ cfq only collects this data — it doesn't analyze it.
 
 ## Security
 
-`pfq` checks before the priority question, `ifq` checks again at the end of the batch. The forge
+`pfq` checks in Step 8, `ifq` checks again at the end of the batch. The forge
 is detected from the origin remote; both common CLIs are supported:
 
 | Forge | CLI | Source |

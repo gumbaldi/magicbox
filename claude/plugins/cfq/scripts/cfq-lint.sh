@@ -75,15 +75,10 @@ for cur in $(printf '%s\n' "$nums" | sort -u); do
   expected=$((expected + 1))
 done
 
-# priority
+# priority — a missing .priority is now correct (the normal, unflagged case)
 if [ -f "$dir/.priority" ]; then
   p=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$dir/.priority")
-  case "$p" in
-    low|medium|high) : ;;
-    *) findings+=("$batch_name: priority: .priority is '$p', want low|medium|high") ;;
-  esac
-else
-  findings+=("$batch_name: priority: .priority is missing")
+  [ "$p" = high ] || findings+=("$batch_name: priority: .priority is '$p', want high or no file")
 fi
 
 # depends (warn-only, never affects the exit code)
