@@ -212,14 +212,14 @@ line in the final report, not a comment. Print the `Telemetry` status line.
 
 ## Step 14 — Final Report
 
-A `RESULT` header, then a label/value list under the `Output Format` padding rule: `Batch`
+A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule: `Batch`
 (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when Step 7's flag
 answer was high, omit the line entirely otherwise) ·
 `Waiting on` (the `.dependsOn` edge and its reason, omit the line entirely when there is none) ·
 `Cost` (interview depth, turns, tokens, model, effort) · `Security` (count, "unavailable"+hint, or
 "no findings") · `Handoff` (`/clear` → `/model <first implModels>` → `/ifq`).
 
-If a cleanup batch came out of Step 12, print a second `RESULT` block the same way, noting it can
+If a cleanup batch came out of Step 12, print a second `RESULT · plan-for-queue` block the same way, noting it can
 be worked off independently — no repetition of the plan contents, that's what the files are for.
 
 ## Phase File Structure
