@@ -23,92 +23,106 @@ target="$tmp/existing-target"; touch "$target"
 
 # 01-a: correct — all headings, one existing absolute path, no issues
 cat >"$dirty/01-a.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
-# 02-b: sections violation — missing the Verifikation/Verification heading
+# 02-b: sections violation — missing the Verification heading
 cat >"$dirty/02-b.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
-## Änderungen
+## Affected Files
+## Changes
 x
 EOF
 
 # 03-c: abspath violation — relative path (existence is not checked for a non-absolute path)
 cat >"$dirty/03-c.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`relative/path.sh\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
 # 04-d: missing violation — absolute path, marked "(ändern)", does not exist
 cat >"$dirty/04-d.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$tmp/does-not-exist.sh\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
-# 05-e: stale-new violation — marked "(neu)" but the path already exists
+# 05-e: stale-new violation — marked "(new)" but the path already exists
 cat >"$dirty/05-e.md" <<EOF
+## Size
+M
+## Context
+x
+## Affected Files
+- \`$target\` (new)
+## Changes
+x
+## Verification
+x
+EOF
+
+# 08-g: sections violation — missing the Size heading
+cat >"$dirty/08-g.md" <<EOF
+## Context
+x
+## Affected Files
+- \`$target\` (ändern)
+## Changes
+x
+## Verification
+x
+EOF
+
+# 09-h: sections violation — the old German "Größe" heading no longer counts as Size
+cat >"$dirty/09-h.md" <<EOF
 ## Größe
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
-- \`$target\` (neu)
-## Änderungen
-x
-## Verifikation
-x
-EOF
-
-# 08-g: sections violation — missing the Größe/Size heading
-cat >"$dirty/08-g.md" <<EOF
-## Kontext
-x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
 # done/07-f: numbering gap (06 is skipped). Deliberately full of content violations too, to prove
 # done/ phases are excluded from sections/abspath/missing/stale-new — only numbering must fire.
 cat >"$dirty/done/07-f.md" <<EOF
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`relative/also-bad.sh\` (ändern)
 - \`$tmp/also-does-not-exist.sh\` (ändern)
-## Änderungen
+## Changes
 x
 EOF
 
@@ -123,7 +137,7 @@ assert_once() {
   n=$(printf '%s\n' "$out" | grep -c ": $rule:") || true
   [ "$n" = "$want" ] || { printf 'FAIL: rule %s fired %s times, want %s. Output:\n%s\n' "$rule" "$n" "$want" "$out"; exit 1; }
 }
-assert_once sections 2
+assert_once sections 3
 assert_once numbering
 assert_once abspath
 assert_once missing
@@ -139,15 +153,15 @@ mkdir -p "$clean"
 echo high >"$clean/.priority"
 echo gibtsnicht >"$clean/.dependsOn"
 cat >"$clean/01-a.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
@@ -157,19 +171,19 @@ printf '%s\n' "$out" | grep -q '^OK 1 phases$' || { echo "FAIL: clean batch summ
 printf '%s\n' "$out" | grep -q '^warn: .*: depends: gibtsnicht does not exist$' \
   || { echo "FAIL: clean batch missing depends warning: $out"; exit 1; }
 
-# --- English "(new)" marker: same stale-new rule as the German "(neu)" alias ---
+# --- "(new)" marker on an existing path fires stale-new ---
 newmarker="$qdir/2026-01-03-newmarker"
 mkdir -p "$newmarker"
 cat >"$newmarker/01-a.md" <<EOF
-## Größe
+## Size
 M
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (new)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 if out=$(bash "$lint_sh" "$newmarker" 2>&1); then

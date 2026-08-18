@@ -10,7 +10,7 @@ dir="${dir%/}"
 batch_name="$(basename "$dir")"
 
 # Content rules (sections/abspath/missing/stale-new) only make sense pre-implementation, so they
-# scan open phases only — a done phase's "(neu)" markers are stale by definition once the phase
+# scan open phases only — a done phase's "(new)" markers are stale by definition once the phase
 # that created those files has been implemented. numbering is a structural, whole-batch
 # invariant and always considers open + done together.
 open_files=$(find "$dir" -maxdepth 1 -name '[0-9][0-9]-*.md' -type f 2>/dev/null | sort)
@@ -22,23 +22,23 @@ findings=()
 warn_findings=()
 
 has_heading() {
-  # $1 = file, $2 = German heading, $3 = English heading
-  grep -qE "^## (${2}|${3})([[:space:]]|\$)" "$1"
+  # $1 = file, $2 = heading
+  grep -qE "^## ${2}([[:space:]]|\$)" "$1"
 }
 
 extract_files_section() {
-  sed -n '/^## \(Betroffene Dateien\|Affected Files\)/,/^## /p' "$1"
+  sed -n '/^## Affected Files/,/^## /p' "$1"
 }
 
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   name="$(basename "$f")"
 
-  has_heading "$f" "Kontext" "Context"                  || findings+=("$name: sections: missing Kontext/Context heading")
-  has_heading "$f" "Betroffene Dateien" "Affected Files" || findings+=("$name: sections: missing Betroffene Dateien/Affected Files heading")
-  has_heading "$f" "Änderungen" "Changes"                || findings+=("$name: sections: missing Änderungen/Changes heading")
-  has_heading "$f" "Verifikation" "Verification"         || findings+=("$name: sections: missing Verifikation/Verification heading")
-  has_heading "$f" "Größe" "Size"                        || findings+=("$name: sections: missing Größe/Size heading")
+  has_heading "$f" "Context"        || findings+=("$name: sections: missing Context heading")
+  has_heading "$f" "Affected Files" || findings+=("$name: sections: missing Affected Files heading")
+  has_heading "$f" "Changes"        || findings+=("$name: sections: missing Changes heading")
+  has_heading "$f" "Verification"   || findings+=("$name: sections: missing Verification heading")
+  has_heading "$f" "Size"           || findings+=("$name: sections: missing Size heading")
 
   while IFS= read -r line; do
     path=$(printf '%s' "$line" | sed -n 's/^- `\([^`]*\)`.*/\1/p')
@@ -46,7 +46,7 @@ while IFS= read -r f; do
     case "$path" in
       /*)
         case "$line" in
-          *'(neu)'*|*'(new)'*)
+          *'(new)'*)
             [ -e "$path" ] && findings+=("$name: stale-new: $path already exists")
             ;;
           *)

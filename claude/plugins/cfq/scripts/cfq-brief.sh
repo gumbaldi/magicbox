@@ -26,9 +26,9 @@ for f in "${files[@]}"; do
   num=$(basename "$f" | sed -n 's/^\([0-9][0-9]\)-.*/\1/p')
   awk -v num="$num" '
     /^# / && !t            { sub(/^# +/, ""); t = $0; next }
-    /^## (Größe|Size)/     { g = 1; next }
+    /^## Size/             { g = 1; next }
     g && NF                { size = $1; g = 0; next }
-    /^## (Kontext|Context)/ { k = 1; next }
+    /^## Context/          { k = 1; next }
     k && NF                { ctx = ctx $0 " "; if (++n >= 2) k = 0; next }
     END { printf "%s  %s  [%s]  %s\n", num, t, (size ? size : "M"), substr(ctx, 1, 220) }
   ' "$f"

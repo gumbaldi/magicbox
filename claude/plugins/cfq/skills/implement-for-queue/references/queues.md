@@ -8,8 +8,8 @@
 
 Present it compactly: batch name, priority, phase count, and `.dependsOn` if the file exists, then
 one line per phase — number and title, size in brackets, the context excerpt. No prose around it,
-no repetition of the plan, no commentary on the phases. A phase file without `## Größe`/`## Size`
-counts as `M`; one without `## Kontext`/`## Context` shows its title alone — an incomplete plan is
+no repetition of the plan, no commentary on the phases. A phase file without `## Size`
+counts as `M`; one without `## Context` shows its title alone — an incomplete plan is
 worth showing, not worth aborting over.
 
 ## Branch and Changelog on Go-Ahead (Step 3b)
@@ -46,20 +46,20 @@ jq -c '{recommended: [.phases[].telemetry.skills_recommended // []] | flatten | 
   "<batch-dir>/report.json"
 ```
 
-## Planungsauftrag / Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
+## Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
 
 H1 title, then:
 
-- `## Fund` / `## Finding` — what was noticed
-- `## Fundort` / `## Location` — files and locations, absolute paths
-- `## Warum nicht hier` / `## Why Not Here` — why it's out of scope for the current phase
-- `## Herkunft` / `## Origin` — batch and phase it came from
+- `## Finding` — what was noticed
+- `## Location` — files and locations, absolute paths
+- `## Why Not Here` — why it's out of scope for the current phase
+- `## Origin` — batch and phase it came from
 
-## Nacharbeit / Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
+## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 H1 title, one or two sentences describing what to do, optionally a `check: <shell-command>` line
 (exit `0` means done). For the merge case: `check: git branch --merged main | grep -q <branch>`.
-Plus `## Herkunft` / `## Origin`, same as above.
+Plus `## Origin`, same as above.
 
-Both formats: filename `<YYYY-MM-DD>-<slug>.md`, written in `codeLanguage` — use the heading
-variant matching that language.
+Both formats: filename `<YYYY-MM-DD>-<slug>.md`. The headings are always English; only the prose
+inside them follows `codeLanguage`.

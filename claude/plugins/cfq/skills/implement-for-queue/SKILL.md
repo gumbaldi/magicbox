@@ -132,7 +132,7 @@ select(.phase == $p and .status == "red")] | last // empty' "<batch-dir>/report.
 read its `errors`/`summary`, check whether the cause still holds before repeating, and mention it
 in the new entry ("second attempt after …"); no hit → skip silently. Print the `Failed Attempt`
 status line either way.
-**(4b) Size gate.** A `## Size`/`## Größe` of `L`, with context already above **half** the
+**(4b) Size gate.** A `## Size` of `L`, with context already above **half** the
 `stopPct` threshold → don't start, hand off cleanly (Step 6) instead. `S`/`M` always start, a
 missing size counts as `M`; at `stopPct: 0` the gate doesn't apply since a handoff already happens
 after every phase.

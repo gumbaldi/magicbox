@@ -139,8 +139,8 @@ Propose a split and get it confirmed — one phase = one self-testable, individu
 unit; three honest phases beat seven artificial ones. For each phase, estimate **Size** `S`/`M`/`L`
 (`S` one file and one test, `M` several files or a new script, `L` a new script **with** a new
 test or a skill rework — steers whether `ifq` even starts a phase) and write it into that phase's
-file as a `## Size`/`## Größe` heading (same language pairing as the other required headings) with
-the letter alone on the next non-empty line — this is what `cfq-brief.sh` and `ifq`'s size gate
+file as a `## Size` heading (structural markers are always English, independent of
+`codeLanguage`) with the letter alone on the next non-empty line — this is what `cfq-brief.sh` and `ifq`'s size gate
 parse; a missing or malformed heading silently degrades to `M`. Also add optional **Recommended
 skills** (only where it helps, half-sentence reason each, never from `implBlockedPlugins`; no
 recommendation is the normal case). Print the `Phases` status line once confirmed — phase count
