@@ -116,4 +116,21 @@
   base: v0.9-cfq-size-heading-gate
   batch: 2026-08-18-cfq-lean-english-and-prio
   started: 2026-08-18
-  status: in-progress
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-english-only-markers"
+      status: "green"
+      summary: "Removed the German half of every bilingual structural marker (Größe/Kontext/Betroffene Dateien/Änderungen/Verifikation/(neu)) from cfq-lint.sh, cfq-brief.sh, queue-check.md, queues.md, and both SKILL.md files; test-checks.sh fixtures rewritten to English headings with a new negative fixture proving the German heading is now rejected."
+    - phase: "02-priority-high-flag"
+      status: "green"
+      summary: "Priority collapsed from mandatory low/medium/high to an optional high flag: .priority now exists only when flagged. Updated cfq-park.sh, cfq-lint.sh, cfq-scan.sh, cfq-brief.sh, both SKILL.md files plus queue-check.md, code-for-queue SKILL.md dashboard table/Step C, README/docs/CLAUDE.md, and the three affected test files."
+    - phase: "03-skip-picker-and-report-headers"
+      status: "green"
+      summary: "ifq Step 3a now skips the AskUserQuestion picker when exactly one batch survives the planning/blocked filters, with matching Start/Cancel-only reduction in Step 3b. Both closing report headers (RESULT/HANDOFF) now name the emitting skill in both pfq and ifq SKILL.md."
+    - phase: "04-lang-prose-sample"
+      status: "green"
+      summary: "Added a bounded prose mode to cfq-lang.sh (200 lines / 8192 bytes cap over commit messages and added diff lines since a ref), folded into cfq-finish.sh as .lang.prose, and rewired Step 7 of implement-for-queue to judge the sample instead of rereading every changed file in full; six new test-checks.sh assertions cover the cap, the truncation flag, the non-git fallback, and the unchanged bare invocation."
+    - phase: "05-trim-skills-and-record-decision"
+      status: "green"
+      summary: "Moved Step 3a's blocked/planning/in-progress invariant detail from implement-for-queue/SKILL.md into a new Batch Selection Rules section in references/queues.md and dropped its Section Map; condensed plan-for-queue Step 10a and dropped its Section Map too; both SKILL.md files now sit at exactly 200 lines with no rule lost. CLAUDE.md gained the subagent-usage rationale and the structural-markers-are-English clarification; plugin.json bumped to 0.8.0."
