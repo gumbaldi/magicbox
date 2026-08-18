@@ -50,10 +50,15 @@ Behaviour lives in the SKILL.md prose — the scripts only supply numbers and st
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/code-for-queue/`:
 `impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
-(`low|medium|high`), `.dependsOn` (optional, one batch directory name per line — blocks this batch
+(optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
+(optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
 `report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
-after every phase and travelling with the batch into `impl/done/`), a `done/` for finished phases
+after every phase and travelling with the batch into `impl/done/`), `.planning` (written by
+`cfq-park.sh` when the batch directory is created, refreshed on every re-park during the same
+`plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch
+younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
+never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `references/queues.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;
@@ -96,6 +101,19 @@ own estimate of its token usage. Only numbers, timestamps and names are carried 
 `tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
+**Subagents are used exactly once, deliberately.** `plan-for-queue` Step 2 delegates multi-file or
+unclear-scope research to Explore agents on `planExploreModel` — the only subagent call in the
+plugin, and that's deliberate rather than an oversight to fix later. A subagent pays off only where
+the parent doesn't need the result in its own context afterward: research fits, since the parent
+gets a summary and stops there. Implementation, test writing and documentation don't — the subagent
+starts cold, re-reads what the parent already holds, and the parent then reads the subagent's
+output again to verify it, two or three reads where a direct read-and-edit would have been one.
+That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
+(`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent reading and editing
+the same files directly — the subagent path loses. Anyone tempted to add a second subagent call for
+anything other than exploratory research should re-run that comparison first, not take this
+paragraph on faith.
+
 ## Conventions
 
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
@@ -103,7 +121,10 @@ that adding a field which happens to carry free text fails the test on purpose, 
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
   interview is the only part that runs in the user's language. Everything written into a repo (plan
   files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
-  documentation additionally `docLanguages`.
+  documentation additionally `docLanguages` — except structural markers, which are always English
+  regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
+  `(new)` marker, `.priority` values. Only the prose content inside those files follows
+  `codeLanguage`.
 - **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
   identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill

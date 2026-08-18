@@ -5,6 +5,11 @@ set -eu
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 settings_sh="$repo_root/scripts/cfq-settings.sh"
 
+# This repo's own .claude/settings.json sets CFQ_* env vars for its own dogfooding (e.g.
+# CFQ_DOC_LEVEL) — strip them so default-value assertions below see real defaults, not this
+# repo's config. Assertions that test env overrides still set their own CFQ_* var inline per call.
+for v in "${!CFQ_@}"; do unset "$v"; done
+
 home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 
@@ -145,5 +150,16 @@ got=$(HOME="$home" bash "$settings_sh" get changelogFile)
 HOME="$home" bash "$settings_sh" set changelogFile ""
 got=$(HOME="$home" bash "$settings_sh" get changelogFile)
 [ "$got" = "" ] || { echo "FAIL: set changelogFile empty -> got '$got'"; exit 1; }
+
+# 9. planExploreModel: default, set, env override
+got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
+[ "$got" = "haiku" ] || { echo "FAIL: default planExploreModel = '$got', want haiku"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set planExploreModel opus
+got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
+[ "$got" = "opus" ] || { echo "FAIL: set planExploreModel opus -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get planExploreModel)
+[ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
 
 echo PASS

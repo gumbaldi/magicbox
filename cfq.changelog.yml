@@ -21,3 +21,116 @@
     - phase: "05-script-finish"
       status: "green"
       summary: "Added cfq-finish.sh (move to done/, register, lang/maintenance/security-diff/changelog/telemetry, unconditional lock release via trap) and tests/test-finish.sh (happy path, injected changelog-write failure, changelogFile empty, missing planning snapshot). Rewired implement-for-queue SKILL.md Step 7. Bumped CLAUDE.md script count to sixteen and plugin.json to 0.7.0."
+- version: v0.4
+  branch: v0.4-pfq-explore-and-doc-upgrade
+  base: v0.3-readme-and-workflow-scripts
+  batch: 2026-08-17-pfq-explore-and-doc-upgrade
+  started: 2026-08-17
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-plan-explore-model-setting"
+      status: "green"
+      summary: "Added planExploreModel setting (default haiku) to cfq-settings.sh defaults/with_overrides, test-settings.sh section 9, and README settings table row."
+    - phase: "02-pfq-model-check-explore-inbox"
+      status: "green"
+      summary: "Added Model Check (Section Map + Step 1), Explore-agent guidance (Step 2), and reworked plan-inbox (Step 0) to plan-for-queue/SKILL.md, per plan."
+    - phase: "03-cfq-docs-standard-tree"
+      status: "green"
+      summary: "Added .claude/settings.json (CFQ_DOC_LEVEL=standard override) and three new docs pages (setup.md, usage.md, configuration.md) under claude/plugins/cfq/docs/, moved verbatim from the plan."
+    - phase: "04-cfq-readme-hub"
+      status: "green"
+      summary: "README.md is now a hub: new Guides section linking to docs/{setup,usage,configuration}.md, Configuration section replaced with a short pointer, legacy Language-and-documentation section and the stale preferred-plugins sentence removed."
+- version: v0.5
+  branch: v0.5-cfq-config-overview-german-cleanup
+  base: v0.4-pfq-explore-and-doc-upgrade
+  batch: 2026-08-17-cfq-config-overview-german-cleanup
+  started: 2026-08-17
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-extract-settings-explanations"
+      status: "green"
+      summary: ""
+    - phase: "02-step-10a-new-repo-config-overview"
+      status: "green"
+      summary: ""
+    - phase: "03-bilingual-headings-queues"
+      status: "green"
+      summary: ""
+    - phase: "04-translate-dashboard-example"
+      status: "green"
+      summary: ""
+- version: v0.6
+  branch: v0.6-ifq-auto-resume-batch
+  base: v0.5-cfq-config-overview-german-cleanup
+  batch: 2026-08-17-ifq-auto-resume-batch
+  started: 2026-08-17
+  finished: 2026-08-17
+  status: done
+  phases:
+    - phase: "01-scan-in-progress-field"
+      status: "green"
+      summary: ""
+    - phase: "02-step-3a-auto-resume"
+      status: "green"
+      summary: ""
+- version: v0.7
+  branch: v0.7-cfq-race-and-cost
+  base: v0.6-ifq-auto-resume-batch
+  batch: 2026-08-18-cfq-race-and-cost
+  started: 2026-08-18
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-planning-marker-race-condition"
+      status: "green"
+      summary: "Added .planning marker written by cfq-park.sh, staleness-checked and surfaced by cfq-scan.sh, filtered out (with dependsOn-style waitlist message) in implement-for-queue Step 3a, and cleared by plan-for-queue Step 11 lint."
+    - phase: "02-ifq-cost-line"
+      status: "green"
+      summary: "Extended cfq-report.sh summary with turns/models/efforts fields (9-11), wired implement-for-queue Step 8's Cost line to that call, and fixed the test-report.sh expected TSV string."
+- version: v0.8
+  branch: v0.8-pfq-plan-only-rule
+  base: v0.7-cfq-race-and-cost
+  batch: 2026-08-18-pfq-plan-only-rule
+  started: 2026-08-18
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-pfq-plan-only-warning"
+      status: "green"
+      summary: "Extended plan-for-queue SKILL.md's opening paragraph with an explicit sentence covering harness-level plan-mode approval and active auto-run mode, plus bumped plugin.json to 0.7.2."
+- version: v0.9
+  branch: v0.9-cfq-size-heading-gate
+  base: v0.8-pfq-plan-only-rule
+  batch: 2026-08-18-cfq-size-heading-gate
+  started: 2026-08-18
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-enforce-size-heading"
+      status: "green"
+      summary: "plan-for-queue now writes Size as a ## Size/## Größe heading, cfq-lint.sh checks it as a fifth mandatory heading, and test-checks.sh fixtures/assertion were updated accordingly."
+- version: v0.10
+  branch: v0.10-cfq-lean-english-and-prio
+  base: v0.9-cfq-size-heading-gate
+  batch: 2026-08-18-cfq-lean-english-and-prio
+  started: 2026-08-18
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-english-only-markers"
+      status: "green"
+      summary: "Removed the German half of every bilingual structural marker (Größe/Kontext/Betroffene Dateien/Änderungen/Verifikation/(neu)) from cfq-lint.sh, cfq-brief.sh, queue-check.md, queues.md, and both SKILL.md files; test-checks.sh fixtures rewritten to English headings with a new negative fixture proving the German heading is now rejected."
+    - phase: "02-priority-high-flag"
+      status: "green"
+      summary: "Priority collapsed from mandatory low/medium/high to an optional high flag: .priority now exists only when flagged. Updated cfq-park.sh, cfq-lint.sh, cfq-scan.sh, cfq-brief.sh, both SKILL.md files plus queue-check.md, code-for-queue SKILL.md dashboard table/Step C, README/docs/CLAUDE.md, and the three affected test files."
+    - phase: "03-skip-picker-and-report-headers"
+      status: "green"
+      summary: "ifq Step 3a now skips the AskUserQuestion picker when exactly one batch survives the planning/blocked filters, with matching Start/Cancel-only reduction in Step 3b. Both closing report headers (RESULT/HANDOFF) now name the emitting skill in both pfq and ifq SKILL.md."
+    - phase: "04-lang-prose-sample"
+      status: "green"
+      summary: "Added a bounded prose mode to cfq-lang.sh (200 lines / 8192 bytes cap over commit messages and added diff lines since a ref), folded into cfq-finish.sh as .lang.prose, and rewired Step 7 of implement-for-queue to judge the sample instead of rereading every changed file in full; six new test-checks.sh assertions cover the cap, the truncation flag, the non-git fallback, and the unchanged bare invocation."
+    - phase: "05-trim-skills-and-record-decision"
+      status: "green"
+      summary: "Moved Step 3a's blocked/planning/in-progress invariant detail from implement-for-queue/SKILL.md into a new Batch Selection Rules section in references/queues.md and dropped its Section Map; condensed plan-for-queue Step 10a and dropped its Section Map too; both SKILL.md files now sit at exactly 200 lines with no rule lost. CLAUDE.md gained the subagent-usage rationale and the structural-markers-are-English clarification; plugin.json bumped to 0.8.0."

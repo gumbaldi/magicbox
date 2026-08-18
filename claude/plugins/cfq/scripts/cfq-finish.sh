@@ -44,6 +44,12 @@ else
   add_error lang "$out"
 fi
 
+if prose_out=$("$script_dir/cfq-lang.sh" prose "$repo_root" main 2>&1); then
+  lang_json=$(jq -c --argjson p "$prose_out" '. + {prose: $p}' <<<"$lang_json" 2>/dev/null || echo "$lang_json")
+else
+  add_error lang "$prose_out"
+fi
+
 maintenance="unknown"
 if out=$("$script_dir/cfq-maintenance.sh" due "$repo_root" 2>&1); then
   maintenance="$out"

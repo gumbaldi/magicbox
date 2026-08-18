@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # The single source of numbers for the dashboard. No arguments needed.
 # Prints one JSON object on stdout: { "repos": [ { "path", "plan", "todo", "batches": [
-#   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps} ] } ] }
+#   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress,
+#    planning} ] } ] }
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
+
+PLANNING_STALE_S=1800   # mirrors cfq-lock.sh's STALE_S — a .planning marker older than this is
+                        # an abandoned pfq run, not a batch still being written
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 registry="$script_dir/cfq-registry.sh"
@@ -29,16 +33,10 @@ done
 
 trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 
-# Legacy queues wrote German priorities; map them so old batches keep sorting.
 read_priority() {
-  local p="medium"
-  [ -f "$1/.priority" ] && p=$(trim "$1/.priority")
-  case "$p" in
-    niedrig) echo low ;;
-    mittel)  echo medium ;;
-    hoch)    echo high ;;
-    *)       echo "$p" ;;
-  esac
+  [ -f "$1/.priority" ] || return 0
+  local p; p=$(trim "$1/.priority")
+  [ "$p" = high ] && echo high
 }
 
 read_deps() {
@@ -83,8 +81,13 @@ while IFS= read -r repo; do
       done
       IFS=$old_ifs
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" "$deps" "$blocked" "$unknown" >>"$records"
+    planning="false"
+    if [ -f "$b/.planning" ]; then
+      age=$(( $(date +%s) - $(stat -c %Y "$b/.planning" 2>/dev/null || echo 0) ))
+      [ "$age" -lt "$PLANNING_STALE_S" ] && planning="true"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" "$deps" "$blocked" "$unknown" "$planning" >>"$records"
   done
 
   if [ -d "$qdir/impl/done" ]; then
@@ -94,8 +97,8 @@ while IFS= read -r repo; do
       donec=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
       priority=$(read_priority "$b")
       report="false"; [ -f "$b/report.json" ] && report="true"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$repo" "$name" "$priority" "0" "$donec" "true" "$report" "" "false" "" >>"$records"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$repo" "$name" "$priority" "0" "$donec" "true" "$report" "" "false" "" "false" >>"$records"
     done
   fi
 done <<<"$candidates"
@@ -109,10 +112,12 @@ jq -n --rawfile recs "$records" --rawfile cnts "$counts" '
     archived: (.[5] == "true"), report: (.[6] == "true"),
     dependsOn:   (((.[7] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end),
     blocked:     ((.[8] // "false") == "true"),
-    unknownDeps: (((.[9] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end)
+    unknownDeps: (((.[9] // "") | select(. != "")) // "" | if . == "" then [] else split(",") end),
+    inProgress:  ((.[3] | tonumber) > 0 and (.[4] | tonumber) > 0),
+    planning:    ((.[10] // "false") == "true")
   }) | group_by(.path)
      | map({key: .[0].path,
-            value: map({name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps})})
+            value: map({name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress, planning})})
      | from_entries) as $batchmap
   |
   ($cnts | parse_tsv

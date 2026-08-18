@@ -27,27 +27,6 @@ with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` lin
 headers/labels/status lines are always English, interactive parts stay in the user's language ·
 no commentary around the block.
 
-## Section Map
-
-| Section | Step | Label | Example detail |
-|---|---|---|---|
-| PRECHECKS | 1 | `Model Gate` | `sonnet · implModels: sonnet` / on abort `❌ … allowed: sonnet · /model sonnet, then /ifq` |
-| PRECHECKS | 2 | `Plugin Boundaries` | `blocked: superpowers` / `➖ none` |
-| PRECHECKS | 3a | `Batch` | `2026-08-13-cfq-plugin · medium · 1 open phase` |
-| PRECHECKS | 3b | `Lock` | `acquired` / `⚠️ takeover after 30 min inactivity` / `❌ held by <session> since <time>` |
-| PRECHECKS | 3b | `Branch` | `v0.11-example-topic on v0.10-previous` / `➖ branchPerBatch off` / `⚠️ existing branch checked out` |
-| PRECHECKS | 4a | `Failed Attempt` | `➖ none` / `⚠️ P3 second attempt after <reason>` |
-| PRECHECKS | 4b | `Size Gate` | `context 5 % · limit 20 %` / `❌ phase L, handoff instead of start` |
-| IMPLEMENTATION | 4c | `P<n> <slug>` | `green · 6 deviations`, each deviation as its own `   └ ` line |
-| IMPLEMENTATION | 5 | `Commit` | `v0.11-example-topic · 1 commit pushed` |
-| POSTCHECKS | 7 | `Language` | `✅ no issues` / `⚠️ 3 issues` |
-| POSTCHECKS | 7 | `Maintenance` | `➖ off` / `➖ not due (12 commits)` / `⚠️ due (63 commits) · run /pfq` |
-| POSTCHECKS | 6/7 | `Security Diff` | `no new findings` / `⚠️ no planning snapshot · comparison skipped` / `⚠️ unavailable: <hint>` |
-| POSTCHECKS | 7 | `Changelog` | `v0.11 done · 4 phases` / `➖ changelogFile empty` |
-| POSTCHECKS | 6/7 | `Telemetry` | `synced` / `⚠️ sync failed` |
-| POSTCHECKS | 6/7 | `Lock` | `released` |
-| POSTCHECKS | 7 | `Report` | `rendered` / `➖ off · /rfq renders on demand` |
-
 ## 1. Model Gate
 
 Print the `PRECHECKS` header on entering, then:
@@ -73,17 +52,34 @@ recommendations on this list are ignored. Print the `Plugin Boundaries` status l
 Repo root via `git rev-parse --show-toplevel`; no git repo → abort, report, end. Check
 `<repo-root>/.claude/code-for-queue/impl/` for open batches (directories beneath it, excluding
 `done/`, with at least one top-level `*.md`); none → report "No open plans for this repo in the
-queue.", end. Read `.priority` per batch (missing → `medium`); default order: priority first
-(`high` > `medium` > `low`), then folder name ascending (date-prefixed; oldest first, ties broken
-by name). `cfq-scan.sh`'s output carries `blocked`/`unknownDeps` per batch — **blocked batches are
-never offered**; if every open batch is blocked, print the wait list (batch → waiting on batch)
-and end, never falling back to a blocked one. `unknownDeps` are shown at selection time with `⚠️`
-and the unresolvable name but don't block (`/cfq` fixes it) — one sentence, no more.
+queue.", end. Read `.priority` per batch (missing → not flagged); default order: flagged batches
+first, then folder name ascending (date-prefixed; oldest first, ties broken by name).
+
+`cfq-scan.sh`'s output carries `blocked`, `unknownDeps`, `planning` and `inProgress` per batch. The
+filters exist — blocked and still-being-planned batches are never offered, more than one
+in-progress batch is a stop condition — but the exact wording of each case (wait lists, the
+stop-immediately rule, the blocked-and-in-progress corner case) is cold-path detail: read
+`references/queues.md`'s **Batch Selection Rules** section on first use each session and apply it
+here.
+
+Among the batches that pass the planning/blocked filters, check `inProgress`: **exactly one** →
+skip the `AskUserQuestion` below entirely, select it, print the `Batch` status line as `resumed
+<name> · <done>/<done+open> phases done` (prefix with `high · ` when the batch is flagged), hand it
+straight to Step 3b. **Zero** → the picker below runs unchanged. **More than one** → stop per the
+reference above.
+
+Among the batches that pass the planning/blocked filters (with `inProgress` at zero, so the picker
+is in play at all): **exactly one** selectable batch → no question either — a list of one cannot
+change the outcome. Select it, print the `Batch` status line noting it was the only selectable
+batch (e.g. `2026-08-18-example · only open batch · 3 phases`), hand it straight to Step 3b.
+**Zero** → the existing "No open plans for this repo in the queue." path, unchanged. **More than
+one** → the `AskUserQuestion` below, unchanged.
 
 One `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
 through them in order** (show the computed order) or **Choose a specific plan** (a second
-`AskUserQuestion`, batches as options, label = topic slug, description = priority + open phase
-count + date). Set the chosen batch (or the first, for "in order") and hand it to Step 3b — **do
+`AskUserQuestion`, batches as options, label = topic slug, description = open phase count + date,
+prefixed with `high · ` only when the batch is flagged). Set the chosen batch (or the first, for
+"in order") and hand it to Step 3b — **do
 not acquire the lock yet**. Print the `Batch` status line once chosen; both questions stay prose.
 **Never two batches in the same session**, not even once the first finishes and context is still
 free — different plans, even from the same repo, belong in separate context windows.
@@ -100,8 +96,11 @@ implementing this batch?":
   `cfq-branch.sh plan` decides `off` / `continue` / `new` and, on `new`, `cfq-changelog.sh init`
   runs too (all per `references/queues.md`); `Branch` renders whichever of the three happened.
   Then Step 4.
-- **A different batch** → back to Step 3a's question, with the remaining batches; the declined one isn't
-  offered again this session. Nothing left → report and end.
+- **A different batch** → back to Step 3a's question, with the remaining batches; the declined one
+  isn't offered again this session. Nothing left → report and end. Not offered at all when Step 3a
+  didn't run a picker — auto-resumed in-progress batch, or only one selectable batch — since
+  offering one here would restart a different batch while this one sits half-done; the go-ahead
+  question then has only **Start** / **Cancel**.
 - **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.
 
 ## 4. Work Off a Phase
@@ -112,7 +111,7 @@ select(.phase == $p and .status == "red")] | last // empty' "<batch-dir>/report.
 read its `errors`/`summary`, check whether the cause still holds before repeating, and mention it
 in the new entry ("second attempt after …"); no hit → skip silently. Print the `Failed Attempt`
 status line either way.
-**(4b) Size gate.** A `## Size`/`## Größe` of `L`, with context already above **half** the
+**(4b) Size gate.** A `## Size` of `L`, with context already above **half** the
 `stopPct` threshold → don't start, hand off cleanly (Step 6) instead. `S`/`M` always start, a
 missing size counts as `M`; at `stopPct: 0` the gate doesn't apply since a handoff already happens
 after every phase.
@@ -146,13 +145,13 @@ commits pushed.
 
 ## 6. Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `STOP` → print `POSTCHECKS`, sync telemetry
-and release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
+Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `STOP` → print `POSTCHECKS`, sync telemetry and
+release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
-half-finished batch must not stay locked. Print the `HANDOFF` short format from Step 8. `OK` →
-next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopPct: 0` is deliberate, not a
-misconfiguration — `STOP` fires after every phase, one context window each; hand off without
-commenting on it.
+half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
+from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopPct: 0` is
+deliberate, not a misconfiguration — `STOP` fires after every phase, one context window each; hand
+off without commenting on it.
 
 ## 7. Batch Done
 
@@ -162,9 +161,11 @@ the batch into `impl/done/`, registers the repo, runs the language/maintenance/s
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
 never leave the repo locked), and prints one JSON object. Render its fields:
 - `Language`: `.lang.issues` from the JSON is the structural count (`missing`/`stray`/`unfiled`);
-  separately read the same changed files for prose in the required language and
-  comments/identifiers/commit messages in `codeLanguage` — that judgment isn't scriptable. Either
-  source finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
+  judge `.lang.prose.sample` for prose, comments, identifiers and commit messages not in
+  `codeLanguage` — any language, never hardcode one to look for. `.lang.prose.truncated: true`
+  means the sample is exactly that, a sample, so the status line says so (`⚠️ 2 issues ·
+  sampled`); an empty sample (no git repo, unknown ref) is `➖`, not a finding. Either source
+  finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
   issues`. No repair here — every finding becomes a `todo/` entry per `references/queues.md`.
 - `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
   run /pfq`.
@@ -182,15 +183,18 @@ Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
 ## 8. Closing Reports
 
 One format, two lengths, both end the session, both a label/value list under the `Output Format`
-padding rule — `RESULT` (full) or `HANDOFF` (short). **Full format** — `RESULT` header: `Batch`
-(batch and repo, phases total, green/red split) · `Cost` (turns, tokens, model/effort from
-telemetry, plus planning cost from `.planning` if present) · `Skills` (recommended vs. used, query
-in `references/queues.md`) · `Security` (the difference, one line) · `Merge` (current branch,
+padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short).
+**Full format** — `RESULT · implement-for-queue` header: `Batch`
+(batch and repo, phases total, green/red split) · `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh"
+summary "<batch-dir>"` (same call `report-for-queue` already uses for its table) and render fields
+9/7/8/10/11 as turns, output tokens total (planning's share named separately), models, efforts ·
+`Skills` (recommended vs. used, query in `references/queues.md`) · `Security` (the difference, one
+line) · `Merge` (current branch,
 commits ahead of `main`, ready-to-run command as an indented `   └ ` line, printed not run; also a
 `todo/` entry per `references/queues.md` without asking, so a forgotten merge is never lost) ·
 `Report` (`file://` path, only when Step 7 rendered one — else the line is omitted).
 
-**Short format** — `HANDOFF` header, three to four lines: phases done, phases open, the `PCT`
+**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases open, the `PCT`
 value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the full format,
 naming the red phase; its `❌` line already appeared in `IMPLEMENTATION` (Step 4), so Step 8 only
 repeats the `5 green, 1 red` split in `Batch`, not the error text.

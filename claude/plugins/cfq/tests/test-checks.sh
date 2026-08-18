@@ -23,85 +23,122 @@ target="$tmp/existing-target"; touch "$target"
 
 # 01-a: correct — all headings, one existing absolute path, no issues
 cat >"$dirty/01-a.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
-# 02-b: sections violation — missing the Verifikation/Verification heading
+# 02-b: sections violation — missing the Verification heading
 cat >"$dirty/02-b.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
-## Änderungen
+## Affected Files
+## Changes
 x
 EOF
 
 # 03-c: abspath violation — relative path (existence is not checked for a non-absolute path)
-cat >"$dirty/03-c.md" <<'EOF'
-## Kontext
+cat >"$dirty/03-c.md" <<EOF
+## Size
+M
+## Context
 x
-## Betroffene Dateien
-- `relative/path.sh` (ändern)
-## Änderungen
+## Affected Files
+- \`relative/path.sh\` (ändern)
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
 # 04-d: missing violation — absolute path, marked "(ändern)", does not exist
 cat >"$dirty/04-d.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$tmp/does-not-exist.sh\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
-# 05-e: stale-new violation — marked "(neu)" but the path already exists
+# 05-e: stale-new violation — marked "(new)" but the path already exists
 cat >"$dirty/05-e.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
-- \`$target\` (neu)
-## Änderungen
+## Affected Files
+- \`$target\` (new)
+## Changes
 x
-## Verifikation
+## Verification
+x
+EOF
+
+# 08-g: sections violation — missing the Size heading
+cat >"$dirty/08-g.md" <<EOF
+## Context
+x
+## Affected Files
+- \`$target\` (ändern)
+## Changes
+x
+## Verification
+x
+EOF
+
+# 09-h: sections violation — the old German "Größe" heading no longer counts as Size
+cat >"$dirty/09-h.md" <<EOF
+## Größe
+M
+## Context
+x
+## Affected Files
+- \`$target\` (ändern)
+## Changes
+x
+## Verification
 x
 EOF
 
 # done/07-f: numbering gap (06 is skipped). Deliberately full of content violations too, to prove
 # done/ phases are excluded from sections/abspath/missing/stale-new — only numbering must fire.
 cat >"$dirty/done/07-f.md" <<EOF
-## Kontext
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`relative/also-bad.sh\` (ändern)
 - \`$tmp/also-does-not-exist.sh\` (ändern)
-## Änderungen
+## Changes
 x
 EOF
 
-# no .priority file -> priority violation
+# invalid .priority value -> priority violation (a missing file is now the normal, unflagged case)
+echo medium >"$dirty/.priority"
 
 if out=$(bash "$lint_sh" "$dirty" 2>&1); then
   echo "FAIL: dirty batch should exit non-zero"; exit 1
 fi
 
 assert_once() {
-  local rule="$1" n
+  local rule="$1" want="${2:-1}" n
   n=$(printf '%s\n' "$out" | grep -c ": $rule:") || true
-  [ "$n" = "1" ] || { printf 'FAIL: rule %s fired %s times, want 1. Output:\n%s\n' "$rule" "$n" "$out"; exit 1; }
+  [ "$n" = "$want" ] || { printf 'FAIL: rule %s fired %s times, want %s. Output:\n%s\n' "$rule" "$n" "$want" "$out"; exit 1; }
 }
-assert_once sections
+assert_once sections 3
 assert_once numbering
 assert_once abspath
 assert_once missing
@@ -117,13 +154,15 @@ mkdir -p "$clean"
 echo high >"$clean/.priority"
 echo gibtsnicht >"$clean/.dependsOn"
 cat >"$clean/01-a.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (ändern)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 
@@ -133,17 +172,19 @@ printf '%s\n' "$out" | grep -q '^OK 1 phases$' || { echo "FAIL: clean batch summ
 printf '%s\n' "$out" | grep -q '^warn: .*: depends: gibtsnicht does not exist$' \
   || { echo "FAIL: clean batch missing depends warning: $out"; exit 1; }
 
-# --- English "(new)" marker: same stale-new rule as the German "(neu)" alias ---
+# --- "(new)" marker on an existing path fires stale-new ---
 newmarker="$qdir/2026-01-03-newmarker"
 mkdir -p "$newmarker"
 cat >"$newmarker/01-a.md" <<EOF
-## Kontext
+## Size
+M
+## Context
 x
-## Betroffene Dateien
+## Affected Files
 - \`$target\` (new)
-## Änderungen
+## Changes
 x
-## Verifikation
+## Verification
 x
 EOF
 if out=$(bash "$lint_sh" "$newmarker" 2>&1); then
@@ -151,6 +192,8 @@ if out=$(bash "$lint_sh" "$newmarker" 2>&1); then
 fi
 printf '%s\n' "$out" | grep -q ': stale-new:' \
   || { echo "FAIL: English (new) marker did not fire stale-new: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q ': priority:' \
+  && { echo "FAIL: batch without .priority should not fire priority: $out"; exit 1; }
 
 # ============================================================ cfq-security.sh ========
 
@@ -275,5 +318,52 @@ after=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
 [ "$before" = "$after" ] || { echo "FAIL: OFF must not touch the marker"; exit 1; }
 
 rm -rf "$mainthome"
+
+# ============================================================ cfq-lang.sh prose mode =
+
+prosehome=$(mktemp -d)
+proserepo="$tmp/proserepo"; mkdir -p "$proserepo"; git init -q "$proserepo"
+printf 'line one\nline two\n' >"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "base commit"
+base_ref=$(git -C "$proserepo" rev-parse HEAD)
+
+sed -i '1d' "$proserepo/f.txt"
+echo "added line" >>"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "small change with added line"
+
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$proserepo" "$base_ref")
+printf '%s' "$out" | jq -e '.truncated == false' >/dev/null \
+  || { echo "FAIL: small commit should not be truncated: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "added line" \
+  || { echo "FAIL: added line missing from sample: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "line one" \
+  && { echo "FAIL: removed line leaked into sample: $out"; exit 1; }
+printf '%s' "$out" | jq -r '.sample' | grep -q "small change with added line" \
+  || { echo "FAIL: commit message missing from sample: $out"; exit 1; }
+
+small_ref=$(git -C "$proserepo" rev-parse HEAD)
+for i in $(seq 1 400); do echo "padding line number $i to blow the cap with some extra filler text"; done >>"$proserepo/f.txt"
+git -C "$proserepo" add f.txt
+git -C "$proserepo" -c user.email=a@b.c -c user.name=a commit -q -m "big change"
+
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$proserepo" "$small_ref")
+printf '%s' "$out" | jq -e '.truncated == true' >/dev/null \
+  || { echo "FAIL: big commit should be truncated: $out"; exit 1; }
+sample_bytes=$(printf '%s' "$(printf '%s' "$out" | jq -r '.sample')" | wc -c | tr -d ' ')
+[ "$sample_bytes" -le 8192 ] || { echo "FAIL: sample exceeds byte cap: $sample_bytes"; exit 1; }
+
+nogitdir="$tmp/nogitdir"; mkdir -p "$nogitdir"
+out=$(HOME="$prosehome" bash "$lang_sh" prose "$nogitdir" HEAD) && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: prose on non-git dir should exit 0, got $rc"; exit 1; }
+printf '%s' "$out" | jq -e '.sample == "" and (.note | length) > 0' >/dev/null \
+  || { echo "FAIL: non-git prose output wrong: $out"; exit 1; }
+
+out=$(HOME="$prosehome" bash "$lang_sh" "$proserepo")
+printf '%s' "$out" | jq -e '(keys | sort) == (["codeLanguage","docLanguages","docLevel","missing","note","scope","stray","unfiled"] | sort)' >/dev/null \
+  || { echo "FAIL: unchanged invocation key set changed: $out"; exit 1; }
+
+rm -rf "$prosehome"
 
 echo PASS

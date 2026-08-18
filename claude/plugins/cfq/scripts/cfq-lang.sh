@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 # Language/doc-tree drift reporter for a target repo. Never writes, never fails: always prints one
 # JSON object on stdout and exits 0 — the caller (a skill) decides what the numbers mean.
-# Usage: cfq-lang.sh <repo-root> [--changed <ref>]
+# Usage: cfq-lang.sh <repo-root> [--changed <ref>]      (docs-tree structure, unchanged)
+#        cfq-lang.sh prose <repo-root> <ref>            (bounded prose sample for the drift guard)
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-lang.sh: jq is required" >&2; exit 1; }
 
-repo="${1:?usage: cfq-lang.sh <repo-root> [--changed <ref>]}"
-shift || true
-changed_ref=""
-if [ "${1:-}" = "--changed" ]; then
-  changed_ref="${2:?usage: cfq-lang.sh <repo-root> [--changed <ref>]}"
+mode="tree"
+if [ "${1:-}" = "prose" ]; then
+  mode="prose"
+  shift
+  repo="${1:?usage: cfq-lang.sh prose <repo-root> <ref>}"
+  prose_ref="${2:?usage: cfq-lang.sh prose <repo-root> <ref>}"
+else
+  repo="${1:?usage: cfq-lang.sh <repo-root> [--changed <ref>]}"
+  shift || true
+  changed_ref=""
+  if [ "${1:-}" = "--changed" ]; then
+    changed_ref="${2:?usage: cfq-lang.sh <repo-root> [--changed <ref>]}"
+  fi
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +35,54 @@ if [ -z "$doc_languages_csv" ]; then
   doc_languages_json='[]'
 else
   doc_languages_json=$(jq -Rc 'split(",")' <<<"$doc_languages_csv")
+fi
+
+if [ "$mode" = "prose" ]; then
+  # Caps kept as named variables so the sample size is tunable in one place.
+  prose_max_lines=200
+  prose_max_bytes=8192
+
+  sample=""
+  truncated=false
+  note=""
+
+  if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
+     && git -C "$repo" rev-parse --verify "$prose_ref" >/dev/null 2>&1; then
+    commits=$(git -C "$repo" log --format=%B "$prose_ref"..HEAD 2>/dev/null || true)
+    added=$(git -C "$repo" diff "$prose_ref"...HEAD -- . 2>/dev/null \
+      | grep '^+' | grep -v '^+++' | sed 's/^+//' || true)
+    combined=$(printf '%s\n%s' "$commits" "$added")
+
+    if [ -z "$(printf '%s' "$combined" | tr -d '[:space:]')" ]; then
+      note="no changes between $prose_ref and HEAD"
+    else
+      by_lines=$(printf '%s\n' "$combined" | head -n "$prose_max_lines")
+      total_lines=$(printf '%s\n' "$combined" | grep -c '^' || true)
+      by_lines_bytes=$(printf '%s' "$by_lines" | wc -c | tr -d ' ')
+      if [ "$by_lines_bytes" -gt "$prose_max_bytes" ]; then
+        sample=$(printf '%s' "$by_lines" | head -c "$prose_max_bytes")
+        truncated=true
+      else
+        sample="$by_lines"
+        [ "$total_lines" -gt "$prose_max_lines" ] && truncated=true
+      fi
+    fi
+  else
+    note="no git repo or unknown ref '$prose_ref'"
+  fi
+
+  lines_count=$(printf '%s' "$sample" | grep -c '^' || true)
+
+  jq -n \
+    --arg codeLanguage "$code_language" \
+    --arg ref "$prose_ref" \
+    --argjson truncated "$truncated" \
+    --argjson lines "$lines_count" \
+    --arg sample "$sample" \
+    --arg note "$note" \
+    '{mode: "prose", codeLanguage: $codeLanguage, ref: $ref, truncated: $truncated, lines: $lines,
+      sample: $sample, note: $note}'
+  exit 0
 fi
 
 scope="repo"
