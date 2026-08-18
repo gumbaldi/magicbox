@@ -80,4 +80,12 @@
   base: v0.6-ifq-auto-resume-batch
   batch: 2026-08-18-cfq-race-and-cost
   started: 2026-08-18
-  status: in-progress
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-planning-marker-race-condition"
+      status: "green"
+      summary: "Added .planning marker written by cfq-park.sh, staleness-checked and surfaced by cfq-scan.sh, filtered out (with dependsOn-style waitlist message) in implement-for-queue Step 3a, and cleared by plan-for-queue Step 11 lint."
+    - phase: "02-ifq-cost-line"
+      status: "green"
+      summary: "Extended cfq-report.sh summary with turns/models/efforts fields (9-11), wired implement-for-queue Step 8's Cost line to that call, and fixed the test-report.sh expected TSV string."
