@@ -94,4 +94,9 @@
   base: v0.7-cfq-race-and-cost
   batch: 2026-08-18-pfq-plan-only-rule
   started: 2026-08-18
-  status: in-progress
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-pfq-plan-only-warning"
+      status: "green"
+      summary: "Extended plan-for-queue SKILL.md's opening paragraph with an explicit sentence covering harness-level plan-mode approval and active auto-run mode, plus bumped plugin.json to 0.7.2."
