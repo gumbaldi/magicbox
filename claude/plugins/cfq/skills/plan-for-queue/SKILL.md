@@ -138,7 +138,10 @@ too: plan files, `## Decisions`, the batch directory name. A phase touching docu
 Propose a split and get it confirmed — one phase = one self-testable, individually committable
 unit; three honest phases beat seven artificial ones. For each phase, estimate **Size** `S`/`M`/`L`
 (`S` one file and one test, `M` several files or a new script, `L` a new script **with** a new
-test or a skill rework — steers whether `ifq` even starts a phase) and optional **Recommended
+test or a skill rework — steers whether `ifq` even starts a phase) and write it into that phase's
+file as a `## Size`/`## Größe` heading (same language pairing as the other required headings) with
+the letter alone on the next non-empty line — this is what `cfq-brief.sh` and `ifq`'s size gate
+parse; a missing or malformed heading silently degrades to `M`. Also add optional **Recommended
 skills** (only where it helps, half-sentence reason each, never from `implBlockedPlugins`; no
 recommendation is the normal case). Print the `Phases` status line once confirmed — phase count
 and size mix.
@@ -226,7 +229,8 @@ be worked off independently — no repetition of the plan contents, that's what 
 
 ## Phase File Structure
 
-Unchanged from the template: Context · Affected Files (always absolute paths) · Changes
-(copy-ready) · Reuse · Dependencies · Verification (with output filtering). Plus the conventions:
+Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
+absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
+filtering). Plus the conventions:
 absolute paths, no project-specific proper nouns in test data, token hygiene in the verification
 section, and the verification must check the real path the user actually takes.

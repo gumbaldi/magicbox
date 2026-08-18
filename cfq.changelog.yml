@@ -100,3 +100,9 @@
     - phase: "01-pfq-plan-only-warning"
       status: "green"
       summary: "Extended plan-for-queue SKILL.md's opening paragraph with an explicit sentence covering harness-level plan-mode approval and active auto-run mode, plus bumped plugin.json to 0.7.2."
+- version: v0.9
+  branch: v0.9-cfq-size-heading-gate
+  base: v0.8-pfq-plan-only-rule
+  batch: 2026-08-18-cfq-size-heading-gate
+  started: 2026-08-18
+  status: in-progress

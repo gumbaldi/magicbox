@@ -38,6 +38,7 @@ while IFS= read -r f; do
   has_heading "$f" "Betroffene Dateien" "Affected Files" || findings+=("$name: sections: missing Betroffene Dateien/Affected Files heading")
   has_heading "$f" "Änderungen" "Changes"                || findings+=("$name: sections: missing Änderungen/Changes heading")
   has_heading "$f" "Verifikation" "Verification"         || findings+=("$name: sections: missing Verifikation/Verification heading")
+  has_heading "$f" "Größe" "Size"                        || findings+=("$name: sections: missing Größe/Size heading")
 
   while IFS= read -r line; do
     path=$(printf '%s' "$line" | sed -n 's/^- `\([^`]*\)`.*/\1/p')

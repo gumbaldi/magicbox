@@ -23,6 +23,8 @@ target="$tmp/existing-target"; touch "$target"
 
 # 01-a: correct — all headings, one existing absolute path, no issues
 cat >"$dirty/01-a.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
@@ -35,6 +37,8 @@ EOF
 
 # 02-b: sections violation — missing the Verifikation/Verification heading
 cat >"$dirty/02-b.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
@@ -43,11 +47,13 @@ x
 EOF
 
 # 03-c: abspath violation — relative path (existence is not checked for a non-absolute path)
-cat >"$dirty/03-c.md" <<'EOF'
+cat >"$dirty/03-c.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
-- `relative/path.sh` (ändern)
+- \`relative/path.sh\` (ändern)
 ## Änderungen
 x
 ## Verifikation
@@ -56,6 +62,8 @@ EOF
 
 # 04-d: missing violation — absolute path, marked "(ändern)", does not exist
 cat >"$dirty/04-d.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
@@ -68,10 +76,24 @@ EOF
 
 # 05-e: stale-new violation — marked "(neu)" but the path already exists
 cat >"$dirty/05-e.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
 - \`$target\` (neu)
+## Änderungen
+x
+## Verifikation
+x
+EOF
+
+# 08-g: sections violation — missing the Größe/Size heading
+cat >"$dirty/08-g.md" <<EOF
+## Kontext
+x
+## Betroffene Dateien
+- \`$target\` (ändern)
 ## Änderungen
 x
 ## Verifikation
@@ -97,11 +119,11 @@ if out=$(bash "$lint_sh" "$dirty" 2>&1); then
 fi
 
 assert_once() {
-  local rule="$1" n
+  local rule="$1" want="${2:-1}" n
   n=$(printf '%s\n' "$out" | grep -c ": $rule:") || true
-  [ "$n" = "1" ] || { printf 'FAIL: rule %s fired %s times, want 1. Output:\n%s\n' "$rule" "$n" "$out"; exit 1; }
+  [ "$n" = "$want" ] || { printf 'FAIL: rule %s fired %s times, want %s. Output:\n%s\n' "$rule" "$n" "$want" "$out"; exit 1; }
 }
-assert_once sections
+assert_once sections 2
 assert_once numbering
 assert_once abspath
 assert_once missing
@@ -117,6 +139,8 @@ mkdir -p "$clean"
 echo high >"$clean/.priority"
 echo gibtsnicht >"$clean/.dependsOn"
 cat >"$clean/01-a.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
@@ -137,6 +161,8 @@ printf '%s\n' "$out" | grep -q '^warn: .*: depends: gibtsnicht does not exist$' 
 newmarker="$qdir/2026-01-03-newmarker"
 mkdir -p "$newmarker"
 cat >"$newmarker/01-a.md" <<EOF
+## Größe
+M
 ## Kontext
 x
 ## Betroffene Dateien
