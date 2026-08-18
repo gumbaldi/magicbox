@@ -105,4 +105,9 @@
   base: v0.8-pfq-plan-only-rule
   batch: 2026-08-18-cfq-size-heading-gate
   started: 2026-08-18
-  status: in-progress
+  finished: 2026-08-18
+  status: done
+  phases:
+    - phase: "01-enforce-size-heading"
+      status: "green"
+      summary: "plan-for-queue now writes Size as a ## Size/## Größe heading, cfq-lint.sh checks it as a fifth mandatory heading, and test-checks.sh fixtures/assertion were updated accordingly."
