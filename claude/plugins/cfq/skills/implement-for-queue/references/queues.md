@@ -1,5 +1,28 @@
 # Batch Briefing and Queue Entry Formats
 
+## Batch Selection Rules (Step 3a)
+
+`cfq-scan.sh`'s output carries `blocked`, `unknownDeps`, `planning`, and `inProgress` per batch —
+the filters and stop conditions Step 3a applies before any picker runs.
+
+**Blocked** batches (`.dependsOn` names a batch not yet in `impl/done/`) are never offered. If
+every open batch is blocked, print the wait list (batch → waiting on batch) and end — never fall
+back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is shown at selection time
+with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — one sentence, no more.
+
+**Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
+step) — is never offered either, separately from the `dependsOn` wait list: "Batch `<name>` is
+still being planned — try again once `/pfq` finishes." One line per such batch, no more.
+
+**In-progress invariant.** Among the batches that pass the planning/blocked filters, more than one
+`inProgress` batch violates the one-in-progress-batch-per-repo invariant: **stop immediately**,
+touch nothing, name every in-progress batch found, and say this must be resolved via `/cfq` Step C
+(archive or reprioritize one) before `/ifq` can proceed — never silently pick one, never fall
+through to the picker. A batch that is both `blocked` and `inProgress` is excluded from this check
+by the blocked filter (it doesn't reach here) and surfaces only through the wait-list path —
+auto-resuming it would restart work whose dependency reappeared after the batch was started, so it
+waits like any other blocked batch.
+
 ## Batch Briefing Extraction (Step 3b)
 
 ```bash

@@ -101,6 +101,19 @@ own estimate of its token usage. Only numbers, timestamps and names are carried 
 `tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
+**Subagents are used exactly once, deliberately.** `plan-for-queue` Step 2 delegates multi-file or
+unclear-scope research to Explore agents on `planExploreModel` — the only subagent call in the
+plugin, and that's deliberate rather than an oversight to fix later. A subagent pays off only where
+the parent doesn't need the result in its own context afterward: research fits, since the parent
+gets a summary and stops there. Implementation, test writing and documentation don't — the subagent
+starts cold, re-reads what the parent already holds, and the parent then reads the subagent's
+output again to verify it, two or three reads where a direct read-and-edit would have been one.
+That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
+(`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent reading and editing
+the same files directly — the subagent path loses. Anyone tempted to add a second subagent call for
+anything other than exploratory research should re-run that comparison first, not take this
+paragraph on faith.
+
 ## Conventions
 
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
@@ -108,7 +121,10 @@ that adding a field which happens to carry free text fails the test on purpose, 
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
   interview is the only part that runs in the user's language. Everything written into a repo (plan
   files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
-  documentation additionally `docLanguages`.
+  documentation additionally `docLanguages` — except structural markers, which are always English
+  regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
+  `(new)` marker, `.priority` values. Only the prose content inside those files follows
+  `codeLanguage`.
 - **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
   identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
