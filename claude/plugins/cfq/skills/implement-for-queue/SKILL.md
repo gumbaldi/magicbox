@@ -203,9 +203,11 @@ Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
 
 One format, two lengths, both end the session, both a label/value list under the `Output Format`
 padding rule — `RESULT` (full) or `HANDOFF` (short). **Full format** — `RESULT` header: `Batch`
-(batch and repo, phases total, green/red split) · `Cost` (turns, tokens, model/effort from
-telemetry, plus planning cost from `.planning` if present) · `Skills` (recommended vs. used, query
-in `references/queues.md`) · `Security` (the difference, one line) · `Merge` (current branch,
+(batch and repo, phases total, green/red split) · `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh"
+summary "<batch-dir>"` (same call `report-for-queue` already uses for its table) and render fields
+9/7/8/10/11 as turns, output tokens total (planning's share named separately), models, efforts ·
+`Skills` (recommended vs. used, query in `references/queues.md`) · `Security` (the difference, one
+line) · `Merge` (current branch,
 commits ahead of `main`, ready-to-run command as an indented `   └ ` line, printed not run; also a
 `todo/` entry per `references/queues.md` without asking, so a forgotten merge is never lost) ·
 `Report` (`file://` path, only when Step 7 rendered one — else the line is omitted).

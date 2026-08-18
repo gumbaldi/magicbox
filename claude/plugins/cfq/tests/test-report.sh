@@ -18,7 +18,7 @@ HOME="$home" bash "$rep" append "$batch" '{"phase":"01-a","status":"green","fini
 HOME="$home" bash "$rep" append "$batch" '{"phase":"02-b","status":"red","finished":"2026-01-01T11:00:00+01:00","summary":"fehlgeschlagen","deviations":[],"errors":["Verifikation rot: 1 Test <failed>"],"verification":"tests -> FAIL","commit":""}'
 
 s=$(bash "$rep" summary "$batch")
-expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0"
+expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0	0		"
 [ "$s" = "$expected" ] || { echo "FAIL: summary = $s"; exit 1; }
 
 out=$(bash "$rep" html "$batch")

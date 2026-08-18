@@ -52,7 +52,11 @@ case "$cmd" in
              ([.phases[].deviations // []] | flatten | length),
              (.phases[-1].finished // .started),
              ([ (.planning.totals.output // 0) ] + [ .phases[].telemetry.totals.output // 0 ] | add),
-             (.planning.totals.output // 0) ] | @tsv' "$f"
+             (.planning.totals.output // 0),
+             ([ (.planning.totals.turns // 0) ] + [ .phases[].telemetry.totals.turns // 0 ] | add),
+             (([(.planning.by_model // {} | keys)] + [.phases[] | (.telemetry.by_model // {} | keys)]) | flatten | unique | join(",")),
+             (([(.planning.by_effort // {} | keys)] + [.phases[] | (.telemetry.by_effort // {} | keys)]) | flatten | unique | join(","))
+           ] | @tsv' "$f"
     ;;
   html)
     dir="${2:?usage: cfq-report.sh html <batch-dir>}"
