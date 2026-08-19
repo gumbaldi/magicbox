@@ -2,6 +2,7 @@
 # Implementation reports per batch. The report lives in the batch directory and travels with it.
 # Usage: cfq-report.sh append <batch-dir> <phase-json>
 #        cfq-report.sh security <batch-dir> <security-json>
+#        cfq-report.sh set-commit <batch-dir> <phase-slug> <sha>
 #        cfq-report.sh summary <batch-dir>
 #        cfq-report.sh html <batch-dir>
 set -eu
@@ -40,6 +41,18 @@ case "$cmd" in
     ensure_report "$dir"
     jq --argjson s "$snap" --arg at "$(date -Iseconds)" \
        '.security = ((.security // []) + [$s + {at: $at}])' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+    ;;
+  set-commit)
+    dir="${2:?usage: cfq-report.sh set-commit <batch-dir> <phase-slug> <sha>}"
+    phase_slug="${3:?usage: cfq-report.sh set-commit <batch-dir> <phase-slug> <sha>}"
+    sha="${4:?usage: cfq-report.sh set-commit <batch-dir> <phase-slug> <sha>}"
+    [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
+    f="$dir/report.json"
+    [ -f "$f" ] || { echo "cfq-report.sh: no report.json in $dir" >&2; exit 1; }
+    jq --arg p "$phase_slug" --arg c "$sha" '
+      (.phases | to_entries | map(select(.value.phase == $p)) | last.key) as $i
+      | if $i == null then . else .phases[$i].commit = $c end
+    ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     ;;
   summary)
     dir="${2:?usage: cfq-report.sh summary <batch-dir>}"
@@ -121,7 +134,7 @@ case "$cmd" in
     echo "$out"
     ;;
   *)
-    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | summary <batch-dir> | html <batch-dir>" >&2
+    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | set-commit <batch-dir> <phase-slug> <sha> | summary <batch-dir> | html <batch-dir>" >&2
     exit 1
     ;;
 esac
