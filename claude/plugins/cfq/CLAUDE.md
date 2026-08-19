@@ -26,6 +26,7 @@ bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/fini
 bash claude/plugins/cfq/tests/test-brief-park.sh    # cfq-brief.sh + cfq-park.sh, prints PASS
 bash claude/plugins/cfq/tests/test-branch.sh        # cfq-branch.sh mode/version/base, prints PASS
 bash claude/plugins/cfq/tests/test-finish.sh        # cfq-finish.sh batch-done sequence, lock always released, prints PASS
+bash claude/plugins/cfq/tests/test-ctx-usage.sh     # ctx-usage.sh gate mode boundary matrix, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the

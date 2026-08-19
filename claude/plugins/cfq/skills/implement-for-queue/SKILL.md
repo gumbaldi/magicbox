@@ -111,15 +111,15 @@ select(.phase == $p and .status == "red")] | last // empty' "<batch-dir>/report.
 read its `errors`/`summary`, check whether the cause still holds before repeating, and mention it
 in the new entry ("second attempt after …"); no hit → skip silently. Print the `Failed Attempt`
 status line either way.
-**(4b) Size gate.** A `## Size` of `L`, with context already above **half** the
-`stopPct` threshold → don't start, hand off cleanly (Step 6) instead. `S`/`M` always start, a
-missing size counts as `M`; at `stopPct: 0` the gate doesn't apply since a handoff already happens
-after every phase.
+**(4b) Size gate.** Deterministic projection, computed by a script, never prose arithmetic — reuse
+the `## Size` already extracted for this phase in Step 3b's briefing (`cfq-brief.sh`'s `[<size>]`
+column), don't re-read the phase file just for this:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get stopPct
+"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh" gate "<this phase's size letter, or empty>"
 ```
-Print the `Size Gate` status line; this closes `PRECHECKS`, next comes `IMPLEMENTATION`.
+One line back: `PCT=<n|?> SIZE=<S|M|L> EXPECTED=<pp> [PROJECTED=<pp>] LIMIT=<n> START|HANDOFF
+(<info>)`. `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the
+`Size Gate` status line with `PCT`/`SIZE`/decision; this closes `PRECHECKS`.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full, implement it completely,
 run the plan's verification with output filtered. A phase touching `docs/<codeLanguage>/…` →
 write the counterparts in every `docLanguages` entry before it goes green, per
