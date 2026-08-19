@@ -151,3 +151,9 @@
     - phase: "03-priority-data-cleanup"
       status: "green"
       summary: "Removed 11 stale pre-476aa60 .priority files (value != high) from the repo-local queue; the 4 correctly-flagged high files were left untouched."
+- version: v0.12
+  branch: v0.12-cfq-batch-context-and-resume
+  base: v0.11-cfq-scan-priority-crash
+  batch: 2026-08-19-cfq-batch-context-and-resume
+  started: 2026-08-19
+  status: in-progress
