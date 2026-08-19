@@ -81,6 +81,22 @@ if [ -f "$dir/.priority" ]; then
   [ "$p" = high ] || findings+=("$batch_name: priority: .priority is '$p', want high or no file")
 fi
 
+# batch-context — .batch-context.md is required for every batch this lint call touches (a batch
+# already parked and untouched is never linted again, so this never breaks old batches).
+ctx_file="$dir/.batch-context.md"
+if [ ! -f "$ctx_file" ]; then
+  findings+=("$batch_name: batch-context: missing .batch-context.md")
+elif ! has_heading "$ctx_file" "Goal"; then
+  findings+=("$batch_name: batch-context: .batch-context.md missing ## Goal heading")
+else
+  goal_body=$(awk '
+    /^## Goal([[:space:]]|$)/ { f=1; next }
+    f && /^## / { exit }
+    f
+  ' "$ctx_file" | grep -c '[^[:space:]]' || true)
+  [ "$goal_body" -gt 0 ] || findings+=("$batch_name: batch-context: ## Goal section is empty")
+fi
+
 # depends (warn-only, never affects the exit code)
 if [ -f "$dir/.dependsOn" ]; then
   repo_qdir="$(dirname "$dir")"

@@ -86,3 +86,28 @@ Plus `## Origin`, same as above.
 
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`. The headings are always English; only the prose
 inside them follows `codeLanguage`.
+
+## Resume Snapshot (Step 3b)
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-resume.sh" "<repo-root>" "<batch-dir>"
+```
+
+One JSON object, deterministic — no summarization, only facts read from disk, `report.json`, and
+git:
+
+- `branch` — the same object `cfq-branch.sh plan` returns (recomputed here in case Step 3b's own
+  call ran before the branch actually existed, e.g. right after a `new`-mode checkout).
+- `phasesOpen` / `phasesDone` — `{num, slug, size}` / `{num, slug, commit}`, one per `NN-*.md`;
+  `size`/`commit` degrade to `"M"`/`null` when absent (no `## Size` heading, or a `commit` that
+  predates the Step 5 backfill).
+- `lastCommit` / `lastCommitSource` — the newest green phase's `commit` from `report.json`
+  (`"report"`); falling back to the branch tip (`"branch-tip"`) when that's empty but a branch is
+  known; `null`/`null` when neither is available.
+- `deviations` — `{phase, text}` pairs from already-green phases only — orientation, not a repeat
+  of `errors`, which stays 4a's job.
+- `redPhases` — phase slugs with at least one red `report.json` entry, names only. Batch-wide
+  overview shown once here; does not replace 4a's live per-phase lookup right before that phase
+  starts — different granularity, different moment.
+- `batchContext.exists` / `.path` — `false` for every batch parked before this feature, not an
+  error; `implement-for-queue` just proceeds without it.

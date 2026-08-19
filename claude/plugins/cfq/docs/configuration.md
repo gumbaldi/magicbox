@@ -13,11 +13,17 @@ Or run `/cfq` and pick the settings step — same data, presented as a table.
 ## Change settings globally
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set stopPct 25
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set maintenanceEvery 25
 ```
 
 Writes to `~/.claude/code-for-queue/settings.json`, read by every repo unless that repo overrides
 the key (below). `/cfq` offers the same `set` calls interactively.
+
+`stopPct` is the one exception: it's env-only, never written to `settings.json`. A value persisted
+in the settings file would otherwise stick around forever — `merged()`'s "file beats default"
+precedence means a later change to the built-in default could never reach an installation that
+already has an old value on disk. Set `CFQ_STOP_PCT` instead, globally or per repo via the `env`
+block below.
 
 ## Override per repo
 
@@ -39,7 +45,7 @@ Precedence is env var > `settings.json` > default.
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement; a mismatch aborts `ifq` |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | model pfq's research subagents run on |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model checks above |
-| `stopPct` | `CFQ_STOP_PCT` | `40` | context share at which `ifq` hands off the session; `0` hands off after every phase |
+| `stopPct` | `CFQ_STOP_PCT` | `60` | context share at which `ifq` hands off the session; `0` hands off after every phase; **env-only, not writable via `set`** |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | allows `grillMode: classic` |
 | `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | enables the optional cleanup audit, one of several maintenance tasks gated by `maintenanceEvery` |

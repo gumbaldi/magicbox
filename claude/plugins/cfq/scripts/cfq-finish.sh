@@ -88,6 +88,16 @@ if [ -n "$changelog_file" ]; then
   phases=$(find "$batch_dir/done" -maxdepth 1 -name '[0-9][0-9]-*.md' 2>/dev/null | wc -l | tr -d ' ')
   if err_out=$("$script_dir/cfq-changelog.sh" finish "$repo_root" "$branch" "$batch_dir" 2>&1); then
     changelog="${version} done · ${phases} phases"
+    if [ -n "$(git -C "$repo_root" status --porcelain -- "$changelog_file" 2>/dev/null)" ]; then
+      if git -C "$repo_root" add "$changelog_file" >/dev/null 2>&1 \
+        && git -C "$repo_root" commit -q -m "Mark ${branch} batch done in the changelog" \
+          -m "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>" >/dev/null 2>&1 \
+        && git -C "$repo_root" push -q >/dev/null 2>&1; then
+        changelog="${changelog} · committed"
+      else
+        add_error changelog "git commit/push of $changelog_file failed"
+      fi
+    fi
   else
     add_error changelog "$err_out"
     changelog="error"

@@ -144,6 +144,7 @@ assert_once abspath
 assert_once missing
 assert_once stale-new
 assert_once priority
+assert_once batch-context 1
 
 printf '%s\n' "$out" | grep -q '^01-a\.md:' && { echo "FAIL: correct file 01-a.md appears in findings"; exit 1; }
 printf '%s\n' "$out" | grep -q '07-f\.md:' && { echo "FAIL: done/ file content should never be linted, got: $out"; exit 1; }
@@ -153,6 +154,7 @@ clean="$qdir/2026-01-02-clean"
 mkdir -p "$clean"
 echo high >"$clean/.priority"
 echo gibtsnicht >"$clean/.dependsOn"
+printf '# Batch Context\n\n## Goal\nDoes a thing.\n' >"$clean/.batch-context.md"
 cat >"$clean/01-a.md" <<EOF
 ## Size
 M
@@ -194,6 +196,53 @@ printf '%s\n' "$out" | grep -q ': stale-new:' \
   || { echo "FAIL: English (new) marker did not fire stale-new: $out"; exit 1; }
 printf '%s\n' "$out" | grep -q ': priority:' \
   && { echo "FAIL: batch without .priority should not fire priority: $out"; exit 1; }
+
+# --- batch-context: missing file, missing heading, empty section, good file ---
+phase_body='## Size
+
+S
+
+## Context
+x
+
+## Affected Files
+
+## Changes
+x
+
+## Verification
+x
+'
+
+noctx="$qdir/2026-01-04-noctx"; mkdir -p "$noctx"
+printf '%s' "$phase_body" >"$noctx/01-a.md"
+out=$(bash "$lint_sh" "$noctx" 2>&1) && rc=0 || rc=$?
+[ "$rc" != "0" ] || { echo "FAIL: missing .batch-context.md should fail lint"; exit 1; }
+printf '%s\n' "$out" | grep -q ': batch-context: missing .batch-context.md' \
+  || { echo "FAIL: missing .batch-context.md not reported: $out"; exit 1; }
+
+nogoal="$qdir/2026-01-05-nogoal"; mkdir -p "$nogoal"
+printf '%s' "$phase_body" >"$nogoal/01-a.md"
+printf '# Batch Context\n\n## Decisions\nsomething\n' >"$nogoal/.batch-context.md"
+out=$(bash "$lint_sh" "$nogoal" 2>&1) && rc=0 || rc=$?
+[ "$rc" != "0" ] || { echo "FAIL: .batch-context.md without ## Goal should fail lint"; exit 1; }
+printf '%s\n' "$out" | grep -q ': batch-context: .batch-context.md missing ## Goal heading' \
+  || { echo "FAIL: missing ## Goal heading not reported: $out"; exit 1; }
+
+emptygoal="$qdir/2026-01-06-emptygoal"; mkdir -p "$emptygoal"
+printf '%s' "$phase_body" >"$emptygoal/01-a.md"
+printf '# Batch Context\n\n## Goal\n\n## Decisions\nx\n' >"$emptygoal/.batch-context.md"
+out=$(bash "$lint_sh" "$emptygoal" 2>&1) && rc=0 || rc=$?
+[ "$rc" != "0" ] || { echo "FAIL: empty ## Goal section should fail lint"; exit 1; }
+printf '%s\n' "$out" | grep -q ': batch-context: ## Goal section is empty' \
+  || { echo "FAIL: empty ## Goal section not reported: $out"; exit 1; }
+
+goodctx="$qdir/2026-01-07-goodctx"; mkdir -p "$goodctx"
+printf '%s' "$phase_body" >"$goodctx/01-a.md"
+printf '# Batch Context\n\n## Goal\nDoes a thing.\n' >"$goodctx/.batch-context.md"
+out=$(bash "$lint_sh" "$goodctx") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: valid .batch-context.md should pass lint, got $rc: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q '^OK 1 phases$' || { echo "FAIL: goodctx summary line missing/wrong: $out"; exit 1; }
 
 # ============================================================ cfq-security.sh ========
 

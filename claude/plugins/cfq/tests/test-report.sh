@@ -17,6 +17,10 @@ mkdir -p "$batch"
 HOME="$home" bash "$rep" append "$batch" '{"phase":"01-a","status":"green","finished":"2026-01-01T10:00:00+01:00","summary":"ok","deviations":["Plan sagte X, gebaut Y"],"errors":[],"verification":"tests -> PASS","commit":"abc1234"}'
 HOME="$home" bash "$rep" append "$batch" '{"phase":"02-b","status":"red","finished":"2026-01-01T11:00:00+01:00","summary":"fehlgeschlagen","deviations":[],"errors":["Verifikation rot: 1 Test <failed>"],"verification":"tests -> FAIL","commit":""}'
 
+HOME="$home" bash "$rep" set-commit "$batch" "01-a" "def5678"
+c=$(jq -r '.phases[] | select(.phase=="01-a") | .commit' "$batch/report.json")
+[ "$c" = "def5678" ] || { echo "FAIL: set-commit did not update commit = $c"; exit 1; }
+
 s=$(bash "$rep" summary "$batch")
 expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0	0		"
 [ "$s" = "$expected" ] || { echo "FAIL: summary = $s"; exit 1; }

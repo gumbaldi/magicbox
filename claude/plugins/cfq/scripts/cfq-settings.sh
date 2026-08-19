@@ -14,7 +14,6 @@ defaults='{
   "implModels": ["sonnet"],
   "planExploreModel": "haiku",
   "allowAnyModel": false,
-  "stopPct": 40,
   "scanRoots": ["~/git"],
   "useMattpocockGrilling": false,
   "usePonytailAudit": false,
@@ -57,7 +56,6 @@ with_overrides() {
     --arg implModels "${CFQ_IMPL_MODELS:-}" \
     --arg planExploreModel "${CFQ_PLAN_EXPLORE_MODEL:-}" \
     --arg allowAnyModel "${CFQ_ALLOW_ANY_MODEL:-}" \
-    --arg stopPct "${CFQ_STOP_PCT:-}" \
     --arg scanRoots "${CFQ_SCAN_ROOTS:-}" \
     --arg grillMode "${CFQ_GRILL_MODE:-}" \
     --arg useMattpocockGrilling "${CFQ_USE_MATTPOCOCK:-}" \
@@ -72,7 +70,6 @@ with_overrides() {
     | if $implModels != "" then .implModels = ($implModels | split(",")) else . end
     | if $planExploreModel != "" then .planExploreModel = $planExploreModel else . end
     | if $allowAnyModel != "" then .allowAnyModel = ($allowAnyModel == "1") else . end
-    | if $stopPct != "" then .stopPct = ($stopPct | tonumber) else . end
     | if $scanRoots != "" then .scanRoots = ($scanRoots | split(":")) else . end
     | if $grillMode != "" then .grillMode = $grillMode else . end
     | if $useMattpocockGrilling != "" then .useMattpocockGrilling = ($useMattpocockGrilling == "1") else . end
@@ -89,10 +86,19 @@ cmd="${1:-}"
 case "$cmd" in
   list)
     ensure
-    merged | with_overrides
+    sp="${CFQ_STOP_PCT:-}"
+    case "$sp" in ''|*[!0-9]*) sp=60 ;; esac
+    merged | with_overrides | jq --argjson sp "$sp" '. + {stopPct: $sp}'
     ;;
   get)
     key="${2:?usage: cfq-settings.sh get <key>}"
+    if [ "$key" = "stopPct" ]; then
+      case "${CFQ_STOP_PCT:-}" in
+        ''|*[!0-9]*) echo 60 ;;
+        *) echo "$CFQ_STOP_PCT" ;;
+      esac
+      exit 0
+    fi
     ensure
     merged | with_overrides | jq -r --arg k "$key" '
       .[$k] | if type == "array" then join(",") else tostring end
@@ -101,6 +107,10 @@ case "$cmd" in
   set)
     key="${2:?usage: cfq-settings.sh set <key> <value>}"
     val="${3?usage: cfq-settings.sh set <key> <value>}"
+    if [ "$key" = "stopPct" ]; then
+      echo "cfq-settings.sh: 'stopPct' is env-only — set CFQ_STOP_PCT (shell env, or the 'env' block in this repo's .claude/settings.json for a per-repo override), not via 'set'" >&2
+      exit 1
+    fi
     ensure
     merged > "$settings.tmp" && mv "$settings.tmp" "$settings"
     if ! jq -n --argjson d "$defaults" --arg k "$key" -e '$d | has($k)' >/dev/null; then
@@ -113,16 +123,6 @@ case "$cmd" in
           true|false) jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write ;;
           *) echo "cfq-settings.sh: '$key' must be true or false" >&2; exit 1 ;;
         esac
-        ;;
-      stopPct)
-        case "$val" in
-          ''|*[!0-9]*) echo "cfq-settings.sh: 'stopPct' must be 0-99" >&2; exit 1 ;;
-        esac
-        if [ "$val" -gt 99 ]; then
-          echo "cfq-settings.sh: 'stopPct' must be 0-99" >&2
-          exit 1
-        fi
-        jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$settings" | write
         ;;
       maintenanceEvery)
         case "$val" in
