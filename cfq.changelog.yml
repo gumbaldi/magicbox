@@ -139,4 +139,15 @@
   base: v0.10-cfq-lean-english-and-prio
   batch: 2026-08-19-cfq-scan-priority-crash
   started: 2026-08-19
-  status: in-progress
+  finished: 2026-08-19
+  status: done
+  phases:
+    - phase: "01-crash-fix-and-naming-filter"
+      status: "green"
+      summary: "read_priority() now returns 0 unconditionally; impl/*/ and impl/done/*/ loops filter to the YYYY-MM-DD-topic name pattern instead of a done-only blacklist."
+    - phase: "02-regression-tests-and-version-bump"
+      status: "green"
+      summary: "test-scan.sh fixtures renamed to the YYYY-MM-DD-slug pattern, two new fixtures (repo-h stale priority, repo-i foreign directory) added, plugin.json bumped to 0.8.1."
+    - phase: "03-priority-data-cleanup"
+      status: "green"
+      summary: "Removed 11 stale pre-476aa60 .priority files (value != high) from the repo-local queue; the 4 correctly-flagged high files were left untouched."
