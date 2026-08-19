@@ -156,4 +156,18 @@
   base: v0.11-cfq-scan-priority-crash
   batch: 2026-08-19-cfq-batch-context-and-resume
   started: 2026-08-19
-  status: in-progress
+  finished: 2026-08-19
+  status: done
+  phases:
+    - phase: "01-stoppct-env-only-and-default-60"
+      status: "green"
+      summary: "stopPct is now env-only (CFQ_STOP_PCT), never written to or read from settings.json; default bumped to 60. defaults/list/get/set updated in cfq-settings.sh, ctx-usage.sh fallback bumped, docs/configuration.md, references/settings-explain.md and code-for-queue/SKILL.md Step D updated, test-settings.sh extended."
+    - phase: "02-predictive-context-gate"
+      status: "green"
+      summary: "ctx-usage.sh gains a gate <SIZE> mode that projects PCT+expectedGrowth(size) against stopPct and returns START/HANDOFF deterministically; S/M/L growth heuristics (7/15/25) live in one size_growth() function. implement-for-queue SKILL.md Step 4b now calls the gate instead of doing prose arithmetic. New test-ctx-usage.sh covers the boundary matrix, stopPct=0 bypass, malformed/missing size, unknown pct, and the unchanged legacy no-arg call. CLAUDE.md Commands section updated."
+    - phase: "03-batch-context-file"
+      status: "green"
+      summary: "New <batch-dir>/.batch-context.md carries batch-wide Goal/Decisions/Invariants across /clear and phase moves; plan-for-queue writes it at Step 10 (replacing the old first-phase-file ## Decisions table), cfq-lint.sh hard-checks its presence and a non-empty ## Goal. Fixed the pre-existing cfq-scan.sh unanchored-*.md bug (would have miscounted the new dotfile as a phase) and tightened two prose *.md mentions in implement-for-queue/SKILL.md to NN-*.md. test-checks.sh and test-scan.sh extended accordingly."
+    - phase: "04-cfq-resume-script"
+      status: "green"
+      summary: "New cfq-resume.sh deterministically reconstructs a batch's state (done/open phases, last commit, deviations, red-phase history, .batch-context.md path) from disk/report.json/git, no LLM summarization. cfq-report.sh gains set-commit to backfill the commit hash Step 5 leaves in report.json. implement-for-queue SKILL.md Step 3b now calls cfq-resume.sh unconditionally and Reads .batch-context.md when present; Step 5 backfills the commit hash. references/queues.md documents the Resume Snapshot schema. New test-resume.sh (fresh/mid-flight/legacy-commit fixtures), test-report.sh extended with a set-commit case. CLAUDE.md script count and Commands section updated."
