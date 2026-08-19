@@ -134,3 +134,9 @@
     - phase: "05-trim-skills-and-record-decision"
       status: "green"
       summary: "Moved Step 3a's blocked/planning/in-progress invariant detail from implement-for-queue/SKILL.md into a new Batch Selection Rules section in references/queues.md and dropped its Section Map; condensed plan-for-queue Step 10a and dropped its Section Map too; both SKILL.md files now sit at exactly 200 lines with no rule lost. CLAUDE.md gained the subagent-usage rationale and the structural-markers-are-English clarification; plugin.json bumped to 0.8.0."
+- version: v0.11
+  branch: v0.11-cfq-scan-priority-crash
+  base: v0.10-cfq-lean-english-and-prio
+  batch: 2026-08-19-cfq-scan-priority-crash
+  started: 2026-08-19
+  status: in-progress

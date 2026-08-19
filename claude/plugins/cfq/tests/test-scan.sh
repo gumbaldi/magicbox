@@ -30,19 +30,19 @@ echo '{"repo":"x","batch":"2026-01-01-demo","started":"t","phases":[]}' \
 
 # repo-e: dependsOn fixtures — target-open (still open) and target-done (archived) are the
 # dependency targets; b-blocked/b-free/b-unknown are the batches exercising each outcome.
-mkdir -p "$tmp/repo-e/.claude/code-for-queue/impl/target-open" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/done/target-done" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/b-blocked" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/b-free" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/b-unknown"
-touch "$tmp/repo-e/.claude/code-for-queue/impl/target-open/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/done/target-done/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/b-blocked/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/b-free/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/b-unknown/01-a.md"
-echo target-open   >"$tmp/repo-e/.claude/code-for-queue/impl/b-blocked/.dependsOn"
-echo target-done   >"$tmp/repo-e/.claude/code-for-queue/impl/b-free/.dependsOn"
-echo gibtsnicht     >"$tmp/repo-e/.claude/code-for-queue/impl/b-unknown/.dependsOn"
+mkdir -p "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-target-open" \
+         "$tmp/repo-e/.claude/code-for-queue/impl/done/2026-01-10-target-done" \
+         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked" \
+         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free" \
+         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown"
+touch "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-target-open/01-a.md" \
+      "$tmp/repo-e/.claude/code-for-queue/impl/done/2026-01-10-target-done/01-a.md" \
+      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked/01-a.md" \
+      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free/01-a.md" \
+      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown/01-a.md"
+echo 2026-01-10-target-open   >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked/.dependsOn"
+echo 2026-01-10-target-done   >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free/.dependsOn"
+echo gibtsnicht     >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown/.dependsOn"
 
 # repo-f: no impl/ batches at all, only plan/ and todo/ orders — plan and todo must count only
 # the open entries (2 and 1), never the ones already moved to their done/
@@ -55,12 +55,23 @@ touch "$tmp/repo-f/.claude/code-for-queue/plan/2026-01-04-a.md" \
 
 # repo-g: .planning fixtures — b-fresh has a just-written marker (planning:true), b-stale has
 # one backdated past the 30-minute staleness threshold (planning:false)
-mkdir -p "$tmp/repo-g/.claude/code-for-queue/impl/b-fresh" \
-         "$tmp/repo-g/.claude/code-for-queue/impl/b-stale"
-touch "$tmp/repo-g/.claude/code-for-queue/impl/b-fresh/01-a.md" \
-      "$tmp/repo-g/.claude/code-for-queue/impl/b-stale/01-a.md"
-date -Iseconds >"$tmp/repo-g/.claude/code-for-queue/impl/b-fresh/.planning"
-touch -d "@$(($(date +%s) - 3600))" "$tmp/repo-g/.claude/code-for-queue/impl/b-stale/.planning"
+mkdir -p "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh" \
+         "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale"
+touch "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh/01-a.md" \
+      "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale/01-a.md"
+date -Iseconds >"$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh/.planning"
+touch -d "@$(($(date +%s) - 3600))" "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale/.planning"
+
+# repo-h: stale pre-476aa60 .priority value — must not crash the scan, must read back empty
+mkdir -p "$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy"
+touch "$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy/01-a.md"
+echo medium >"$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy/.priority"
+
+# repo-i: a foreign directory under impl/ (not a YYYY-MM-DD-slug batch) must not be collected
+mkdir -p "$tmp/repo-i/.claude/code-for-queue/impl/todo" \
+         "$tmp/repo-i/.claude/code-for-queue/impl/2026-01-13-real-batch"
+touch "$tmp/repo-i/.claude/code-for-queue/impl/todo/leftover.md" \
+      "$tmp/repo-i/.claude/code-for-queue/impl/2026-01-13-real-batch/01-a.md"
 
 out=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan")
 
@@ -76,15 +87,15 @@ b=$(jq -c --arg p "$tmp/repo-b" '[.repos[] | select(.path == $p)][0].batches' <<
 c=$(jq -c --arg p "$tmp/repo-c" '[.repos[] | select(.path == $p)]' <<<"$out")
 [ "$c" = "[]" ] || { echo "FAIL: repo-c should not appear, got $c"; exit 1; }
 
-e_blocked=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-blocked") | {blocked, dependsOn}' <<<"$out")
-[ "$e_blocked" = '{"blocked":true,"dependsOn":["target-open"]}' ] \
+e_blocked=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "2026-01-10-b-blocked") | {blocked, dependsOn}' <<<"$out")
+[ "$e_blocked" = '{"blocked":true,"dependsOn":["2026-01-10-target-open"]}' ] \
   || { echo "FAIL: b-blocked = $e_blocked"; exit 1; }
 
-e_free=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-free") | {blocked, dependsOn}' <<<"$out")
-[ "$e_free" = '{"blocked":false,"dependsOn":["target-done"]}' ] \
+e_free=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "2026-01-10-b-free") | {blocked, dependsOn}' <<<"$out")
+[ "$e_free" = '{"blocked":false,"dependsOn":["2026-01-10-target-done"]}' ] \
   || { echo "FAIL: b-free = $e_free"; exit 1; }
 
-e_unknown=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-unknown") | {blocked, unknownDeps}' <<<"$out")
+e_unknown=$(jq -c --arg p "$tmp/repo-e" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "2026-01-10-b-unknown") | {blocked, unknownDeps}' <<<"$out")
 [ "$e_unknown" = '{"blocked":false,"unknownDeps":["gibtsnicht"]}' ] \
   || { echo "FAIL: b-unknown = $e_unknown"; exit 1; }
 
@@ -92,10 +103,17 @@ f=$(jq -c --arg p "$tmp/repo-f" '[.repos[] | select(.path == $p)][0] | {plan, to
 [ "$f" = '{"plan":2,"todo":1,"batches":[]}' ] \
   || { echo "FAIL: repo-f plan/todo counts = $f"; exit 1; }
 
-g_fresh=$(jq -c --arg p "$tmp/repo-g" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-fresh") | .planning' <<<"$out")
+g_fresh=$(jq -c --arg p "$tmp/repo-g" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "2026-01-11-b-fresh") | .planning' <<<"$out")
 [ "$g_fresh" = "true" ] || { echo "FAIL: b-fresh planning = $g_fresh"; exit 1; }
 
-g_stale=$(jq -c --arg p "$tmp/repo-g" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "b-stale") | .planning' <<<"$out")
+g_stale=$(jq -c --arg p "$tmp/repo-g" '[.repos[] | select(.path == $p)][0].batches[] | select(.name == "2026-01-11-b-stale") | .planning' <<<"$out")
 [ "$g_stale" = "false" ] || { echo "FAIL: b-stale planning = $g_stale"; exit 1; }
+
+h=$(jq -c --arg p "$tmp/repo-h" '[.repos[] | select(.path == $p)][0].batches[0].priority' <<<"$out")
+[ "$h" = '""' ] || { echo "FAIL: repo-h legacy priority should read back empty, got $h"; exit 1; }
+
+i=$(jq -c --arg p "$tmp/repo-i" '[.repos[] | select(.path == $p)][0].batches | map(.name)' <<<"$out")
+[ "$i" = '["2026-01-13-real-batch"]' ] \
+  || { echo "FAIL: repo-i batches should exclude non-date-prefixed dirs, got $i"; exit 1; }
 
 echo PASS
