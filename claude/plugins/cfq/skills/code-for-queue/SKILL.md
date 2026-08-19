@@ -169,13 +169,15 @@ ACTION
 Show `cfq-settings.sh list`, with an explanation per key and a marker for which values are
 currently overridden by an env var (a `set` then only takes effect after removing the variable —
 point that out). This value list is not a status line and stays as specified. Change requests go
-through `cfq-settings.sh set <key> <value>`. **All** keys are changeable here, including
-`planBlockedPlugins` / `implBlockedPlugins` (strict prohibition). `stopPct` accepts `0`-`99`; `0`
-is a valid, deliberate value meaning "hand off after every phase", not an error — don't flag it as
-a misconfiguration.
+through `cfq-settings.sh set <key> <value>`. **All** keys are changeable here except `stopPct`,
+including `planBlockedPlugins` / `implBlockedPlugins` (strict prohibition). `stopPct` is env-only
+(`CFQ_STOP_PCT`) — `list` still shows its current effective value, but a `set stopPct` attempt is
+rejected; point at the env var instead. `0` is a valid, deliberate value meaning "hand off after
+every phase", not an error — don't flag it as a misconfiguration.
 
 See `${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md` for the per-key explanations and the
 env-override note.
 
-After a `set` call, print one status line: `✅ Setting  stopPct: 50 → 40`, or, when an env var
+After a `set` call, print one status line: `✅ Setting  maintenanceEvery: 50 → 40`, or, when an env var
 shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`.
+A rejected `stopPct` attempt prints `❌ Setting  stopPct is env-only, see CFQ_STOP_PCT`.

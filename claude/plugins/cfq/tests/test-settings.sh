@@ -30,7 +30,7 @@ got=$(HOME="$legacy_home" bash "$settings_sh" get telemetrySyncRepo)
 [ "$got" = "" ] || { echo "FAIL: legacy telemetrySyncRepo = '$got', want empty"; exit 1; }
 
 got=$(HOME="$legacy_home" bash "$settings_sh" get stopPct)
-[ "$got" = "42" ] || { echo "FAIL: legacy stopPct = '$got', want 42 (file beats default)"; exit 1; }
+[ "$got" = "60" ] || { echo "FAIL: legacy stopPct = '$got', want 60 (env-only, file value ignored)"; exit 1; }
 
 legacy_list=$(HOME="$legacy_home" bash "$settings_sh" list)
 [ "$(jq 'has("planPreferredPlugins")' <<<"$legacy_list")" = "false" ] \
@@ -56,11 +56,25 @@ got=$(HOME="$home" CFQ_TELEMETRY_SYNC_REPO=/tmp/y bash "$settings_sh" get teleme
 
 # 5. Unrelated assertions still hold
 got=$(HOME="$home" bash "$settings_sh" get stopPct)
-[ "$got" = "40" ] || { echo "FAIL: default stopPct = '$got', want 40"; exit 1; }
+[ "$got" = "60" ] || { echo "FAIL: default stopPct = '$got', want 60"; exit 1; }
 
 if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
+
+# 5b. stopPct is env-only: set is rejected, env override wins, malformed env falls back, list carries it
+if HOME="$home" bash "$settings_sh" set stopPct 55 2>/dev/null; then
+  echo "FAIL: set stopPct should fail (env-only)"; exit 1
+fi
+
+got=$(HOME="$home" CFQ_STOP_PCT=25 bash "$settings_sh" get stopPct)
+[ "$got" = "25" ] || { echo "FAIL: env override stopPct -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_STOP_PCT=abc bash "$settings_sh" get stopPct)
+[ "$got" = "60" ] || { echo "FAIL: malformed CFQ_STOP_PCT -> got '$got', want 60"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopPct')
+[ "$got" = "60" ] || { echo "FAIL: list stopPct on fresh install = '$got', want 60"; exit 1; }
 
 # 6. maintenanceEvery: default, set 0, invalid, env override
 got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)
