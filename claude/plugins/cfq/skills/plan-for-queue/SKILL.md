@@ -147,11 +147,11 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
   [<dependsOn-entry>...]` creates the directory, writes `.priority`/`.dependsOn` (Step 5's dependency, if
   any; `.priority` only when Step 7's flag answer was high), ensures the local git-exclude entry, and
   registers the repo — idempotent, safe to re-run.
-- Grilling path: write decisions as a `## Decisions` table into the **first** phase file, no
-  separate ADR directory.
+- Write `<batch-dir>/.batch-context.md` — batch-wide context, replacing the old practice of writing
+  Grilling decisions into the first phase file. Read `references/batch-context.md` and follow it.
 
-Print three status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
-`Git Exclude`, `Registry`.
+Print four status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
+`Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
 ## Step 10a — New Repo: Config Overview
 

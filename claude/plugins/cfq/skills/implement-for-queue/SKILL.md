@@ -51,7 +51,7 @@ recommendations on this list are ignored. Print the `Plugin Boundaries` status l
 
 Repo root via `git rev-parse --show-toplevel`; no git repo → abort, report, end. Check
 `<repo-root>/.claude/code-for-queue/impl/` for open batches (directories beneath it, excluding
-`done/`, with at least one top-level `*.md`); none → report "No open plans for this repo in the
+`done/`, with at least one top-level `NN-*.md` phase file); none → report "No open plans for this repo in the
 queue.", end. Read `.priority` per batch (missing → not flagged); default order: flagged batches
 first, then folder name ascending (date-prefixed; oldest first, ties broken by name).
 
@@ -155,7 +155,7 @@ off without commenting on it.
 
 ## 7. Batch Done
 
-No open `*.md` left → print the `POSTCHECKS` header, then run
+No open `NN-*.md` left → print the `POSTCHECKS` header, then run
 `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-finish.sh" "<repo-root>" "<batch-dir>" "<branch>"`, which moves
 the batch into `impl/done/`, registers the repo, runs the language/maintenance/security/changelog/
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can

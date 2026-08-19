@@ -15,11 +15,14 @@ echo high >"$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/.priority"
 touch "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/01-a.md" \
       "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/02-b.md" \
       "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/done/00-x.md"
+# a stray dotfile in the batch root must never be counted as an open phase (regression test)
+touch "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/.batch-context.md"
 
 # repo-b: one batch fully moved to done/ (archived), no .priority
 mkdir -p "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo"
 touch "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/01-a.md" \
       "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/02-b.md"
+touch "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/.batch-context.md"
 
 # repo-c: no .claude/code-for-queue/impl/ at all — must not show up
 mkdir -p "$tmp/repo-c"

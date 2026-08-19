@@ -63,7 +63,7 @@ while IFS= read -r repo; do
     [ -d "$b" ] || continue
     name=$(basename "$b")
     [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-.+ ]] || continue
-    open=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
+    open=$(find "$b" -maxdepth 1 -name '[0-9][0-9]-*.md' -type f | wc -l)
     donec=$(find "$b/done" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
     priority=$(read_priority "$b")
     report="false"; [ -f "$b/report.json" ] && report="true"
@@ -96,7 +96,7 @@ while IFS= read -r repo; do
       [ -d "$b" ] || continue
       name=$(basename "$b")
       [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-.+ ]] || continue
-      donec=$(find "$b" -maxdepth 1 -name '*.md' -type f | wc -l)
+      donec=$(find "$b" -maxdepth 1 -name '[0-9][0-9]-*.md' -type f | wc -l)
       priority=$(read_priority "$b")
       report="false"; [ -f "$b/report.json" ] && report="true"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
