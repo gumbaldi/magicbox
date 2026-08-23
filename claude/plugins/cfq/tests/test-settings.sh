@@ -30,7 +30,7 @@ got=$(HOME="$legacy_home" bash "$settings_sh" get telemetrySyncRepo)
 [ "$got" = "" ] || { echo "FAIL: legacy telemetrySyncRepo = '$got', want empty"; exit 1; }
 
 got=$(HOME="$legacy_home" bash "$settings_sh" get stopPct)
-[ "$got" = "60" ] || { echo "FAIL: legacy stopPct = '$got', want 60 (env-only, file value ignored)"; exit 1; }
+[ "$got" = "42" ] || { echo "FAIL: legacy stopPct = '$got', want 42 (normal key, file value honored)"; exit 1; }
 
 legacy_list=$(HOME="$legacy_home" bash "$settings_sh" list)
 [ "$(jq 'has("planPreferredPlugins")' <<<"$legacy_list")" = "false" ] \
@@ -62,10 +62,29 @@ if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
 
-# 5b. stopPct is env-only: set is rejected, env override wins, malformed env falls back, list carries it
-if HOME="$home" bash "$settings_sh" set stopPct 55 2>/dev/null; then
-  echo "FAIL: set stopPct should fail (env-only)"; exit 1
+# 5b. stopPct is a normal key now: set/get round-trip, boundary validation, malformed env falls back
+HOME="$home" bash "$settings_sh" set stopPct 45
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "45" ] || { echo "FAIL: set stopPct 45 -> got '$got'"; exit 1; }
+
+fresh_home=$(mktemp -d)
+got=$(HOME="$fresh_home" bash "$settings_sh" get stopPct)
+[ "$got" = "60" ] || { echo "FAIL: default stopPct on fresh HOME = '$got', want 60"; exit 1; }
+rm -rf "$fresh_home"
+
+if HOME="$home" bash "$settings_sh" set stopPct -1 2>/dev/null; then
+  echo "FAIL: set stopPct -1 should fail"; exit 1
 fi
+if HOME="$home" bash "$settings_sh" set stopPct 101 2>/dev/null; then
+  echo "FAIL: set stopPct 101 should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set stopPct 0
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "0" ] || { echo "FAIL: set stopPct 0 -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set stopPct 100
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "100" ] || { echo "FAIL: set stopPct 100 -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set stopPct 60
 
 got=$(HOME="$home" CFQ_STOP_PCT=25 bash "$settings_sh" get stopPct)
 [ "$got" = "25" ] || { echo "FAIL: env override stopPct -> got '$got'"; exit 1; }
@@ -75,6 +94,61 @@ got=$(HOME="$home" CFQ_STOP_PCT=abc bash "$settings_sh" get stopPct)
 
 got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopPct')
 [ "$got" = "60" ] || { echo "FAIL: list stopPct on fresh install = '$got', want 60"; exit 1; }
+
+# 5c. phaseContextGrowth: default object (valid JSON, not stringified), round-trip
+got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
+[ "$got" = '{"S":7,"M":15,"L":25}' ] || { echo "FAIL: default phaseContextGrowth = '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":20,"L":25}'
+got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
+[ "$got" = '{"S":7,"M":20,"L":25}' ] || { echo "FAIL: set phaseContextGrowth round-trip -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":15,"L":25}'
+
+# 5d. CFQ_SCAN_ROOTS is comma-delimited now (uniform array env delimiter)
+got=$(HOME="$home" CFQ_SCAN_ROOTS=a,b bash "$settings_sh" get scanRoots)
+[ "$got" = "a,b" ] || { echo "FAIL: CFQ_SCAN_ROOTS comma round-trip -> got '$got'"; exit 1; }
+
+# 5e. gitStatePolicy: default, set, invalid
+got=$(HOME="$home" bash "$settings_sh" get gitStatePolicy)
+[ "$got" = "local" ] || { echo "FAIL: default gitStatePolicy = '$got', want local"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set gitStatePolicy trackable
+got=$(HOME="$home" bash "$settings_sh" get gitStatePolicy)
+[ "$got" = "trackable" ] || { echo "FAIL: set gitStatePolicy trackable -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set gitStatePolicy bogus 2>/dev/null; then
+  echo "FAIL: set gitStatePolicy bogus should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set gitStatePolicy local
+
+# 5f. Regression guard: every pre-existing key's default is unchanged by the schema rewrite.
+reg_home=$(mktemp -d)
+declare -A want=(
+  [grillMode]=stepwise
+  [planModels]="opus,fable"
+  [implModels]=sonnet
+  [planExploreModel]=haiku
+  [allowAnyModel]=false
+  [scanRoots]="~/git"
+  [useMattpocockGrilling]=false
+  [usePonytailAudit]=false
+  [codeLanguage]=en
+  [docLanguages]=""
+  [docLevel]=minimal
+  [maintenanceEvery]=50
+  [branchPerBatch]=true
+  [changelogFile]="cfq.changelog.yml"
+  [htmlReport]=false
+  [planBlockedPlugins]=superpowers
+  [implBlockedPlugins]=superpowers
+  [telemetrySyncRepo]=""
+  [setupDone]=false
+)
+for k in "${!want[@]}"; do
+  got=$(HOME="$reg_home" bash "$settings_sh" get "$k")
+  [ "$got" = "${want[$k]}" ] || { echo "FAIL: regression default $k = '$got', want '${want[$k]}'"; exit 1; }
+done
+rm -rf "$reg_home"
 
 # 6. maintenanceEvery: default, set 0, invalid, env override
 got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)

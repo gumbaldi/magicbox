@@ -171,3 +171,9 @@
     - phase: "04-cfq-resume-script"
       status: "green"
       summary: "New cfq-resume.sh deterministically reconstructs a batch's state (done/open phases, last commit, deviations, red-phase history, .batch-context.md path) from disk/report.json/git, no LLM summarization. cfq-report.sh gains set-commit to backfill the commit hash Step 5 leaves in report.json. implement-for-queue SKILL.md Step 3b now calls cfq-resume.sh unconditionally and Reads .batch-context.md when present; Step 5 backfills the commit hash. references/queues.md documents the Resume Snapshot schema. New test-resume.sh (fresh/mid-flight/legacy-commit fixtures), test-report.sh extended with a set-commit case. CLAUDE.md script count and Commands section updated."
+- version: v0.13
+  branch: v0.13-cfq-config-runtime-refactor
+  base: v0.12-cfq-batch-context-and-resume
+  batch: 2026-08-19-cfq-config-runtime-refactor
+  started: 2026-08-23
+  status: in-progress
