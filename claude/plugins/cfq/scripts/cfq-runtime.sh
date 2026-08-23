@@ -169,9 +169,9 @@ do_resolve() {
     if [ "$transcript_available" != "true" ]; then
       add_source "transcript" true false "RUNTIME_SOURCE_MISSING" "no transcript file found"
       if [ -z "$primary_code" ]; then
-        status="unavailable"; code="RUNTIME_SOURCE_MISSING"
+        status="unavailable"; code="RUNTIME_SOURCE_MISSING"; note="no transcript found"
       else
-        status="unavailable"; code="$primary_code"
+        status="unavailable"; code="$primary_code"; note="$primary_detail"
         diagnostic=$(jq -n --arg cap "contextUsage" --arg src "statusline-payload" \
           --arg expected "context_window.used_percentage or current_usage with context_window_size" \
           --arg observed "$primary_detail" --arg fbstatus "unavailable" --arg fbcode "RUNTIME_SOURCE_MISSING" \
@@ -189,9 +189,9 @@ do_resolve() {
       if [ -z "${t_used:-}" ] || ! [ "$t_used" -gt 0 ] 2>/dev/null; then
         add_source "transcript" true false "FALLBACK_FAILED" "transcript found but no usable usage data"
         if [ -z "$primary_code" ]; then
-          status="unavailable"; code="FALLBACK_FAILED"
+          status="unavailable"; code="FALLBACK_FAILED"; note="transcript found but no usable usage data"
         else
-          status="unavailable"; code="$primary_code"
+          status="unavailable"; code="$primary_code"; note="$primary_detail"
           diagnostic=$(jq -n --arg cap "contextUsage" --arg src "statusline-payload" \
             --arg expected "context_window.used_percentage or current_usage with context_window_size" \
             --arg observed "$primary_detail" --arg fbstatus "unavailable" --arg fbcode "FALLBACK_FAILED" \
