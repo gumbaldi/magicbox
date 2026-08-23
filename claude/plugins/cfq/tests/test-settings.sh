@@ -250,4 +250,69 @@ got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
 got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get planExploreModel)
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
 
+# 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
+# detection, migrate. Fresh HOME (a prior section already customized maintenanceEvery in
+# $home) and a throwaway fixture repo — never the real repo.
+repo_home=$(mktemp -d)
+fixture=$(mktemp -d)
+
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":50,"source":"default"}' ] \
+  || { echo "FAIL: precedence step 1 (default) -> got '$got'"; exit 1; }
+
+HOME="$repo_home" bash "$settings_sh" set maintenanceEvery 20
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":20,"source":"global"}' ] \
+  || { echo "FAIL: precedence step 2 (global) -> got '$got'"; exit 1; }
+
+HOME="$repo_home" bash "$settings_sh" set --repo "$fixture" maintenanceEvery 5
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":5,"source":"repo"}' ] \
+  || { echo "FAIL: precedence step 3 (repo) -> got '$got'"; exit 1; }
+
+got=$(HOME="$repo_home" CFQ_MAINTENANCE_EVERY=99 bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":99,"source":"env:process"}' ] \
+  || { echo "FAIL: precedence step 4 (env) -> got '$got'"; exit 1; }
+
+# scanRoots is global-only; --repo set must fail
+if HOME="$repo_home" bash "$settings_sh" set --repo "$fixture" scanRoots /tmp 2>/dev/null; then
+  echo "FAIL: set scanRoots --repo should fail (global-only scope)"; exit 1
+fi
+
+# unset --repo falls through to the global value
+HOME="$repo_home" bash "$settings_sh" unset --repo "$fixture" maintenanceEvery
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":20,"source":"global"}' ] \
+  || { echo "FAIL: unset --repo fall-through -> got '$got'"; exit 1; }
+
+# Legacy detection: a repo's own .claude/settings.json "env" block is read-only/informational
+mkdir -p "$fixture/.claude"
+echo '{"env":{"CFQ_DOC_LEVEL":"standard"}}' > "$fixture/.claude/settings.json"
+got=$(HOME="$repo_home" CFQ_DOC_LEVEL=standard bash "$settings_sh" list --repo "$fixture" --sources | jq -c '.docLevel')
+[ "$got" = '{"value":"standard","source":"env:repo-legacy"}' ] \
+  || { echo "FAIL: legacy detection -> got '$got'"; exit 1; }
+
+# migrate writes the equivalent key into <fixture>/.claude/cfq/settings.json via `set --repo`
+# and never touches the original .claude/settings.json
+legacy_before=$(cat "$fixture/.claude/settings.json")
+HOME="$repo_home" bash "$settings_sh" migrate "$fixture" >/dev/null
+got=$(jq -r '.docLevel' "$fixture/.claude/cfq/settings.json")
+[ "$got" = "standard" ] || { echo "FAIL: migrate docLevel -> got '$got'"; exit 1; }
+legacy_after=$(cat "$fixture/.claude/settings.json")
+[ "$legacy_before" = "$legacy_after" ] \
+  || { echo "FAIL: migrate modified the original .claude/settings.json"; exit 1; }
+
+rm -rf "$fixture" "$repo_home"
+
+# 11. describe: well-formed JSON with type/default/scope/env/description, single key and all keys
+got=$(HOME="$home" bash "$settings_sh" describe stopPct)
+for field in type default scope env description; do
+  [ "$(jq "has(\"$field\")" <<<"$got")" = "true" ] \
+    || { echo "FAIL: describe stopPct missing field '$field'"; exit 1; }
+done
+
+got=$(HOME="$home" bash "$settings_sh" describe)
+[ "$(jq 'to_entries | all(.value | has("type") and has("default") and has("scope") and has("env") and has("description"))' <<<"$got")" = "true" ] \
+  || { echo "FAIL: describe (all keys) missing fields somewhere"; exit 1; }
+
 echo PASS
