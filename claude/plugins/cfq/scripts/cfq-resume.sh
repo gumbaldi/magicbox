@@ -17,7 +17,7 @@ batch_name="$(basename "$batch_dir")"
 report="$batch_dir/report.json"
 
 branch_json=$("$script_dir/cfq-branch.sh" plan "$repo_root" "$batch_name" 2>/dev/null \
-  || echo '{"mode":null,"slug":null,"branch":null,"version":null,"base":null,"candidates":[]}')
+  || echo '{"mode":null,"batch":null,"batchNumber":null,"branch":null,"base":null,"candidates":[]}')
 branch_name=$(jq -r '.branch // empty' <<<"$branch_json")
 
 open_recs=$(mktemp)

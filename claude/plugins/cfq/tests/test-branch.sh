@@ -17,31 +17,36 @@ git -C "$repo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m ini
 
 run() { HOME="$home" bash "$branch_sh" plan "$repo" "$1"; }
 
-# --- no branches beyond main -> new, v0.1, base main, no candidates ---
+# --- no existing branch, legacy-style batch dir -> new, branch is cfq/<batch-dir>, base main ---
 out=$(run "2026-01-01-mytopic")
 printf '%s' "$out" | jq -e . >/dev/null || { echo "FAIL: not valid JSON: $out"; exit 1; }
 [ "$(jq -r '.mode' <<<"$out")" = "new" ] || { echo "FAIL: mode -> $out"; exit 1; }
-[ "$(jq -r '.version' <<<"$out")" = "v0.1" ] || { echo "FAIL: version -> $out"; exit 1; }
+[ "$(jq -r '.branch' <<<"$out")" = "cfq/2026-01-01-mytopic" ] || { echo "FAIL: branch -> $out"; exit 1; }
+[ "$(jq -r '.batch' <<<"$out")" = "2026-01-01-mytopic" ] || { echo "FAIL: batch -> $out"; exit 1; }
+[ "$(jq -r '.batchNumber' <<<"$out")" = "null" ] || { echo "FAIL: legacy batchNumber should be null -> $out"; exit 1; }
 [ "$(jq -r '.base' <<<"$out")" = "main" ] || { echo "FAIL: base -> $out"; exit 1; }
 [ "$(jq -c '.candidates' <<<"$out")" = "[]" ] || { echo "FAIL: candidates -> $out"; exit 1; }
 
-# --- lexical-sort trap: v0.9 and v0.10 present -> next is v0.11, not v0.10 ---
+# --- numbered batch dir -> new, branch is cfq/<numbered-dir>, batchNumber extracted ---
+out=$(run "001-2026-01-01-numbered")
+[ "$(jq -r '.mode' <<<"$out")" = "new" ] || { echo "FAIL: numbered mode -> $out"; exit 1; }
+[ "$(jq -r '.branch' <<<"$out")" = "cfq/001-2026-01-01-numbered" ] || { echo "FAIL: numbered branch -> $out"; exit 1; }
+[ "$(jq -r '.batchNumber' <<<"$out")" = "1" ] || { echo "FAIL: numbered batchNumber -> $out"; exit 1; }
+
+# --- stray vX.Y branches in the repo never influence the new branch name (no version scanning) ---
 git -C "$repo" branch v0.9-a
 git -C "$repo" branch v0.10-b
-out=$(run "2026-01-01-mytopic")
-[ "$(jq -r '.version' <<<"$out")" = "v0.11" ] || { echo "FAIL: lexical-sort trap: version -> $out"; exit 1; }
-
-# --- v0.48 present -> v0.49 ---
 git -C "$repo" branch v0.48-x
 out=$(run "2026-01-01-mytopic")
-[ "$(jq -r '.version' <<<"$out")" = "v0.49" ] || { echo "FAIL: version after v0.48 -> $out"; exit 1; }
+[ "$(jq -r '.branch' <<<"$out")" = "cfq/2026-01-01-mytopic" ] || { echo "FAIL: stray vX.Y branches affected the new branch -> $out"; exit 1; }
+jq -e '.candidates | index("v0.9-a") == null and index("v0.10-b") == null and index("v0.48-x") == null' <<<"$out" >/dev/null \
+  || { echo "FAIL: stray non-ahead vX.Y branches leaked into candidates -> $out"; exit 1; }
 
-# --- existing local branch for this slug -> continue, no version bump ---
+# --- existing legacy vX.Y-<slug> branch -> continue, resumable without special-casing ---
 git -C "$repo" branch v0.3-mytopic
 out=$(run "2026-01-01-mytopic")
 [ "$(jq -r '.mode' <<<"$out")" = "continue" ] || { echo "FAIL: continue mode -> $out"; exit 1; }
 [ "$(jq -r '.branch' <<<"$out")" = "v0.3-mytopic" ] || { echo "FAIL: continue branch -> $out"; exit 1; }
-[ "$(jq -r '.version' <<<"$out")" = "null" ] || { echo "FAIL: continue version should be null -> $out"; exit 1; }
 git -C "$repo" branch -q -D v0.3-mytopic
 
 # --- remote-only branch for the slug -> same continue result ---
@@ -53,6 +58,24 @@ git -C "$repo" fetch -q origin
 out=$(run "2026-01-01-mytopic")
 [ "$(jq -r '.mode' <<<"$out")" = "continue" ] || { echo "FAIL: remote continue mode -> $out"; exit 1; }
 [ "$(jq -r '.branch' <<<"$out")" = "v0.3-mytopic" ] || { echo "FAIL: remote continue branch -> $out"; exit 1; }
+
+# --- a branch persisted in the changelog for this batch wins over the suffix-match fallback ---
+changelog_repo="$tmp/changelog-repo"
+mkdir -p "$changelog_repo"
+git init -q -b main "$changelog_repo"
+git -C "$changelog_repo" -c user.email=a@b.c -c user.name=a commit --allow-empty -q -m init
+HOME="$home" bash "$repo_root/scripts/cfq-changelog.sh" init "$changelog_repo" "cfq/2026-02-01-persisted" main "2026-02-01-persisted"
+git -C "$changelog_repo" branch "cfq/2026-02-01-persisted"
+git -C "$changelog_repo" branch "some-other-branch-ending-persisted"
+out=$(HOME="$home" bash "$branch_sh" plan "$changelog_repo" "2026-02-01-persisted")
+[ "$(jq -r '.mode' <<<"$out")" = "continue" ] || { echo "FAIL: persisted-branch continue mode -> $out"; exit 1; }
+[ "$(jq -r '.branch' <<<"$out")" = "cfq/2026-02-01-persisted" ] || { echo "FAIL: persisted branch not preferred -> $out"; exit 1; }
+
+# --- persisted branch since deleted -> falls through to the suffix-match fallback, not a dangling continue ---
+git -C "$changelog_repo" branch -q -D "cfq/2026-02-01-persisted"
+out=$(HOME="$home" bash "$branch_sh" plan "$changelog_repo" "2026-02-01-persisted")
+[ "$(jq -r '.mode' <<<"$out")" = "continue" ] || { echo "FAIL: deleted-persisted-branch fallback mode -> $out"; exit 1; }
+[ "$(jq -r '.branch' <<<"$out")" = "some-other-branch-ending-persisted" ] || { echo "FAIL: deleted-persisted-branch fallback did not use suffix match -> $out"; exit 1; }
 
 # --- branchPerBatch=false -> off (no env var for this key, set it via settings.json) ---
 mkdir -p "$home/.claude/code-for-queue"

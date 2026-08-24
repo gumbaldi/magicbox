@@ -100,7 +100,7 @@ batch.
 <repo>/.claude/cfq/
   settings.json          # repo-scoped setting overrides (trackable, versioned)
   impl/                  # phase-plan batches — ifq reads, pfq writes
-    <YYYY-MM-DD>-<topic>/
+    <NNN>-<YYYY-MM-DD>-<topic>/  # numbered batch identity, assigned at pfq park time
       01-first-phase.md
       02-second-phase.md
       .priority          # optional, contains "high"

@@ -195,5 +195,8 @@ the plugin's phase plans and is ignored via the versioned `.gitignore` at the re
 use `.git/info/exclude` instead, per `gitStatePolicy`). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
 against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
-to `v<N>-<slug>` per batch and record progress in `cfq.changelog.yml` (`cfq-changelog.sh`) rather
-than committing to `main` directly.
+to `cfq/<batch-directory-name>` per batch and record progress in `.claude/cfq/changelog.yml`
+(`cfq-changelog.sh`) rather than committing to `main` directly. Batches parked before the
+numbered-identity refactor keep their legacy `vX.Y-<slug>` branch and `<YYYY-MM-DD>-<slug>` directory
+name until they finish; only batches parked after cutover get a numbered
+`<NNN>-<YYYY-MM-DD>-<slug>` identity and `cfq/`-prefixed branch.

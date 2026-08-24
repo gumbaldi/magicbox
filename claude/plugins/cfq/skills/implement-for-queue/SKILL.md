@@ -141,8 +141,10 @@ line now — `✅ green` or `❌ red`, each deviation (or the trimmed error) as 
 
 Automatically, right after moving the file to `done/`, even if more phases follow — never
 collected until batch end or a `/clear`. The branch already exists (Step 3b created it or checked
-an existing one out) — commit, message in `codeLanguage`, and push: `-u origin <branch>` on this
-session's first push, a plain `git push` after that. Then backfill the commit hash via
+an existing one out) — commit, message in `codeLanguage`, composed via `cfq-changelog.sh
+commit-message` (`references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
+<branch>` on this session's first push, a plain `git push` after that. Then backfill the commit
+hash via
 `git rev-parse HEAD` and `cfq-report.sh set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
 it, `cfq-resume.sh`'s commit fields stay empty for every phase from here on. Print the `Commit`
 status line — branch and commits pushed.

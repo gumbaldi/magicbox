@@ -140,13 +140,17 @@ severity, or `➖ no findings`.
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 - Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
-- Batch directory name `<YYYY-MM-DD>-<topic-slug>` (slug in `codeLanguage`, lowercase, hyphen-separated,
-  ASCII only — no umlauts, it becomes a git branch name); write `NN-<slug>.md` per phase into it, numbered
-  ascending.
+- Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only — no umlauts) plus today's
+  date (`YYYY-MM-DD`) go to one allocation call:
+  `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-batch-id.sh" allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`.
+  Never compute/pad the number or check queue width by hand — the helper reserves it in the local
+  changelog (`status: parked`) and the queue directory, returning the final `batch` name as
+  `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface the `action` field and stop,
+  nothing parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending.
 - `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-park.sh" "<repo-root>" "<batch-dir-name>" "<high|normal>"
-  [<dependsOn-entry>...]` creates the directory, writes `.priority`/`.dependsOn` (Step 5's dependency, if
-  any; `.priority` only when Step 7's flag answer was high), ensures the local git-exclude entry, and
-  registers the repo — idempotent, safe to re-run.
+  [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 5's dependency, if any — the full
+  batch directory name; `.priority` only when Step 7's flag answer was high), ensures the local
+  git-exclude entry, and registers the repo — idempotent, safe to re-run.
 - Write `<batch-dir>/.batch-context.md` — batch-wide context, replacing the old practice of writing
   Grilling decisions into the first phase file. Read `references/batch-context.md` and follow it.
 

@@ -15,8 +15,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BLOCK_BEGIN="# BEGIN cfq-managed (do not edit this block by hand)"
 BLOCK_END="# END cfq-managed"
-# Paths excluded when gitStatePolicy=local. changelog.yml does not live here yet (owned by a
-# later batch) but the entry is added now so that batch never has to touch this mechanism.
+# Paths excluded when gitStatePolicy=local. changelog.yml is CFQ's numbered-batch allocation
+# ledger as well as workflow history, so it follows the same local/trackable policy as the rest
+# of the queue -- no second Git-state mechanism.
 BLOCK_ENTRIES=(
   ".claude/cfq/plan/"
   ".claude/cfq/impl/"
