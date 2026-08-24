@@ -2,6 +2,7 @@
 # Telemetry for cfq. Aggregates the running session's transcript into the batch report and a
 # repo-local JSONL. Numbers, timestamps and names only — never prompt text, never tool arguments.
 # Usage: cfq-telemetry.sh record <batch-dir> planning|phase [<phase-slug>]
+#        cfq-telemetry.sh record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq-telemetry.sh sync [<repo-root>]
 set -eu
 
@@ -21,8 +22,31 @@ case "$cmd" in
   record)
     dir="${2:?usage: cfq-telemetry.sh record <batch-dir> planning|phase [<phase-slug>]}"
     kind="${3:?usage: cfq-telemetry.sh record <batch-dir> planning|phase [<phase-slug>]}"
-    phase="${4:-}"
     [ -d "$dir" ] || { echo "cfq-telemetry.sh: no such batch directory: $dir" >&2; exit 1; }
+
+    if [ "$kind" = "bootstrap" ]; then
+      skill="${4:?usage: cfq-telemetry.sh record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>}"
+      call_count="${5:?usage: cfq-telemetry.sh record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>}"
+      duration_ms="${6:?usage: cfq-telemetry.sh record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>}"
+      case "$call_count" in ''|*[!0-9]*) echo "cfq-telemetry.sh: callCount must be a non-negative integer" >&2; exit 1 ;; esac
+      case "$duration_ms" in ''|*[!0-9]*) echo "cfq-telemetry.sh: durationMs must be a non-negative integer" >&2; exit 1 ;; esac
+
+      repo="$(cd "$dir" && git rev-parse --show-toplevel 2>/dev/null || echo '')"
+      jsonl="$(telemetry_log "$repo")"
+      rec=$(jq -n -c \
+          --arg batch "$(basename "$dir")" --arg repo "$repo" --arg skill "$skill" \
+          --argjson call_count "$call_count" --argjson duration_ms "$duration_ms" \
+          --arg ts "$(date -Iseconds)" '
+        {schema: 1, kind: "bootstrap", repo: $repo, batch: $batch, skill: $skill,
+         call_count: $call_count, duration_ms: $duration_ms, timestamp: $ts}
+      ')
+      mkdir -p "$(dirname "$jsonl")"
+      printf '%s\n' "$rec" >> "$jsonl"
+      printf '%s\n' "$rec" | jq -r '"telemetry: bootstrap \(.skill) \(.call_count) calls / \(.duration_ms) ms"'
+      exit 0
+    fi
+
+    phase="${4:-}"
 
     tf="$(transcript_path)"
     [ -n "$tf" ] && [ -f "$tf" ] || { echo "cfq-telemetry.sh: no transcript found — skipped" >&2; exit 0; }

@@ -119,4 +119,25 @@ lines_src=$(wc -l <"$jsonl")
 out=$(HOME="$home" bash "$telemetry_sh" sync "$repo" 2>&1)
 [ "$out" = "telemetry sync: nothing new" ] || { echo "FAIL: second sync = $out"; exit 1; }
 
+# 6. bootstrap kind: numbers-only record, no transcript needed, own leaf-field whitelist
+out=$(HOME="$home" bash "$telemetry_sh" record "$batch" bootstrap implement-for-queue 3 420)
+[ "$out" = "telemetry: bootstrap implement-for-queue 3 calls / 420 ms" ] \
+  || { echo "FAIL: unexpected bootstrap record output: $out"; exit 1; }
+
+rec6=$(tail -n 1 "$jsonl")
+got=$(jq -r '.kind' <<<"$rec6"); [ "$got" = "bootstrap" ] || { echo "FAIL: bootstrap kind = $got"; exit 1; }
+got=$(jq -r '.skill' <<<"$rec6"); [ "$got" = "implement-for-queue" ] || { echo "FAIL: bootstrap skill = $got"; exit 1; }
+got=$(jq -r '.call_count' <<<"$rec6"); [ "$got" = "3" ] || { echo "FAIL: bootstrap call_count = $got"; exit 1; }
+got=$(jq -r '.duration_ms' <<<"$rec6"); [ "$got" = "420" ] || { echo "FAIL: bootstrap duration_ms = $got"; exit 1; }
+
+allowed_bootstrap='["schema","kind","repo","batch","skill","call_count","duration_ms","timestamp"]'
+leaves6=$(jq -c '[paths(scalars) | .[-1]] | unique' <<<"$rec6")
+extra6=$(jq -n --argjson a "$allowed_bootstrap" --argjson l "$leaves6" '$l - $a')
+[ "$extra6" = "[]" ] || { echo "FAIL: unexpected leaf field(s) in bootstrap telemetry record: $extra6"; exit 1; }
+
+# Non-numeric callCount/durationMs is rejected, not silently coerced.
+if HOME="$home" bash "$telemetry_sh" record "$batch" bootstrap implement-for-queue notanumber 420 >/dev/null 2>&1; then
+  echo "FAIL: bootstrap accepted a non-numeric callCount"; exit 1
+fi
+
 echo PASS
