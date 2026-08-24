@@ -234,5 +234,34 @@
   branch: cfq/2026-08-19-cfq-cross-skill-preflight-refactor
   base: main
   started: 2026-08-24
-  status: in-progress
+  status: done
   legacy: true
+  finished: 2026-08-24
+  phases:
+    - phase: "01-status-and-error-vocabulary"
+      status: "green"
+      summary: ""
+    - phase: "02-pfq-preflight"
+      status: "green"
+      summary: "Added cfq-pfq-preflight.sh, a single read-only aggregator batching pfq Steps 1/3/5/7/10a/12 into one call, and rewired plan-for-queue/SKILL.md to consume it."
+    - phase: "03-ifq-preflight-and-mutation-split"
+      status: "green"
+      summary: "Added cfq-ifq-preflight.sh (batches Steps 1-2-3a-4a-4b of /ifq into one read-only call) and cfq-report.sh last-failure, rewired implement-for-queue/SKILL.md and its references/queues.md to consume the aggregator, mutations (lock/checkout/changelog init) stay explicit."
+    - phase: "04-cfq-admin-settings-dashboard"
+      status: "green"
+      summary: "Added cfq-scan.sh --format=json|md|tsv, wired code-for-queue/SKILL.md Step B to --format=md, documented the shared propose/present/confirm/execute flow once in Step C."
+    - phase: "05-cfq-plugin-detection"
+      status: "green"
+      summary: ""
+    - phase: "06-rfq-index-detail"
+      status: "green"
+      summary: "Added cfq-report.sh index/detail subcommands (single cfq-scan.sh call, no per-batch subprocess loop), wired report-for-queue Steps 1-3 and Arguments to them."
+    - phase: "07-measurement-and-regression-guards"
+      status: "green"
+      summary: "Added bootstrap phase-kind to cfq-telemetry.sh record (numbers-only call-count/duration-ms pair, own leaf-field whitelist) and a new test-runtime-coupling.sh regression guard scoped to this batchs own preflight/aggregator scripts."
+    - phase: "08-docs-and-skill-trim"
+      status: "green"
+      summary: "Added a Script Output Reference section to docs/configuration.md (cfq-pfq-preflight.sh, cfq-ifq-preflight.sh, cfq-scan.sh, cfq-report.sh index/detail/last-failure, cfq-runtime.sh plugins/plugin-installed) and the acceptance-test invariant sentence to CLAUDE.md's cfq-runtime.sh paragraph. Verified all four SKILL.md files and references/queues.md for redundant procedural prose that phases 2-7's scripts now own."
+    - phase: "09-pfq-interview-flow-friction-reduction"
+      status: "green"
+      summary: ""
