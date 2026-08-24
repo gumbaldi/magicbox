@@ -80,7 +80,7 @@ interactively.
 | `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | global, repo | how much documentation a repo keeps: `minimal` (`README` only), `standard` (`docs/` with setup, usage, configuration), `full` (additionally a reference page per module/script and an architecture overview) |
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | global, repo | commits since the last maintenance run before it's due again; `0` disables maintenance entirely |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
-| `changelogFile` | — | `cfq.changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; empty disables the changelog |
+| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
