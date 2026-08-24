@@ -6,10 +6,8 @@ nuance that doesn't reduce to schema data.
 - `usePonytailAudit` — gates only the optional cleanup audit, **one task among several** in the
   maintenance run; it is not the switch for the maintenance run itself, which is controlled by
   `maintenanceEvery`.
-- `stopPct` / `phaseContextGrowth` — `stopPct` compares against actual context usage after every
-  phase; `phaseContextGrowth` is only a *projection* used by the pre-phase size gate to predict
-  whether the next phase would cross `stopPct`, not a second measurement of the same thing. `0`
-  for `stopPct` means "hand off after every phase," a deliberate value, not an error.
+- `stopUsed` — absolute context-token ceiling; `0` hands off after every phase, `-1` disables this
+  gate entirely. Normal global/repo setting like any other.
 - `codeLanguage` / `docLanguages` / `docLevel` — global defaults, but a repo's own language can
   differ: override them per repo via `cfq-settings.sh set --repo` or the legacy `env` block in
   `<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.), so the override travels with the repo

@@ -51,10 +51,10 @@ green phase.
    to Explore subagents running on `implExploreModel`; implementation itself always stays in the
    main session. Runs the phase's own verification, commits and pushes on every green phase
    immediately.
-5. Hands the session off once context usage crosses `stopPct`, or finishes the batch and moves it
-   to `impl/done/`.
+5. Hands the session off once the absolute context-token count crosses `stopUsed`, or finishes the
+   batch and moves it to `impl/done/`.
 
-Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopPct`, `branchPerBatch`,
+Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `branchPerBatch`,
 `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 ## Dashboard, queue and settings — `/cfq`
