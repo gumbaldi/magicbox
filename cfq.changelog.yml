@@ -206,3 +206,26 @@
   batch: 2026-08-19-cfq-batch-number-changelog-refactor
   started: 2026-08-24
   status: in-progress
+- batchNumber: null
+  batch: 2026-08-19-cfq-batch-number-changelog-refactor
+  branch: v0.14-cfq-batch-number-changelog-refactor
+  started: 2026-08-19
+  status: done
+  legacy: true
+  finished: 2026-08-24
+  phases:
+    - phase: "01-changelog-relocation-and-schema"
+      status: "green"
+      summary: "Relocated the CFQ workflow changelog to .claude/cfq/changelog.yml, replaced the version-based schema with batchNumber/legacy fields, and added reserve/ensure/migrate/max-batch-number subcommands to cfq-changelog.sh."
+    - phase: "02-batch-number-allocation"
+      status: "green"
+      summary: "Added cfq-batch-id.sh (next/allocate) plus test-batch-id.sh; reuses cfq-changelog.sh max-batch-number/reserve/ensure, no duplication of cfq-scan.sh logic."
+    - phase: "03-width-migration"
+      status: "green"
+      summary: "Automatic fixed-width batch-number migration: allocate() migrates impl/done/ dir names and changelog.yml batch: fields to the next required width when the active queue is empty, or returns BATCH_WIDTH_MIGRATION_BLOCKED when it isn't."
+    - phase: "04-park-branch-and-changelog-wiring"
+      status: "green"
+      summary: "Wired the numbered batch identity through PFQ park (cfq-batch-id.sh allocate), cfq-branch.sh (no version scanning, branch is always cfq/<batch-dir>, persisted-branch-aware continue mode), cfq-changelog.sh (branch-for + commit-message trailer rendering, version arg dropped from init), and cfq-finish.sh (dead version extraction fixed)."
+    - phase: "05-docs-and-regression-guard"
+      status: "green"
+      summary: ""
