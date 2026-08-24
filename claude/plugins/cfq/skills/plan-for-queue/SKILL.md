@@ -40,15 +40,19 @@ line, no mention. One or more entries → read `references/plan-inbox.md` and fo
 
 ## Step 1 — Interview Depth (unconditional, always, before anything else)
 
-Print the `INTERVIEW` header on entering, then check the running model:
+Print the `INTERVIEW` header on entering, then run the preflight once for the whole session:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planModels
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get allowAnyModel
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-pfq-preflight.sh" "$(pwd)"
 ```
-`allowAnyModel: true` → skip, `Model Check` is `➖ allowAnyModel`. Otherwise substring-match the
-running model (from the system prompt) against `planModels`, like `ifq`'s gate — no match → warn
-naming the model and the list, and continue; this never blocks, unlike `ifq`. Print `Model Check`
-either way. Ask this before anything else, every time, even for a small task or a familiar codebase
+`status: "NO_REPO"` → report and end, nothing else runs. Otherwise this result's `repo.root` is
+`<repo-root>` for every later step — never re-derive it with a separate `git rev-parse` call, and
+never re-run `cfq-settings.sh`/`cfq-scan.sh`/`cfq-registry.sh`/`cfq-maintenance.sh` for anything
+this one result already carries (Steps 3, 5, 7, 10a, 12 below). Read
+`planningPolicy.planModels`/`.allowAnyModel` for the model-gate check: `allowAnyModel: true` →
+skip, `Model Check` is `➖ allowAnyModel`. Otherwise substring-match the running model (from the
+system prompt) against `planModels`, like `ifq`'s gate — no match → warn naming the model and the
+list, and continue; this never blocks, unlike `ifq`. Print `Model Check` either way. Ask this
+before anything else, every time, even for a small task or a familiar codebase
 — never skip, never infer. One `AskUserQuestion` with three options, the recommendation derived
 from scope (components touched, how unclear the requirement is, how far consequences reach) and
 justified in the option text — don't always mark the same one:
@@ -75,9 +79,9 @@ session's own model — research is delegatable, the planning model is the expen
 
 ## Step 3 — Plugin Boundaries
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planBlockedPlugins`. Blocked plugins are
-used neither directly nor indirectly, nor recommended in the phase files this session produces.
-Print the `Plugin Boundaries` status line.
+Read `planningPolicy.planBlockedPlugins` from Step 1's preflight result (no new call). Blocked
+plugins are used neither directly nor indirectly, nor recommended in the phase files this session
+produces. Print the `Plugin Boundaries` status line.
 
 ## Step 4 — Interview
 
@@ -86,13 +90,11 @@ Decide and name routine decisions yourself instead of asking.
 
 ## Step 5 — Queue Check
 
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh" | jq -c '.repos[] | select(.path == "<repo-root>") | .batches[] | select(.archived == false and .open > 0) | {name, priority, open, dependsOn}'
-```
+Read `queue.openBatches` from Step 1's preflight result (no new `cfq-scan.sh | jq` call).
 
-Any batch found → read `references/queue-check.md` and follow it. No repo / no open batches →
-skip the step without mentioning it. Either way, print the `Queue Check` status line — `➖` when
-there was nothing to check.
+Any batch found → read `references/queue-check.md` and follow it. No open batches → skip the step
+without mentioning it. Either way, print the `Queue Check` status line — `➖` when there was
+nothing to check.
 
 ## Step 6 — Closing Question (mandatory)
 
@@ -103,8 +105,8 @@ Proceed only once the user says no; if something comes up, work it in and ask ag
 ## Step 7 — Language and Cut Phases
 
 Entering this step closes `INTERVIEW`, opens `PLANNING`; the confirmation dialogue stays prose.
-Read once per session: `cfq-settings.sh get codeLanguage`, `docLanguages`, `docLevel`.
-`codeLanguage` governs everything a phase specifies without exception — code, comments, commit
+Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 1's preflight result (no new
+call). `codeLanguage` governs everything a phase specifies without exception — code, comments, commit
 messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own output
 too: plan files, `## Decisions`, the batch directory name. A phase touching documentation → read
 `references/language.md` and follow it. Print the `Language` status line once read. Propose a split
@@ -123,6 +125,10 @@ status line once confirmed — phase count and size mix.
 
 ## Step 8 — Security Check
 
+Step 1's preflight `security.available` is a capability hint only (a `gh`/`tea` binary is on
+`PATH`) — `false` means the forge-side check below will come back empty, but a repo with a
+`package.json` still gets a local `npm audit`, so this step still runs unconditionally:
+
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-security.sh" "<repo-root>" > /tmp/cfq-sec.json
 jq -c '{available, sources, counts, fixable}' /tmp/cfq-sec.json
@@ -139,7 +145,7 @@ severity, or `➖ no findings`.
 ## Step 10 — Park
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
-- Repo root: `git rev-parse --show-toplevel`. No repo → report and abort.
+- Repo root: Step 1's preflight `repo.root` (already validated there — no repeat `git rev-parse`).
 - Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only — no umlauts) plus today's
   date (`YYYY-MM-DD`) go to one allocation call:
   `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-batch-id.sh" allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`.
@@ -159,10 +165,11 @@ Print four status lines: `Park` (file count and batch dir, also covers the Step 
 
 ## Step 10a — New Repo: Config Overview
 
-Determine this **before** Step 10 calls `cfq-park.sh` (registry `add` is a side effect of that):
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-registry.sh" list | grep -qxF "<repo-root>"`. A match (already
-known) → skip, print `➖ Config          known repo`, straight to Step 11. No match (genuinely new)
-→ read `references/config-overview.md` and follow it, then print the `Config` status line.
+Read `repo.known` from Step 1's preflight result (no new `cfq-registry.sh list` call) — determine
+this **before** Step 10 calls `cfq-park.sh` (registry `add` is a side effect of that). `true`
+(already known) → skip, print `➖ Config          known repo`, straight to Step 11. `false`
+(genuinely new) → read `references/config-overview.md` and follow it, then print the `Config`
+status line.
 
 ## Step 11 — Plan Lint
 
@@ -174,8 +181,10 @@ may pick it up. Print the `Lint` status line — clean pass, or the fixed findin
 
 ## Step 12 — Maintenance
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-maintenance.sh" due "<repo-root>"`. `OFF` or `NOT_DUE <n>`
-→ print the `Maintenance` status line and move on, nothing is loaded. `DUE <n>` → read
+Read `maintenance.status`/`.n` from Step 1's preflight result (no new `cfq-maintenance.sh due`
+call) — note this reflects commit counts as of Step 1, not this later point in the session, same
+staleness Step 1's single call already accepted for every other field. `OFF` or `NOT_DUE` → print
+the `Maintenance` status line and move on, nothing is loaded. `DUE` → read
 `references/maintenance.md` and follow it.
 
 ## Step 13 — Telemetry and Sync
