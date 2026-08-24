@@ -138,7 +138,7 @@ declare -A want=(
   [docLevel]=minimal
   [maintenanceEvery]=50
   [branchPerBatch]=true
-  [changelogFile]="cfq.changelog.yml"
+  [changelogFile]=".claude/cfq/changelog.yml"
   [htmlReport]=false
   [planBlockedPlugins]=superpowers
   [implBlockedPlugins]=superpowers
@@ -211,8 +211,8 @@ got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
 list=$(HOME="$home" bash "$settings_sh" list)
 [ "$(jq -r '.branchPerBatch' <<<"$list")" = "true" ] \
   || { echo "FAIL: default branchPerBatch = $(jq -r '.branchPerBatch' <<<"$list"), want true"; exit 1; }
-[ "$(jq -r '.changelogFile' <<<"$list")" = "cfq.changelog.yml" ] \
-  || { echo "FAIL: default changelogFile = $(jq -r '.changelogFile' <<<"$list"), want cfq.changelog.yml"; exit 1; }
+[ "$(jq -r '.changelogFile' <<<"$list")" = ".claude/cfq/changelog.yml" ] \
+  || { echo "FAIL: default changelogFile = $(jq -r '.changelogFile' <<<"$list"), want .claude/cfq/changelog.yml"; exit 1; }
 [ "$(jq -r '.htmlReport' <<<"$list")" = "false" ] \
   || { echo "FAIL: default htmlReport = $(jq -r '.htmlReport' <<<"$list"), want false"; exit 1; }
 

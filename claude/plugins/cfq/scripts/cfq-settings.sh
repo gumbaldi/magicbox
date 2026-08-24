@@ -35,7 +35,7 @@ schema='{
   "docLevel": {"type":"enum","default":"minimal","values":["minimal","standard","full"],"scope":["global","repo"],"env":"CFQ_DOC_LEVEL","description":"How much documentation a repo keeps: minimal (README only), standard, or full."},
   "maintenanceEvery": {"type":"int","default":50,"min":0,"scope":["global","repo"],"env":"CFQ_MAINTENANCE_EVERY","description":"Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
   "branchPerBatch": {"type":"bool","default":true,"scope":["global","repo"],"env":null,"description":"Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
-  "changelogFile": {"type":"string","default":"cfq.changelog.yml","scope":["global","repo"],"env":null,"description":"Filename of the per-repo changelog cfq-changelog.sh writes to."},
+  "changelogFile": {"type":"string","default":".claude/cfq/changelog.yml","scope":["global","repo"],"env":null,"description":"Filename of the per-repo changelog cfq-changelog.sh writes to."},
   "htmlReport": {"type":"bool","default":false,"scope":["global","repo"],"env":null,"description":"Render an HTML report at batch completion in addition to the terminal summary."},
   "planBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /pfq must never call, even indirectly."},
   "implBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /ifq must never call, even indirectly."},
