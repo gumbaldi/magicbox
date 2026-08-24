@@ -1,2 +1,8 @@
-.claude/code-for-queue/
+.claude/cfq/plan/
+.claude/cfq/impl/
+.claude/cfq/todo/
+.claude/cfq/changelog.yml
+.claude/cfq/.lock
+.claude/cfq/.maintenance
+.claude/cfq/telemetry.jsonl
 *.tmp

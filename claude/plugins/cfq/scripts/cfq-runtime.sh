@@ -4,7 +4,7 @@
 # file so a future Claude Code interface change only ever touches this one adapter. Concrete to
 # Claude Code — not a multi-runtime plugin system.
 # Usage: cfq-runtime.sh session-id
-#        cfq-runtime.sh transcript-path [--repo <path>]
+#        cfq-runtime.sh transcript-path [--repo <path>] [--exact]
 #        cfq-runtime.sh context
 #        cfq-runtime.sh model
 #        cfq-runtime.sh version
@@ -29,14 +29,18 @@ slug_for() {
   fi
 }
 
-# $1: optional repo path. Prints the resolved transcript path, or empty. Always exits 0.
+# $1: optional repo path, $2: exact ("1" = the deterministic per-session write target, not
+# gated on the file existing yet; used by callers that record where a transcript will land, not
+# ones that read from it now). Prints the resolved transcript path, or empty. Always exits 0.
 resolve_transcript_path() {
-  local repo_path="${1:-}" slug dir sid f
+  local repo_path="${1:-}" exact="${2:-0}" slug dir sid f
   slug=$(slug_for "$repo_path")
   dir="$HOME/.claude/projects/$slug"
   sid="${CLAUDE_CODE_SESSION_ID:-}"
   f=""
-  if [ -n "$sid" ] && [ -f "$dir/$sid.jsonl" ]; then
+  if [ "$exact" = "1" ]; then
+    [ -n "$sid" ] && f="$dir/$sid.jsonl"
+  elif [ -n "$sid" ] && [ -f "$dir/$sid.jsonl" ]; then
     f="$dir/$sid.jsonl"
   else
     f=$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1 || true)
@@ -248,9 +252,11 @@ cmd="${1:-}"
 shift || true
 
 repo_path=""
+exact="0"
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo_path="${2:?--repo requires a path}"; shift 2 ;;
+    --exact) exact="1"; shift ;;
     *) echo '{"code":"INVALID_ARGUMENT","message":"unrecognized argument"}' >&2; exit 1 ;;
   esac
 done
@@ -260,7 +266,7 @@ case "$cmd" in
     printf '%s\n' "${CLAUDE_CODE_SESSION_ID:-}"
     ;;
   transcript-path)
-    resolve_transcript_path "$repo_path"
+    resolve_transcript_path "$repo_path" "$exact"
     printf '\n'
     ;;
   context)

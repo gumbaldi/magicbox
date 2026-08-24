@@ -7,23 +7,25 @@ set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
 
-PLANNING_STALE_S=1800   # mirrors cfq-lock.sh's STALE_S — a .planning marker older than this is
-                        # an abandoned pfq run, not a batch still being written
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 registry="$script_dir/cfq-registry.sh"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 
 candidates=$("$registry" list 2>/dev/null || true)
 
-IFS=':' read -ra roots <<<"${CFQ_SCAN_ROOTS:-$HOME/git}"
-for root in "${roots[@]}"; do
+old_ifs=$IFS; IFS=','
+for root in $("$script_dir/cfq-settings.sh" get scanRoots); do
+  IFS=$old_ifs
   root="${root/#\~/$HOME}"
   [ -d "$root" ] || continue
   while IFS= read -r d; do
     candidates="$candidates
 $(dirname "$(dirname "$d")")"
-  done < <(find "$root" -mindepth 2 -maxdepth 4 -type d -path '*/.claude/code-for-queue' 2>/dev/null)
+  done < <(find "$root" -mindepth 2 -maxdepth 4 -type d -path '*/.claude/cfq' 2>/dev/null)
+  IFS=','
 done
+IFS=$old_ifs
 
 candidates=$(printf '%s\n' "$candidates" | sed '/^$/d' | sort -u)
 
@@ -52,8 +54,9 @@ trap 'rm -f "$records" "$counts"' EXIT
 
 while IFS= read -r repo; do
   [ -n "$repo" ] || continue
-  qdir="$repo/.claude/code-for-queue"
+  qdir="$(cfq_repo_dir "$repo")"
   [ -d "$qdir" ] || continue
+  stale_s=$("$script_dir/cfq-settings.sh" get --repo "$repo" sessionStaleSeconds)
 
   plan=$(find "$qdir/plan" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
   todo=$(find "$qdir/todo" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
@@ -85,7 +88,7 @@ while IFS= read -r repo; do
     planning="false"
     if [ -f "$b/.planning" ]; then
       age=$(( $(date +%s) - $(stat -c %Y "$b/.planning" 2>/dev/null || echo 0) ))
-      [ "$age" -lt "$PLANNING_STALE_S" ] && planning="true"
+      [ "$age" -lt "$stale_s" ] && planning="true"
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$repo" "$name" "$priority" "$open" "$donec" "false" "$report" "$deps" "$blocked" "$unknown" "$planning" >>"$records"

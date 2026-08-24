@@ -7,6 +7,10 @@ set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-park.sh: jq is required" >&2; exit 1; }
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
+
 repo_root="${1:?usage: cfq-park.sh <repo-root> <batch-dir-name> <high|normal> [<dependsOn-entry>...]}"
 batch_name="${2:?usage: cfq-park.sh <repo-root> <batch-dir-name> <high|normal> [<dependsOn-entry>...]}"
 priority="${3:?usage: cfq-park.sh <repo-root> <batch-dir-name> <high|normal> [<dependsOn-entry>...]}"
@@ -18,7 +22,9 @@ case "$priority" in
   *) echo "cfq-park.sh: priority must be high|normal, got '$priority'" >&2; exit 1 ;;
 esac
 
-dir="$repo_root/.claude/code-for-queue/impl/$batch_name"
+"$script_dir/cfq-layout.sh" ensure "$repo_root" >/dev/null
+
+dir="$(impl_dir "$repo_root")/$batch_name"
 mkdir -p "$dir"
 # .planning is written on creation, idempotent (a re-run during the same pfq session refreshes
 # the timestamp as a heartbeat), and removed by plan-for-queue's lint step once the batch is
@@ -34,13 +40,6 @@ if [ "${#depends[@]}" -gt 0 ]; then
   printf '%s\n' "${depends[@]}" > "$dir/.dependsOn"
 fi
 
-if ! git -C "$repo_root" check-ignore -q .claude/code-for-queue/ 2>/dev/null; then
-  exclude="$repo_root/.git/info/exclude"
-  mkdir -p "$(dirname "$exclude")"
-  grep -qxF '**/.claude/code-for-queue/' "$exclude" 2>/dev/null || \
-    printf '**/.claude/code-for-queue/\n' >> "$exclude"
-fi
-
-"$(dirname "${BASH_SOURCE[0]}")/cfq-registry.sh" add "$repo_root" >/dev/null
+"$script_dir/cfq-registry.sh" add "$repo_root" >/dev/null
 
 printf '%s\n' "$dir"

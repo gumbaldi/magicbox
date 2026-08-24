@@ -19,7 +19,7 @@ new_repo() {
 
 new_batch() {
   # $1 = repo, $2 = batch name
-  local dir="$1/.claude/code-for-queue/impl/$2"
+  local dir="$1/.claude/cfq/impl/$2"
   mkdir -p "$dir/done"
   echo medium > "$dir/.priority"
   cat > "$dir/done/01-a.md" <<'EOF'
@@ -37,9 +37,9 @@ HOME="$home1" bash "$repo_root/scripts/cfq-lock.sh" acquire "$repo1" "2026-01-01
 
 out=$(HOME="$home1" bash "$finish_sh" "$repo1" "$batch1" "v0.1-happy")
 printf '%s' "$out" | jq -e . >/dev/null || { echo "FAIL: output not valid JSON: $out"; exit 1; }
-[ -d "$repo1/.claude/code-for-queue/impl/done/2026-01-01-happy" ] \
+[ -d "$repo1/.claude/cfq/impl/done/2026-01-01-happy" ] \
   || { echo "FAIL: batch not moved into impl/done: $out"; exit 1; }
-[ ! -d "$repo1/.claude/code-for-queue/impl/2026-01-01-happy" ] \
+[ ! -d "$repo1/.claude/cfq/impl/2026-01-01-happy" ] \
   || { echo "FAIL: batch still present at its old location"; exit 1; }
 [ "$(jq -r '.lock' <<<"$out")" = "released" ] || { echo "FAIL: lock field: $out"; exit 1; }
 lockstatus=$(HOME="$home1" bash "$repo_root/scripts/cfq-lock.sh" status "$repo1")
@@ -64,7 +64,7 @@ out=$(HOME="$home2" bash "$finish_sh" "$repo2" "$batch2" "v0.1-brokenchangelog")
 chmod 755 "$repo2/readonlydir"
 
 printf '%s' "$out" | jq -e . >/dev/null || { echo "FAIL: output not valid JSON: $out"; exit 1; }
-[ -d "$repo2/.claude/code-for-queue/impl/done/2026-01-01-brokenchangelog" ] \
+[ -d "$repo2/.claude/cfq/impl/done/2026-01-01-brokenchangelog" ] \
   || { echo "FAIL: sequence did not complete the move: $out"; exit 1; }
 [ "$(jq -r '.lock' <<<"$out")" = "released" ] || { echo "FAIL: lock field on failure path: $out"; exit 1; }
 lockstatus=$(HOME="$home2" bash "$repo_root/scripts/cfq-lock.sh" status "$repo2")
@@ -88,7 +88,7 @@ out=$(HOME="$home3" bash "$finish_sh" "$repo3" "$batch3" "v0.1-nochangelog")
   || { echo "FAIL: changelog field should say empty: $out"; exit 1; }
 jq -e '.errors[] | select(startswith("changelog:"))' <<<"$out" >/dev/null \
   && { echo "FAIL: changelogFile empty must not be an error: $out"; exit 1; }
-[ -d "$repo3/.claude/code-for-queue/impl/done/2026-01-01-nochangelog" ] \
+[ -d "$repo3/.claude/cfq/impl/done/2026-01-01-nochangelog" ] \
   || { echo "FAIL: sequence did not complete: $out"; exit 1; }
 rm -rf "$home3"
 

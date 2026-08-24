@@ -13,7 +13,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # ============================================================ cfq-lint.sh ============
-qdir="$tmp/lintrepo/.claude/code-for-queue"
+qdir="$tmp/lintrepo/.claude/cfq"
 mkdir -p "$qdir"
 
 # --- dirty batch: exactly one violation per content/structural rule, plus one correct file ---
@@ -345,14 +345,14 @@ out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=2 bash "$maint_sh" due "$maintrepo
 out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=50 bash "$maint_sh" due "$maintrepo")
 [ "$out" = "NOT_DUE 2" ] || { echo "FAIL: 2 commits, every=50 -> '$out', want 'NOT_DUE 2'"; exit 1; }
 
-printf '2020-01-01 0000000\n' >"$maintrepo/.claude/code-for-queue/.maintenance"
+printf '2020-01-01 0000000\n' >"$maintrepo/.claude/cfq/.maintenance"
 out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
 case "$out" in
   DUE*) : ;;
   *) echo "FAIL: garbage sha -> '$out', want DUE*"; exit 1 ;;
 esac
 
-printf '2020-01-01\n' >"$maintrepo/.claude/code-for-queue/.maintenance"
+printf '2020-01-01\n' >"$maintrepo/.claude/cfq/.maintenance"
 out=$(HOME="$mainthome" bash "$maint_sh" due "$maintrepo")
 case "$out" in
   DUE*) : ;;
@@ -360,10 +360,10 @@ case "$out" in
 esac
 
 HOME="$mainthome" bash "$maint_sh" stamp "$maintrepo" >/dev/null
-before=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
+before=$(cat "$maintrepo/.claude/cfq/.maintenance")
 out=$(HOME="$mainthome" CFQ_MAINTENANCE_EVERY=0 bash "$maint_sh" due "$maintrepo")
 [ "$out" = "OFF" ] || { echo "FAIL: maintenanceEvery=0 -> '$out', want 'OFF'"; exit 1; }
-after=$(cat "$maintrepo/.claude/code-for-queue/.maintenance")
+after=$(cat "$maintrepo/.claude/cfq/.maintenance")
 [ "$before" = "$after" ] || { echo "FAIL: OFF must not touch the marker"; exit 1; }
 
 rm -rf "$mainthome"

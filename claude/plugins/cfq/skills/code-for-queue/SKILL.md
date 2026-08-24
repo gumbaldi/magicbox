@@ -133,7 +133,7 @@ Six actions, exclusively in the current repository (`git rev-parse --show-toplev
 1. **Flag/unflag high priority** — write or delete `.priority`.
 2. **Delete a batch** — remove the directory. Name the batch and the number of files that will
    be lost beforehand, and get explicit confirmation.
-3. **Archive a batch** — move to `<repo>/.claude/code-for-queue/done/<batch>/` without working it
+3. **Archive a batch** — move to `<repo>/.claude/cfq/impl/done/<batch>/` without working it
    off. Open phases then count as done-but-not-implemented; say so in the confirmation text.
 4. **Clean the registry** — `cfq-registry.sh prune`, list the removed paths.
 5. **Set/remove a dependency** — write or delete `.dependsOn` in the chosen batch. Before writing,

@@ -8,18 +8,12 @@ set -eu
 command -v jq >/dev/null 2>&1 || { echo "cfq-telemetry.sh: jq is required" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 
-# Same resolution as ctx-usage.sh: session id if known, newest transcript otherwise.
+# pwd-based resolution (matches ctx-usage.sh), shared via the runtime adapter.
 transcript_path() {
-  local sid slug dir f
-  sid="${CLAUDE_CODE_SESSION_ID:-}"
-  slug="$(pwd | tr '/' '-')"
-  dir="$HOME/.claude/projects/$slug"
-  f="$dir/$sid.jsonl"
-  if [ -z "$sid" ] || [ ! -f "$f" ]; then
-    f=$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1 || true)
-  fi
-  printf '%s' "${f:-}"
+  "$script_dir/cfq-runtime.sh" transcript-path
 }
 
 cmd="${1:-}"
@@ -34,8 +28,7 @@ case "$cmd" in
     [ -n "$tf" ] && [ -f "$tf" ] || { echo "cfq-telemetry.sh: no transcript found — skipped" >&2; exit 0; }
 
     repo="$(cd "$dir" && git rev-parse --show-toplevel 2>/dev/null || echo '')"
-    qdir="$repo/.claude/code-for-queue"
-    jsonl="$qdir/telemetry.jsonl"
+    jsonl="$(telemetry_log "$repo")"
     sid="${CLAUDE_CODE_SESSION_ID:-}"
 
     # Window start: end of the last record of this same session, empty on the first one.
@@ -106,7 +99,7 @@ case "$cmd" in
         }
     ' "$tf")
 
-    mkdir -p "$qdir"
+    mkdir -p "$(dirname "$jsonl")"
     printf '%s\n' "$rec" >> "$jsonl"
 
     f="$dir/report.json"
@@ -128,11 +121,11 @@ case "$cmd" in
     [ -n "$repo" ] || exit 0
     target=$("$script_dir/cfq-settings.sh" get telemetrySyncRepo 2>/dev/null || true)
     case "$target" in ''|null) exit 0 ;; esac
-    src="$repo/.claude/code-for-queue/telemetry.jsonl"
+    src="$(telemetry_log "$repo")"
     [ -f "$src" ] || exit 0
     [ -d "$target/.git" ] || { echo "cfq-telemetry.sh: $target is no git repo — sync skipped" >&2; exit 0; }
 
-    marker="$repo/.claude/code-for-queue/.telemetry-synced"
+    marker="$(cfq_repo_dir "$repo")/.telemetry-synced"
     n=0; [ -f "$marker" ] && n=$(cat "$marker")
     case "$n" in ''|*[!0-9]*) n=0 ;; esac
     total=$(wc -l <"$src")

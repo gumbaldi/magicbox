@@ -34,7 +34,7 @@ no commentary around the block.
 
 ## Step 0 — Inbox
 
-List `"<repo-root>/.claude/code-for-queue/plan"/*.md`, sorted by filename ascending (the
+List `"<repo-root>/.claude/cfq/plan"/*.md`, sorted by filename ascending (the
 `<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). No entries → skip silently, no status
 line, no mention. One or more entries → read `references/plan-inbox.md` and follow it.
 

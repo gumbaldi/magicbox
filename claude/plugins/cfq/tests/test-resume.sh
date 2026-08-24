@@ -10,7 +10,7 @@ git -C "$tmp" init -q -b main 2>/dev/null || (mkdir -p "$tmp" && git -C "$tmp" i
 git -C "$tmp" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
 
 # Fresh batch: no report.json, no .batch-context.md, one open phase, branch doesn't exist yet.
-batch="$tmp/.claude/code-for-queue/impl/2026-01-01-fresh"
+batch="$tmp/.claude/cfq/impl/2026-01-01-fresh"
 mkdir -p "$batch"
 printf '# T\n\n## Size\n\nM\n' >"$batch/01-a.md"
 out=$(bash "$resume" "$tmp" "$batch")
@@ -22,7 +22,7 @@ out=$(bash "$resume" "$tmp" "$batch")
 
 # Mid-flight batch: 01-a done with a green report entry carrying a commit, 02-b open with a red
 # entry, a .batch-context.md present, a missing-Size open phase.
-batch2="$tmp/.claude/code-for-queue/impl/2026-01-02-midflight"
+batch2="$tmp/.claude/cfq/impl/2026-01-02-midflight"
 mkdir -p "$batch2/done"
 mv "$batch/01-a.md" "$batch2/done/01-a.md" 2>/dev/null || cp "$batch/01-a.md" "$batch2/done/01-a.md"
 printf '# T2\n' >"$batch2/02-b.md"
@@ -50,7 +50,7 @@ out=$(bash "$resume" "$tmp" "$batch2")
   || { echo "FAIL: midflight batchContext path"; exit 1; }
 
 # Old-style green entry with an empty commit -> falls back to the branch tip.
-batch3="$tmp/.claude/code-for-queue/impl/2026-01-03-legacycommit"
+batch3="$tmp/.claude/cfq/impl/2026-01-03-legacycommit"
 mkdir -p "$batch3/done"
 printf '# T3\n' >"$batch3/done/01-a.md"
 git -C "$tmp" checkout -qb v0.1-legacycommit main

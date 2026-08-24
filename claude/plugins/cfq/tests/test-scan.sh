@@ -10,71 +10,71 @@ home=$(mktemp -d)
 trap 'rm -rf "$tmp" "$home"' EXIT
 
 # repo-a: one open batch, 2 open phases + 1 done phase, priority high
-mkdir -p "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/done"
-echo high >"$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/.priority"
-touch "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/01-a.md" \
-      "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/02-b.md" \
-      "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/done/00-x.md"
+mkdir -p "$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/done"
+echo high >"$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/.priority"
+touch "$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/01-a.md" \
+      "$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/02-b.md" \
+      "$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/done/00-x.md"
 # a stray dotfile in the batch root must never be counted as an open phase (regression test)
-touch "$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/.batch-context.md"
+touch "$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/.batch-context.md"
 
 # repo-b: one batch fully moved to done/ (archived), no .priority
-mkdir -p "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo"
-touch "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/01-a.md" \
-      "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/02-b.md"
-touch "$tmp/repo-b/.claude/code-for-queue/impl/done/2026-01-02-demo/.batch-context.md"
+mkdir -p "$tmp/repo-b/.claude/cfq/impl/done/2026-01-02-demo"
+touch "$tmp/repo-b/.claude/cfq/impl/done/2026-01-02-demo/01-a.md" \
+      "$tmp/repo-b/.claude/cfq/impl/done/2026-01-02-demo/02-b.md"
+touch "$tmp/repo-b/.claude/cfq/impl/done/2026-01-02-demo/.batch-context.md"
 
-# repo-c: no .claude/code-for-queue/impl/ at all — must not show up
+# repo-c: no .claude/cfq/impl/ at all — must not show up
 mkdir -p "$tmp/repo-c"
 
 # repo-a has a report.json — must not affect phase counts, only the report flag
 echo '{"repo":"x","batch":"2026-01-01-demo","started":"t","phases":[]}' \
-  >"$tmp/repo-a/.claude/code-for-queue/impl/2026-01-01-demo/report.json"
+  >"$tmp/repo-a/.claude/cfq/impl/2026-01-01-demo/report.json"
 
 # repo-e: dependsOn fixtures — target-open (still open) and target-done (archived) are the
 # dependency targets; b-blocked/b-free/b-unknown are the batches exercising each outcome.
-mkdir -p "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-target-open" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/done/2026-01-10-target-done" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free" \
-         "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown"
-touch "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-target-open/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/done/2026-01-10-target-done/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free/01-a.md" \
-      "$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown/01-a.md"
-echo 2026-01-10-target-open   >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-blocked/.dependsOn"
-echo 2026-01-10-target-done   >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-free/.dependsOn"
-echo gibtsnicht     >"$tmp/repo-e/.claude/code-for-queue/impl/2026-01-10-b-unknown/.dependsOn"
+mkdir -p "$tmp/repo-e/.claude/cfq/impl/2026-01-10-target-open" \
+         "$tmp/repo-e/.claude/cfq/impl/done/2026-01-10-target-done" \
+         "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-blocked" \
+         "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-free" \
+         "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-unknown"
+touch "$tmp/repo-e/.claude/cfq/impl/2026-01-10-target-open/01-a.md" \
+      "$tmp/repo-e/.claude/cfq/impl/done/2026-01-10-target-done/01-a.md" \
+      "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-blocked/01-a.md" \
+      "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-free/01-a.md" \
+      "$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-unknown/01-a.md"
+echo 2026-01-10-target-open   >"$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-blocked/.dependsOn"
+echo 2026-01-10-target-done   >"$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-free/.dependsOn"
+echo gibtsnicht     >"$tmp/repo-e/.claude/cfq/impl/2026-01-10-b-unknown/.dependsOn"
 
 # repo-f: no impl/ batches at all, only plan/ and todo/ orders — plan and todo must count only
 # the open entries (2 and 1), never the ones already moved to their done/
-mkdir -p "$tmp/repo-f/.claude/code-for-queue/plan/done" "$tmp/repo-f/.claude/code-for-queue/todo/done"
-touch "$tmp/repo-f/.claude/code-for-queue/plan/2026-01-04-a.md" \
-      "$tmp/repo-f/.claude/code-for-queue/plan/2026-01-05-b.md" \
-      "$tmp/repo-f/.claude/code-for-queue/plan/done/2026-01-01-old.md" \
-      "$tmp/repo-f/.claude/code-for-queue/todo/2026-01-06-c.md" \
-      "$tmp/repo-f/.claude/code-for-queue/todo/done/2026-01-02-old.md"
+mkdir -p "$tmp/repo-f/.claude/cfq/plan/done" "$tmp/repo-f/.claude/cfq/todo/done"
+touch "$tmp/repo-f/.claude/cfq/plan/2026-01-04-a.md" \
+      "$tmp/repo-f/.claude/cfq/plan/2026-01-05-b.md" \
+      "$tmp/repo-f/.claude/cfq/plan/done/2026-01-01-old.md" \
+      "$tmp/repo-f/.claude/cfq/todo/2026-01-06-c.md" \
+      "$tmp/repo-f/.claude/cfq/todo/done/2026-01-02-old.md"
 
 # repo-g: .planning fixtures — b-fresh has a just-written marker (planning:true), b-stale has
 # one backdated past the 30-minute staleness threshold (planning:false)
-mkdir -p "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh" \
-         "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale"
-touch "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh/01-a.md" \
-      "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale/01-a.md"
-date -Iseconds >"$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-fresh/.planning"
-touch -d "@$(($(date +%s) - 3600))" "$tmp/repo-g/.claude/code-for-queue/impl/2026-01-11-b-stale/.planning"
+mkdir -p "$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-fresh" \
+         "$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-stale"
+touch "$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-fresh/01-a.md" \
+      "$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-stale/01-a.md"
+date -Iseconds >"$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-fresh/.planning"
+touch -d "@$(($(date +%s) - 3600))" "$tmp/repo-g/.claude/cfq/impl/2026-01-11-b-stale/.planning"
 
 # repo-h: stale pre-476aa60 .priority value — must not crash the scan, must read back empty
-mkdir -p "$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy"
-touch "$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy/01-a.md"
-echo medium >"$tmp/repo-h/.claude/code-for-queue/impl/2026-01-12-legacy/.priority"
+mkdir -p "$tmp/repo-h/.claude/cfq/impl/2026-01-12-legacy"
+touch "$tmp/repo-h/.claude/cfq/impl/2026-01-12-legacy/01-a.md"
+echo medium >"$tmp/repo-h/.claude/cfq/impl/2026-01-12-legacy/.priority"
 
 # repo-i: a foreign directory under impl/ (not a YYYY-MM-DD-slug batch) must not be collected
-mkdir -p "$tmp/repo-i/.claude/code-for-queue/impl/todo" \
-         "$tmp/repo-i/.claude/code-for-queue/impl/2026-01-13-real-batch"
-touch "$tmp/repo-i/.claude/code-for-queue/impl/todo/leftover.md" \
-      "$tmp/repo-i/.claude/code-for-queue/impl/2026-01-13-real-batch/01-a.md"
+mkdir -p "$tmp/repo-i/.claude/cfq/impl/todo" \
+         "$tmp/repo-i/.claude/cfq/impl/2026-01-13-real-batch"
+touch "$tmp/repo-i/.claude/cfq/impl/todo/leftover.md" \
+      "$tmp/repo-i/.claude/cfq/impl/2026-01-13-real-batch/01-a.md"
 
 out=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan")
 

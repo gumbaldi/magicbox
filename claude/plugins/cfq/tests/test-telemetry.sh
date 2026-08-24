@@ -12,7 +12,7 @@ repo=$(mktemp -d)
 trap 'rm -rf "$home" "$repo" "${repo2:-}" "${home_empty:-}" "${target:-}"' EXIT
 
 git init -q "$repo"
-batch="$repo/.claude/code-for-queue/2026-01-01-demo"
+batch="$repo/.claude/cfq/2026-01-01-demo"
 mkdir -p "$batch"
 
 slug="$(printf '%s' "$repo" | tr '/' '-')"
@@ -30,7 +30,7 @@ cat >"$transcript" <<'EOF'
 {"type":"assistant","timestamp":"2026-08-13T10:03:00.000Z","sessionId":"testsid","gitBranch":"v0.2","version":"1.0.0","isSidechain":true,"effort":"medium","attributionSkill":"code-for-queue:plan-for-queue","attributionPlugin":"code-for-queue","message":{"model":"claude-opus-5","usage":{"input_tokens":50,"output_tokens":20,"cache_read_input_tokens":5,"cache_creation_input_tokens":0},"content":[{"type":"text","text":"subagent turn"}]}}
 EOF
 
-jsonl="$repo/.claude/code-for-queue/telemetry.jsonl"
+jsonl="$repo/.claude/cfq/telemetry.jsonl"
 
 # Seed report.json with a phase entry, as implement-for-queue would via cfq-report.sh append.
 HOME="$home" bash "$report_sh" append "$batch" '{"phase":"01-foo","status":"green","summary":"test"}'
@@ -92,12 +92,12 @@ match=$(jq --argjson r "$rec3" '.planning == $r' "$batch/report.json")
 # 4. Fail-soft: no transcript found -> exit 0, no telemetry.jsonl written
 repo2=$(mktemp -d)
 git init -q "$repo2"
-batch2="$repo2/.claude/code-for-queue/2026-01-02-empty"
+batch2="$repo2/.claude/cfq/2026-01-02-empty"
 mkdir -p "$batch2"
 home_empty=$(mktemp -d)
 (cd "$repo2" && HOME="$home_empty" CLAUDE_CODE_SESSION_ID=nope bash "$telemetry_sh" record "$batch2" phase 02-bar) \
   || { echo "FAIL: record without transcript should exit 0"; exit 1; }
-[ -f "$repo2/.claude/code-for-queue/telemetry.jsonl" ] \
+[ -f "$repo2/.claude/cfq/telemetry.jsonl" ] \
   && { echo "FAIL: telemetry.jsonl written despite missing transcript"; exit 1; }
 
 # 5. Sync path, no network: local git target without a remote

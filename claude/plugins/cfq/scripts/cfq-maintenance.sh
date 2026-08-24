@@ -7,8 +7,10 @@ command -v jq >/dev/null 2>&1 || { echo "cfq-maintenance.sh: jq is required" >&2
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 settings_sh="$script_dir/cfq-settings.sh"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 
-marker() { printf '%s/.claude/code-for-queue/.maintenance' "$1"; }
+marker() { maintenance_marker "$1"; }
 
 cmd="${1:-}"
 case "$cmd" in

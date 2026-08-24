@@ -13,6 +13,8 @@ batch_dir="${2:?usage: cfq-finish.sh <repo-root> <batch-dir> <branch>}"
 branch="${3:?usage: cfq-finish.sh <repo-root> <batch-dir> <branch>}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 batch_dir="${batch_dir%/}"
 batch_name="$(basename "$batch_dir")"
 
@@ -23,7 +25,7 @@ add_error() { errors+=("$1: $2"); }
 # happy path. The trap fires on every exit, normal or not.
 trap '"$script_dir/cfq-lock.sh" release "$repo_root" >/dev/null 2>&1 || true' EXIT
 
-done_dir="$repo_root/.claude/code-for-queue/impl/done"
+done_dir="$(impl_done_dir "$repo_root")"
 mkdir -p "$done_dir"
 moved="$done_dir/$batch_name"
 if [ -d "$batch_dir" ] && [ "$batch_dir" != "$moved" ]; then

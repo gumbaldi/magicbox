@@ -12,7 +12,7 @@ edits code.
 /pfq
 ```
 
-1. If `.claude/code-for-queue/plan/` has requests waiting (dropped there by a previous `/ifq`
+1. If `.claude/cfq/plan/` has requests waiting (dropped there by a previous `/ifq`
    session), pfq offers to start with the oldest one, choose a different one, or skip and plan
    something else instead.
 2. Checks the running model against `planModels` — a mismatch only warns, it never blocks.
@@ -23,7 +23,7 @@ edits code.
    running on `planExploreModel` rather than reading everything in the main session.
 5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
    high-priority flag (optional — not flagging is the normal case).
-6. Parks the batch as numbered phase files under `.claude/code-for-queue/impl/<date>-<topic>/`.
+6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`.
 
 Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `planBlockedPlugins`.

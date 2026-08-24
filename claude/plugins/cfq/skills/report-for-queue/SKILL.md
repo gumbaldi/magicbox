@@ -58,7 +58,7 @@ Rules:
 ```
 
 Print the `PRECHECKS` header on entering this step. Filter every batch with `report: true` — open
-and archived alike. For each hit, build the batch path (`<path>/.claude/code-for-queue/<name>`,
+and archived alike. For each hit, build the batch path (`<path>/.claude/cfq/<name>`,
 or `.../done/<name>` when `archived: true`) and call:
 
 ```bash
