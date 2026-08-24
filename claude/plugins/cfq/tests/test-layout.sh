@@ -70,4 +70,35 @@ HOME="$home" bash "$layout_sh" ensure "$repo" >/dev/null
 [ "$(cat "$repo/.gitignore")" = "$gi_before" ] || { echo "FAIL: .gitignore was modified"; exit 1; }
 [ "$(git -C "$repo" status --porcelain)" = "$status_before" ] || { echo "FAIL: ensure staged/modified tracked files"; exit 1; }
 
+# 8. Repo-local `.claude/code-for-queue` literal must not reappear in normal scripts or SKILL.md
+#    files — permitted only in the isolated migration utility, its focused test fixture, and the
+#    two phase-5 guard comments (cfq-paths.sh/cfq-layout.sh) and README.md's historical migration
+#    note that explicitly document the retired layout rather than using it. The global
+#    `$HOME/.claude/code-for-queue/` store is a different, still-current path — any line naming
+#    HOME/home/~ is that, not this.
+allowed_layout_files=(
+  "scripts/migrations/cfq-layout-v1.sh"
+  "tests/test-layout-migration.sh"
+  "tests/test-layout.sh"
+  "scripts/cfq-paths.sh"
+  "scripts/cfq-layout.sh"
+  "README.md"
+)
+fail8=0
+while IFS=: read -r file lineno content; do
+  rel="${file#"$repo_root"/}"
+  allowed=0
+  for a in "${allowed_layout_files[@]}"; do [ "$rel" = "$a" ] && allowed=1; done
+  [ "$allowed" -eq 1 ] && continue
+  case "$content" in *HOME*|*home*|*'~'*) continue ;; esac
+  echo "FAIL: repo-local .claude/code-for-queue literal reappeared: $rel:$lineno"
+  fail8=1
+done < <(grep -rnE '\.claude/code-for-queue' "$repo_root" \
+           --include='*.sh' --include='*.md' --include='*.toml' 2>/dev/null || true)
+[ "$fail8" -eq 0 ] || exit 1
+
+# `.claude/cfq/settings.json` must never end up in cfq's managed local-state exclude block — the
+# settings file is meant to be trackable even under gitStatePolicy=local. Already asserted at check
+# 2 above (grep -qxF '.claude/cfq/settings.json' "$ef" must never match); not re-asserted here.
+
 echo PASS

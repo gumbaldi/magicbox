@@ -70,7 +70,7 @@ Read the code, trace callers, find the root cause before proposing a solution. R
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
 Explore agents instead of reading everything inline — one for a narrow, known area, up to three in
 parallel for broad scope, each with a specific focus. Run them on
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel` (default `haiku`), not this
+`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel`, not this
 session's own model — research is delegatable, the planning model is the expensive part.
 
 ## Step 3 — Plugin Boundaries

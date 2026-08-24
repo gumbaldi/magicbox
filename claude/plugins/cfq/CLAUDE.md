@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), seventeen bash scripts
-(`scripts/`), eight TOML command aliases (`commands/`). No build step, no package manager, no runtime
-other than `bash` and `jq` (every script hard-fails without jq).
+A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), twenty-one bash scripts
+(`scripts/`) plus one isolated migration utility (`scripts/migrations/`), eight TOML command aliases
+(`commands/`). No build step, no package manager, no runtime other than `bash` and `jq` (every script
+hard-fails without jq except `cfq-doctor.sh` itself, which is jq-free on purpose — see Architecture).
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
 Conventions): plugin-level under `references/` (e.g. `doc-style.md`), or per-skill under
@@ -28,6 +29,11 @@ bash claude/plugins/cfq/tests/test-branch.sh        # cfq-branch.sh mode/version
 bash claude/plugins/cfq/tests/test-finish.sh        # cfq-finish.sh batch-done sequence, lock always released, prints PASS
 bash claude/plugins/cfq/tests/test-ctx-usage.sh     # ctx-usage.sh gate mode boundary matrix, prints PASS
 bash claude/plugins/cfq/tests/test-resume.sh        # cfq-resume.sh state reconstruction, prints PASS
+bash claude/plugins/cfq/tests/test-runtime.sh       # cfq-runtime.sh transcript-path/context adapter, prints PASS
+bash claude/plugins/cfq/tests/test-layout.sh        # cfq-paths.sh + cfq-layout.sh canonical layout/Git policy, prints PASS
+bash claude/plugins/cfq/tests/test-layout-migration.sh  # scripts/migrations/cfq-layout-v1.sh, prints PASS
+bash claude/plugins/cfq/tests/test-doctor.sh        # cfq-doctor.sh dependency checks, prints PASS
+bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh  # no script hardcodes a copy of a schema default, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
@@ -50,7 +56,10 @@ hands off on the context gate; `code-for-queue` is the cross-repo dashboard plus
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
-**The queue is the filesystem, split into three queues** under `<repo>/.claude/code-for-queue/`:
+**The queue is the filesystem, split into three queues** under `<repo>/.claude/cfq/` (canonical
+path/layout helpers: `cfq-paths.sh` — pure path functions, no I/O — and `cfq-layout.sh`, which owns
+directory creation and the Git-state policy below; the previous repo-local layout is understood only
+by the isolated `scripts/migrations/cfq-layout-v1.sh` upgrade utility):
 `impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
 (optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
 (optional, one batch directory name per line — blocks this batch
@@ -75,30 +84,48 @@ index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
 `tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
 
-**Two state files, both outside any repo**, in `$HOME/.claude/code-for-queue/`: `repos.json` (registry
-of repos that ever had a queue, written by `cfq-registry.sh add` from both worker skills) and
-`settings.json` (`cfq-settings.sh`). `cfq-scan.sh` unions the registry with a `find` over `scanRoots`,
-so a repo is discovered even if it was never registered.
+**Three state files, all outside any repo**, in `$HOME/.claude/code-for-queue/` (the global store's
+own path — unrelated to and not renamed by the repo-local `.claude/cfq/` layout above): `repos.json`
+(registry of repos that ever had a queue, written by `cfq-registry.sh add` from both worker skills),
+`settings.json` (the global settings tier, `cfq-settings.sh`), and `state.json` (schema-less runtime
+state such as `setupDone`, `cfq-settings.sh state get/set`). `cfq-scan.sh` unions the registry with a
+`find` over `scanRoots`, so a repo is discovered even if it was never registered.
 
-**Settings precedence is env > `settings.json` > default**, implemented in `cfq-settings.sh`:
-`with_overrides()` applies the `CFQ_*` vars on read only — a `set` on an env-overridden key writes the
-file but stays invisible until the variable is gone. Adding a setting means touching three places:
-the `defaults` JSON, the validation `case` in `set` (unlisted keys fall through to a bare string
-write), and the README table; plus `with_overrides()` if it gets an env var. Since v0.3, `merged()`
-combines `defaults` with the file (`with_entries(select(.key | in($d)))`) before `list`/`get`/`set`
-ever touch it, so a newly introduced key reaches existing installations automatically and a removed
-one simply disappears — no migration step needed. `stopPct` is resolved by `ctx-usage.sh` through
-`cfq-settings.sh get stopPct`, not read from the environment directly — anyone reworking that script
-breaks the precedence chain at exactly that point. Four keys added or renamed since v0.4:
-`codeLanguage`, `docLanguages`, `docLevel` (language and doc-tree settings, read by `cfq-lang.sh`)
-and `maintenanceEvery` (renamed from the pre-v0.4 maintenance-interval setting, read by
-`cfq-maintenance.sh`). The
-language keys are global defaults; a repo overrides them per-repo via the `env` block in its own
-`<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.) — same precedence chain, just sourced
-from the target repo instead of `~/.claude/code-for-queue/settings.json`.
+**Settings precedence is env > repo `.claude/cfq/settings.json` > global `settings.json` >
+default**, one schema in `cfq-settings.sh` driving every tier generically: `merged_tiers()` layers
+global-then-repo file overlays onto the schema `defaults`, `with_overrides()` then applies `CFQ_*`
+env vars on top on read only — a `set` on an env-overridden key writes the file but stays invisible
+until the variable is gone. Adding a setting means adding **one schema entry** — type, default,
+scope (`global` and/or `repo`), optional `env` mapping, description — every subcommand
+(`list`/`get`/`set`/`unset`/`describe`) and every precedence tier reads that one entry generically,
+there is no second hand-written case arm or table to keep in sync. `migrate <repo-root>` copies
+whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) currently overrides into
+the new repo-scoped file, so that mechanism doesn't have to live forever. `stopPct` is a normal
+schema key like any other — no special env-only case remains; it and `phaseContextGrowth` are
+resolved by `ctx-usage.sh` through `cfq-settings.sh get`, not read from the environment directly —
+anyone reworking that script breaks the precedence chain at exactly that point. `setupDone` is the
+one exception that lives outside this schema entirely — it's runtime state, not policy, and goes
+through `cfq-settings.sh state get/set` against a separate schema-less store instead.
+
+**`cfq-runtime.sh` is the one Claude-Code-specific adapter.** Session id, transcript path, model
+name and context usage each used to be resolved independently in `ctx-usage.sh`, `cfq-lock.sh` and
+`cfq-telemetry.sh`; all three now call `cfq-runtime.sh transcript-path [--repo <path>] [--exact]`
+and `cfq-runtime.sh context` instead of re-deriving it. `context` prefers the statusline payload,
+falls back to parsing the transcript directly, and returns `status: "degraded"` (primary diagnostic
+preserved) rather than silently hiding it when the documented interface itself breaks structurally —
+callers may still use the fallback value, but the breakage stays visible. `ctxWindowLimits` (the
+model→context-window-size table) and `phaseContextGrowth` live in the settings schema as data, not
+in this adapter, since they're retunable numbers rather than detection logic. A future Claude Code
+runtime change should only ever touch this one file.
+
+**`cfq-doctor.sh` is the host dependency doctor**, deliberately jq-free (it's the one check every
+other script cannot perform on its own behalf) and reading a plain-text inventory
+(`config/dependencies.txt`: required / alternative / optional). The bundled `SessionStart` hook
+(`cfq-doctor.sh hook`) is silent on a healthy host and warns both user and Claude only when a
+required command is missing — it never installs anything itself.
 
 **Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
-transcript (`ctx-usage.sh`'s path resolution, reused rather than reinvented) — never from a model's
+transcript (`cfq-runtime.sh`'s path resolution, reused rather than reinvented) — never from a model's
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
 `tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
@@ -163,9 +190,9 @@ execution should re-run that comparison first, not take this paragraph on faith.
 
 ## Self-hosting quirk
 
-This repo drives its own development through its own queue: `<repo-root>/.claude/code-for-queue/` holds
+This repo drives its own development through its own queue: `<repo-root>/.claude/cfq/` holds
 the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root (target repos
-use `.git/info/exclude` instead). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
+use `.git/info/exclude` instead, per `gitStatePolicy`). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
 against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
 to `v<N>-<slug>` per batch and record progress in `cfq.changelog.yml` (`cfq-changelog.sh`) rather

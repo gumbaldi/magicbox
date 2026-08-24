@@ -63,8 +63,8 @@ green phase immediately, and hands the session off when the context window fills
 
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
-aborts with the name of the holder, unless that session has been silent for 30 minutes, in which
-case it's considered dead and taken over.
+aborts with the name of the holder, unless that session has been silent for `sessionStaleSeconds`
+(default 1800s / 30 minutes, configurable), in which case it's considered dead and taken over.
 
 ```mermaid
 sequenceDiagram
@@ -97,7 +97,8 @@ batch.
 ## The three queues
 
 ```
-<repo>/.claude/code-for-queue/
+<repo>/.claude/cfq/
+  settings.json          # repo-scoped setting overrides (trackable, versioned)
   impl/                  # phase-plan batches — ifq reads, pfq writes
     <YYYY-MM-DD>-<topic>/
       01-first-phase.md
@@ -118,6 +119,19 @@ batch.
   .maintenance           # marker for the periodic maintenance run
 ```
 
+Everything under `.claude/cfq/` except `settings.json` is repo-local workflow state, not something
+to publish — by default (`gitStatePolicy: local`) cfq keeps it out of Git via a managed block in
+the clone's local `.git/info/exclude`, leaving `settings.json` trackable so a repo-wide override can
+still be committed and shared. Set `gitStatePolicy: trackable` to remove cfq's managed block and let
+normal repository `.gitignore`/tracking apply instead; cfq never edits `.gitignore` itself.
+
+Upgrading from a pre-`.claude/cfq/` install: a repo still on the old repo-local
+`.claude/code-for-queue/` layout is not migrated automatically. Run the isolated upgrade utility
+once — `scripts/migrations/cfq-layout-v1.sh plan --all-known` to preview across every known repo,
+then `apply --all-known` to perform it; nothing under the old root is discarded, and a genuine
+conflict (a file that differs from its new-layout counterpart) blocks removal of the old root
+instead of silently overwriting it.
+
 - `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
   the phase it was working; `pfq` offers those as topics at the start of its next session.
@@ -128,14 +142,15 @@ batch.
 
 ```mermaid
 flowchart TB
-  subgraph repo["&lt;repo&gt;/.claude/code-for-queue/"]
+  subgraph repo["&lt;repo&gt;/.claude/cfq/"]
     impl["impl/ — phase-plan batches"]
     plan["plan/ — planning requests"]
     todo["todo/ — leftovers"]
+    rset["settings.json — repo overrides"]
   end
   subgraph home["~/.claude/code-for-queue/"]
     reg["repos.json — repo registry"]
-    set["settings.json — settings"]
+    set["settings.json — global settings"]
   end
   pfq["/pfq"] -->|writes| impl
   plan -->|reads| pfq
@@ -149,9 +164,6 @@ flowchart TB
   ifq --- reg
   cfq --- set
 ```
-
-The path is ignored locally via `.git/info/exclude` — deliberately not via the versioned
-`.gitignore`, since the queue is local working state, not something to publish.
 
 `.dependsOn` blocks a batch for as long as any batch it names hasn't landed in `done/` yet; a
 name that resolves to neither an open nor a finished batch is deliberately never blocking —
@@ -243,10 +255,10 @@ stays a warning line.
 
 ## Configuration
 
-Precedence: **env var > `settings.json` > default**. Change via `/cfq`, or
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set <key> <value>`, or by editing
-`~/.claude/code-for-queue/settings.json` directly. A repo overrides any setting for itself via
-the `env` block in its own `<repo>/.claude/settings.json`:
+Precedence: **env var > repo `.claude/cfq/settings.json` > global `settings.json` > default**.
+Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set [--repo <path>] <key>
+<value>`. The legacy per-repo mechanism — an `env` block in `<repo>/.claude/settings.json` — still
+works and still sits at the top tier:
 
 ```json
 { "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
@@ -254,6 +266,16 @@ the `env` block in its own `<repo>/.claude/settings.json`:
 
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.
+
+## Host dependencies
+
+Required: `bash`, `git`, `jq`. Installing the plugin does not install any of these — it only adds
+the plugin's own files. `cfq-doctor.sh check` reports what's missing and, for a required gap, a
+platform-appropriate install hint; the bundled `SessionStart` hook runs it automatically and stays
+completely silent on a healthy host, only warning (user and Claude both) when a required command is
+absent. Optional, each degrading only the one feature it powers rather than blocking the plugin:
+`gh` or `tea` for the security check (whichever matches the repo's forge), `npm` for `npm audit` on
+repos with a `package.json`, `timeout`/`gtimeout` to bound the security check's network calls.
 
 ## Optional dependencies
 
