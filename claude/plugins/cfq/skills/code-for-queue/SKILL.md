@@ -179,8 +179,9 @@ Change requests go through `cfq-settings.sh set [--repo <path>] <key> <value>` (
 keys are changeable here, including `planBlockedPlugins` / `implBlockedPlugins` (strict
 prohibition) — there is no exception left. A key whose `scope` is global-only (`scanRoots`,
 `securityTimeoutSeconds`, `securityFindingsCap`) rejects `--repo`; say so and fall back to a global
-`set`. `0` is a valid, deliberate value for `stopPct` meaning "hand off after every phase," not an
-error — don't flag it as a misconfiguration.
+`set`. `0` is a valid, deliberate value for `stopUsed` meaning "hand off after every phase";
+`-1` is equally valid, meaning "never hand off for this reason" — neither is a misconfiguration,
+don't flag either.
 
 Infer `--global` vs. `--repo` from the user's own phrasing where it's unambiguous ("for this repo",
 "just here" → `--repo`; "everywhere", "by default" → global) — only ask via `AskUserQuestion` when
@@ -190,6 +191,6 @@ genuinely ambiguous, not on every request. If `--sources` reported any `env:repo
 that override into the repo settings file — once per session, not once per key.
 
 After a `set`/`unset` call, print one status line: `✅ Setting  maintenanceEvery: 50 → 40 (global)`,
-or, when an env var shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`. A
+or, when an env var shadows the key, `⚠️ Setting  stopUsed set, but CFQ_STOP_USED overrides`. A
 rejected out-of-scope `--repo` attempt prints `❌ Setting  scanRoots is global-only, use set
 scanRoots <value> without --repo`.
