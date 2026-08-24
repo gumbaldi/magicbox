@@ -95,7 +95,7 @@ merged_tiers() {
 # Applies env-var overrides on top of whatever tiered JSON is piped in, walking $schema
 # generically. Precedence: env > everything piped in.
 with_overrides() {
-  local json val env_name type
+  local json val env_name type digits
   json="$(cat)"
   while IFS= read -r key; do
     env_name=$(jq -r --arg k "$key" '.[$k].env // empty' <<<"$schema")
@@ -111,7 +111,8 @@ with_overrides() {
         esac
         ;;
       int)
-        case "$val" in
+        digits="$val"; [ "${digits#-}" = "$digits" ] || digits="${digits#-}"
+        case "$digits" in
           ''|*[!0-9]*) ;; # malformed — skip, leaves tiered value in place
           *) json=$(jq --arg k "$key" --argjson v "$val" '.[$k] = $v' <<<"$json") ;;
         esac

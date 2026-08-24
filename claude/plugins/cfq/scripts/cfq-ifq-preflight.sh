@@ -103,10 +103,8 @@ if [ -n "$next" ]; then
 
   gate_line=$("$script_dir/ctx-usage.sh" gate "$next_size")
   gate_json=$(jq -n --arg l "$gate_line" '
-    $l | capture("^PCT=(?<pct>[^ ]+) SIZE=(?<size>[A-Z]) EXPECTED=(?<expected>[0-9]+)( PROJECTED=(?<projected>[0-9]+))? LIMIT=(?<limit>[0-9]+) (?<verdict>START|HANDOFF) \\((?<note>.*)\\)$")
-    | {pct: (if .pct == "?" then null else (.pct | tonumber) end), size,
-       expected: (.expected | tonumber),
-       projected: (if .projected then (.projected | tonumber) else null end),
+    $l | capture("^USED=(?<used>[^ ]+) SIZE=(?<size>[A-Z]) LIMIT=(?<limit>-?[0-9]+) (?<verdict>START|HANDOFF) \\((?<note>.*)\\)$")
+    | {used: (if .used == "?" then null else (.used | tonumber) end), size,
        limit: (.limit | tonumber), verdict, note}')
 else
   next_phase_json="null"
