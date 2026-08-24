@@ -265,3 +265,10 @@
     - phase: "09-pfq-interview-flow-friction-reduction"
       status: "green"
       summary: ""
+- batchNumber: null
+  batch: 2026-08-23-pfq-phase-quality-guardrails
+  branch: cfq/2026-08-23-pfq-phase-quality-guardrails
+  base: main
+  started: 2026-08-25
+  status: in-progress
+  legacy: true
