@@ -37,6 +37,18 @@ grep -q '1 Test &lt;failed&gt;' "$out" || { echo "FAIL: error text not HTML-esca
 grep -c 'class="telemetry"' "$out" >/dev/null 2>&1 && n=$(grep -c 'class="telemetry"' "$out") || n=0
 [ "$n" = "0" ] || { echo "FAIL: report.html has telemetry markup despite no telemetry data ($n)"; exit 1; }
 
+lf=$(bash "$rep" last-failure "$batch" "02-b")
+[ "$(jq -r .found <<<"$lf")" = "true" ] || { echo "FAIL: last-failure should find 02-b's red entry: $lf"; exit 1; }
+[ "$(jq -r .note <<<"$lf")" = "fehlgeschlagen" ] || { echo "FAIL: last-failure note: $lf"; exit 1; }
+
+lf=$(bash "$rep" last-failure "$batch" "01-a")
+[ "$(jq -r .found <<<"$lf")" = "false" ] || { echo "FAIL: 01-a is green, last-failure should be false: $lf"; exit 1; }
+
+noreport="$tmp/2026-01-03-noreport"
+mkdir -p "$noreport"
+lf=$(bash "$rep" last-failure "$noreport" "01-a")
+[ "$(jq -r .found <<<"$lf")" = "false" ] || { echo "FAIL: last-failure on missing report.json should be false, not crash: $lf"; exit 1; }
+
 bash "$rep" security "$batch" '{"status":"ok","critical":0,"high":0}'
 bash "$rep" security "$batch" '{"status":"ok","critical":0,"high":1}'
 sec=$(jq '.security | length' "$batch/report.json")
