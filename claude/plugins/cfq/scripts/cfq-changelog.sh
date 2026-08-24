@@ -5,6 +5,7 @@
 # Usage: cfq-changelog.sh init            <repo-root> <version> <branch> <base> <batch>
 #        cfq-changelog.sh finish          <repo-root> <branch> <batch-dir>
 #        cfq-changelog.sh reserve         <repo-root> <batchNumber> <batch>
+#        cfq-changelog.sh rename-batch    <repo-root> <old-batch> <new-batch>
 #        cfq-changelog.sh ensure          <repo-root>
 #        cfq-changelog.sh migrate         <repo-root>
 #        cfq-changelog.sh max-batch-number <repo-root>
@@ -202,6 +203,23 @@ case "$cmd" in
     } >>"$target"
     ;;
 
+  rename-batch)
+    # Narrow width-migration helper: rewrites only the `batch:` field of the block currently
+    # matching <old-batch>. A no-op (exit 0) when the changelog is disabled, missing, or no block
+    # matches -- the caller (cfq-batch-id.sh migrate_width) re-derives its rewrite set from current
+    # state, so an already-renamed entry harmlessly matching nothing here is expected, not an error.
+    repo="${2:?usage: cfq-changelog.sh rename-batch <repo-root> <old-batch> <new-batch>}"
+    old="${3:?usage: cfq-changelog.sh rename-batch <repo-root> <old-batch> <new-batch>}"
+    new="${4:?usage: cfq-changelog.sh rename-batch <repo-root> <old-batch> <new-batch>}"
+    target="$(changelog_file "$repo")" || exit 0
+    [ -f "$target" ] || exit 0
+    start="$(find_block_start "$target" '  batch:' "$old" || true)"
+    [ -n "$start" ] || exit 0
+    block="$(block_text "$target" "$start")"
+    new_block="$(printf '%s\n' "$block" | sed "s|^  batch: .*|  batch: $new|")"
+    replace_block "$target" "$start" "$new_block"
+    ;;
+
   ensure)
     repo="${2:?usage: cfq-changelog.sh ensure <repo-root>}"
     target="$(changelog_file "$repo")" || { jq -n '{source:"disabled",max:0,path:null}'; exit 0; }
@@ -277,7 +295,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch> | finish <repo-root> <branch> <batch-dir> | reserve <repo-root> <batchNumber> <batch> | ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>" >&2
+    echo "usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch> | finish <repo-root> <branch> <batch-dir> | reserve <repo-root> <batchNumber> <batch> | rename-batch <repo-root> <old-batch> <new-batch> | ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>" >&2
     exit 1
     ;;
 esac

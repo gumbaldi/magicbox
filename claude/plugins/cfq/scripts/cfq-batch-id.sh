@@ -4,8 +4,14 @@
 # the only Git-history fallback is Phase 1's one-time trailer bootstrap inside cfq-changelog.sh
 # ensure, for a ledger that does not exist yet. Width is an implementation invariant (see
 # BATCH_WIDTH_MIGRATION_REQUIRED below), not a user-facing setting.
-# Usage: cfq-batch-id.sh next     <repo-root> <YYYY-MM-DD> <slug>
-#        cfq-batch-id.sh allocate <repo-root> <YYYY-MM-DD> <slug>
+# Usage: cfq-batch-id.sh next          <repo-root> <YYYY-MM-DD> <slug>
+#        cfq-batch-id.sh allocate      <repo-root> <YYYY-MM-DD> <slug>
+#        cfq-batch-id.sh migrate-width <repo-root>
+#
+# `allocate` performs an automatic width migration itself when the next number needs an extra
+# digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
+# path never needs a separate manual step. `migrate-width` is the same operation exposed directly,
+# useful for recovery/testing; it is a no-op (`status: OK`) when no migration is currently needed.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-batch-id.sh: jq is required" >&2; exit 1; }
@@ -73,6 +79,21 @@ queue_max() {
   printf '%s\n' "$max"
 }
 
+# True (exit 0) when the active queue -- every planning/open/in-progress batch, i.e. every
+# directory directly under impl/ other than "done" -- is completely empty. A width migration may
+# only run while this holds; archived/completed batches under impl/done/ don't count.
+queue_is_empty() {
+  local repo="$1" d p
+  d="$(impl_dir "$repo")"
+  [ -d "$d" ] || return 0
+  for p in "$d"/*/; do
+    [ -d "$p" ] || continue
+    [ "$(basename "$p")" = "done" ] && continue
+    return 1
+  done
+  return 0
+}
+
 changelog_path() {
   local repo="$1" rel
   rel="$("$here/cfq-settings.sh" get changelogFile)"
@@ -114,13 +135,102 @@ compute_next() {
   next=$((changelog_max + 1))
   digits=${#next}
   if [ "$digits" -gt "$width" ]; then
-    err BATCH_WIDTH_MIGRATION_REQUIRED "next batch number $next needs $digits digits, current width is $width" "run the width migration first, then allocate again"
+    jq -n --argjson n "$next" --argjson w "$width" --argjson rw "$digits" '
+      {status:"BATCH_WIDTH_MIGRATION_REQUIRED",
+       nextNumber:$n, currentWidth:$w, requiredWidth:$rw,
+       detail:("next batch number " + ($n|tostring) + " needs " + ($rw|tostring) + " digits, current width is " + ($w|tostring)),
+       action:"run the width migration first, then allocate again"}'
     return 1
   fi
 
   formatted="$(printf "%0${width}d" "$next")"
   jq -n --argjson n "$next" --argjson w "$width" --arg f "$formatted" --arg date "$date" --arg slug "$slug" \
     '{status:"OK", batchNumber:$n, width:$w, formatted:$f, date:$date, slug:$slug, batch: ($f + "-" + $date + "-" + $slug)}'
+}
+
+# Deterministic, idempotent width migration. Only two locations can hold a numbered identifier
+# while the active queue is empty (the caller's job to verify -- this function doesn't re-check):
+# impl/done/ directory names and changelog.yml `batch:` fields. Never touches impl/ itself (empty
+# by precondition), Git history, branch names, or legacy unnumbered batches. Re-derives the
+# rewrite set from current disk/changelog state on every call rather than tracking a marker, so a
+# repeated or interrupted invocation converges to the same end state: an entry already at the
+# target width simply no longer matches and is skipped. `status: OK` with nothing to do is not an
+# error -- allocate calls this unconditionally once it decides a migration is needed.
+#
+# Target width is the max of the default, the digits the next number needs, and every width
+# already observed -- not just "the" current width. compute_next refuses to run at all while more
+# than one width is observed (BATCH_LEDGER_MISMATCH), but this function must still be able to
+# finish an interrupted prior migration on its own (some entries already at the new width, some
+# still at the old one), so it never assumes a single incoming width the way compute_next does.
+migrate_width() {
+  local repo="$1" target d changelog_max next digits to name w num suffix new_name
+  target="$(changelog_path "$repo" 2>/dev/null || true)"
+  d="$(impl_done_dir "$repo")"
+
+  changelog_max="$("$here/cfq-changelog.sh" max-batch-number "$repo")"
+  next=$((changelog_max + 1))
+  digits=${#next}
+  to="$DEFAULT_WIDTH"
+  [ "$digits" -gt "$to" ] && to="$digits"
+  for w in $(observed_widths "$repo" | sort -un); do
+    [ "$w" -gt "$to" ] && to="$w"
+  done
+
+  local -a old_names=()
+  if [ -n "$target" ] && [ -f "$target" ]; then
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      w="$(numbered_width "$name" 2>/dev/null)" || continue
+      [ "$w" -lt "$to" ] || continue
+      old_names+=("$name")
+    done < <(grep '^  batch: ' "$target" | sed 's/^  batch: *//')
+  fi
+  if [ -d "$d" ]; then
+    local p
+    for p in "$d"/*/; do
+      [ -d "$p" ] || continue
+      name="$(basename "$p")"
+      w="$(numbered_width "$name" 2>/dev/null)" || continue
+      [ "$w" -lt "$to" ] || continue
+      old_names+=("$name")
+    done
+  fi
+  if [ "${#old_names[@]}" -gt 0 ]; then
+    mapfile -t old_names < <(printf '%s\n' "${old_names[@]}" | sort -u)
+  fi
+
+  if [ "${#old_names[@]}" -eq 0 ]; then
+    jq -n --argjson w "$to" '{status:"OK", width:$w, migrated:0}'
+    return 0
+  fi
+
+  # Preflight: compute every destination and fail closed on any collision before mutating anything.
+  local -a pairs=()
+  for name in "${old_names[@]}"; do
+    num="$(numbered_number "$name")"
+    suffix="$(printf '%s' "$name" | sed -E 's/^[0-9]+-//')"
+    new_name="$(printf "%0${to}d" "$num")-$suffix"
+    if [ -e "$d/$new_name" ]; then
+      err BATCH_WIDTH_MIGRATION_COLLISION "migration destination already exists on disk: $new_name" "resolve the collision under $d before retrying"
+      return 1
+    fi
+    if [ -n "$target" ] && [ -f "$target" ] && grep -qxF "  batch: $new_name" "$target"; then
+      err BATCH_WIDTH_MIGRATION_COLLISION "migration destination already exists in the changelog: $new_name" "resolve the collision in $target before retrying"
+      return 1
+    fi
+    pairs+=("$name:$new_name")
+  done
+
+  local pair old_n new_n
+  for pair in "${pairs[@]}"; do
+    old_n="${pair%%:*}"; new_n="${pair#*:}"
+    [ -d "$d/$old_n" ] && mv "$d/$old_n" "$d/$new_n"
+    if [ -n "$target" ] && [ -f "$target" ]; then
+      "$here/cfq-changelog.sh" rename-batch "$repo" "$old_n" "$new_n"
+    fi
+  done
+
+  jq -n --argjson w "$to" --argjson n "${#pairs[@]}" '{status:"OK", width:$w, migrated:$n}'
 }
 
 validate_args() {
@@ -184,8 +294,31 @@ case "$cmd" in
     trap 'release_alloc_lock "'"$repo"'"' EXIT
 
     if ! result="$(compute_next "$repo" "$date" "$slug")"; then
-      printf '%s\n' "$result"
-      exit 1
+      status="$(jq -r .status <<<"$result")"
+      if [ "$status" != "BATCH_WIDTH_MIGRATION_REQUIRED" ]; then
+        printf '%s\n' "$result"
+        exit 1
+      fi
+
+      if ! queue_is_empty "$repo"; then
+        jq -n --argjson cw "$(jq -r .currentWidth <<<"$result")" \
+              --argjson nn "$(jq -r .nextNumber <<<"$result")" \
+              --argjson rw "$(jq -r .requiredWidth <<<"$result")" '
+          {status:"BATCH_WIDTH_MIGRATION_BLOCKED",
+           currentWidth:$cw, nextNumber:$nn, requiredWidth:$rw,
+           action:"finish or clear all active CFQ batches before parking the next batch"}'
+        exit 1
+      fi
+
+      if ! migrate_out="$(migrate_width "$repo")"; then
+        printf '%s\n' "$migrate_out"
+        exit 1
+      fi
+
+      if ! result="$(compute_next "$repo" "$date" "$slug")"; then
+        printf '%s\n' "$result"
+        exit 1
+      fi
     fi
 
     number="$(jq -r .batchNumber <<<"$result")"
@@ -205,8 +338,18 @@ case "$cmd" in
     printf '%s\n' "$result"
     ;;
 
+  migrate-width)
+    repo="${2:?usage: cfq-batch-id.sh migrate-width <repo-root>}"
+    if ! acquire_alloc_lock "$repo"; then
+      err INTERNAL_ERROR "could not acquire the allocation lock" "retry once the concurrent allocation finishes"
+      exit 1
+    fi
+    trap 'release_alloc_lock "'"$repo"'"' EXIT
+    migrate_width "$repo"
+    ;;
+
   *)
-    echo "usage: cfq-batch-id.sh next <repo-root> <YYYY-MM-DD> <slug> | allocate <repo-root> <YYYY-MM-DD> <slug>" >&2
+    echo "usage: cfq-batch-id.sh next <repo-root> <YYYY-MM-DD> <slug> | allocate <repo-root> <YYYY-MM-DD> <slug> | migrate-width <repo-root>" >&2
     exit 1
     ;;
 esac

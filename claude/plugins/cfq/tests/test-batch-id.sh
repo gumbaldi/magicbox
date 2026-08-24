@@ -164,4 +164,96 @@ out="$(bash "$bi" next "$repo17" 2026-08-19 example)" && { echo "FAIL: disabled 
 [ "$(status "$out")" = "BATCH_CHANGELOG_REQUIRED" ] || { echo "FAIL: disabled changelog status = $(status "$out")"; exit 1; }
 "$repo_root/scripts/cfq-settings.sh" set changelogFile ".claude/cfq/changelog.yml"
 
+# 999 -> 1000 while the active queue is non-empty -> BATCH_WIDTH_MIGRATION_BLOCKED, zero mutations
+repo18="$tmp/repo18"; mkdir -p "$repo18/.claude/cfq/impl/2026-08-01-still-active"
+bash "$cl" reserve "$repo18" 999 999-2026-08-01-a
+mkdir -p "$repo18/.claude/cfq/impl/done/999-2026-08-01-a"
+before_cl18="$(cat "$repo18/.claude/cfq/changelog.yml")"
+out="$(bash "$bi" allocate "$repo18" 2026-08-19 blocked-test)" && { echo "FAIL: width-blocked allocate exited 0"; exit 1; }
+[ "$(status "$out")" = "BATCH_WIDTH_MIGRATION_BLOCKED" ] || { echo "FAIL: width-blocked status = $(status "$out")"; exit 1; }
+[ "$(jq -r .currentWidth <<<"$out")" = "3" ] || { echo "FAIL: width-blocked currentWidth = $(jq -r .currentWidth <<<"$out")"; exit 1; }
+[ "$(jq -r .requiredWidth <<<"$out")" = "4" ] || { echo "FAIL: width-blocked requiredWidth = $(jq -r .requiredWidth <<<"$out")"; exit 1; }
+[ "$(jq -r .nextNumber <<<"$out")" = "1000" ] || { echo "FAIL: width-blocked nextNumber = $(jq -r .nextNumber <<<"$out")"; exit 1; }
+after_cl18="$(cat "$repo18/.claude/cfq/changelog.yml")"
+[ "$before_cl18" = "$after_cl18" ] || { echo "FAIL: width-blocked mutated the changelog"; exit 1; }
+[ -d "$repo18/.claude/cfq/impl/done/999-2026-08-01-a" ] || { echo "FAIL: width-blocked renamed the done directory"; exit 1; }
+[ ! -e "$repo18/.claude/cfq/impl/done/0999-2026-08-01-a" ] || { echo "FAIL: width-blocked created a migrated destination"; exit 1; }
+[ ! -e "$repo18/.claude/cfq/impl/1000-2026-08-19-blocked-test" ] || { echo "FAIL: width-blocked allocated a queue directory"; exit 1; }
+
+# same boundary with the active queue empty -> every numbered historical identifier becomes width
+# 4 (legacy unnumbered dirs untouched, sort order stays numeric), then 1000-... is allocated
+repo19="$tmp/repo19"; mkdir -p "$repo19"
+bash "$cl" reserve "$repo19" 1 001-2026-08-01-a
+bash "$cl" reserve "$repo19" 99 099-2026-08-02-b
+bash "$cl" reserve "$repo19" 999 999-2026-08-03-c
+mkdir -p "$repo19/.claude/cfq/impl/done/001-2026-08-01-a" \
+         "$repo19/.claude/cfq/impl/done/099-2026-08-02-b" \
+         "$repo19/.claude/cfq/impl/done/999-2026-08-03-c" \
+         "$repo19/.claude/cfq/impl/done/2026-08-01-legacy-topic"
+out="$(bash "$bi" allocate "$repo19" 2026-08-19 new-batch)"
+[ "$(status "$out")" = "OK" ] || { echo "FAIL: post-migration allocate status = $(status "$out")"; exit 1; }
+[ "$(jq -r .batch <<<"$out")" = "1000-2026-08-19-new-batch" ] || { echo "FAIL: post-migration allocate batch = $(jq -r .batch <<<"$out")"; exit 1; }
+[ "$(jq -r .width <<<"$out")" = "4" ] || { echo "FAIL: post-migration allocate width = $(jq -r .width <<<"$out")"; exit 1; }
+target19="$repo19/.claude/cfq/changelog.yml"
+grep -qxF '  batch: 0001-2026-08-01-a' "$target19" || { echo "FAIL: changelog batch 1 was not repadded"; exit 1; }
+grep -qxF '  batch: 0099-2026-08-02-b' "$target19" || { echo "FAIL: changelog batch 99 was not repadded"; exit 1; }
+grep -qxF '  batch: 0999-2026-08-03-c' "$target19" || { echo "FAIL: changelog batch 999 was not repadded"; exit 1; }
+for d in 0001-2026-08-01-a 0099-2026-08-02-b 0999-2026-08-03-c; do
+  [ -d "$repo19/.claude/cfq/impl/done/$d" ] || { echo "FAIL: done dir $d missing after migration"; exit 1; }
+done
+[ -d "$repo19/.claude/cfq/impl/done/2026-08-01-legacy-topic" ] || { echo "FAIL: legacy done dir was renamed"; exit 1; }
+sorted19="$(cd "$repo19/.claude/cfq/impl/done" && ls -1 | grep -E '^[0-9]{4}-[0-9]{4}-[0-9]{2}-[0-9]{2}-' | sort)"
+expected19="0001-2026-08-01-a
+0099-2026-08-02-b
+0999-2026-08-03-c"
+[ "$sorted19" = "$expected19" ] || { echo "FAIL: alphabetical order after migration != numeric order"; exit 1; }
+
+# second migration invocation is idempotent: nothing left to rename, no double-padding
+out2="$(bash "$bi" migrate-width "$repo19")"
+[ "$(status "$out2")" = "OK" ] || { echo "FAIL: idempotent migrate-width status = $(status "$out2")"; exit 1; }
+[ "$(jq -r .migrated <<<"$out2")" = "0" ] || { echo "FAIL: idempotent migrate-width migrated $(jq -r .migrated <<<"$out2") entries, want 0"; exit 1; }
+[ -d "$repo19/.claude/cfq/impl/done/0001-2026-08-01-a" ] || { echo "FAIL: idempotent migrate-width lost batch 1"; exit 1; }
+[ ! -e "$repo19/.claude/cfq/impl/done/00001-2026-08-01-a" ] || { echo "FAIL: idempotent migrate-width double-padded batch 1"; exit 1; }
+
+# generic 4 -> 5 fixture works without code changes specific to 3 digits
+repo20="$tmp/repo20"; mkdir -p "$repo20"
+bash "$cl" reserve "$repo20" 9999 9999-2026-08-01-a
+mkdir -p "$repo20/.claude/cfq/impl/done/9999-2026-08-01-a"
+out="$(bash "$bi" migrate-width "$repo20")"
+[ "$(status "$out")" = "OK" ] || { echo "FAIL: 4->5 migrate-width status = $(status "$out")"; exit 1; }
+[ "$(jq -r .width <<<"$out")" = "5" ] || { echo "FAIL: 4->5 migrate-width width = $(jq -r .width <<<"$out")"; exit 1; }
+target20="$repo20/.claude/cfq/changelog.yml"
+grep -qxF '  batch: 09999-2026-08-01-a' "$target20" || { echo "FAIL: 4->5 changelog batch was not repadded"; exit 1; }
+[ -d "$repo20/.claude/cfq/impl/done/09999-2026-08-01-a" ] || { echo "FAIL: 4->5 done dir was not renamed"; exit 1; }
+out2="$(bash "$bi" allocate "$repo20" 2026-08-19 next-after-5)"
+[ "$(jq -r .batch <<<"$out2")" = "10000-2026-08-19-next-after-5" ] || { echo "FAIL: 4->5 allocate after migration = $(jq -r .batch <<<"$out2")"; exit 1; }
+
+# simulated destination collision -> fail before any rename
+repo21="$tmp/repo21"; mkdir -p "$repo21/.claude/cfq/impl/done/0999-2026-08-01-a"
+bash "$cl" reserve "$repo21" 999 999-2026-08-01-a
+before_cl21="$(cat "$repo21/.claude/cfq/changelog.yml")"
+out="$(bash "$bi" allocate "$repo21" 2026-08-19 collide)" && { echo "FAIL: collision allocate exited 0"; exit 1; }
+[ "$(status "$out")" = "BATCH_WIDTH_MIGRATION_COLLISION" ] || { echo "FAIL: collision status = $(status "$out")"; exit 1; }
+after_cl21="$(cat "$repo21/.claude/cfq/changelog.yml")"
+[ "$before_cl21" = "$after_cl21" ] || { echo "FAIL: collision mutated the changelog"; exit 1; }
+[ ! -e "$repo21/.claude/cfq/impl/done/999-2026-08-01-a" ] || { echo "FAIL: collision unexpectedly created a 999 done dir"; exit 1; }
+[ -d "$repo21/.claude/cfq/impl/done/0999-2026-08-01-a" ] || { echo "FAIL: collision removed the pre-existing destination"; exit 1; }
+
+# simulated interrupted migration (one entry already at the new width, one still at the old one)
+# recovers deterministically: the already-migrated entry is left alone, the other catches up
+repo22="$tmp/repo22"; mkdir -p "$repo22"
+bash "$cl" reserve "$repo22" 1 0001-2026-08-01-a
+bash "$cl" reserve "$repo22" 2 002-2026-08-02-b
+mkdir -p "$repo22/.claude/cfq/impl/done/0001-2026-08-01-a" "$repo22/.claude/cfq/impl/done/002-2026-08-02-b"
+out="$(bash "$bi" migrate-width "$repo22")"
+[ "$(status "$out")" = "OK" ] || { echo "FAIL: interrupted-recovery migrate-width status = $(status "$out")"; exit 1; }
+target22="$repo22/.claude/cfq/changelog.yml"
+grep -qxF '  batch: 0002-2026-08-02-b' "$target22" || { echo "FAIL: interrupted-recovery did not repad the still-old entry"; exit 1; }
+grep -qxF '  batch: 0001-2026-08-01-a' "$target22" || { echo "FAIL: interrupted-recovery lost the already-migrated entry"; exit 1; }
+[ -d "$repo22/.claude/cfq/impl/done/0002-2026-08-02-b" ] || { echo "FAIL: interrupted-recovery did not rename the still-old done dir"; exit 1; }
+[ -d "$repo22/.claude/cfq/impl/done/0001-2026-08-01-a" ] || { echo "FAIL: interrupted-recovery lost the already-migrated done dir"; exit 1; }
+
+# width migration never touches Git: no history rewrite, no branch/version scanning
+grep -qE '(^|[^A-Za-z])git([^A-Za-z]|$)' "$repo_root/scripts/cfq-batch-id.sh" && { echo "FAIL: cfq-batch-id.sh performs Git operations (width migration must never touch Git)"; exit 1; }
+
 echo PASS
