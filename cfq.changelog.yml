@@ -176,4 +176,27 @@
   base: v0.12-cfq-batch-context-and-resume
   batch: 2026-08-19-cfq-config-runtime-refactor
   started: 2026-08-23
-  status: in-progress
+  finished: 2026-08-24
+  status: done
+  phases:
+    - phase: "01-schema-and-resolver"
+      status: "green"
+      summary: "Collapsed the three settings enumerations (defaults blob, set-validation case, env-var chain) into one schema data structure; folded stopPct in as a normal int key with min/max; added phaseContextGrowth, sessionStaleSeconds, ctxWindowLimits, securityTimeoutSeconds, securityFindingsCap, gitStatePolicy as schema-only keys for later phases."
+    - phase: "02-repo-settings-and-migration"
+      status: "green"
+      summary: "Added --global/--repo/--source(s) scope flags, a real per-repo settings tier (<repo>/.claude/cfq/settings.json) ranked between global and env, unset/describe/migrate subcommands, and read-only legacy .claude/settings.json env-block detection (source: env:repo-legacy)."
+    - phase: "03-runtime-adapter"
+      status: "green"
+      summary: "Added cfq-runtime.sh (session-id, transcript-path, context, model, version, capabilities, diagnose) built and tested standalone, plus the jq-free host dependency doctor (config/dependencies.txt, cfq-doctor.sh, hooks/hooks.json SessionStart hook)."
+    - phase: "04-ctx-usage-cutover"
+      status: "green"
+      summary: "Stripped ctx-usage.sh down to gate policy only (stopPct/phaseContextGrowth from cfq-settings.sh, pct/note from cfq-runtime.sh context), deleted the redundant CLAUDE_CTX_STOP_PCT test-only override. All boundary-matrix assertions produce identical decisions; added one new test proving phaseContextGrowth.M is a live settings read."
+    - phase: "05-path-helper-and-consolidation"
+      status: "green"
+      summary: "Unified repo-local CFQ layout to <repo>/.claude/cfq/, added cfq-paths.sh/cfq-layout.sh/scripts/migrations/cfq-layout-v1.sh, ran the real one-time fleet migration against magicbox and kankuri, cut over cfq-scan.sh/cfq-lock.sh/cfq-telemetry.sh/cfq-park.sh/cfq-finish.sh/cfq-registry.sh/cfq-maintenance.sh and all four SKILL.md files + two plan-for-queue reference docs to canonical-only paths."
+    - phase: "06-literal-cleanup-and-state-split"
+      status: "green"
+      summary: "Replaced silent hardcoded-default fallbacks in cfq-lang.sh/cfq-maintenance.sh/cfq-finish.sh with fail-loud cfq-settings.sh get calls; gave cfq-security.sh a resolved timeout/gtimeout wrapper (securityTimeoutSeconds) and a configurable findings cap (securityFindingsCap), degrading gracefully to a structured hint when neither binary exists; split setupDone out of the settings schema into a new schema-less cfq-settings.sh state get/set store backed by state.json, and updated code-for-queue/SKILL.md Step A to use it."
+    - phase: "07-docs-ux-and-regression-guard"
+      status: "green"
+      summary: "Rewrote docs/configuration.md, references/settings-explain.md and plugin CLAUDE.md for the four-tier env>repo>global>default precedence and the new runtime/layout/doctor scripts; rewrote code-for-queue/SKILL.md Step D around list --sources and describe; dropped the stale planExploreModel default parenthetical in plan-for-queue/SKILL.md; added tests/test-no-duplicate-defaults.sh (schema-default-fallback regression guard, with a self-check fixture) and a structural repo-local-path guard appended to tests/test-layout.sh."
