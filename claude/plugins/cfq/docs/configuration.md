@@ -44,6 +44,7 @@ Precedence is env var > `settings.json` > default.
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | models allowed to plan; a mismatch only warns |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | models allowed to implement; a mismatch aborts `ifq` |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | model pfq's research subagents run on |
+| `implExploreModel` | `CFQ_IMPL_EXPLORE_MODEL` | `haiku` | model ifq's pre-implementation research and test-run subagents run on |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | lifts both model checks above |
 | `stopPct` | `CFQ_STOP_PCT` | `60` | context share at which `ifq` hands off the session; `0` hands off after every phase; **env-only, not writable via `set`** |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | roots for automatic queue discovery |

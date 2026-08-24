@@ -46,13 +46,16 @@ green phase.
    any batch still blocked by `.dependsOn`.
 3. Shows the batch briefing and asks for a go-ahead before touching anything — no lock is taken
    before that.
-4. Implements one phase at a time, runs the phase's own verification, commits and pushes on every
-   green phase immediately.
+4. Implements one phase at a time — for a phase spanning multiple files or unclear scope, it may
+   delegate pre-implementation research (and, on green/red, mechanical test-run output filtering)
+   to Explore subagents running on `implExploreModel`; implementation itself always stays in the
+   main session. Runs the phase's own verification, commits and pushes on every green phase
+   immediately.
 5. Hands the session off once context usage crosses `stopPct`, or finishes the batch and moves it
    to `impl/done/`.
 
-Configurable: `implModels`, `allowAnyModel`, `stopPct`, `branchPerBatch`, `changelogFile`,
-`implBlockedPlugins`, `maintenanceEvery`.
+Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopPct`, `branchPerBatch`,
+`changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 ## Dashboard, queue and settings — `/cfq`
 

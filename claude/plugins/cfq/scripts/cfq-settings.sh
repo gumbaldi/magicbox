@@ -25,6 +25,7 @@ schema='{
   "planModels": {"type":"array","default":["opus","fable"],"scope":["global","repo"],"env":"CFQ_PLAN_MODELS","description":"Models /pfq is allowed to run under."},
   "implModels": {"type":"array","default":["sonnet"],"scope":["global","repo"],"env":"CFQ_IMPL_MODELS","description":"Models /ifq is allowed to run under."},
   "planExploreModel": {"type":"string","default":"haiku","scope":["global","repo"],"env":"CFQ_PLAN_EXPLORE_MODEL","description":"Model used for /pfq exploratory sub-agent research."},
+  "implExploreModel": {"type":"string","default":"haiku","scope":["global","repo"],"env":"CFQ_IMPL_EXPLORE_MODEL","description":"Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
   "allowAnyModel": {"type":"bool","default":false,"scope":["global","repo"],"env":"CFQ_ALLOW_ANY_MODEL","description":"Skip the implModels/planModels gate entirely."},
   "scanRoots": {"type":"array","default":["~/git"],"scope":["global"],"env":"CFQ_SCAN_ROOTS","description":"Root directories cfq-scan.sh searches for repos with a queue."},
   "useMattpocockGrilling": {"type":"bool","default":false,"scope":["global","repo"],"env":"CFQ_USE_MATTPOCOCK","description":"Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},

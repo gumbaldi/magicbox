@@ -128,6 +128,7 @@ declare -A want=(
   [planModels]="opus,fable"
   [implModels]=sonnet
   [planExploreModel]=haiku
+  [implExploreModel]=haiku
   [allowAnyModel]=false
   [scanRoots]="~/git"
   [useMattpocockGrilling]=false
@@ -248,6 +249,17 @@ got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
 
 got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get planExploreModel)
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
+
+# 9b. implExploreModel: default, set, env override
+got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
+[ "$got" = "haiku" ] || { echo "FAIL: default implExploreModel = '$got', want haiku"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set implExploreModel opus
+got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
+[ "$got" = "opus" ] || { echo "FAIL: set implExploreModel opus -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_IMPL_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get implExploreModel)
+[ "$got" = "haiku-fast" ] || { echo "FAIL: env override implExploreModel -> got '$got'"; exit 1; }
 
 # 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
 # detection, migrate. Fresh HOME (a prior section already customized maintenanceEvery in

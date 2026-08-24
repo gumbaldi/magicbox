@@ -118,8 +118,12 @@ column), don't re-read the phase file just for this:
 One line back: `PCT=<n|?> SIZE=<S|M|L> EXPECTED=<pp> [PROJECTED=<pp>] LIMIT=<n> START|HANDOFF
 (<info>)`. `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the
 `Size Gate` status line with `PCT`/`SIZE`/decision; this closes `PRECHECKS`.
-**(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full, implement it completely,
-run the plan's verification with output filtered. A phase touching `docs/<codeLanguage>/…` →
+**(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
+unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
+implementation itself never runs on one. Implement it completely, run the plan's verification with
+output filtered — a green run may delegate the filtering to the same subagent, a red run never does
+(full unfiltered failure back either way), per `references/queues.md`'s **Research and Verification
+Delegation**. A phase touching `docs/<codeLanguage>/…` →
 write the counterparts in every `docLanguages` entry before it goes green, per
 `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or `<repo>/docs/STYLE.md` if present. Work found
 beyond this phase's scope → one `AskUserQuestion` on parking it: yes writes

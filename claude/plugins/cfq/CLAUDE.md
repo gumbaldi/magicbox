@@ -103,18 +103,24 @@ own estimate of its token usage. Only numbers, timestamps and names are carried 
 `tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
-**Subagents are used exactly once, deliberately.** `plan-for-queue` Step 2 delegates multi-file or
-unclear-scope research to Explore agents on `planExploreModel` — the only subagent call in the
-plugin, and that's deliberate rather than an oversight to fix later. A subagent pays off only where
-the parent doesn't need the result in its own context afterward: research fits, since the parent
-gets a summary and stops there. Implementation, test writing and documentation don't — the subagent
-starts cold, re-reads what the parent already holds, and the parent then reads the subagent's
-output again to verify it, two or three reads where a direct read-and-edit would have been one.
-That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
-(`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent reading and editing
-the same files directly — the subagent path loses. Anyone tempted to add a second subagent call for
-anything other than exploratory research should re-run that comparison first, not take this
-paragraph on faith.
+**Subagents are for exploration and mechanical test execution, never for content the parent must
+own.** `plan-for-queue` Step 2 and `implement-for-queue` Step 4 both delegate multi-file or
+unclear-scope research to Explore agents (`planExploreModel` / `implExploreModel`), and
+`implement-for-queue` may additionally run a phase's verification command through the same
+subagent to keep raw test/build log noise out of the expensive model's context. A subagent pays
+off only where the parent doesn't need the full raw result in its own context afterward: research
+fits, since the parent gets a distilled summary and stops there; a **green** verification run fits
+the same way — pass/fail plus which command ran is enough. A **red** run does not get filtered —
+the subagent returns the complete, unfiltered failure output, because the implementing model needs
+the full error to fix it; summarizing a failure is exactly the case where a cheaper model can lose
+the detail that matters. Implementation, test writing and documentation stay off subagents
+entirely — the subagent starts cold, re-reads what the parent already holds, and the parent then
+reads the subagent's output again to verify it, two or three reads where a direct read-and-edit
+would have been one. That trade-off is measurable, not asserted: compare a subagent call's reported
+input-token count (`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent
+reading and editing the same files directly — for implementation, test writing and documentation
+the subagent path loses. Anyone tempted to delegate anything beyond exploration or verification
+execution should re-run that comparison first, not take this paragraph on faith.
 
 ## Conventions
 
