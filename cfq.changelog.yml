@@ -229,3 +229,10 @@
     - phase: "05-docs-and-regression-guard"
       status: "green"
       summary: ""
+- batchNumber: null
+  batch: 2026-08-19-cfq-cross-skill-preflight-refactor
+  branch: cfq/2026-08-19-cfq-cross-skill-preflight-refactor
+  base: main
+  started: 2026-08-24
+  status: in-progress
+  legacy: true
