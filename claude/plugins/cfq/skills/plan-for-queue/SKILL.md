@@ -98,30 +98,34 @@ nothing to check.
 
 ## Step 6 — Closing Question (mandatory)
 
-Once nothing is left open, ask once more before writing any plans: "Before I write the plans: is
-there anything else we should discuss? Something I misunderstood, an edge case, a constraint?"
-Proceed only once the user says no; if something comes up, work it in and ask again afterward.
+Once nothing is left open, ask once more before writing any plans, in one `AskUserQuestion` with
+two independent questions: "Before I write the plans: is there anything else we should discuss?
+Something I misunderstood, an edge case, a constraint?" and "Should this batch be flagged high
+priority?" (flagged batches are picked first by `ifq`'s automatic ordering and marked in the `/cfq`
+dashboard; not flagging is the normal case and needs no answer). Proceed only once the user says
+nothing else is open; if something comes up, work it in and ask again afterward — the priority
+answer from this round still stands unless the new discussion changes it.
 
 ## Step 7 — Language and Cut Phases
 
-Entering this step closes `INTERVIEW`, opens `PLANNING`; the confirmation dialogue stays prose.
+Entering this step closes `INTERVIEW`, opens `PLANNING`.
 Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 1's preflight result (no new
 call). `codeLanguage` governs everything a phase specifies without exception — code, comments, commit
 messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own output
 too: plan files, `## Decisions`, the batch directory name. A phase touching documentation → read
 `references/language.md` and follow it. Print the `Language` status line once read. Propose a split
-and get it confirmed — one phase = one self-testable, individually committable
-unit; three honest phases beat seven artificial ones. For each phase, estimate **Size** `S`/`M`/`L`
-(`S` one file and one test, `M` several files or a new script, `L` a new script **with** a new
-test or a skill rework — steers whether `ifq` even starts a phase) and write it into that phase's
-file as a `## Size` heading (structural markers are always English, independent of
-`codeLanguage`) with the letter alone on the next non-empty line — this is what `cfq-brief.sh` and `ifq`'s size gate
-parse; a missing or malformed heading silently degrades to `M`. Also add optional **Recommended
-skills** (only where it helps, half-sentence reason each, never from `implBlockedPlugins`; no
-recommendation is the normal case). Same confirmation also asks whether this batch should be
-flagged high priority — flagged batches are picked first by `ifq`'s automatic ordering and marked
-in the `/cfq` dashboard; not flagging is the normal case and needs no answer. Print the `Phases`
-status line once confirmed — phase count and size mix.
+— one phase = one self-testable, individually committable unit; three honest phases beat seven
+artificial ones — state it as a status update (phase list + S/M/L sizes) and proceed directly to
+writing the phase files; the user can still redirect at any point by simply saying so, same as any
+other proposal in this skill, but no dedicated confirmation question gates the write. For each
+phase, estimate **Size** `S`/`M`/`L` (`S` one file and one test, `M` several files or a new script,
+`L` a new script **with** a new test or a skill rework — steers whether `ifq` even starts a phase)
+and write it into that phase's file as a `## Size` heading (structural markers are always English,
+independent of `codeLanguage`) with the letter alone on the next non-empty line — this is what
+`cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades to `M`.
+Also add optional **Recommended skills** (only where it helps, half-sentence reason each, never
+from `implBlockedPlugins`; no recommendation is the normal case). Print the `Phases` status line
+once written — phase count and size mix.
 
 ## Step 8 — Security Check
 
