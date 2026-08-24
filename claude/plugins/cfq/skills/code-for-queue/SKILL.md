@@ -56,7 +56,7 @@ Rules:
 Print the `PRECHECKS` header on entering this step.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get setupDone
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" state get setupDone
 ```
 
 If it hasn't run yet, clarify two things **before** anything else — each its own
@@ -84,7 +84,7 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    the feature is disabled, and that's noted once in a sentence. **cfq must work fully without
    either plugin** — no path may run into a dead end without them.
 
-Afterward set `setupDone` to `true`. Both switches remain changeable at any time via Step C or
+Afterward set `setupDone` to `true` (`cfq-settings.sh state set setupDone true`). Both switches remain changeable at any time via Step C or
 the env vars — even with a plugin installed, it can be switched off again here. Print the `Setup`
 status line — `➖ already done` when this step didn't run at all.
 

@@ -7,12 +7,14 @@
 #        cfq-settings.sh unset [--repo <path>] <key>
 #        cfq-settings.sh describe [<key>]
 #        cfq-settings.sh migrate <repo-root>
+#        cfq-settings.sh state get <key> | state set <key> <value>
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-settings.sh: jq is required" >&2; exit 1; }
 
 dir="$HOME/.claude/code-for-queue"
 settings="$dir/settings.json"
+state_file="$dir/state.json"
 
 # Single source of truth for every key: type, default, scope, env mapping, description, plus
 # type-specific validation data (min/max for int, values for enum, pattern for string, shape
@@ -37,7 +39,6 @@ schema='{
   "planBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /pfq must never call, even indirectly."},
   "implBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /ifq must never call, even indirectly."},
   "telemetrySyncRepo": {"type":"string","default":"","pattern":"^($|/.*)$","scope":["global","repo"],"env":"CFQ_TELEMETRY_SYNC_REPO","description":"Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
-  "setupDone": {"type":"bool","default":false,"scope":["global"],"env":null,"description":"Whether the first-run setup wizard has completed."},
   "stopPct": {"type":"int","default":60,"min":0,"max":100,"scope":["global","repo"],"env":"CFQ_STOP_PCT","description":"Context-window percentage at which /ifq hands off instead of starting another phase; 0 means hand off after every phase."},
   "phaseContextGrowth": {"type":"object","shape":{"S":"int","M":"int","L":"int"},"default":{"S":7,"M":15,"L":25},"scope":["global","repo"],"env":null,"description":"Expected context-window growth percentage per phase size (S/M/L), used by the size gate projection."},
   "sessionStaleSeconds": {"type":"int","default":1800,"min":1,"scope":["global","repo"],"env":"CFQ_SESSION_STALE_SECONDS","description":"Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
@@ -52,6 +53,11 @@ defaults=$(jq -c 'map_values(.default)' <<<"$schema")
 ensure() {
   mkdir -p "$dir"
   [ -f "$settings" ] || printf '%s\n' "$defaults" > "$settings"
+}
+
+ensure_state() {
+  mkdir -p "$dir"
+  [ -f "$state_file" ] || printf '{}\n' > "$state_file"
 }
 
 write() {
@@ -306,6 +312,30 @@ case "$cmd" in
     fi
     jq --arg k "$key" 'del(.[$k])' "$target" | write "$target"
     ;;
+  state)
+    sub="${1:?usage: cfq-settings.sh state get <key> | state set <key> <value>}"
+    shift || true
+    ensure_state
+    case "$sub" in
+      get)
+        key="${1:?usage: cfq-settings.sh state get <key>}"
+        jq -r --arg k "$key" '(.[$k] // null) | tostring' "$state_file"
+        ;;
+      set)
+        key="${1:?usage: cfq-settings.sh state set <key> <value>}"
+        val="${2?usage: cfq-settings.sh state set <key> <value>}"
+        if ! jq -e . >/dev/null 2>&1 <<<"$val"; then
+          echo "cfq-settings.sh: state value must be valid JSON" >&2
+          exit 1
+        fi
+        jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$state_file" | write "$state_file"
+        ;;
+      *)
+        echo "usage: cfq-settings.sh state get <key> | state set <key> <value>" >&2
+        exit 1
+        ;;
+    esac
+    ;;
   describe)
     key="${1:-}"
     if [ -n "$key" ]; then
@@ -332,7 +362,7 @@ case "$cmd" in
     echo "done — $migrated key(s) migrated into $repo_root/.claude/cfq/settings.json; original $legacy left untouched"
     ;;
   *)
-    echo "usage: cfq-settings.sh list [--repo <path>] [--sources] | get [--repo <path>] [--source] <key> | set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | migrate <repo-root>" >&2
+    echo "usage: cfq-settings.sh list [--repo <path>] [--sources] | get [--repo <path>] [--source] <key> | set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | migrate <repo-root> | state get <key> | state set <key> <value>" >&2
     exit 1
     ;;
 esac

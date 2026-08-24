@@ -8,6 +8,7 @@ lint_sh="$repo_root/scripts/cfq-lint.sh"
 security_sh="$repo_root/scripts/cfq-security.sh"
 lang_sh="$repo_root/scripts/cfq-lang.sh"
 maint_sh="$repo_root/scripts/cfq-maintenance.sh"
+settings_sh="$repo_root/scripts/cfq-settings.sh"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -246,33 +247,35 @@ printf '%s\n' "$out" | grep -q '^OK 1 phases$' || { echo "FAIL: goodctx summary 
 
 # ============================================================ cfq-security.sh ========
 
+sechome=$(mktemp -d)
+
 # Forge detection: pure string parsing, no network, no credentials.
 secrepo="$tmp/secrepo"; mkdir -p "$secrepo"; git init -q "$secrepo"
 
 git -C "$secrepo" remote add origin git@github.com:acme/widget.git
-out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
 [ "$out" = "github github.com acme/widget" ] || { echo "FAIL: git@ form -> $out"; exit 1; }
 
 git -C "$secrepo" remote set-url origin https://github.com/acme/widget.git
-out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
 [ "$out" = "github github.com acme/widget" ] || { echo "FAIL: https form -> $out"; exit 1; }
 
 git -C "$secrepo" remote set-url origin ssh://git@forge.example:10022/team/widget.git
-out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
 [ "$out" = "unknown forge.example team/widget" ] || { echo "FAIL: ssh form (no login) -> $out"; exit 1; }
-out=$(CFQ_SECURITY_DETECT_ONLY=1 CFQ_TEA_LOGIN_HOSTS=forge.example bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 CFQ_TEA_LOGIN_HOSTS=forge.example bash "$security_sh" "$secrepo")
 [ "$out" = "gitea forge.example team/widget" ] || { echo "FAIL: ssh form (with login) -> $out"; exit 1; }
 
 git -C "$secrepo" remote set-url origin http://forge.example/team/widget.git
-out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
 [ "$out" = "unknown forge.example team/widget" ] || { echo "FAIL: http form -> $out"; exit 1; }
 
 git -C "$secrepo" remote remove origin
-out=$(CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
+out=$(HOME="$sechome" CFQ_SECURITY_DETECT_ONLY=1 bash "$security_sh" "$secrepo")
 [ "$out" = "none - -" ] || { echo "FAIL: no remote -> $out"; exit 1; }
 
 # Full run, no network-dependent branches reachable (no remote, no manifest): valid JSON, exit 0.
-out=$(bash "$security_sh" "$secrepo") && rc=0 || rc=$?
+out=$(HOME="$sechome" bash "$security_sh" "$secrepo") && rc=0 || rc=$?
 [ "$rc" = "0" ] || { echo "FAIL: security exit code = $rc, want 0"; exit 1; }
 printf '%s' "$out" | jq -e '.available == false and (.sources | length) == 0 and (.hint | length) > 0' >/dev/null \
   || { echo "FAIL: no-source security output = $out"; exit 1; }
@@ -280,10 +283,33 @@ printf '%s' "$out" | jq -e '.available == false and (.sources | length) == 0 and
 # Full run with a package.json but no lockfile: still valid JSON, still exit 0, whatever npm says.
 mfrepo="$tmp/mfrepo"; mkdir -p "$mfrepo"; git init -q "$mfrepo"
 echo '{"name":"x","version":"1.0.0"}' >"$mfrepo/package.json"
-out=$(bash "$security_sh" "$mfrepo") && rc=0 || rc=$?
+out=$(HOME="$sechome" bash "$security_sh" "$mfrepo") && rc=0 || rc=$?
 [ "$rc" = "0" ] || { echo "FAIL: manifest-only security exit code = $rc, want 0"; exit 1; }
 printf '%s' "$out" | jq -e 'type == "object"' >/dev/null \
   || { echo "FAIL: manifest-only security output is not valid JSON: $out"; exit 1; }
+
+# securityTimeoutSeconds / securityFindingsCap actually reach cfq-security.sh's behavior:
+# a synthetic npm-audit fixture producing more findings than a lowered cap gets truncated to it.
+capfixture="$tmp/capfixture"; mkdir -p "$capfixture/bin"
+echo '{"name":"x","version":"1.0.0"}' >"$capfixture/package.json"
+cat >"$capfixture/bin/npm" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "audit" ]; then
+  jq -n '{vulnerabilities: {a:{severity:"high",fixAvailable:false}, b:{severity:"high",fixAvailable:false},
+    c:{severity:"low",fixAvailable:false}, d:{severity:"low",fixAvailable:false}}}'
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "$capfixture/bin/npm"
+
+caphome=$(mktemp -d)
+HOME="$caphome" bash "$settings_sh" set securityFindingsCap 2 >/dev/null 2>&1 || true
+out=$(HOME="$caphome" PATH="$capfixture/bin:$PATH" bash "$security_sh" "$capfixture") && rc=0 || rc=$?
+[ "$rc" = "0" ] || { echo "FAIL: capped security exit code = $rc, want 0"; exit 1; }
+[ "$(printf '%s' "$out" | jq '.findings | length')" = "2" ] \
+  || { echo "FAIL: securityFindingsCap=2 not applied, findings = $(printf '%s' "$out" | jq -c '.findings')"; exit 1; }
+rm -rf "$caphome" "$sechome"
 
 # ============================================================ cfq-lang.sh ============
 

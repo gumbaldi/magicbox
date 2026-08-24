@@ -27,9 +27,9 @@ settings_sh="$script_dir/cfq-settings.sh"
 
 # Settings always via cfq-settings.sh, never from the environment directly — that's the only
 # place the env > file > default precedence chain is implemented.
-code_language=$("$settings_sh" get codeLanguage 2>/dev/null || echo en)
+code_language=$("$settings_sh" get codeLanguage)
 doc_languages_csv=$("$settings_sh" get docLanguages 2>/dev/null || true)
-doc_level=$("$settings_sh" get docLevel 2>/dev/null || echo minimal)
+doc_level=$("$settings_sh" get docLevel)
 
 if [ -z "$doc_languages_csv" ]; then
   doc_languages_json='[]'

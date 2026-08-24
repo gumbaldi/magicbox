@@ -142,7 +142,6 @@ declare -A want=(
   [planBlockedPlugins]=superpowers
   [implBlockedPlugins]=superpowers
   [telemetrySyncRepo]=""
-  [setupDone]=false
 )
 for k in "${!want[@]}"; do
   got=$(HOME="$reg_home" bash "$settings_sh" get "$k")
@@ -314,5 +313,44 @@ done
 got=$(HOME="$home" bash "$settings_sh" describe)
 [ "$(jq 'to_entries | all(.value | has("type") and has("default") and has("scope") and has("env") and has("description"))' <<<"$got")" = "true" ] \
   || { echo "FAIL: describe (all keys) missing fields somewhere"; exit 1; }
+
+# 12. state store: separate schema-less key/value file, distinct from settings.json
+state_home=$(mktemp -d)
+
+got=$(HOME="$state_home" bash "$settings_sh" state get anything)
+[ "$got" = "null" ] || { echo "FAIL: state get on missing key -> got '$got', want null"; exit 1; }
+
+HOME="$state_home" bash "$settings_sh" state set setupDone true
+got=$(HOME="$state_home" bash "$settings_sh" state get setupDone)
+[ "$got" = "true" ] || { echo "FAIL: state set/get setupDone round-trip -> got '$got'"; exit 1; }
+
+# touch settings.json too, then confirm both files exist independently
+HOME="$state_home" bash "$settings_sh" set maintenanceEvery 10 >/dev/null
+[ -f "$state_home/.claude/code-for-queue/settings.json" ] \
+  || { echo "FAIL: settings.json missing after set"; exit 1; }
+[ -f "$state_home/.claude/code-for-queue/state.json" ] \
+  || { echo "FAIL: state.json missing after state set"; exit 1; }
+
+# setupDone is fully gone from the settings schema — get falls through to its existing
+# unknown-key convention (bare "null"), same as any other key absent from $schema
+got=$(HOME="$state_home" bash "$settings_sh" get setupDone)
+[ "$got" = "null" ] || { echo "FAIL: get setupDone (removed key) -> got '$got', want null"; exit 1; }
+
+if HOME="$state_home" bash "$settings_sh" set setupDone true 2>/dev/null; then
+  echo "FAIL: set setupDone should fail (removed from schema)"; exit 1
+fi
+
+list=$(HOME="$state_home" bash "$settings_sh" list)
+[ "$(jq 'has("setupDone")' <<<"$list")" = "false" ] \
+  || { echo "FAIL: list still shows setupDone"; exit 1; }
+
+rm -rf "$state_home"
+
+# 13. securityTimeoutSeconds / securityFindingsCap: documented defaults
+got=$(HOME="$home" bash "$settings_sh" get securityTimeoutSeconds)
+[ "$got" = "30" ] || { echo "FAIL: default securityTimeoutSeconds = '$got', want 30"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" get securityFindingsCap)
+[ "$got" = "20" ] || { echo "FAIL: default securityFindingsCap = '$got', want 20"; exit 1; }
 
 echo PASS

@@ -17,7 +17,7 @@ case "$cmd" in
   due)
     repo="${2:?usage: cfq-maintenance.sh due <repo-root>}"
 
-    every=$("$settings_sh" get maintenanceEvery 2>/dev/null || echo 50)
+    every=$("$settings_sh" get maintenanceEvery)
     if [ "$every" = "0" ]; then
       echo OFF
       exit 0

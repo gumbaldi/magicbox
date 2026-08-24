@@ -84,7 +84,7 @@ else
 fi
 
 changelog="changelogFile empty"
-changelog_file=$("$script_dir/cfq-settings.sh" get changelogFile 2>/dev/null || echo "")
+changelog_file=$("$script_dir/cfq-settings.sh" get changelogFile)
 if [ -n "$changelog_file" ]; then
   version=$(printf '%s' "$branch" | grep -oE '^v[0-9]+\.[0-9]+' || true)
   phases=$(find "$batch_dir/done" -maxdepth 1 -name '[0-9][0-9]-*.md' 2>/dev/null | wc -l | tr -d ' ')
