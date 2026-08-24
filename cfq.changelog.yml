@@ -277,3 +277,10 @@
     - phase: "01-phase-quality-guardrails"
       status: "green"
       summary: "Added references/phase-quality.md (5 guardrail rules) and wired two SKILL.md diffs in plan-for-queue: a Step 7 trigger sentence and a Phase File Structure closing sentence."
+- batchNumber: null
+  batch: 2026-08-24-ifq-stopused-token-gate
+  branch: cfq/2026-08-24-ifq-stopused-token-gate
+  base: cfq/2026-08-23-pfq-phase-quality-guardrails
+  started: 2026-08-25
+  status: in-progress
+  legacy: true

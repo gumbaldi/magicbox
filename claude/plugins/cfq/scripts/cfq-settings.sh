@@ -40,8 +40,7 @@ schema='{
   "planBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /pfq must never call, even indirectly."},
   "implBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /ifq must never call, even indirectly."},
   "telemetrySyncRepo": {"type":"string","default":"","pattern":"^($|/.*)$","scope":["global","repo"],"env":"CFQ_TELEMETRY_SYNC_REPO","description":"Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
-  "stopPct": {"type":"int","default":60,"min":0,"max":100,"scope":["global","repo"],"env":"CFQ_STOP_PCT","description":"Context-window percentage at which /ifq hands off instead of starting another phase; 0 means hand off after every phase."},
-  "phaseContextGrowth": {"type":"object","shape":{"S":"int","M":"int","L":"int"},"default":{"S":7,"M":15,"L":25},"scope":["global","repo"],"env":null,"description":"Expected context-window growth percentage per phase size (S/M/L), used by the size gate projection."},
+  "stopUsed": {"type":"int","default":100000,"min":-1,"scope":["global","repo"],"env":"CFQ_STOP_USED","description":"Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
   "sessionStaleSeconds": {"type":"int","default":1800,"min":1,"scope":["global","repo"],"env":"CFQ_SESSION_STALE_SECONDS","description":"Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
   "ctxWindowLimits": {"type":"object","shape":{"default":"int","large":"object"},"default":{"default":200000,"large":{"models":["claude-opus-5","claude-sonnet-5","claude-opus-4-8"],"limit":1000000}},"scope":["global","repo"],"env":null,"description":"Context-window size in tokens per model, keyed by whether the model gets the large window."},
   "securityTimeoutSeconds": {"type":"int","default":30,"min":1,"scope":["global"],"env":null,"description":"Timeout in seconds for the batch-completion security scan."},
@@ -249,8 +248,9 @@ case "$cmd" in
         esac
         ;;
       int)
-        case "$val" in
-          ''|*[!0-9]*) echo "cfq-settings.sh: '$key' must be a non-negative integer" >&2; exit 1 ;;
+        digits="$val"; [ "${digits#-}" = "$digits" ] || digits="${digits#-}"
+        case "$digits" in
+          ''|*[!0-9]*) echo "cfq-settings.sh: '$key' must be an integer" >&2; exit 1 ;;
         esac
         min=$(jq -r --arg k "$key" '.[$k].min // empty' <<<"$schema")
         max=$(jq -r --arg k "$key" '.[$k].max // empty' <<<"$schema")
