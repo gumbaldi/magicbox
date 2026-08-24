@@ -76,9 +76,10 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    | `mattpocock-skills` | classic grill mode (`grillMode: classic`) | `/plugin install mattpocock-skills@claude-plugins-official` — if the marketplace is missing: `/plugin marketplace add anthropics/claude-plugins-official` | `github.com/anthropics/claude-plugins-official`, locally the `SKILL.md` under `skills/productivity/grilling/` in the plugin cache |
    | `ponytail` | one of several tasks in the maintenance run: an optional cleanup audit | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
 
-   Check availability yourself beforehand (the skill list in context, or
-   `ls -d ~/.claude/plugins/cache/*/mattpocock-skills ~/.claude/plugins/cache/*/ponytail 2>/dev/null`)
-   and only offer what's missing. Agreement → **hand the user the `/plugin` command to run**
+   Check availability yourself beforehand (the skill list in context, or one
+   `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-runtime.sh" plugins` call, then locally `jq` for whether
+   `mattpocock-skills`/`ponytail` are in the returned `.plugins` array) and only offer what's
+   missing. Agreement → **hand the user the `/plugin` command to run**
    (plugins can't be installed from within a skill) and set the matching switch
    (`useMattpocockGrilling` / `usePonytailAudit`) to `true`. Decline → the switch stays `false`,
    the feature is disabled, and that's noted once in a sentence. **cfq must work fully without

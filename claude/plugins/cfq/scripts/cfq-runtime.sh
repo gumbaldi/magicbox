@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Owns everything specific to the Claude Code runtime: session id, transcript path resolution,
-# context-window usage (statusline payload primary, transcript fallback), model, version. One
-# file so a future Claude Code interface change only ever touches this one adapter. Concrete to
-# Claude Code — not a multi-runtime plugin system.
+# context-window usage (statusline payload primary, transcript fallback), model, version,
+# installed plugins. One file so a future Claude Code interface change only ever touches this one
+# adapter. Concrete to Claude Code — not a multi-runtime plugin system.
 # Usage: cfq-runtime.sh session-id
 #        cfq-runtime.sh transcript-path [--repo <path>] [--exact]
 #        cfq-runtime.sh context
 #        cfq-runtime.sh model
 #        cfq-runtime.sh version
 #        cfq-runtime.sh capabilities
+#        cfq-runtime.sh plugins
+#        cfq-runtime.sh plugin-installed <name>
 #        cfq-runtime.sh diagnose [--repo <path>]
 set -eu
 
@@ -94,6 +96,27 @@ inspect_payload() {
     return
   fi
   printf 'ok:%s\n' "$row"
+}
+
+# Installed-plugin identifiers come from the plugin-cache directory layout
+# ($HOME/.claude/plugins/cache/<marketplace>/<plugin>/<version>) — the only source this adapter
+# reads for this capability, so a future Claude Code change only touches these two functions.
+list_plugins() {
+  local dir="$HOME/.claude/plugins/cache"
+  if [ -d "$dir" ] && [ -r "$dir" ]; then
+    find "$dir" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | sed 's#.*/##' | sort -u | jq -R . | jq -s .
+  else
+    echo '[]'
+  fi
+}
+
+plugins_capability_code() {
+  local dir="$HOME/.claude/plugins/cache"
+  if [ -d "$dir" ] && [ -r "$dir" ]; then
+    printf ''
+  else
+    printf 'CAPABILITY_UNAVAILABLE'
+  fi
 }
 
 sources_json='[]'
@@ -251,6 +274,12 @@ result_json() {
 cmd="${1:-}"
 shift || true
 
+plugin_name=""
+if [ "$cmd" = "plugin-installed" ]; then
+  plugin_name="${1:-}"
+  shift || true
+fi
+
 repo_path=""
 exact="0"
 while [ $# -gt 0 ]; do
@@ -300,6 +329,13 @@ case "$cmd" in
     jq -n --argjson sp "$statusline" --argjson ta "$transcript" \
       '{statuslinePayload:$sp, transcriptAvailable:$ta}'
     ;;
+  plugins)
+    jq -n --argjson plugins "$(list_plugins)" '{status: "OK", plugins: $plugins}'
+    ;;
+  plugin-installed)
+    [ -n "$plugin_name" ] || { echo '{"code":"INVALID_ARGUMENT","message":"plugin-installed requires a plugin name"}' >&2; exit 1; }
+    jq -n --argjson plugins "$(list_plugins)" --arg n "$plugin_name" '{installed: ($plugins | index($n) != null)}'
+    ;;
   diagnose)
     do_resolve "$repo_path"
     ccv=""
@@ -314,6 +350,7 @@ case "$cmd" in
       age=$(( $(date +%s) - $(stat -c %Y "$p" 2>/dev/null || echo 0) ))
       [ "$age" -lt 600 ] && sp="true"
     fi
+    pcode=$(plugins_capability_code)
     jq -n \
       --arg sid "$sid" \
       --arg tp "$transcript_path" \
@@ -323,6 +360,7 @@ case "$cmd" in
       --argjson ta "$( [ "$transcript_available" = "true" ] && echo true || echo false )" \
       --arg ccv "$ccv" \
       --arg code "$code" \
+      --arg pcode "$pcode" \
       '{
         sessionId: (if $sid == "" then null else $sid end),
         transcriptPath: (if $tp == "" then null else $tp end),
@@ -330,11 +368,12 @@ case "$cmd" in
         result: $result,
         capabilities: {statuslinePayload:$sp, transcriptAvailable:$ta},
         ccVersion: (if $ccv == "" then null else $ccv end),
-        code: (if $code == "" then null else $code end)
+        code: (if $code == "" then null else $code end),
+        pluginsCacheCode: (if $pcode == "" then null else $pcode end)
       }'
     ;;
   *)
-    echo '{"code":"INVALID_ARGUMENT","message":"usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] | context | model | version | capabilities | diagnose [--repo <path>]"}' >&2
+    echo '{"code":"INVALID_ARGUMENT","message":"usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] | context | model | version | capabilities | plugins | plugin-installed <name> | diagnose [--repo <path>]"}' >&2
     exit 1
     ;;
 esac
