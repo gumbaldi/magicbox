@@ -117,15 +117,18 @@ too: plan files, `## Decisions`, the batch directory name. A phase touching docu
 — one phase = one self-testable, individually committable unit; three honest phases beat seven
 artificial ones — state it as a status update (phase list + S/M/L sizes) and proceed directly to
 writing the phase files; the user can still redirect at any point by simply saying so, same as any
-other proposal in this skill, but no dedicated confirmation question gates the write. For each
+other proposal in this skill, but no dedicated confirmation question gates the write. A phase that
+moves, extracts, or reuses existing logic verbatim, or introduces non-trivial logic of its own (a
+branch, a parser, a resolution chain, an adapter) → read `references/phase-quality.md` and follow
+it before writing that phase's Changes and Verification text; it also steers the Size letter
+(rule 5 there). For each
 phase, estimate **Size** `S`/`M`/`L` (`S` one file and one test, `M` several files or a new script,
 `L` a new script **with** a new test or a skill rework — steers whether `ifq` even starts a phase)
 and write it into that phase's file as a `## Size` heading (structural markers are always English,
 independent of `codeLanguage`) with the letter alone on the next non-empty line — this is what
 `cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades to `M`.
-Also add optional **Recommended skills** (only where it helps, half-sentence reason each, never
-from `implBlockedPlugins`; no recommendation is the normal case). Print the `Phases` status line
-once written — phase count and size mix.
+Optionally add **Recommended skills** (half-sentence reason each, never from `implBlockedPlugins`;
+usually omitted). Print the `Phases` status line once written — phase count and size mix.
 
 ## Step 8 — Security Check
 
@@ -215,3 +218,6 @@ absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification
 filtering). Plus the conventions:
 absolute paths, no project-specific proper nouns in test data, token hygiene in the verification
 section, and the verification must check the real path the user actually takes.
+`Reuse` entries that carry logic over verbatim, and `Verification`'s test-first/bundled-smoke/
+sandboxed-debugging requirements, are governed by `references/phase-quality.md` whenever Step 7
+triggers it — not only on the documentation or grilling paths.

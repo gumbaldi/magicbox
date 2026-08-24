@@ -152,7 +152,21 @@ do_resolve() {
     add_source "test-override" true false "" "CFQ_CTX_TEST_PCT not set"
   fi
 
-  if [ -z "$pct" ]; then
+  if [ -n "${CFQ_CTX_TEST_USED:-}" ]; then
+    case "$CFQ_CTX_TEST_USED" in
+      ''|*[!0-9]*)
+        add_source "test-override-used" true false "" "CFQ_CTX_TEST_USED not numeric, ignored"
+        ;;
+      *)
+        used="$CFQ_CTX_TEST_USED"; source="test-override"; note="test override"; status="ok"
+        add_source "test-override-used" true true "" "used=$used"
+        ;;
+    esac
+  else
+    add_source "test-override-used" true false "" "CFQ_CTX_TEST_USED not set"
+  fi
+
+  if [ -z "$pct" ] && [ -z "$used" ]; then
     if [ -n "$sid" ] && [ -f "$p" ]; then
       age=$(( $(date +%s) - $(stat -c %Y "$p" 2>/dev/null || echo 0) ))
       if [ "$age" -lt 600 ]; then
@@ -192,7 +206,7 @@ do_resolve() {
   transcript_available="false"
   [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && transcript_available="true"
 
-  if [ -z "$pct" ]; then
+  if [ -z "$pct" ] && [ -z "$used" ]; then
     if [ "$transcript_available" != "true" ]; then
       add_source "transcript" true false "RUNTIME_SOURCE_MISSING" "no transcript file found"
       if [ -z "$primary_code" ]; then

@@ -107,9 +107,8 @@ entry ("second attempt after …"); `.found: false` → skip silently. Print `Fa
 way. **(4b) Size gate.** `contextGate` — deterministic projection, already computed by the
 preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`:
 `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
-status line as `PCT=<contextGate.pct|?> SIZE=<contextGate.size> EXPECTED=<contextGate.expected>
-[PROJECTED=<contextGate.projected>] LIMIT=<contextGate.limit> <contextGate.verdict>
-(<contextGate.note>)`; this closes `PRECHECKS`.
+status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
+<contextGate.verdict> (<contextGate.note>)`; this closes `PRECHECKS`.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
 implementation itself never runs on one. Implement it completely, run the plan's verification with
@@ -147,9 +146,10 @@ Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `STOP` → print `POSTCHECKS
 release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
 half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
-from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopPct: 0` is
+from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
 deliberate, not a misconfiguration — `STOP` fires after every phase, one context window each; hand
-off without commenting on it.
+off without commenting on it. `stopUsed: -1` is equally deliberate — `STOP` never fires for this
+reason; the batch only ends when every phase is done.
 
 ## 7. Batch Done
 
@@ -192,7 +192,7 @@ commits ahead of `main`, ready-to-run command as an indented `   └ ` line, pri
 `todo/` entry per `references/queues.md` without asking, so a forgotten merge is never lost) ·
 `Report` (`file://` path, only when Step 7 rendered one — else the line is omitted).
 
-**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases open, the `PCT`
+**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases open, the `USED`
 value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the full format,
 naming the red phase; its `❌` line already appeared in `IMPLEMENTATION` (Step 4), so Step 8 only
 repeats the `5 green, 1 red` split in `Batch`, not the error text.

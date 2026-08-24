@@ -94,7 +94,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/bad.sh" <<'EOF'
 #!/usr/bin/env bash
-stop_pct=$("$script_dir/cfq-settings.sh" get stopPct 2>/dev/null || echo 60)
+stop_used=$("$script_dir/cfq-settings.sh" get stopUsed 2>/dev/null || echo 100000)
 EOF
 cat > "$tmp/good.sh" <<'EOF'
 #!/usr/bin/env bash

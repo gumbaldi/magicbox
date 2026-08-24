@@ -23,14 +23,14 @@ list=$(HOME="$home" bash "$settings_sh" list)
 # 2. Legacy settings.json: has planPreferredPlugins, lacks telemetrySyncRepo
 legacy_home=$(mktemp -d)
 mkdir -p "$legacy_home/.claude/code-for-queue"
-echo '{"stopPct":42,"planPreferredPlugins":["x"]}' \
+echo '{"stopUsed":42,"planPreferredPlugins":["x"]}' \
   >"$legacy_home/.claude/code-for-queue/settings.json"
 
 got=$(HOME="$legacy_home" bash "$settings_sh" get telemetrySyncRepo)
 [ "$got" = "" ] || { echo "FAIL: legacy telemetrySyncRepo = '$got', want empty"; exit 1; }
 
-got=$(HOME="$legacy_home" bash "$settings_sh" get stopPct)
-[ "$got" = "42" ] || { echo "FAIL: legacy stopPct = '$got', want 42 (normal key, file value honored)"; exit 1; }
+got=$(HOME="$legacy_home" bash "$settings_sh" get stopUsed)
+[ "$got" = "42" ] || { echo "FAIL: legacy stopUsed = '$got', want 42 (normal key, file value honored)"; exit 1; }
 
 legacy_list=$(HOME="$legacy_home" bash "$settings_sh" list)
 [ "$(jq 'has("planPreferredPlugins")' <<<"$legacy_list")" = "false" ] \
@@ -55,54 +55,60 @@ got=$(HOME="$home" CFQ_TELEMETRY_SYNC_REPO=/tmp/y bash "$settings_sh" get teleme
 [ "$got" = "/tmp/y" ] || { echo "FAIL: env override -> got '$got'"; exit 1; }
 
 # 5. Unrelated assertions still hold
-got=$(HOME="$home" bash "$settings_sh" get stopPct)
-[ "$got" = "60" ] || { echo "FAIL: default stopPct = '$got', want 60"; exit 1; }
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "100000" ] || { echo "FAIL: default stopUsed = '$got', want 100000"; exit 1; }
 
 if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
 
-# 5b. stopPct is a normal key now: set/get round-trip, boundary validation, malformed env falls back
-HOME="$home" bash "$settings_sh" set stopPct 45
-got=$(HOME="$home" bash "$settings_sh" get stopPct)
-[ "$got" = "45" ] || { echo "FAIL: set stopPct 45 -> got '$got'"; exit 1; }
+# 5b. stopUsed: default, set/round-trip, special values -1 and 0, malformed env falls back, list
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "100000" ] || { echo "FAIL: default stopUsed = '$got', want 100000"; exit 1; }
 
 fresh_home=$(mktemp -d)
-got=$(HOME="$fresh_home" bash "$settings_sh" get stopPct)
-[ "$got" = "60" ] || { echo "FAIL: default stopPct on fresh HOME = '$got', want 60"; exit 1; }
+got=$(HOME="$fresh_home" bash "$settings_sh" get stopUsed)
+[ "$got" = "100000" ] || { echo "FAIL: default stopUsed on fresh HOME = '$got', want 100000"; exit 1; }
 rm -rf "$fresh_home"
 
-if HOME="$home" bash "$settings_sh" set stopPct -1 2>/dev/null; then
-  echo "FAIL: set stopPct -1 should fail"; exit 1
+HOME="$home" bash "$settings_sh" set stopUsed 50000
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "50000" ] || { echo "FAIL: set stopUsed 50000 -> got '$got'"; exit 1; }
+
+# routine case
+HOME="$home" bash "$settings_sh" set stopUsed 250000
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "250000" ] || { echo "FAIL: set stopUsed 250000 -> got '$got'"; exit 1; }
+
+# edge case: 0 (always stop after a phase) is valid, not rejected
+HOME="$home" bash "$settings_sh" set stopUsed 0
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "0" ] || { echo "FAIL: set stopUsed 0 -> got '$got'"; exit 1; }
+
+# edge case: -1 (never stop) is valid, not rejected
+HOME="$home" bash "$settings_sh" set stopUsed -1
+got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+[ "$got" = "-1" ] || { echo "FAIL: set stopUsed -1 -> got '$got'"; exit 1; }
+
+# failure case: below -1 is rejected
+if HOME="$home" bash "$settings_sh" set stopUsed -2 2>/dev/null; then
+  echo "FAIL: set stopUsed -2 should fail"; exit 1
 fi
-if HOME="$home" bash "$settings_sh" set stopPct 101 2>/dev/null; then
-  echo "FAIL: set stopPct 101 should fail"; exit 1
-fi
-HOME="$home" bash "$settings_sh" set stopPct 0
-got=$(HOME="$home" bash "$settings_sh" get stopPct)
-[ "$got" = "0" ] || { echo "FAIL: set stopPct 0 -> got '$got'"; exit 1; }
-HOME="$home" bash "$settings_sh" set stopPct 100
-got=$(HOME="$home" bash "$settings_sh" get stopPct)
-[ "$got" = "100" ] || { echo "FAIL: set stopPct 100 -> got '$got'"; exit 1; }
-HOME="$home" bash "$settings_sh" set stopPct 60
 
-got=$(HOME="$home" CFQ_STOP_PCT=25 bash "$settings_sh" get stopPct)
-[ "$got" = "25" ] || { echo "FAIL: env override stopPct -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set stopUsed 100000
 
-got=$(HOME="$home" CFQ_STOP_PCT=abc bash "$settings_sh" get stopPct)
-[ "$got" = "60" ] || { echo "FAIL: malformed CFQ_STOP_PCT -> got '$got', want 60"; exit 1; }
+got=$(HOME="$home" CFQ_STOP_USED=75000 bash "$settings_sh" get stopUsed)
+[ "$got" = "75000" ] || { echo "FAIL: env override stopUsed -> got '$got'"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopPct')
-[ "$got" = "60" ] || { echo "FAIL: list stopPct on fresh install = '$got', want 60"; exit 1; }
+got=$(HOME="$home" CFQ_STOP_USED=abc bash "$settings_sh" get stopUsed)
+[ "$got" = "100000" ] || { echo "FAIL: malformed CFQ_STOP_USED -> got '$got', want 100000"; exit 1; }
 
-# 5c. phaseContextGrowth: default object (valid JSON, not stringified), round-trip
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopUsed')
+[ "$got" = "100000" ] || { echo "FAIL: list stopUsed on fresh install = '$got', want 100000"; exit 1; }
+
+# phaseContextGrowth is gone
 got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
-[ "$got" = '{"S":7,"M":15,"L":25}' ] || { echo "FAIL: default phaseContextGrowth = '$got'"; exit 1; }
-
-HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":20,"L":25}'
-got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
-[ "$got" = '{"S":7,"M":20,"L":25}' ] || { echo "FAIL: set phaseContextGrowth round-trip -> got '$got'"; exit 1; }
-HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":15,"L":25}'
+[ "$got" = "null" ] || { echo "FAIL: phaseContextGrowth still present, got '$got'"; exit 1; }
 
 # 5d. CFQ_SCAN_ROOTS is comma-delimited now (uniform array env delimiter)
 got=$(HOME="$home" CFQ_SCAN_ROOTS=a,b bash "$settings_sh" get scanRoots)

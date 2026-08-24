@@ -100,10 +100,10 @@ scope (`global` and/or `repo`), optional `env` mapping, description — every su
 (`list`/`get`/`set`/`unset`/`describe`) and every precedence tier reads that one entry generically,
 there is no second hand-written case arm or table to keep in sync. `migrate <repo-root>` copies
 whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) currently overrides into
-the new repo-scoped file, so that mechanism doesn't have to live forever. `stopPct` is a normal
-schema key like any other — no special env-only case remains; it and `phaseContextGrowth` are
-resolved by `ctx-usage.sh` through `cfq-settings.sh get`, not read from the environment directly —
-anyone reworking that script breaks the precedence chain at exactly that point. `setupDone` is the
+the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
+is resolved by `ctx-usage.sh` through `cfq-settings.sh get stopUsed`, same precedence chain as
+any other setting — anyone reworking that script breaks the precedence chain at exactly that
+point. `setupDone` is the
 one exception that lives outside this schema entirely — it's runtime state, not policy, and goes
 through `cfq-settings.sh state get/set` against a separate schema-less store instead.
 
@@ -114,8 +114,8 @@ and `cfq-runtime.sh context` instead of re-deriving it. `context` prefers the st
 falls back to parsing the transcript directly, and returns `status: "degraded"` (primary diagnostic
 preserved) rather than silently hiding it when the documented interface itself breaks structurally —
 callers may still use the fallback value, but the breakage stays visible. `ctxWindowLimits` (the
-model→context-window-size table) and `phaseContextGrowth` live in the settings schema as data, not
-in this adapter, since they're retunable numbers rather than detection logic. Acceptance test: a
+model→context-window-size table) lives in the settings schema as data, not in this adapter, since
+it's a retunable number rather than detection logic. Acceptance test: a
 Claude Code runtime/statusline/plugin-cache representation change should only ever require editing
 `cfq-runtime.sh` (+ its tests/fixtures). If a change to any other aggregator is ever needed for
 such a change, that is itself a regression to fix, not an accepted cost.

@@ -265,3 +265,36 @@
     - phase: "09-pfq-interview-flow-friction-reduction"
       status: "green"
       summary: ""
+- batchNumber: null
+  batch: 2026-08-23-pfq-phase-quality-guardrails
+  branch: cfq/2026-08-23-pfq-phase-quality-guardrails
+  base: main
+  started: 2026-08-25
+  status: done
+  legacy: true
+  finished: 2026-08-25
+  phases:
+    - phase: "01-phase-quality-guardrails"
+      status: "green"
+      summary: "Added references/phase-quality.md (5 guardrail rules) and wired two SKILL.md diffs in plan-for-queue: a Step 7 trigger sentence and a Phase File Structure closing sentence."
+- batchNumber: null
+  batch: 2026-08-24-ifq-stopused-token-gate
+  branch: cfq/2026-08-24-ifq-stopused-token-gate
+  base: cfq/2026-08-23-pfq-phase-quality-guardrails
+  started: 2026-08-25
+  status: done
+  legacy: true
+  finished: 2026-08-25
+  phases:
+    - phase: "01-settings-stopused"
+      status: "green"
+      summary: "Replaced the stopPct/phaseContextGrowth schema entries in cfq-settings.sh with a single stopUsed entry (default 100000, min -1, no max), and rewrote test-settings.sh section 5b/5c accordingly."
+    - phase: "02-ctx-usage-stopused-mechanism"
+      status: "green"
+      summary: "ctx-usage.sh gates on absolute stopUsed/used instead of relative stopPct/pct-projection; CFQ_CTX_TEST_USED test hook added to cfq-runtime.sh."
+    - phase: ""
+      status: ""
+      summary: ""
+    - phase: "04-docs-cleanup"
+      status: "green"
+      summary: ""
