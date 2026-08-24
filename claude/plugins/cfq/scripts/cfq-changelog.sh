@@ -2,17 +2,19 @@
 # Appends/completes entries in <repo-root>/<changelogFile>, one block per batch. No YAML parser
 # (yq is not installed) — produced with printf/jq -r, parsed back with grep/sed/awk on fixed
 # prefixes. Version-free schema: no batch ever carries a version/appVersion/cfqVersion field.
-# Usage: cfq-changelog.sh init            <repo-root> <version> <branch> <base> <batch>
+# Usage: cfq-changelog.sh init            <repo-root> <branch> <base> <batch>
 #        cfq-changelog.sh finish          <repo-root> <branch> <batch-dir>
 #        cfq-changelog.sh reserve         <repo-root> <batchNumber> <batch>
 #        cfq-changelog.sh rename-batch    <repo-root> <old-batch> <new-batch>
+#        cfq-changelog.sh branch-for      <repo-root> <batch>
+#        cfq-changelog.sh commit-message  <repo-root> <batch> <phase> <status> <message-file>
 #        cfq-changelog.sh ensure          <repo-root>
 #        cfq-changelog.sh migrate         <repo-root>
 #        cfq-changelog.sh max-batch-number <repo-root>
 #
-# `init`'s <version> is accepted only for CLI compatibility with callers not yet updated to the
-# numbered-batch-identity workflow (that wiring is a later batch); it is never written to the
-# ledger. batchNumber/legacy are derived from <batch>'s own name.
+# batchNumber/legacy are derived from <batch>'s own name, never from a version. `commit-message`
+# is the sole writer of `CFQ-*` Git trailers (scan_trailer_max/scan_trailer_batch_for_max below are
+# the sole reader) — one owner for trailer rendering, one for parsing.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-changelog.sh: jq is required" >&2; exit 1; }
@@ -125,11 +127,10 @@ scan_trailer_batch_for_max() {
 cmd="${1:-}"
 case "$cmd" in
   init)
-    repo="${2:?usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch>}"
-    : "${3:?usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch>}"
-    branch="${4:?usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch>}"
-    base="${5:?usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch>}"
-    batch="${6:?usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch>}"
+    repo="${2:?usage: cfq-changelog.sh init <repo-root> <branch> <base> <batch>}"
+    branch="${3:?usage: cfq-changelog.sh init <repo-root> <branch> <base> <batch>}"
+    base="${4:?usage: cfq-changelog.sh init <repo-root> <branch> <base> <batch>}"
+    batch="${5:?usage: cfq-changelog.sh init <repo-root> <branch> <base> <batch>}"
     target="$(changelog_file "$repo")" || exit 0
     mkdir -p "$(dirname "$target")"
 
@@ -220,6 +221,45 @@ case "$cmd" in
     replace_block "$target" "$start" "$new_block"
     ;;
 
+  branch-for)
+    # Read-only: the branch persisted for <batch> in the ledger (any status), empty on no match,
+    # missing file or disabled changelog. Authoritative source for cfq-branch.sh's continue-mode
+    # check — more precise than re-deriving a branch from a slug suffix match against Git.
+    repo="${2:?usage: cfq-changelog.sh branch-for <repo-root> <batch>}"
+    batch="${3:?usage: cfq-changelog.sh branch-for <repo-root> <batch>}"
+    target="$(changelog_file "$repo")" || exit 0
+    [ -f "$target" ] || exit 0
+    start="$(find_block_start "$target" '  batch:' "$batch" || true)"
+    [ -n "$start" ] || exit 0
+    block="$(block_text "$target" "$start")"
+    block_field "$block" '  branch:'
+    ;;
+
+  commit-message)
+    # Appends the standard CFQ-* trailer block to a numbered batch's phase-commit message via
+    # git interpret-trailers, so the trailers land in the same trailing block as any existing
+    # trailer (e.g. Co-Authored-By) rather than a second machine section, and a stray mention of
+    # "CFQ-Batch-Number" in prose can never be mistaken for a real trailer. Legacy (unnumbered)
+    # batches pass the message through unchanged -- no number is ever invented for them.
+    repo="${2:?usage: cfq-changelog.sh commit-message <repo-root> <batch> <phase> <status> <message-file>}"
+    batch="${3:?usage: cfq-changelog.sh commit-message <repo-root> <batch> <phase> <status> <message-file>}"
+    phase="${4:?usage: cfq-changelog.sh commit-message <repo-root> <batch> <phase> <status> <message-file>}"
+    status="${5:?usage: cfq-changelog.sh commit-message <repo-root> <batch> <phase> <status> <message-file>}"
+    message_file="${6:?usage: cfq-changelog.sh commit-message <repo-root> <batch> <phase> <status> <message-file>}"
+    [ "$status" = green ] || { echo "cfq-changelog.sh commit-message: status must be 'green', got '$status'" >&2; exit 1; }
+    number="$(parse_batch_number "$batch")"
+    if [ -n "$number" ]; then
+      git -C "$repo" interpret-trailers --trim-empty \
+        --trailer "CFQ-Batch-Number=${number}" \
+        --trailer "CFQ-Batch=${batch}" \
+        --trailer "CFQ-Phase=${phase}" \
+        --trailer "CFQ-Phase-Status=${status}" \
+        "$message_file"
+    else
+      cat "$message_file"
+    fi
+    ;;
+
   ensure)
     repo="${2:?usage: cfq-changelog.sh ensure <repo-root>}"
     target="$(changelog_file "$repo")" || { jq -n '{source:"disabled",max:0,path:null}'; exit 0; }
@@ -295,7 +335,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "usage: cfq-changelog.sh init <repo-root> <version> <branch> <base> <batch> | finish <repo-root> <branch> <batch-dir> | reserve <repo-root> <batchNumber> <batch> | rename-batch <repo-root> <old-batch> <new-batch> | ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>" >&2
+    echo "usage: cfq-changelog.sh init <repo-root> <branch> <base> <batch> | finish <repo-root> <branch> <batch-dir> | reserve <repo-root> <batchNumber> <batch> | rename-batch <repo-root> <old-batch> <new-batch> | branch-for <repo-root> <batch> | commit-message <repo-root> <batch> <phase> <status> <message-file> | ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>" >&2
     exit 1
     ;;
 esac

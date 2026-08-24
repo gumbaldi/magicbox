@@ -41,25 +41,44 @@ worth showing, not worth aborting over.
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
 ```
 
-Returns one JSON object; `mode` says what to do:
+Returns one JSON object — `batch`/`batchNumber` echo the batch's own stable identity
+(`batchNumber` is `null` for a legacy unnumbered batch); `mode` says what to do. Always use the
+returned `branch` field directly for checkout — never reconstruct a branch string from a
+number/slug:
 
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
-- **`continue`** (a branch for this batch already exists) → `git checkout "<branch>"`, don't bump
-  the version, don't write a changelog entry (the batch is already recorded).
+- **`continue`** (a branch for this batch already exists) → `git checkout "<branch>"`, don't write
+  a changelog entry (the batch is already recorded).
 - **`new`** → `base` is already `main` when `candidates` is empty; non-empty → one
   `AskUserQuestion` listing every entry in `candidates` plus `main`, asking which one the new
   branch builds on. Recommended (first, labelled `(Recommended)`): the currently checked-out
-  branch if it's in the list, otherwise the highest `vX.Y` among them. Each option's description
-  names how many commits it is ahead of `main` (`git rev-list --count main..<branch>`). Then:
+  branch if it's in the list, otherwise the first candidate. Each option's description names how
+  many commits it is ahead of `main` (`git rev-list --count main..<branch>`). Then:
 
 ```bash
 git checkout "<base>"
-git checkout -b "<version>-<slug>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" init "<repo-root>" "<version>" "<version>-<slug>" "<base>" "<batch>"
+git checkout -b "<branch>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" init "<repo-root>" "<branch>" "<base>" "<batch>"
 ```
 
 A dirty working tree at this point is an error, not something to work around: report it and end
 without touching anything.
+
+## Phase Commit Trailers (Step 5)
+
+Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file,
+then run it through:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
+```
+
+Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 3b's
+`Branch`/`Resume` data is non-null) this appends `CFQ-Batch-Number`, `CFQ-Batch`, `CFQ-Phase`,
+`CFQ-Phase-Status` to the existing trailer block via `git interpret-trailers`, leaving the
+human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
+unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
+`CFQ-*` trailer.
 
 ## Skills Recommended vs. Used (Step 8)
 

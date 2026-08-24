@@ -22,7 +22,7 @@ resolved="$(bash "$settings" get changelogFile)"
 
 # init on a missing file creates it with exactly one block, status: in-progress, no version field,
 # legacy detected from an unnumbered directory name
-bash "$cl" init "$repo" v0.1 v0.1-example-topic main 2026-01-01-example-topic
+bash "$cl" init "$repo" v0.1-example-topic main 2026-01-01-example-topic
 [ -f "$target" ] || { echo "FAIL: init did not create the changelog file at $target"; exit 1; }
 n=$(grep -c '^- batchNumber:' "$target")
 [ "$n" = "1" ] || { echo "FAIL: init block count = $n, want 1"; exit 1; }
@@ -32,7 +32,7 @@ grep -q '^  legacy: true$' "$target" || { echo "FAIL: legacy init did not write 
 grep -q '^  version:' "$target" && { echo "FAIL: version field leaked into the new schema"; exit 1; }
 
 # init twice appends, does not overwrite
-bash "$cl" init "$repo" v0.2 v0.2-second-topic v0.1-example-topic 2026-01-02-second-topic
+bash "$cl" init "$repo" v0.2-second-topic v0.1-example-topic 2026-01-02-second-topic
 n=$(grep -c '^- batchNumber:' "$target")
 [ "$n" = "2" ] || { echo "FAIL: after second init, block count = $n, want 2"; exit 1; }
 grep -q '2026-01-01-example-topic' "$target" || { echo "FAIL: second init overwrote the first block"; exit 1; }
@@ -71,7 +71,7 @@ after_n=$(grep -c '^- batchNumber:' "$target")
 empty_repo="$tmp/empty-repo"
 mkdir -p "$empty_repo"
 bash "$settings" set changelogFile ""
-bash "$cl" init "$empty_repo" v0.1 v0.1-noop main 2026-01-01-noop
+bash "$cl" init "$empty_repo" v0.1-noop main 2026-01-01-noop
 [ -f "$empty_repo/.claude/cfq/changelog.yml" ] && { echo "FAIL: init wrote a file despite empty changelogFile"; exit 1; }
 noop_batch="$tmp/2026-01-04-noop"
 mkdir -p "$noop_batch"
@@ -85,7 +85,7 @@ bash "$settings" set changelogFile ".claude/cfq/changelog.yml"
 # a summary containing a colon and a double quote survives a round trip through the file
 quoty_repo="$tmp/quoty-repo"
 mkdir -p "$quoty_repo"
-bash "$cl" init "$quoty_repo" v0.1 v0.1-quoty main 2026-01-05-quoty
+bash "$cl" init "$quoty_repo" v0.1-quoty main 2026-01-05-quoty
 quoty_batch="$tmp/2026-01-05-quoty"
 mkdir -p "$quoty_batch"
 cat >"$quoty_batch/report.json" <<'EOF'
@@ -106,7 +106,7 @@ bash "$cl" reserve "$numbered_repo" 1 "$numbered_batch"
 [ "$(grep -c '^- batchNumber:' "$numbered_target")" = "1" ] || { echo "FAIL: reserve did not create exactly one block"; exit 1; }
 grep -q '^  status: parked$' "$numbered_target" || { echo "FAIL: reserve did not write status: parked"; exit 1; }
 
-bash "$cl" init "$numbered_repo" ignored "cfq/$numbered_batch" main "$numbered_batch"
+bash "$cl" init "$numbered_repo" "cfq/$numbered_batch" main "$numbered_batch"
 [ "$(grep -c '^- batchNumber:' "$numbered_target")" = "1" ] || { echo "FAIL: init on a reserved batch created a duplicate block instead of transitioning it"; exit 1; }
 grep -q '^- batchNumber: 1$' "$numbered_target" || { echo "FAIL: init did not preserve the reserved batchNumber"; exit 1; }
 grep -q '^  status: in-progress$' "$numbered_target" || { echo "FAIL: init did not transition parked -> in-progress"; exit 1; }
@@ -133,7 +133,7 @@ maxnum_repo="$tmp/maxnum-repo"
 mkdir -p "$maxnum_repo"
 bash "$cl" reserve "$maxnum_repo" 2 001-2026-03-01-a
 bash "$cl" reserve "$maxnum_repo" 9 002-2026-03-02-b
-bash "$cl" init "$maxnum_repo" ignored branch-x main 2026-03-03-legacy-c
+bash "$cl" init "$maxnum_repo" branch-x main 2026-03-03-legacy-c
 got_max="$(bash "$cl" max-batch-number "$maxnum_repo")"
 [ "$got_max" = "9" ] || { echo "FAIL: max-batch-number = $got_max, want 9"; exit 1; }
 empty_max_repo="$tmp/empty-max-repo"
@@ -211,6 +211,68 @@ after_first_migrate="$(cat "$new_file")"
 bash "$cl" migrate "$migrate_repo"
 [ "$(grep -c '^- batchNumber:' "$new_file")" = "1" ] || { echo "FAIL: repeated migration created a duplicate entry"; exit 1; }
 [ "$(cat "$new_file")" = "$after_first_migrate" ] || { echo "FAIL: repeated migration was not byte-identical"; exit 1; }
+
+# commit-message: numbered batch appends CFQ-* trailers to the existing trailer block via
+# git interpret-trailers -- unpadded batchNumber, existing trailers (Co-Authored-By) preserved,
+# human body untouched, and a "key: value"-shaped line inside the body (not the trailing block) is
+# never mistaken for a real trailer.
+trailer_repo="$tmp/trailer-repo"
+mkdir -p "$trailer_repo"
+git -C "$trailer_repo" init -q
+git -C "$trailer_repo" config user.email test@example.com
+git -C "$trailer_repo" config user.name Test
+
+msg_file="$tmp/msg1"
+cat >"$msg_file" <<'EOF'
+Add deterministic CFQ batch allocation
+
+Explains that CFQ-Batch-Number: 999 would be the wrong way to write this by hand.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+EOF
+composed="$(bash "$cl" commit-message "$trailer_repo" 042-2026-08-19-batch-id-refactor 02-batch-number-allocation green "$msg_file")"
+printf '%s' "$composed" >"$tmp/composed1"
+git -C "$trailer_repo" commit -q --allow-empty -F "$tmp/composed1"
+
+trailer_val="$(git -C "$trailer_repo" log -1 --format='%(trailers:key=CFQ-Batch-Number,valueonly)' | tr -d '\n')"
+[ "$trailer_val" = "42" ] || { echo "FAIL: commit-message trailer value = '$trailer_val', want unpadded 42 (not 999 from the body, not padded 042)"; exit 1; }
+[ "$(git -C "$trailer_repo" log -1 --format='%(trailers:key=CFQ-Batch,valueonly)' | tr -d '\n')" = "042-2026-08-19-batch-id-refactor" ] \
+  || { echo "FAIL: commit-message CFQ-Batch trailer missing/wrong"; exit 1; }
+[ "$(git -C "$trailer_repo" log -1 --format='%(trailers:key=CFQ-Phase,valueonly)' | tr -d '\n')" = "02-batch-number-allocation" ] \
+  || { echo "FAIL: commit-message CFQ-Phase trailer missing/wrong"; exit 1; }
+[ "$(git -C "$trailer_repo" log -1 --format='%(trailers:key=CFQ-Phase-Status,valueonly)' | tr -d '\n')" = "green" ] \
+  || { echo "FAIL: commit-message CFQ-Phase-Status trailer missing/wrong"; exit 1; }
+[ "$(git -C "$trailer_repo" log -1 --format='%(trailers:key=Co-Authored-By,valueonly)' | tr -d '\n')" = "Claude Sonnet 5 <noreply@anthropic.com>" ] \
+  || { echo "FAIL: commit-message dropped the existing Co-Authored-By trailer"; exit 1; }
+git -C "$trailer_repo" log -1 --format=%B | grep -q '^Explains that CFQ-Batch-Number: 999' \
+  || { echo "FAIL: commit-message lost the human body"; exit 1; }
+
+# commit-message: legacy (unnumbered) batch passes the message through unchanged, no fake number
+msg_file2="$tmp/msg2"
+printf 'Fix a thing\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n' >"$msg_file2"
+composed2="$(bash "$cl" commit-message "$trailer_repo" 2026-08-19-legacy-batch 01-fix green "$msg_file2")"
+[ "$composed2" = "$(cat "$msg_file2")" ] || { echo "FAIL: legacy commit-message altered the message"; exit 1; }
+printf '%s' "$composed2" >"$tmp/composed2"
+git -C "$trailer_repo" commit -q --allow-empty -F "$tmp/composed2"
+[ -z "$(git -C "$trailer_repo" log -1 --format='%(trailers:key=CFQ-Batch-Number,valueonly)')" ] \
+  || { echo "FAIL: legacy commit-message invented a CFQ-Batch-Number"; exit 1; }
+
+# commit-message rejects a non-green status
+echo x >"$tmp/msg3"
+bash "$cl" commit-message "$trailer_repo" 042-2026-08-19-x 01-a red "$tmp/msg3" 2>/dev/null \
+  && { echo "FAIL: commit-message accepted status other than green"; exit 1; }
+
+# branch-for: returns the persisted branch for an init'd batch, empty for an unknown batch or a
+# repo whose changelog doesn't exist
+branchfor_repo="$tmp/branchfor-repo"
+mkdir -p "$branchfor_repo"
+bash "$cl" init "$branchfor_repo" "cfq/2026-08-19-lookup" main 2026-08-19-lookup
+got_branch="$(bash "$cl" branch-for "$branchfor_repo" 2026-08-19-lookup)"
+[ "$got_branch" = "cfq/2026-08-19-lookup" ] || { echo "FAIL: branch-for = '$got_branch', want cfq/2026-08-19-lookup"; exit 1; }
+[ -z "$(bash "$cl" branch-for "$branchfor_repo" 2026-08-19-unknown-batch)" ] \
+  || { echo "FAIL: branch-for should be empty for an unknown batch"; exit 1; }
+[ -z "$(bash "$cl" branch-for "$tmp/no-such-repo" 2026-08-19-lookup)" ] \
+  || { echo "FAIL: branch-for should be empty when the changelog file doesn't exist"; exit 1; }
 
 # gitStatePolicy=local keeps the ledger in the CFQ-managed local exclusion; settings.json stays trackable
 policy_repo="$tmp/policy-repo"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Computes the branch/version/base decision for a batch go-ahead as one JSON object. Read-only —
-# never creates or checks out a branch itself; the caller acts on `mode`.
+# Computes the branch/batch-identity decision for a batch go-ahead as one JSON object. Read-only —
+# never creates or checks out a branch itself; the caller acts on `mode`. New branches use the
+# batch's own stable directory name directly (`cfq/<batch-directory-name>`) — no version scanning,
+# no pseudo-version increment, no identity derived from Git branch history.
 # Usage: cfq-branch.sh plan <repo-root> <batch-dir-name>
 set -eu
 
@@ -12,31 +14,50 @@ batch_name="${3:?usage: cfq-branch.sh plan <repo-root> <batch-dir-name>}"
 [ "$cmd" = "plan" ] || { echo "cfq-branch.sh: unknown command '$cmd'" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-slug=$(printf '%s' "$batch_name" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+
+# New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes the
+# date); legacy names start directly with the date. Prints the plain integer (no leading zeros) on
+# a match, nothing on no match — mirrors cfq-changelog.sh's own parse_batch_number.
+parse_batch_number() {
+  if [[ "$1" =~ ^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}- ]]; then
+    printf '%d\n' "$((10#${BASH_REMATCH[1]}))"
+  fi
+}
+number="$(parse_batch_number "$batch_name")"
+number_json='null'; [ -n "$number" ] && number_json="$number"
+
+slug=$(printf '%s' "$batch_name" | sed -E 's/^[0-9]+-[0-9]{4}-[0-9]{2}-[0-9]{2}-//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
 
 branch_per_batch=$("$script_dir/cfq-settings.sh" get branchPerBatch)
 if [ "$branch_per_batch" = "false" ]; then
-  jq -n --arg slug "$slug" \
-    '{mode: "off", slug: $slug, branch: null, version: null, base: null, candidates: []}'
+  jq -n --arg batch "$batch_name" --argjson num "$number_json" \
+    '{mode: "off", batch: $batch, batchNumber: $num, branch: null, base: null, candidates: []}'
   exit 0
 fi
 
-existing=$(git -C "$repo_root" branch -a --format='%(refname:short)' | sed 's#^origin/##' | sort -u \
-  | grep -E -- "-${slug}\$" || true)
+# Prefer the branch already persisted in the CFQ changelog for this exact batch — authoritative,
+# since it is the branch that was actually checked out at init time — but only once it's confirmed
+# to still exist; a deleted branch falls through to the suffix match below rather than being
+# handed to the caller as an unresolvable "continue". Also falls through when the changelog
+# doesn't know this batch yet, e.g. a batch parked before the changelog existed.
+existing="$("$script_dir/cfq-changelog.sh" branch-for "$repo_root" "$batch_name" 2>/dev/null || true)"
+if [ -n "$existing" ] && ! git -C "$repo_root" rev-parse --verify -q "refs/heads/$existing" >/dev/null 2>&1 \
+  && ! git -C "$repo_root" rev-parse --verify -q "refs/remotes/origin/$existing" >/dev/null 2>&1; then
+  existing=""
+fi
+if [ -z "$existing" ]; then
+  existing=$(git -C "$repo_root" branch -a --format='%(refname:short)' | sed 's#^origin/##' | sort -u \
+    | grep -E -- "-${slug}\$" || true)
+  existing=$(printf '%s\n' "$existing" | head -1)
+fi
+
 if [ -n "$existing" ]; then
-  branch=$(printf '%s\n' "$existing" | head -1)
-  jq -n --arg slug "$slug" --arg branch "$branch" \
-    '{mode: "continue", slug: $slug, branch: $branch, version: null, base: null, candidates: []}'
+  jq -n --arg batch "$batch_name" --argjson num "$number_json" --arg branch "$existing" \
+    '{mode: "continue", batch: $batch, batchNumber: $num, branch: $branch, base: null, candidates: []}'
   exit 0
 fi
 
-last=$(git -C "$repo_root" branch -a | grep -oE 'v[0-9]+\.[0-9]+' | sort -t. -k1,1V -k2,2n | tail -1)
-if [ -z "$last" ]; then
-  version="v0.1"
-else
-  version="${last%.*}.$(( ${last#*.} + 1 ))"
-fi
-branch="${version}-${slug}"
+branch="cfq/${batch_name}"
 
 candidates=()
 while IFS= read -r b; do
@@ -52,6 +73,6 @@ else
 fi
 cand_json=$(printf '%s\n' "${candidates[@]:-}" | sed '/^$/d' | jq -R . | jq -s .)
 
-jq -n --arg slug "$slug" --arg branch "$branch" --arg version "$version" \
+jq -n --arg batch "$batch_name" --argjson num "$number_json" --arg branch "$branch" \
   --argjson base "$base_json" --argjson candidates "$cand_json" \
-  '{mode: "new", slug: $slug, branch: $branch, version: $version, base: $base, candidates: $candidates}'
+  '{mode: "new", batch: $batch, batchNumber: $num, branch: $branch, base: $base, candidates: $candidates}'
