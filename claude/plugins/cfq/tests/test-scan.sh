@@ -76,6 +76,10 @@ mkdir -p "$tmp/repo-i/.claude/cfq/impl/todo" \
 touch "$tmp/repo-i/.claude/cfq/impl/todo/leftover.md" \
       "$tmp/repo-i/.claude/cfq/impl/2026-01-13-real-batch/01-a.md"
 
+# repo-j: numbered-format batch dir (new naming, digits precede the date) must be found too
+mkdir -p "$tmp/repo-j/.claude/cfq/impl/001-2026-01-14-numbered"
+touch "$tmp/repo-j/.claude/cfq/impl/001-2026-01-14-numbered/01-a.md"
+
 out=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan")
 
 # Regression: batches without .dependsOn get [] / false / [], never null.
@@ -118,6 +122,10 @@ h=$(jq -c --arg p "$tmp/repo-h" '[.repos[] | select(.path == $p)][0].batches[0].
 i=$(jq -c --arg p "$tmp/repo-i" '[.repos[] | select(.path == $p)][0].batches | map(.name)' <<<"$out")
 [ "$i" = '["2026-01-13-real-batch"]' ] \
   || { echo "FAIL: repo-i batches should exclude non-date-prefixed dirs, got $i"; exit 1; }
+
+j=$(jq -c --arg p "$tmp/repo-j" '[.repos[] | select(.path == $p)][0].batches | map(.name)' <<<"$out")
+[ "$j" = '["001-2026-01-14-numbered"]' ] \
+  || { echo "FAIL: repo-j numbered-format batch not found, got $j"; exit 1; }
 
 # --format=json (explicit) must be byte-identical to the no-flag default — no regression for
 # existing callers.
