@@ -119,4 +119,45 @@ i=$(jq -c --arg p "$tmp/repo-i" '[.repos[] | select(.path == $p)][0].batches | m
 [ "$i" = '["2026-01-13-real-batch"]' ] \
   || { echo "FAIL: repo-i batches should exclude non-date-prefixed dirs, got $i"; exit 1; }
 
+# --format=json (explicit) must be byte-identical to the no-flag default — no regression for
+# existing callers.
+out_json_flag=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=json)
+[ "$out_json_flag" = "$out" ] \
+  || { echo "FAIL: --format=json must be byte-identical to no-flag output"; exit 1; }
+
+# --format=md: valid Markdown table, one row per batch, Status reflects blocked/planning/inProgress.
+out_md=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=md)
+md_header=$(head -n1 <<<"$out_md")
+[ "$md_header" = "| Repo | Batch | Priority | Open/Done | Status |" ] \
+  || { echo "FAIL: md header = $md_header"; exit 1; }
+md_rows=$(($(wc -l <<<"$out_md") - 2))
+total_batches=$(jq '[.repos[].batches | length] | add' <<<"$out")
+[ "$md_rows" = "$total_batches" ] \
+  || { echo "FAIL: md row count $md_rows != total batches $total_batches"; exit 1; }
+md_a_status=$(grep '2026-01-01-demo' <<<"$out_md" | awk -F'|' '{gsub(/ /,"",$6); print $6}')
+[ "$md_a_status" = "IN_PROGRESS" ] \
+  || { echo "FAIL: md status for repo-a's open+priority batch = $md_a_status"; exit 1; }
+md_blocked_status=$(grep '2026-01-10-b-blocked' <<<"$out_md" | awk -F'|' '{gsub(/ /,"",$6); print $6}')
+[ "$md_blocked_status" = "BLOCKED" ] \
+  || { echo "FAIL: md status for b-blocked = $md_blocked_status"; exit 1; }
+md_fresh_status=$(grep '2026-01-11-b-fresh' <<<"$out_md" | awk -F'|' '{gsub(/ /,"",$6); print $6}')
+[ "$md_fresh_status" = "PLANNING" ] \
+  || { echo "FAIL: md status for b-fresh = $md_fresh_status"; exit 1; }
+
+# --format=tsv: same field set as md, tab-separated, one line per batch (no header).
+out_tsv=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=tsv)
+tsv_rows=$(wc -l <<<"$out_tsv")
+[ "$tsv_rows" = "$total_batches" ] \
+  || { echo "FAIL: tsv row count $tsv_rows != total batches $total_batches"; exit 1; }
+tsv_fields=$(grep '2026-01-01-demo' <<<"$out_tsv" | awk -F'\t' '{print NF}')
+[ "$tsv_fields" = "5" ] || { echo "FAIL: tsv field count = $tsv_fields"; exit 1; }
+
+# Unknown --format value: clear error, exit 1.
+err_file="$home/cfq-scan-format-err"
+if HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=bogus >/dev/null 2>"$err_file"; then
+  echo "FAIL: unknown --format value should exit non-zero"; exit 1
+fi
+grep -q "unknown --format value" "$err_file" \
+  || { echo "FAIL: unknown --format value should print a clear error"; exit 1; }
+
 echo PASS

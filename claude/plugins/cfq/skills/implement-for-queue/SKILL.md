@@ -27,75 +27,68 @@ with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` lin
 headers/labels/status lines are always English, interactive parts stay in the user's language ·
 no commentary around the block.
 
-## 1. Model Gate
+## 1-3a. Preflight: Policy, Batch Selection
 
-Print the `PRECHECKS` header on entering, then:
+Print the `PRECHECKS` header, then one call:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implModels
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get allowAnyModel
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-ifq-preflight.sh" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
+`status: "NO_REPO"` → abort, report, end. Otherwise this one call already resolved Steps 1
+(model gate), 2 (plugin gate) and 3a (batch selection) together — read its fields below, no
+further calls needed for those three steps.
 
-The running model's name is in your system prompt's environment block; `allowAnyModel: true` →
-skip this check, otherwise it must match one of `implModels` (substring match: `sonnet` matches
-`claude-sonnet-5`). No match → **stop immediately**, touch nothing, report the allowed models,
-that `/model <x>` then `/ifq` is the way forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the
-list. Print the `Model Gate` status line either way.
+**Model Gate.** The running model's name is in your system prompt's environment block;
+`policy.allowAnyModel: true` → skip this check, otherwise it must match one of
+`policy.implModels` (substring match: `sonnet` matches `claude-sonnet-5`). No match → **stop
+immediately**, touch nothing, report the allowed models, that `/model <x>` then `/ifq` is the way
+forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list. Print the `Model Gate` status line
+either way.
 
-## 2. Plugin Boundaries
+**Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
+rest of the session, not even indirectly — per-phase skill recommendations on this list are
+ignored. Print the `Plugin Boundaries` status line.
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implBlockedPlugins`. Blocked
-plugins/skills aren't called for the rest of the session, not even indirectly — per-phase skill
-recommendations on this list are ignored. Print the `Plugin Boundaries` status line.
+**Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open
+plans for this repo in the queue.", end. `BLOCKED`/`MULTIPLE_IN_PROGRESS`/`selection.planning`
+entries each need specific wording (wait list, stop-immediately rule, the still-planning notice) —
+cold-path detail: read `references/queues.md`'s **Batch Selection Rules** section on first use each
+session and apply it here.
 
-## 3a. Choose a Batch
-
-Repo root via `git rev-parse --show-toplevel`; no git repo → abort, report, end. Check
-`<repo-root>/.claude/cfq/impl/` for open batches (directories beneath it, excluding
-`done/`, with at least one top-level `NN-*.md` phase file); none → report "No open plans for this
-repo in the queue.", end. Read `.priority` per batch (missing → not flagged); default order:
-flagged batches first, then folder name ascending (date-prefixed; oldest first, ties by name).
-
-`cfq-scan.sh`'s output carries `blocked`, `unknownDeps`, `planning` and `inProgress` per batch. The
-filters exist — blocked and still-being-planned batches are never offered, more than one
-in-progress batch is a stop condition — but the exact wording of each case (wait lists, the
-stop-immediately rule, the blocked-and-in-progress corner case) is cold-path detail: read
-`references/queues.md`'s **Batch Selection Rules** section on first use each session and apply it
-here.
-
-Among the batches that pass the planning/blocked filters, check `inProgress`: **exactly one** →
-skip the `AskUserQuestion`, select it, print `Batch` as `resumed <name> · <done>/<done+open>
-phases done` (prefix `high · ` if flagged), straight to Step 3b. **Zero** → picker runs unchanged.
-**More than one** → stop per the reference above.
-
-Among the batches passing those filters (`inProgress` at zero, picker in play): **exactly one**
-selectable batch → no question either, a list of one can't change the outcome — select it, print
-`Batch` noting it was the only selectable batch (e.g. `2026-08-18-example · only open batch · 3
-phases`), straight to Step 3b. **Zero** → the existing "No open plans..." path, unchanged. **More
-than one** → the `AskUserQuestion` below, unchanged.
-
-One `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
-through them in order** (show the computed order) or **Choose a specific plan** (a second
-`AskUserQuestion`, batches as options, label = topic slug, description = open phase count + date,
-prefixed with `high · ` only when the batch is flagged). Set the chosen batch (or the first, for
-"in order") and hand it to Step 3b — **do not acquire the lock yet**. Print the `Batch` status line
-once chosen; both questions stay prose. **Never two batches in the same session**, not even once
-the first finishes and context is still free — different plans belong in separate context windows.
+`selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
+`branch`/`resume`/`contextGate` are already resolved for it) — skip the `AskUserQuestion`, print
+`Batch` as `resumed <name> · <done>/<done+open> phases done` (prefix `high · ` if flagged),
+straight to Step 3b. `selection.inProgress` null and `selection.selectable` has **exactly one**
+entry → same pre-resolved fields, no question either — print `Batch` noting it was the only
+selectable batch (e.g. `2026-08-18-example · only open batch · 3 phases`), straight to Step 3b.
+`selection.selectable` has **zero** entries and `status` isn't `NO_BATCH`/`BLOCKED` → treat as
+`NO_BATCH`. **More than one** → `batch`/`nextPhase`/`branch`/`resume`/`contextGate` are `null`; ask
+one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
+through them in order** (show `selection.selectable`, already sorted flagged-first-then-name) or
+**Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
+description = open phase count + date, prefixed with `high · ` only when flagged). Set the chosen
+batch (or the first, for "in order"), re-run the preflight call with `--select <chosen>` to resolve
+its fields — **do not acquire the lock yet**. Print the `Batch` status line once chosen; both
+questions stay prose. **Never two batches in the same session**, not even once the first finishes
+and context is still free — different plans belong in separate context windows.
 
 ## 3b. Batch Briefing and Go-Ahead
 
 Nothing is touched, no lock taken, until the user has seen what the batch contains — never read
-phase files in full here, that's Step 4's job. Extract the briefing data per
-`references/queues.md` and present it compactly, then ask exactly one `AskUserQuestion`, "Start
-implementing this batch?":
+phase files in full here, that's Step 4's job. Present `batch.briefText` compactly (already the
+full per-phase listing — name/priority/phase count/`dependsOn`/one line per phase with size and
+context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing this batch?":
 - **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
-  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. Then
-  `cfq-branch.sh plan` decides `off` / `continue` / `new` and, on `new`, `cfq-changelog.sh init`
-  runs too (all per `references/queues.md`); `Branch` renders whichever of the three happened.
-  Then `cfq-resume.sh "<repo-root>" "<batch-dir>"` reconstructs state — done/open phases, last
-  commit, deviations, red-phase history, `.batch-context.md`'s path (`references/queues.md`'s
-  **Resume Snapshot**); if `batchContext.exists`, `Read` it now so its content joins this session.
-  Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 4.
+  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
+  (from the preflight — already computed, no new call) decides `off` / `continue` / `new`: `off` →
+  nothing to check out; `continue` → `git checkout "<branch.branch>"`; `new` → `git checkout
+  "<branch.base>"` then `git checkout -b "<branch.branch>"`, `cfq-changelog.sh init` runs, then —
+  **only here** — re-run `cfq-branch.sh plan "<repo-root>" "<batch>"` once to reconfirm the branch
+  now exists (`references/queues.md`'s **Branch and Changelog on Go-Ahead**); `continue`/`off`
+  never call `cfq-branch.sh` again. `Branch` renders whichever happened. `resume` (same preflight
+  result) already carries done/open phases, last commit, deviations, red-phase history,
+  `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`
+  it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 4.
 - **A different batch** → back to Step 3a's question with the remaining batches; the declined one
   isn't offered again. Nothing left → report and end. Not offered at all when Step 3a didn't run a
   picker (auto-resumed in-progress batch, or only one selectable batch) — offering one here would
@@ -104,20 +97,19 @@ implementing this batch?":
 
 ## 4. Work Off a Phase
 
-Before reading the phase file, two checks. **(4a) Earlier failed attempt:** if `report.json`
-exists, look for an entry for this exact phase with `jq -c --arg p "<phase-slug>" '[.phases[] |
-select(.phase == $p and .status == "red")] | last // empty' "<batch-dir>/report.json"`. A hit →
-read its `errors`/`summary`, check whether the cause still holds before repeating, and mention it
-in the new entry ("second attempt after …"); no hit → skip silently. Print `Failed Attempt` either way.
-**(4b) Size gate.** Deterministic projection, computed by a script, never prose arithmetic — reuse
-the `## Size` already extracted for this phase in Step 3b's briefing (`cfq-brief.sh`'s `[<size>]`
-column), don't re-read the phase file just for this:
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh" gate "<this phase's size letter, or empty>"
-```
-One line back: `PCT=<n|?> SIZE=<S|M|L> EXPECTED=<pp> [PROJECTED=<pp>] LIMIT=<n> START|HANDOFF
-(<info>)`. `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the
-`Size Gate` status line with `PCT`/`SIZE`/decision; this closes `PRECHECKS`.
+Before reading the phase file, two checks — both already resolved by Step 1-3a's preflight call
+for the phase it was run against; **only re-run the preflight here** (same `--select <batch>`) if
+a phase other than the one it resolved is about to start (e.g. the second and later phases of a
+batch, since the preflight only ever resolves `nextPhase` for the lowest-numbered open phase at
+call time). **(4a) Earlier failed attempt:** `nextPhase.failedAttempt` — `.found: true` → read its
+`.note`/`.at`, check whether the cause still holds before repeating, and mention it in the new
+entry ("second attempt after …"); `.found: false` → skip silently. Print `Failed Attempt` either
+way. **(4b) Size gate.** `contextGate` — deterministic projection, already computed by the
+preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`:
+`START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
+status line as `PCT=<contextGate.pct|?> SIZE=<contextGate.size> EXPECTED=<contextGate.expected>
+[PROJECTED=<contextGate.projected>] LIMIT=<contextGate.limit> <contextGate.verdict>
+(<contextGate.note>)`; this closes `PRECHECKS`.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
 implementation itself never runs on one. Implement it completely, run the plan's verification with

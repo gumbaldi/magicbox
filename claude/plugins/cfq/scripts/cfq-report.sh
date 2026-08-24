@@ -3,11 +3,28 @@
 # Usage: cfq-report.sh append <batch-dir> <phase-json>
 #        cfq-report.sh security <batch-dir> <security-json>
 #        cfq-report.sh set-commit <batch-dir> <phase-slug> <sha>
+#        cfq-report.sh last-failure <batch-dir> <phase-slug>
 #        cfq-report.sh summary <batch-dir>
 #        cfq-report.sh html <batch-dir>
+#        cfq-report.sh index [--repo <substr>] [--batch <substr>]
+#        cfq-report.sh detail <batch-dir>
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-report.sh: jq is required" >&2; exit 1; }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Shared by index/detail: GREEN if no phase ever went red; RED if any phase's most recent attempt
+# is still red; MIXED if every phase that ever went red now shows green as its latest attempt.
+outcome_def='
+  def outcome:
+    (.phases // []) as $ph
+    | (reduce $ph[] as $p ({}; .[$p.phase] = $p.status)) as $latest
+    | if ([$ph[] | select(.status == "red")] | length) == 0 then "GREEN"
+      elif ($latest | to_entries | any(.value == "red")) then "RED"
+      else "MIXED"
+      end;
+'
 
 # report.json is created by whoever writes to it first — planning-time security snapshot or the
 # first phase. Same shape in both cases.
@@ -30,7 +47,7 @@ case "$cmd" in
     jq --argjson p "$phase" '.phases += [$p]' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
-    "$(dirname "${BASH_SOURCE[0]}")/cfq-telemetry.sh" record "$dir" phase \
+    "$script_dir/cfq-telemetry.sh" record "$dir" phase \
       "$(printf '%s' "$phase" | jq -r '.phase // ""')" || true
     ;;
   security)
@@ -53,6 +70,20 @@ case "$cmd" in
       (.phases | to_entries | map(select(.value.phase == $p)) | last.key) as $i
       | if $i == null then . else .phases[$i].commit = $c end
     ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+    ;;
+  last-failure)
+    dir="${2:?usage: cfq-report.sh last-failure <batch-dir> <phase-slug>}"
+    phase_slug="${3:?usage: cfq-report.sh last-failure <batch-dir> <phase-slug>}"
+    f="$dir/report.json"
+    if [ ! -f "$f" ]; then
+      jq -n '{found: false}'
+    else
+      jq -c --arg p "$phase_slug" '
+        ([.phases[] | select(.phase == $p and .status == "red")] | last) as $e
+        | if $e == null then {found: false}
+          else {found: true, phase: $e.phase, note: ($e.summary // ""), at: ($e.finished // "")} end
+      ' "$f"
+    fi
     ;;
   summary)
     dir="${2:?usage: cfq-report.sh summary <batch-dir>}"
@@ -133,8 +164,102 @@ case "$cmd" in
     mv "$out.tmp" "$out"
     echo "$out"
     ;;
+  index)
+    shift
+    repo_filter=""; batch_filter=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_filter="${2:?usage: cfq-report.sh index [--repo <substr>] [--batch <substr>]}"; shift 2 ;;
+        --batch) batch_filter="${2:?usage: cfq-report.sh index [--repo <substr>] [--batch <substr>]}"; shift 2 ;;
+        *) echo "cfq-report.sh: unknown argument: $1" >&2; exit 1 ;;
+      esac
+    done
+    scan_json="$("$script_dir/cfq-scan.sh")"
+    meta=$(jq -c --arg repoF "$repo_filter" --arg batchF "$batch_filter" '
+      [ .repos[] as $r
+        | $r.batches[]
+        | select(.report == true)
+        | select($repoF == "" or ($r.path | ascii_downcase | contains($repoF | ascii_downcase)))
+        | select($batchF == "" or (.name | ascii_downcase | contains($batchF | ascii_downcase)))
+        | { repo: $r.path, name,
+            path: ($r.path + (if .archived then "/.claude/cfq/impl/done/" else "/.claude/cfq/impl/" end) + .name + "/report.json") }
+      ]' <<<"$scan_json")
+    if [ "$(jq 'length' <<<"$meta")" -eq 0 ]; then
+      echo '[]'
+    else
+      mapfile -t report_files < <(jq -r '.[].path' <<<"$meta")
+      jq -s -c --argjson meta "$meta" "$outcome_def"'
+        [ range(0; length) as $i
+          | .[$i] as $r
+          | $meta[$i] as $m
+          | {
+              batch: $m.name,
+              repo: $m.repo,
+              date: (($r.phases[-1].finished // $r.started) // ""),
+              status: ($r | outcome),
+              deviations: ([$r.phases[]?.deviations // []] | flatten | length),
+              cost: {
+                outputTokens: ([ ($r.planning.totals.output // 0) ] + [ $r.phases[]?.telemetry.totals.output // 0 ] | add),
+                turns:        ([ ($r.planning.totals.turns // 0) ]  + [ $r.phases[]?.telemetry.totals.turns // 0 ]  | add)
+              }
+            }
+        ] | sort_by(.date) | reverse
+      ' "${report_files[@]}"
+    fi
+    ;;
+  detail)
+    dir="${2:?usage: cfq-report.sh detail <batch-dir>}"
+    dir="${dir%/}"
+    f="$dir/report.json"
+    if [ ! -f "$f" ]; then
+      jq -n '{found: false}'
+    else
+      repo_root="${dir%/.claude/cfq/impl/done/*}"
+      [ "$repo_root" = "$dir" ] && repo_root="${dir%/.claude/cfq/impl/*}"
+      [ "$repo_root" = "$dir" ] && repo_root=""
+      todos="[]"
+      if [ -n "$repo_root" ] && [ -d "$repo_root/.claude/cfq/todo" ]; then
+        todos=$(
+          shopt -s nullglob
+          for t in "$repo_root/.claude/cfq/todo"/*.md; do
+            jq -Rn --arg file "$(basename "$t")" --arg title "$(sed -n '1{s/^#\+[[:space:]]*//;p}' "$t")" \
+              '{file: $file, title: $title}'
+          done | jq -s -c '.'
+        )
+      fi
+      jq -c --argjson todos "$todos" "$outcome_def"'
+        def bound_lines(s; n):
+          (s // "") as $s
+          | ($s | split("\n")) as $l
+          | if ($l | length) <= (2 * n) then $s
+            else (($l[0:n] + ["…"] + $l[-n:]) | join("\n"))
+            end;
+        {
+          found: true,
+          batch: .batch,
+          repo: .repo,
+          started: .started,
+          status: outcome,
+          deviationsTotal: ([.phases[]?.deviations // []] | flatten | length),
+          cost: {
+            outputTokens: ([ (.planning.totals.output // 0) ] + [ .phases[]?.telemetry.totals.output // 0 ] | add),
+            turns:        ([ (.planning.totals.turns // 0) ]  + [ .phases[]?.telemetry.totals.turns // 0 ]  | add)
+          },
+          phases: [ .phases[] | {
+            phase, status, summary: (.summary // ""),
+            deviations: (.deviations // []),
+            errors: (.errors // []),
+            verification: bound_lines(.verification; 5),
+            commit: (.commit // ""),
+            telemetry: (.telemetry // null)
+          } ],
+          todos: $todos
+        }
+      ' "$f"
+    fi
+    ;;
   *)
-    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | set-commit <batch-dir> <phase-slug> <sha> | summary <batch-dir> | html <batch-dir>" >&2
+    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | set-commit <batch-dir> <phase-slug> <sha> | last-failure <batch-dir> <phase-slug> | summary <batch-dir> | html <batch-dir> | index [--repo <substr>] [--batch <substr>] | detail <batch-dir>" >&2
     exit 1
     ;;
 esac

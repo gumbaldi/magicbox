@@ -191,13 +191,34 @@ out=$(HOME="$h" bash "$runtime_sh" version)
 [ "$out" = '"9.9.9"' ] || fail "13 version: $out"
 rm -rf "$h"
 
+# 14b. plugins/plugin-installed: fixture plugin-cache with 2 known plugins
+h=$(new_home)
+mkdir -p "$h/.claude/plugins/cache/marketA/pluginX/1.0.0" "$h/.claude/plugins/cache/marketB/pluginY/2.0.0"
+out=$(HOME="$h" bash "$runtime_sh" plugins)
+[ "$(jq -r '.status' <<<"$out")" = "OK" ] || fail "14b plugins status: $out"
+[ "$(jq -r '.plugins | sort | join(",")' <<<"$out")" = "pluginX,pluginY" ] || fail "14b plugins: $out"
+[ "$(HOME="$h" bash "$runtime_sh" plugin-installed pluginX | jq -r '.installed')" = "true" ] || fail "14b plugin-installed known"
+[ "$(HOME="$h" bash "$runtime_sh" plugin-installed unknown | jq -r '.installed')" = "false" ] || fail "14b plugin-installed unknown"
+rm -rf "$h"
+
+# 14c. plugins/plugin-installed: missing plugin-cache source -> no crash, empty/false,
+# diagnose reports CAPABILITY_UNAVAILABLE
+h=$(new_home)
+out=$(HOME="$h" bash "$runtime_sh" plugins)
+[ "$(jq -r '.status' <<<"$out")" = "OK" ] || fail "14c plugins status: $out"
+[ "$(jq -c '.plugins' <<<"$out")" = "[]" ] || fail "14c plugins empty: $out"
+[ "$(HOME="$h" bash "$runtime_sh" plugin-installed anything | jq -r '.installed')" = "false" ] || fail "14c plugin-installed"
+out=$(HOME="$h" bash "$runtime_sh" diagnose)
+[ "$(jq -r '.pluginsCacheCode' <<<"$out")" = "CAPABILITY_UNAVAILABLE" ] || fail "14c pluginsCacheCode: $out"
+rm -rf "$h"
+
 # 14. jq unavailable -> DEPENDENCY_MISSING, exit 1, on every subcommand
 nojq_dir=$(mktemp -d)
-for b in bash git head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm; do
+for b in bash git head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm find sort; do
   p=$(command -v "$b" 2>/dev/null) && ln -sf "$p" "$nojq_dir/"
 done
 nojq_home=$(mktemp -d)
-for sub in session-id transcript-path context model version capabilities diagnose; do
+for sub in session-id transcript-path context model version capabilities plugins diagnose; do
   set +e
   out=$(PATH="$nojq_dir" HOME="$nojq_home" bash "$runtime_sh" "$sub" 2>&1)
   rc=$?
@@ -205,6 +226,12 @@ for sub in session-id transcript-path context model version capabilities diagnos
   [ "$rc" -eq 1 ] || fail "14 $sub exit=$rc (want 1): $out"
   [[ "$out" == *DEPENDENCY_MISSING* ]] || fail "14 $sub message: $out"
 done
+set +e
+out=$(PATH="$nojq_dir" HOME="$nojq_home" bash "$runtime_sh" plugin-installed pluginX 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 1 ] || fail "14 plugin-installed exit=$rc (want 1): $out"
+[[ "$out" == *DEPENDENCY_MISSING* ]] || fail "14 plugin-installed message: $out"
 rm -rf "$nojq_home"
 
 # 15. diagnose always returns well-formed JSON, even total failure

@@ -54,44 +54,45 @@ Rules:
 ## 1. Collect
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" index [--repo <substr>] [--batch <substr>]
 ```
 
-Print the `PRECHECKS` header on entering this step. Filter every batch with `report: true` — open
-and archived alike. For each hit, build the batch path (`<path>/.claude/cfq/<name>`,
-or `.../done/<name>` when `archived: true`) and call:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" summary "<batch-dir>"
-```
-
-No repo discovery of your own — that lives entirely in `cfq-scan.sh`. Print the `Scan` status
+Print the `PRECHECKS` header on entering this step. One call: `index` already discovers every
+`report: true` batch (open and archived alike) via its own internal `cfq-scan.sh` call, computes
+each batch's `GREEN`/`RED`/`MIXED` status, and returns the sorted (newest-first), filtered array —
+no separate scan, no per-batch `summary` loop, no filtering after the fact. Print the `Scan` status
 line.
 
-No batch has a report → say so plainly, and mention that reports have existed only since v0.2, so
-older batches never got one. Do not render an empty table.
+No batch has a report (`index` returns `[]`) → say so plainly, and mention that reports have
+existed only since v0.2, so older batches never got one. Do not render an empty table.
 
 ## 2. Terminal Table
 
-From the TSV lines, sorted by date **descending** (newest first — here the latest run is what
-matters, unlike the dashboard):
+Render `index`'s array directly — already sorted newest-first, already carrying a computed
+`status`:
 
-| Repo | Batch | Phases | ✓ | ✗ | Dev. | Date | Cost | Plan |
-|---|---|---|---|---|---|---|---|---|
-| magicbox | 2026-08-13-cfq-v02 | 6 | 5 | 1 | 2 | 2026-08-14 | 67k | 12k |
+| Repo | Batch | Status | Dev. | Date | Cost |
+|---|---|---|---|---|---|
+| magicbox | 2026-08-13-cfq-v02 | RED | 2 | 2026-08-14 | 67k |
 
-**Cost** (field 7) and **Plan** (field 8) are output tokens, rounded to whole thousands with no
-decimal (`67k`). Batches without telemetry (reports have existed since v0.2, telemetry only since
-v0.3) return `0` here from the TSV — show `–` in the table instead.
-
-Repo column: basename only, resolve the full path once underneath. Visibly mark batches with
-`✗ > 0`. Below the table, one `file://` path to the HTML per row.
+**Cost** is `.cost.outputTokens`, rounded to whole thousands with no decimal (`67k`); `0` (no
+telemetry — reports have existed since v0.2, telemetry only since v0.3) renders as `–` instead.
+Repo column: basename of `.repo` only. Visibly mark `RED`/`MIXED` rows. Below the table, one
+`file://` path to the HTML per row.
 
 ## 3. Detail
 
-On request for a single batch: read `report.json` and render the phases in prose — status,
-summary, deviations, errors, and, if present, the phase's model, effort, and the skills actually
-used (`.phases[].telemetry`). For the HTML view, print the `POSTCHECKS` header, then call:
+On request for a single batch, print the `POSTCHECKS` header, then call:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" detail "<batch-dir>"
+```
+
+and render its `phases` in prose — status, summary, deviations, errors, and, if present, the
+phase's model, effort, and the skills actually used (`.phases[].telemetry`); verification excerpts
+are already bounded, render as-is. `found: false` → say plainly there is no report for this batch.
+
+For the HTML view:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" html "<batch-dir>"
@@ -100,15 +101,20 @@ used (`.phases[].telemetry`). For the HTML view, print the `POSTCHECKS` header, 
 (renders fresh, overwrites a stale file) and state the printed path as a `file://` URL, printing
 the `HTML` status line. Never open the file yourself — only print the path.
 
-List that repo's open `todo/*.md` entries too — title plus one line, nothing else. Purely
-read-only: no checking off, no moving, and never running the entries' `check:` commands. One
-sentence pointing to `/cfq` for checking them off. No entries → the section is left out entirely.
+`detail`'s `todos` array already carries that repo's open `todo/*.md` entries — render title plus
+one line, nothing else. Purely read-only: no checking off, no moving, and never running the
+entries' `check:` commands. One sentence pointing to `/cfq` for checking them off. Empty array →
+the section is left out entirely.
 
 ## Arguments
 
-No argument → all repos. With an argument, filter by repo name **or** batch name (substring is
-enough, case-insensitive); exactly one match → go straight to the detail view instead of the
-table. Print the `Filter` status line right after `Scan`, before Step 2's table.
+No argument → all repos, `index` called without flags. With an argument, `--repo` and `--batch`
+each narrow independently (both given → both must match, AND not OR) — an argument that could name
+either a repo or a batch is passed through as two separate calls, `index --repo <arg>` and `index
+--batch <arg>`, merged and deduplicated by `(repo, batch)`, never filtered by Claude after the
+fact. Both calls stay cheap (each is `index`'s single internal `cfq-scan.sh` call). Exactly one
+match in the merged set → go straight to the detail view instead of the table. Print the `Filter`
+status line right after `Scan`, before Step 2's table.
 
 ## Boundary
 

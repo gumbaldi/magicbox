@@ -97,6 +97,41 @@ them sparingly.
 Adding a new setting means adding one schema entry to `cfq-settings.sh` — `list`/`get`/`set`/
 `unset`/`describe` and every precedence tier read it generically, no second place to touch.
 
+## Script Output Reference
+
+The canonical JSON shape for every read-only aggregator a skill calls, so no `SKILL.md` needs to
+restate a field list inline — read the field here, then read it back from the call's own output.
+`status` values follow CLAUDE.md's Status Vocabulary.
+
+- **`cfq-pfq-preflight.sh <repo-root>`** — `{status, repo: {root, known}, planningPolicy:
+  {planModels, allowAnyModel, planExploreModel, planBlockedPlugins}, language: {codeLanguage,
+  docLanguages, docLevel}, queue: {openBatches: [{name, priority, open, dependsOn}]}, maintenance:
+  {status, n}, security: {available}}`. `status`: `OK` or `NO_REPO` (only `repo.root`/`.known` set
+  then).
+- **`cfq-ifq-preflight.sh <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
+  {implModels, allowAnyModel, implBlockedPlugins}, selection: {selectable: [{name, priority, open,
+  done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …], inProgress,
+  multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} | null, nextPhase:
+  {num, slug, size, failedAttempt} | null, branch: {…cfq-branch.sh plan's shape} | null, resume:
+  {…cfq-resume.sh's shape minus `branch`} | null, contextGate: {pct, size, expected, projected,
+  limit, verdict, note} | null}`. `status`: `OK`, `NO_REPO`, `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or
+  `NO_BATCH`.
+- **`cfq-scan.sh [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
+  batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
+  inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
+  Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
+- **`cfq-report.sh index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
+  deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
+  `MIXED`.
+- **`cfq-report.sh detail <batch-dir>`** — `{found, batch, repo, started, status, deviationsTotal,
+  cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
+  commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no
+  `report.json`.
+- **`cfq-report.sh last-failure <batch-dir> <phase-slug>`** — `{found: false}` or `{found: true,
+  phase, note, at}` for that phase's most recent red attempt, if any.
+- **`cfq-runtime.sh plugins`** — `{status: "OK", plugins: [name, …]}`.
+- **`cfq-runtime.sh plugin-installed <name>`** — `{installed: boolean}`.
+
 ## Language and documentation
 
 `codeLanguage` governs everything executable or read as an instruction — code, comments, commit

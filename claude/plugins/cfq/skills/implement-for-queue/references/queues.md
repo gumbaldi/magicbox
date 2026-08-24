@@ -1,50 +1,47 @@
 # Batch Briefing and Queue Entry Formats
 
-## Batch Selection Rules (Step 3a)
+## Batch Selection Rules (Step 1-3a)
 
-`cfq-scan.sh`'s output carries `blocked`, `unknownDeps`, `planning`, and `inProgress` per batch —
-the filters and stop conditions Step 3a applies before any picker runs.
+`cfq-ifq-preflight.sh`'s `selection` object carries `blocked`, `planning`, `inProgress`, and
+`multipleInProgress` — the filters and stop conditions Step 1-3a applies before any picker runs.
+The preflight itself already excludes blocked/planning/other-in-progress batches from
+`selection.selectable`; this section only covers the wording each case needs.
 
-**Blocked** batches (`.dependsOn` names a batch not yet in `impl/done/`) are never offered. If
-every open batch is blocked, print the wait list (batch → waiting on batch) and end — never fall
+**Blocked** batches (`selection.blocked`, each `{name, dependsOn, unknownDeps}`) are never offered.
+If `status` is `BLOCKED`, print the wait list (batch → waiting on `dependsOn`) and end — never fall
 back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is shown at selection time
 with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — one sentence, no more.
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
-step) — is never offered either, separately from the `dependsOn` wait list: "Batch `<name>` is
-still being planned — try again once `/pfq` finishes." One line per such batch, no more.
+step) — is never offered either, separately from the `dependsOn` wait list: for every name in
+`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes."
+One line per such batch, no more.
 
-**In-progress invariant.** Among the batches that pass the planning/blocked filters, more than one
-`inProgress` batch violates the one-in-progress-batch-per-repo invariant: **stop immediately**,
-touch nothing, name every in-progress batch found, and say this must be resolved via `/cfq` Step C
-(archive or reprioritize one) before `/ifq` can proceed — never silently pick one, never fall
-through to the picker. A batch that is both `blocked` and `inProgress` is excluded from this check
-by the blocked filter (it doesn't reach here) and surfaces only through the wait-list path —
-auto-resuming it would restart work whose dependency reappeared after the batch was started, so it
-waits like any other blocked batch.
+**In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`
+non-empty) means more than one batch violates the one-in-progress-batch-per-repo invariant: **stop
+immediately**, touch nothing, name every batch in the list, and say this must be resolved via
+`/cfq` Step C (archive or reprioritize one) before `/ifq` can proceed — never silently pick one,
+never fall through to the picker. A batch that is both blocked and in-progress is excluded from
+this check by the blocked filter (it doesn't reach `selection.selectable`/`.inProgress` at all) and
+surfaces only through the wait-list path — auto-resuming it would restart work whose dependency
+reappeared after the batch was started, so it waits like any other blocked batch.
 
-## Batch Briefing Extraction (Step 3b)
+## Batch Briefing (Step 3b)
 
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-brief.sh" "<batch-dir>"
-```
-
-Present it compactly: batch name, priority, phase count, and `.dependsOn` if the file exists, then
-one line per phase — number and title, size in brackets, the context excerpt. No prose around it,
-no repetition of the plan, no commentary on the phases. A phase file without `## Size`
-counts as `M`; one without `## Context` shows its title alone — an incomplete plan is
-worth showing, not worth aborting over.
+`batch.briefText` in the preflight result already holds `cfq-brief.sh`'s output for the resolved
+batch — batch name, priority, phase count, `.dependsOn` if present, then one line per phase (number
+and title, size in brackets, context excerpt). Present it as-is, compactly: no prose around it, no
+repetition of the plan, no commentary on the phases. A phase file without `## Size` counts as `M`;
+one without `## Context` shows its title alone — an incomplete plan is worth showing, not worth
+aborting over.
 
 ## Branch and Changelog on Go-Ahead (Step 3b)
 
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
-```
-
-Returns one JSON object — `batch`/`batchNumber` echo the batch's own stable identity
-(`batchNumber` is `null` for a legacy unnumbered batch); `mode` says what to do. Always use the
-returned `branch` field directly for checkout — never reconstruct a branch string from a
-number/slug:
+The preflight's `branch` field (already computed pre-mutation — see **Resume Snapshot** above) is
+the same JSON `cfq-branch.sh plan "<repo-root>" "<batch>"` itself returns: `batch`/`batchNumber`
+echo the batch's own stable identity (`batchNumber` is `null` for a legacy unnumbered batch);
+`mode` says what to do. Always use the `branch` field directly for checkout — never reconstruct a
+branch string from a number/slug:
 
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
 - **`continue`** (a branch for this batch already exists) → `git checkout "<branch>"`, don't write
@@ -59,10 +56,13 @@ number/slug:
 git checkout "<base>"
 git checkout -b "<branch>"
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" init "<repo-root>" "<branch>" "<base>" "<batch>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
 ```
 
-A dirty working tree at this point is an error, not something to work around: report it and end
-without touching anything.
+The `new`-mode `cfq-branch.sh plan` re-run above is the one and only place this batch's mutation
+step calls it directly — solely to reconfirm the branch now exists post-checkout; `continue`/`off`
+never call it again, the preflight's answer already stands. A dirty working tree at this point is
+an error, not something to work around: report it and end without touching anything.
 
 ## Phase Commit Trailers (Step 5)
 
@@ -106,30 +106,15 @@ Plus `## Origin`, same as above.
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`. The headings are always English; only the prose
 inside them follows `codeLanguage`.
 
-## Resume Snapshot (Step 3b)
+## Resume Snapshot (Step 1-3a preflight)
 
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-resume.sh" "<repo-root>" "<batch-dir>"
-```
-
-One JSON object, deterministic — no summarization, only facts read from disk, `report.json`, and
-git:
-
-- `branch` — the same object `cfq-branch.sh plan` returns (recomputed here in case Step 3b's own
-  call ran before the branch actually existed, e.g. right after a `new`-mode checkout).
-- `phasesOpen` / `phasesDone` — `{num, slug, size}` / `{num, slug, commit}`, one per `NN-*.md`;
-  `size`/`commit` degrade to `"M"`/`null` when absent (no `## Size` heading, or a `commit` that
-  predates the Step 5 backfill).
-- `lastCommit` / `lastCommitSource` — the newest green phase's `commit` from `report.json`
-  (`"report"`); falling back to the branch tip (`"branch-tip"`) when that's empty but a branch is
-  known; `null`/`null` when neither is available.
-- `deviations` — `{phase, text}` pairs from already-green phases only — orientation, not a repeat
-  of `errors`, which stays 4a's job.
-- `redPhases` — phase slugs with at least one red `report.json` entry, names only. Batch-wide
-  overview shown once here; does not replace 4a's live per-phase lookup right before that phase
-  starts — different granularity, different moment.
-- `batchContext.exists` / `.path` — `false` for every batch parked before this feature, not an
-  error; `implement-for-queue` just proceeds without it.
+`cfq-ifq-preflight.sh`'s `resume` field carries what `cfq-resume.sh` itself returns for the
+resolved batch, minus its own `branch` sub-object (redundant with the preflight's top-level
+`branch`, computed by that same underlying call — see `cfq-resume.sh`'s own header comment for the
+full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
+`lastCommitSource`, `deviations`, `redPhases`, `batchContext.exists`/`.path`). One JSON object,
+deterministic — no summarization, only facts read from disk, `report.json`, and git. `cfq-resume.sh`
+itself is unchanged; only who calls it and what's kept from its output moved.
 
 ## Research and Verification Delegation (Step 4c)
 

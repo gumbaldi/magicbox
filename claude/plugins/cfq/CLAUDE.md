@@ -115,8 +115,10 @@ falls back to parsing the transcript directly, and returns `status: "degraded"` 
 preserved) rather than silently hiding it when the documented interface itself breaks structurally —
 callers may still use the fallback value, but the breakage stays visible. `ctxWindowLimits` (the
 model→context-window-size table) and `phaseContextGrowth` live in the settings schema as data, not
-in this adapter, since they're retunable numbers rather than detection logic. A future Claude Code
-runtime change should only ever touch this one file.
+in this adapter, since they're retunable numbers rather than detection logic. Acceptance test: a
+Claude Code runtime/statusline/plugin-cache representation change should only ever require editing
+`cfq-runtime.sh` (+ its tests/fixtures). If a change to any other aggregator is ever needed for
+such a change, that is itself a regression to fix, not an accepted cost.
 
 **`cfq-doctor.sh` is the host dependency doctor**, deliberately jq-free (it's the one check every
 other script cannot perform on its own behalf) and reading a plain-text inventory
@@ -187,6 +189,36 @@ execution should re-run that comparison first, not take this paragraph on faith.
 - `.claude-plugin/plugin.json` is plugin-local (lives in `claude/plugins/cfq/.claude-plugin/`); the repo-level
   `.claude-plugin/marketplace.json` lives at the repo root and lists this plugin with
   `"source": "./claude/plugins/cfq"`.
+
+## Status Vocabulary
+
+Every read-only aggregator (`cfq-pfq-preflight.sh`, `cfq-ifq-preflight.sh`, `cfq-scan.sh
+--format=`, `cfq-report.sh index/detail`, `cfq-runtime.sh plugins`, and any future one) reports a
+`status` field skills react to structurally, never by parsing prose. `status` is always exactly one
+of:
+
+- `OK` — normal result, no caller action needed beyond reading `data`.
+- `NO_REPO` — target path is not a registered/valid repo.
+- `NO_BATCH` — no batch matches the request (empty queue, or filter matched nothing).
+- `MULTIPLE_IN_PROGRESS` — more than one batch has an active lock/in-progress marker (invariant
+  violation, must be surfaced, never silently picked around).
+- `BLOCKED` — batch exists but `.dependsOn` is unsatisfied.
+- `PLANNING` — batch still has its `.planning` marker, not implementation-ready.
+- `LOCKED` — another session holds the repo lock.
+- `DIRTY` — repo has uncommitted changes where a clean tree was required.
+- `UNKNOWN_CONTEXT` — context usage could not be resolved (mirrors `ctx-usage.sh`'s existing
+  `UNKNOWN`, not a new concept — just the field name aggregators use in JSON).
+- `BATCH_WIDTH_MIGRATION_BLOCKED` — parking the next numbered batch would require a wider fixed
+  width, but active CFQ queue work still exists. The batch-id helper's own action/detail is passed
+  through; skills do not calculate widths themselves.
+- `RUNTIME_DEGRADED` — `cfq-runtime.sh` returned `status:"degraded"`: a usable fallback exists but
+  the primary Claude-Code interface failed structurally. The aggregator passes the adapter's own
+  code/hint through unmodified in a `runtimeDiagnostic` field, never re-derives or hides it.
+
+Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never folded into
+`status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
+documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
+not replaces, the list above. Don't invent parallel status strings elsewhere; reuse this list.
 
 ## Self-hosting quirk
 
