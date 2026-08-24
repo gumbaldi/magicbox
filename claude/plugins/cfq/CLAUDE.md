@@ -115,8 +115,10 @@ falls back to parsing the transcript directly, and returns `status: "degraded"` 
 preserved) rather than silently hiding it when the documented interface itself breaks structurally —
 callers may still use the fallback value, but the breakage stays visible. `ctxWindowLimits` (the
 model→context-window-size table) and `phaseContextGrowth` live in the settings schema as data, not
-in this adapter, since they're retunable numbers rather than detection logic. A future Claude Code
-runtime change should only ever touch this one file.
+in this adapter, since they're retunable numbers rather than detection logic. Acceptance test: a
+Claude Code runtime/statusline/plugin-cache representation change should only ever require editing
+`cfq-runtime.sh` (+ its tests/fixtures). If a change to any other aggregator is ever needed for
+such a change, that is itself a regression to fix, not an accepted cost.
 
 **`cfq-doctor.sh` is the host dependency doctor**, deliberately jq-free (it's the one check every
 other script cannot perform on its own behalf) and reading a plain-text inventory
