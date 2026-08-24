@@ -91,42 +91,39 @@ status line — `➖ already done` when this step didn't run at all.
 ## Step B — Dashboard (default behavior with no argument)
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh" --format=md
 ```
 
-Print the `Scan` and `Plugins` status lines, then render a Markdown table from the JSON, sorted by
-repo, then flagged batches first, then by batch name:
+Print the `Scan` and `Plugins` status lines, then render the returned Markdown table essentially
+verbatim — sorting, priority marking and the `Status` column (`BLOCKED`/`PLANNING`/`IN_PROGRESS`/
+`OK`, per `CLAUDE.md`'s Status Vocabulary) are already computed by the script, not rebuilt from
+JSON by hand:
 
-| Repo | Batch | Open | Done | Progress | Waiting on |
-|---|---|---|---|---|---|
-| kankuri | ⛔ 2026-08-13-cfq-plugin 📄 | 4 | 2 | ▓▓▓░░░░░ 33% | 2026-08-10-auth |
+| Repo | Batch | Priority | Open/Done | Status |
+|---|---|---|---|---|
+| kankuri | 2026-08-13-cfq-plugin | high | 4/2 | IN_PROGRESS |
 
-- Repo column: basename only, resolve the full path once underneath.
-- Batch name gets a trailing `📄` when `report: true`, and a leading `⚡` when flagged high priority.
-- `blocked: true` → prefix the batch name with `⛔`. A name in `unknownDeps` → append `⚠️
-  (<name>)` to the "Waiting on" cell for that entry — it never blocks, it's only surfaced.
-  Explain once, not per row: blocked batches aren't offered by `ifq`; `⚡` means the batch is
-  flagged high priority; `⚠️` means the edge points at a batch that no longer exists, deliberately
-  non-blocking — fix or remove it via Step C.
-- Archived batches (`archived: true`) in their own, collapsed list below the table — they
-  shouldn't crowd out open work, but the work already done should stay visible.
-- End with a summary line: number of repos with open work, total open phases, total done phases.
-  If any batch has `report: true`, add one closing sentence pointing to `/rfq` — once, not per row.
-- For every repo with at least one open batch that is **not** `blocked`, print the copyable
-  sequence: `cd <repo>` → `/model sonnet` (or the first model from `implModels`) → `/ifq`.
-- No open batches → say so plainly instead of showing an empty table.
-- `cfq-scan.sh` also carries `plan` and `todo` counters per repo. Not two more table columns — the
-  table already has six — but one line per repo with a nonzero counter, right after that repo's
-  batch rows: `magicbox · 2 plan entries · 1 open todo`. Both `0` → no line at all;
-  only one of the two counters nonzero → only that clause. If any repo has `plan > 0`, add one
-  sentence — once, not per repo — that `/pfq` picks them up. If any repo has `todo > 0`, add one
-  sentence — once — pointing to Step C.
+- Explain the `Status` values once, not per row: `BLOCKED` batches aren't offered by `ifq`;
+  `PLANNING` means still being written; `IN_PROGRESS` has an active lock.
+- Table empty (no rows beyond the header) → say so plainly instead of showing an empty table.
+- For every repo with at least one row whose `Status` is not `BLOCKED` and whose `Open/Done` first
+  number is nonzero, print the copyable sequence: `cd <repo>` → `/model sonnet` (or the first
+  model from `implModels`) → `/ifq` — once per repo, not per batch.
 - The dashboard never executes `check:` commands. This stays an explicit rule so a future rework
   doesn't drop it by accident.
+- `cfq-scan.sh`'s per-repo `plan`/`todo` counters and the `unknownDeps` edge warning are not part
+  of the `--format=md` row projection (batch rows only) — reach for `cfq-scan.sh` (no flag, JSON)
+  ad hoc if a user specifically asks about either.
 
 **Other repos are read-only.** Step C only applies to the repo `cfq` is currently running in.
 
 ## Step C — Management (on request, always confirm before writing)
+
+Every action below follows the same shared flow: a deterministic script computes the proposed
+action (file count, dependency existence, blocked status — already available from `cfq-scan.sh`'s
+`blocked`/`unknownDeps` fields, no new script needed for that part) → Claude presents it → the user
+confirms → the existing mutation script executes → the structured result is shown. No new script
+per action.
 
 Six actions, exclusively in the current repository (`git rev-parse --show-toplevel`):
 

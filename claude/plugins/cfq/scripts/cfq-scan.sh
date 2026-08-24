@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
-# The single source of numbers for the dashboard. No arguments needed.
-# Prints one JSON object on stdout: { "repos": [ { "path", "plan", "todo", "batches": [
+# The single source of numbers for the dashboard. Usage: cfq-scan.sh [--format=json|md|tsv]
+# json (default): one JSON object on stdout: { "repos": [ { "path", "plan", "todo", "batches": [
 #   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress,
-#    planning} ] } ] }
+#    planning} ] } ] } — byte-identical to the no-flag output for every existing caller.
+# md/tsv: one row per batch across all repos (Repo, Batch, Priority, Open/Done, Status), status
+# one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
+# additive per-batch-row extension, same pattern as RFQ's GREEN/RED/MIXED), sorted open-first,
+# then flagged priority first, then name.
 set -eu
+
+format=json
+for arg in "$@"; do
+  case "$arg" in
+    --format=*) format="${arg#--format=}" ;;
+    *) echo "cfq-scan.sh: unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
+case "$format" in
+  json|md|tsv) ;;
+  *) echo "cfq-scan.sh: unknown --format value '$format' (expected json|md|tsv)" >&2; exit 1 ;;
+esac
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
 
@@ -108,7 +124,7 @@ while IFS= read -r repo; do
   fi
 done <<<"$candidates"
 
-jq -n --rawfile recs "$records" --rawfile cnts "$counts" '
+scan_json=$(jq -n --rawfile recs "$records" --rawfile cnts "$counts" '
   def parse_tsv: split("\n") | map(select(length > 0)) | map(split("\t"));
 
   ($recs | parse_tsv | map({
@@ -137,4 +153,41 @@ jq -n --rawfile recs "$records" --rawfile cnts "$counts" '
       todo: ($countmap[$p].todo // 0),
       batches: ($batchmap[$p] // [])
     } ] }
+')
+
+# Shared row-projection for md/tsv: one row per batch, Status pre-computed from Phase 1's
+# vocabulary (BLOCKED/PLANNING take precedence, IN_PROGRESS is the additive per-row extension),
+# sorted open batches first, then flagged priority first, then name.
+row_filter='
+  def st: if .blocked then "BLOCKED"
+          elif .planning then "PLANNING"
+          elif .inProgress then "IN_PROGRESS"
+          else "OK" end;
+  [ .repos[] as $r | $r.batches[] | {
+      repo: ($r.path | split("/") | last),
+      name,
+      priority: (if .priority == "" then "-" else .priority end),
+      openDone: ((.open | tostring) + "/" + (.done | tostring)),
+      archived,
+      status: st
+    } ]
+  | sort_by(.archived, (if .priority == "high" then 0 else 1 end), .name)
 '
+
+case "$format" in
+  json)
+    printf '%s\n' "$scan_json"
+    ;;
+  md)
+    jq -r "$row_filter"'
+      | (["Repo","Batch","Priority","Open/Done","Status"] | "| " + join(" | ") + " |"),
+        "|---|---|---|---|---|",
+        (.[] | [.repo,.name,.priority,.openDone,.status] | "| " + join(" | ") + " |")
+    ' <<<"$scan_json"
+    ;;
+  tsv)
+    jq -r "$row_filter"'
+      | .[] | [.repo,.name,.priority,.openDone,.status] | @tsv
+    ' <<<"$scan_json"
+    ;;
+esac
