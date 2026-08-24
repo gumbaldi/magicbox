@@ -298,3 +298,16 @@
     - phase: "04-docs-cleanup"
       status: "green"
       summary: ""
+- batchNumber: 1
+  batch: 001-2026-08-25-ifq-pfq-process-hygiene
+  status: parked
+- batchNumber: 2
+  batch: 002-2026-08-25-cfq-scan-numbered-batch-regex
+  branch: cfq/002-2026-08-25-cfq-scan-numbered-batch-regex
+  base: cfq/2026-08-24-ifq-stopused-token-gate
+  started: 2026-08-25
+  status: in-progress
+  legacy: false
+- batchNumber: 3
+  batch: 003-2026-08-25-pfq-step9-gap-security-icon
+  status: parked
