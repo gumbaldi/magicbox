@@ -1,0 +1,15 @@
+# Canonical, shell-readable host dependency inventory for cfq. Parsed with plain `read` by
+# cfq-doctor.sh — no jq, since this file is the last line of defense when jq itself is missing.
+# Format: name(s)|kind|short reason. Comma-separated names in "alternative" rows are equivalent
+# choices (first found wins). kind is one of: required, alternative, optional.
+#
+# required: hard-fails every mandatory cfq path when missing.
+# alternative: at least one of the comma-separated names must be present.
+# optional: a capability/provider; its absence degrades one feature, never blocks the plugin.
+bash|required|shell interpreter every cfq script runs under
+git|required|branch, commit and diff operations in most scripts
+jq|required|JSON read/write in every script except cfq-doctor.sh itself
+timeout,gtimeout|alternative|bounds network calls in cfq-security.sh (gtimeout on stock macOS)
+gh|optional|GitHub security-finding lookups (Dependabot/code-scanning) in cfq-security.sh
+tea|optional|Gitea security-finding lookups in cfq-security.sh
+npm|optional|npm audit for repos with a package.json in cfq-security.sh

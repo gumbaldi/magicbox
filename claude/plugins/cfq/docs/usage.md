@@ -12,7 +12,7 @@ edits code.
 /pfq
 ```
 
-1. If `.claude/code-for-queue/plan/` has requests waiting (dropped there by a previous `/ifq`
+1. If `.claude/cfq/plan/` has requests waiting (dropped there by a previous `/ifq`
    session), pfq offers to start with the oldest one, choose a different one, or skip and plan
    something else instead.
 2. Checks the running model against `planModels` — a mismatch only warns, it never blocks.
@@ -23,7 +23,7 @@ edits code.
    running on `planExploreModel` rather than reading everything in the main session.
 5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
    high-priority flag (optional — not flagging is the normal case).
-6. Parks the batch as numbered phase files under `.claude/code-for-queue/impl/<date>-<topic>/`.
+6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`.
 
 Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `planBlockedPlugins`.
@@ -46,13 +46,16 @@ green phase.
    any batch still blocked by `.dependsOn`.
 3. Shows the batch briefing and asks for a go-ahead before touching anything — no lock is taken
    before that.
-4. Implements one phase at a time, runs the phase's own verification, commits and pushes on every
-   green phase immediately.
+4. Implements one phase at a time — for a phase spanning multiple files or unclear scope, it may
+   delegate pre-implementation research (and, on green/red, mechanical test-run output filtering)
+   to Explore subagents running on `implExploreModel`; implementation itself always stays in the
+   main session. Runs the phase's own verification, commits and pushes on every green phase
+   immediately.
 5. Hands the session off once context usage crosses `stopPct`, or finishes the batch and moves it
    to `impl/done/`.
 
-Configurable: `implModels`, `allowAnyModel`, `stopPct`, `branchPerBatch`, `changelogFile`,
-`implBlockedPlugins`, `maintenanceEvery`.
+Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopPct`, `branchPerBatch`,
+`changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 ## Dashboard, queue and settings — `/cfq`
 

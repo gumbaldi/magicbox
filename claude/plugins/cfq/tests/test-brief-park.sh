@@ -68,21 +68,21 @@ mkdir -p "$parkrepo"
 git init -q "$parkrepo"
 
 d1=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-01-test" high "2026-01-01-dep-a" "2026-01-01-dep-b")
-batchdir="$parkrepo/.claude/code-for-queue/impl/2026-01-01-test"
+batchdir="$parkrepo/.claude/cfq/impl/2026-01-01-test"
 [ "$d1" = "$batchdir" ] || { echo "FAIL: printed dir wrong: $d1"; exit 1; }
 [ "$(cat "$batchdir/.priority")" = "high" ] || { echo "FAIL: .priority wrong"; exit 1; }
 [ "$(cat "$batchdir/.dependsOn")" = "$(printf '2026-01-01-dep-a\n2026-01-01-dep-b')" ] \
   || { echo "FAIL: .dependsOn wrong: $(cat "$batchdir/.dependsOn")"; exit 1; }
-grep -qxF '**/.claude/code-for-queue/' "$parkrepo/.git/info/exclude" \
+grep -qxF '.claude/cfq/impl/' "$parkrepo/.git/info/exclude" \
   || { echo "FAIL: git exclude entry missing"; exit 1; }
 grep -q "$parkrepo" "$parkhome/.claude/code-for-queue/repos.json" \
   || { echo "FAIL: repo not registered"; exit 1; }
 
 # no dependsOn entries -> no file; normal priority -> no .priority file either
 d2=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-02-nodeps" normal)
-[ ! -e "$parkrepo/.claude/code-for-queue/impl/2026-01-02-nodeps/.dependsOn" ] \
+[ ! -e "$parkrepo/.claude/cfq/impl/2026-01-02-nodeps/.dependsOn" ] \
   || { echo "FAIL: .dependsOn should not exist when no entries were passed"; exit 1; }
-[ ! -e "$parkrepo/.claude/code-for-queue/impl/2026-01-02-nodeps/.priority" ] \
+[ ! -e "$parkrepo/.claude/cfq/impl/2026-01-02-nodeps/.priority" ] \
   || { echo "FAIL: .priority should not exist for normal priority"; exit 1; }
 
 # re-park an existing high batch as normal: .priority must be removed, not left stale
@@ -96,8 +96,8 @@ d1again=$(HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-01-test" high "2
 after=$(cat "$parkrepo/.git/info/exclude")
 [ "$d1" = "$d1again" ] || { echo "FAIL: second run printed a different dir"; exit 1; }
 [ "$before" = "$after" ] || { echo "FAIL: second run duplicated the exclude entry"; exit 1; }
-[ "$(grep -c '^\*\*/\.claude/code-for-queue/$' "$parkrepo/.git/info/exclude")" = "1" ] \
-  || { echo "FAIL: exclude entry not exactly once"; exit 1; }
+[ "$(grep -c '^# BEGIN cfq-managed' "$parkrepo/.git/info/exclude")" = "1" ] \
+  || { echo "FAIL: exclude block not exactly once"; exit 1; }
 
 # invalid priority -> exit != 0
 if HOME="$parkhome" bash "$park_sh" "$parkrepo" "2026-01-03-bad" nope 2>/dev/null; then

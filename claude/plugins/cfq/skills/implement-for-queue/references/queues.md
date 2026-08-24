@@ -111,3 +111,33 @@ git:
   starts — different granularity, different moment.
 - `batchContext.exists` / `.path` — `false` for every batch parked before this feature, not an
   error; `implement-for-queue` just proceeds without it.
+
+## Research and Verification Delegation (Step 4c)
+
+Two, and only two, places in Step 4c may run on an Explore subagent
+(`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implExploreModel`, default `haiku`) instead of
+the implementing session's own model — never a blanket "delegate whatever seems slow":
+
+- **Pre-implementation research.** Before writing any code, a phase that touches several files or
+  whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate
+  the relevant code, existing patterns, and callers, and return a distilled summary. This mirrors
+  `plan-for-queue` Step 2 exactly — same reasoning, same default model. A narrow, single-file phase
+  needs no subagent; reading the phase file is enough.
+- **Verification output filtering, green case only.** Running the phase's verification command
+  (tests, build, lint) can itself be delegated to an `implExploreModel` subagent when the raw output
+  would be long — it runs the command and reports back pass/fail plus which command ran, nothing
+  more. This keeps noisy log output out of the expensive model's context on the common path.
+
+**Never delegate a red result.** The moment verification fails, the subagent (if one was used for
+that run) returns the complete, unfiltered failure output — full stack trace, full diff, everything
+— because the implementing model needs the whole picture to fix the bug. A red phase is exactly the
+case where summarizing loses the detail that matters; this is the one asymmetry in the rule, not an
+oversight. If verification wasn't delegated at all, this doesn't apply — the failure is already in
+context.
+
+**Never delegate implementation, test writing, or documentation.** Writing or editing any file
+under the phase's scope always happens in the implementing session itself — a subagent producing
+code the parent must then read back in full to verify or commit is strictly more expensive than the
+parent writing it directly. See the plugin `CLAUDE.md`'s "Subagents are for exploration and
+mechanical test execution" section for the full reasoning and the measurement anyone changing this
+should re-run first.

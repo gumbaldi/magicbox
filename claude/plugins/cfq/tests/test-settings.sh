@@ -30,7 +30,7 @@ got=$(HOME="$legacy_home" bash "$settings_sh" get telemetrySyncRepo)
 [ "$got" = "" ] || { echo "FAIL: legacy telemetrySyncRepo = '$got', want empty"; exit 1; }
 
 got=$(HOME="$legacy_home" bash "$settings_sh" get stopPct)
-[ "$got" = "60" ] || { echo "FAIL: legacy stopPct = '$got', want 60 (env-only, file value ignored)"; exit 1; }
+[ "$got" = "42" ] || { echo "FAIL: legacy stopPct = '$got', want 42 (normal key, file value honored)"; exit 1; }
 
 legacy_list=$(HOME="$legacy_home" bash "$settings_sh" list)
 [ "$(jq 'has("planPreferredPlugins")' <<<"$legacy_list")" = "false" ] \
@@ -62,10 +62,29 @@ if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
   echo "FAIL: set grillMode klassisch should fail"; exit 1
 fi
 
-# 5b. stopPct is env-only: set is rejected, env override wins, malformed env falls back, list carries it
-if HOME="$home" bash "$settings_sh" set stopPct 55 2>/dev/null; then
-  echo "FAIL: set stopPct should fail (env-only)"; exit 1
+# 5b. stopPct is a normal key now: set/get round-trip, boundary validation, malformed env falls back
+HOME="$home" bash "$settings_sh" set stopPct 45
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "45" ] || { echo "FAIL: set stopPct 45 -> got '$got'"; exit 1; }
+
+fresh_home=$(mktemp -d)
+got=$(HOME="$fresh_home" bash "$settings_sh" get stopPct)
+[ "$got" = "60" ] || { echo "FAIL: default stopPct on fresh HOME = '$got', want 60"; exit 1; }
+rm -rf "$fresh_home"
+
+if HOME="$home" bash "$settings_sh" set stopPct -1 2>/dev/null; then
+  echo "FAIL: set stopPct -1 should fail"; exit 1
 fi
+if HOME="$home" bash "$settings_sh" set stopPct 101 2>/dev/null; then
+  echo "FAIL: set stopPct 101 should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set stopPct 0
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "0" ] || { echo "FAIL: set stopPct 0 -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set stopPct 100
+got=$(HOME="$home" bash "$settings_sh" get stopPct)
+[ "$got" = "100" ] || { echo "FAIL: set stopPct 100 -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set stopPct 60
 
 got=$(HOME="$home" CFQ_STOP_PCT=25 bash "$settings_sh" get stopPct)
 [ "$got" = "25" ] || { echo "FAIL: env override stopPct -> got '$got'"; exit 1; }
@@ -75,6 +94,61 @@ got=$(HOME="$home" CFQ_STOP_PCT=abc bash "$settings_sh" get stopPct)
 
 got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopPct')
 [ "$got" = "60" ] || { echo "FAIL: list stopPct on fresh install = '$got', want 60"; exit 1; }
+
+# 5c. phaseContextGrowth: default object (valid JSON, not stringified), round-trip
+got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
+[ "$got" = '{"S":7,"M":15,"L":25}' ] || { echo "FAIL: default phaseContextGrowth = '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":20,"L":25}'
+got=$(HOME="$home" bash "$settings_sh" get phaseContextGrowth)
+[ "$got" = '{"S":7,"M":20,"L":25}' ] || { echo "FAIL: set phaseContextGrowth round-trip -> got '$got'"; exit 1; }
+HOME="$home" bash "$settings_sh" set phaseContextGrowth '{"S":7,"M":15,"L":25}'
+
+# 5d. CFQ_SCAN_ROOTS is comma-delimited now (uniform array env delimiter)
+got=$(HOME="$home" CFQ_SCAN_ROOTS=a,b bash "$settings_sh" get scanRoots)
+[ "$got" = "a,b" ] || { echo "FAIL: CFQ_SCAN_ROOTS comma round-trip -> got '$got'"; exit 1; }
+
+# 5e. gitStatePolicy: default, set, invalid
+got=$(HOME="$home" bash "$settings_sh" get gitStatePolicy)
+[ "$got" = "local" ] || { echo "FAIL: default gitStatePolicy = '$got', want local"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set gitStatePolicy trackable
+got=$(HOME="$home" bash "$settings_sh" get gitStatePolicy)
+[ "$got" = "trackable" ] || { echo "FAIL: set gitStatePolicy trackable -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set gitStatePolicy bogus 2>/dev/null; then
+  echo "FAIL: set gitStatePolicy bogus should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set gitStatePolicy local
+
+# 5f. Regression guard: every pre-existing key's default is unchanged by the schema rewrite.
+reg_home=$(mktemp -d)
+declare -A want=(
+  [grillMode]=stepwise
+  [planModels]="opus,fable"
+  [implModels]=sonnet
+  [planExploreModel]=haiku
+  [implExploreModel]=haiku
+  [allowAnyModel]=false
+  [scanRoots]="~/git"
+  [useMattpocockGrilling]=false
+  [usePonytailAudit]=false
+  [codeLanguage]=en
+  [docLanguages]=""
+  [docLevel]=minimal
+  [maintenanceEvery]=50
+  [branchPerBatch]=true
+  [changelogFile]="cfq.changelog.yml"
+  [htmlReport]=false
+  [planBlockedPlugins]=superpowers
+  [implBlockedPlugins]=superpowers
+  [telemetrySyncRepo]=""
+)
+for k in "${!want[@]}"; do
+  got=$(HOME="$reg_home" bash "$settings_sh" get "$k")
+  [ "$got" = "${want[$k]}" ] || { echo "FAIL: regression default $k = '$got', want '${want[$k]}'"; exit 1; }
+done
+rm -rf "$reg_home"
 
 # 6. maintenanceEvery: default, set 0, invalid, env override
 got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)
@@ -175,5 +249,120 @@ got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
 
 got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get planExploreModel)
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
+
+# 9b. implExploreModel: default, set, env override
+got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
+[ "$got" = "haiku" ] || { echo "FAIL: default implExploreModel = '$got', want haiku"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set implExploreModel opus
+got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
+[ "$got" = "opus" ] || { echo "FAIL: set implExploreModel opus -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_IMPL_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get implExploreModel)
+[ "$got" = "haiku-fast" ] || { echo "FAIL: env override implExploreModel -> got '$got'"; exit 1; }
+
+# 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
+# detection, migrate. Fresh HOME (a prior section already customized maintenanceEvery in
+# $home) and a throwaway fixture repo — never the real repo.
+repo_home=$(mktemp -d)
+fixture=$(mktemp -d)
+
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":50,"source":"default"}' ] \
+  || { echo "FAIL: precedence step 1 (default) -> got '$got'"; exit 1; }
+
+HOME="$repo_home" bash "$settings_sh" set maintenanceEvery 20
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":20,"source":"global"}' ] \
+  || { echo "FAIL: precedence step 2 (global) -> got '$got'"; exit 1; }
+
+HOME="$repo_home" bash "$settings_sh" set --repo "$fixture" maintenanceEvery 5
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":5,"source":"repo"}' ] \
+  || { echo "FAIL: precedence step 3 (repo) -> got '$got'"; exit 1; }
+
+got=$(HOME="$repo_home" CFQ_MAINTENANCE_EVERY=99 bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":99,"source":"env:process"}' ] \
+  || { echo "FAIL: precedence step 4 (env) -> got '$got'"; exit 1; }
+
+# scanRoots is global-only; --repo set must fail
+if HOME="$repo_home" bash "$settings_sh" set --repo "$fixture" scanRoots /tmp 2>/dev/null; then
+  echo "FAIL: set scanRoots --repo should fail (global-only scope)"; exit 1
+fi
+
+# unset --repo falls through to the global value
+HOME="$repo_home" bash "$settings_sh" unset --repo "$fixture" maintenanceEvery
+got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+[ "$got" = '{"value":20,"source":"global"}' ] \
+  || { echo "FAIL: unset --repo fall-through -> got '$got'"; exit 1; }
+
+# Legacy detection: a repo's own .claude/settings.json "env" block is read-only/informational
+mkdir -p "$fixture/.claude"
+echo '{"env":{"CFQ_DOC_LEVEL":"standard"}}' > "$fixture/.claude/settings.json"
+got=$(HOME="$repo_home" CFQ_DOC_LEVEL=standard bash "$settings_sh" list --repo "$fixture" --sources | jq -c '.docLevel')
+[ "$got" = '{"value":"standard","source":"env:repo-legacy"}' ] \
+  || { echo "FAIL: legacy detection -> got '$got'"; exit 1; }
+
+# migrate writes the equivalent key into <fixture>/.claude/cfq/settings.json via `set --repo`
+# and never touches the original .claude/settings.json
+legacy_before=$(cat "$fixture/.claude/settings.json")
+HOME="$repo_home" bash "$settings_sh" migrate "$fixture" >/dev/null
+got=$(jq -r '.docLevel' "$fixture/.claude/cfq/settings.json")
+[ "$got" = "standard" ] || { echo "FAIL: migrate docLevel -> got '$got'"; exit 1; }
+legacy_after=$(cat "$fixture/.claude/settings.json")
+[ "$legacy_before" = "$legacy_after" ] \
+  || { echo "FAIL: migrate modified the original .claude/settings.json"; exit 1; }
+
+rm -rf "$fixture" "$repo_home"
+
+# 11. describe: well-formed JSON with type/default/scope/env/description, single key and all keys
+got=$(HOME="$home" bash "$settings_sh" describe stopPct)
+for field in type default scope env description; do
+  [ "$(jq "has(\"$field\")" <<<"$got")" = "true" ] \
+    || { echo "FAIL: describe stopPct missing field '$field'"; exit 1; }
+done
+
+got=$(HOME="$home" bash "$settings_sh" describe)
+[ "$(jq 'to_entries | all(.value | has("type") and has("default") and has("scope") and has("env") and has("description"))' <<<"$got")" = "true" ] \
+  || { echo "FAIL: describe (all keys) missing fields somewhere"; exit 1; }
+
+# 12. state store: separate schema-less key/value file, distinct from settings.json
+state_home=$(mktemp -d)
+
+got=$(HOME="$state_home" bash "$settings_sh" state get anything)
+[ "$got" = "null" ] || { echo "FAIL: state get on missing key -> got '$got', want null"; exit 1; }
+
+HOME="$state_home" bash "$settings_sh" state set setupDone true
+got=$(HOME="$state_home" bash "$settings_sh" state get setupDone)
+[ "$got" = "true" ] || { echo "FAIL: state set/get setupDone round-trip -> got '$got'"; exit 1; }
+
+# touch settings.json too, then confirm both files exist independently
+HOME="$state_home" bash "$settings_sh" set maintenanceEvery 10 >/dev/null
+[ -f "$state_home/.claude/code-for-queue/settings.json" ] \
+  || { echo "FAIL: settings.json missing after set"; exit 1; }
+[ -f "$state_home/.claude/code-for-queue/state.json" ] \
+  || { echo "FAIL: state.json missing after state set"; exit 1; }
+
+# setupDone is fully gone from the settings schema — get falls through to its existing
+# unknown-key convention (bare "null"), same as any other key absent from $schema
+got=$(HOME="$state_home" bash "$settings_sh" get setupDone)
+[ "$got" = "null" ] || { echo "FAIL: get setupDone (removed key) -> got '$got', want null"; exit 1; }
+
+if HOME="$state_home" bash "$settings_sh" set setupDone true 2>/dev/null; then
+  echo "FAIL: set setupDone should fail (removed from schema)"; exit 1
+fi
+
+list=$(HOME="$state_home" bash "$settings_sh" list)
+[ "$(jq 'has("setupDone")' <<<"$list")" = "false" ] \
+  || { echo "FAIL: list still shows setupDone"; exit 1; }
+
+rm -rf "$state_home"
+
+# 13. securityTimeoutSeconds / securityFindingsCap: documented defaults
+got=$(HOME="$home" bash "$settings_sh" get securityTimeoutSeconds)
+[ "$got" = "30" ] || { echo "FAIL: default securityTimeoutSeconds = '$got', want 30"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" get securityFindingsCap)
+[ "$got" = "20" ] || { echo "FAIL: default securityFindingsCap = '$got', want 20"; exit 1; }
 
 echo PASS

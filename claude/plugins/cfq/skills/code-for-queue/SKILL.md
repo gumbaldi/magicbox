@@ -56,7 +56,7 @@ Rules:
 Print the `PRECHECKS` header on entering this step.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get setupDone
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" state get setupDone
 ```
 
 If it hasn't run yet, clarify two things **before** anything else — each its own
@@ -84,7 +84,7 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    the feature is disabled, and that's noted once in a sentence. **cfq must work fully without
    either plugin** — no path may run into a dead end without them.
 
-Afterward set `setupDone` to `true`. Both switches remain changeable at any time via Step C or
+Afterward set `setupDone` to `true` (`cfq-settings.sh state set setupDone true`). Both switches remain changeable at any time via Step C or
 the env vars — even with a plugin installed, it can be switched off again here. Print the `Setup`
 status line — `➖ already done` when this step didn't run at all.
 
@@ -133,7 +133,7 @@ Six actions, exclusively in the current repository (`git rev-parse --show-toplev
 1. **Flag/unflag high priority** — write or delete `.priority`.
 2. **Delete a batch** — remove the directory. Name the batch and the number of files that will
    be lost beforehand, and get explicit confirmation.
-3. **Archive a batch** — move to `<repo>/.claude/code-for-queue/done/<batch>/` without working it
+3. **Archive a batch** — move to `<repo>/.claude/cfq/impl/done/<batch>/` without working it
    off. Open phases then count as done-but-not-implemented; say so in the confirmation text.
 4. **Clean the registry** — `cfq-registry.sh prune`, list the removed paths.
 5. **Set/remove a dependency** — write or delete `.dependsOn` in the chosen batch. Before writing,
@@ -166,18 +166,32 @@ ACTION
 
 ## Step D — Settings
 
-Show `cfq-settings.sh list`, with an explanation per key and a marker for which values are
-currently overridden by an env var (a `set` then only takes effect after removing the variable —
-point that out). This value list is not a status line and stays as specified. Change requests go
-through `cfq-settings.sh set <key> <value>`. **All** keys are changeable here except `stopPct`,
-including `planBlockedPlugins` / `implBlockedPlugins` (strict prohibition). `stopPct` is env-only
-(`CFQ_STOP_PCT`) — `list` still shows its current effective value, but a `set stopPct` attempt is
-rejected; point at the env var instead. `0` is a valid, deliberate value meaning "hand off after
-every phase", not an error — don't flag it as a misconfiguration.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" list --repo "$(git rev-parse --show-toplevel)" --sources
+```
 
-See `${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md` for the per-key explanations and the
-env-override note.
+One call gives every key's effective value and which tier supplied it (`env:process`,
+`env:repo-legacy`, `repo`, `global`, `default`) for both the global store and this repo at once.
+Pair each row with its explanation from `cfq-settings.sh describe [<key>]` — that schema call is
+the single source for per-key prose, not a hand-maintained table; `${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md`
+adds only the nuance that doesn't reduce to schema data. This value list is not a status line and
+stays as specified.
 
-After a `set` call, print one status line: `✅ Setting  maintenanceEvery: 50 → 40`, or, when an env var
-shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`.
-A rejected `stopPct` attempt prints `❌ Setting  stopPct is env-only, see CFQ_STOP_PCT`.
+Change requests go through `cfq-settings.sh set [--repo <path>] <key> <value>` (or `unset`). **All**
+keys are changeable here, including `planBlockedPlugins` / `implBlockedPlugins` (strict
+prohibition) — there is no exception left. A key whose `scope` is global-only (`scanRoots`,
+`securityTimeoutSeconds`, `securityFindingsCap`) rejects `--repo`; say so and fall back to a global
+`set`. `0` is a valid, deliberate value for `stopPct` meaning "hand off after every phase," not an
+error — don't flag it as a misconfiguration.
+
+Infer `--global` vs. `--repo` from the user's own phrasing where it's unambiguous ("for this repo",
+"just here" → `--repo`; "everywhere", "by default" → global) — only ask via `AskUserQuestion` when
+genuinely ambiguous, not on every request. If `--sources` reported any `env:repo-legacy` entries
+(the value comes from the old per-repo `env` block in `<repo>/.claude/settings.json`, not a
+`CFQ_*` shell variable), print one note pointing at `cfq-settings.sh migrate <repo-root>` to carry
+that override into the repo settings file — once per session, not once per key.
+
+After a `set`/`unset` call, print one status line: `✅ Setting  maintenanceEvery: 50 → 40 (global)`,
+or, when an env var shadows the key, `⚠️ Setting  stopPct set, but CFQ_STOP_PCT overrides`. A
+rejected out-of-scope `--repo` attempt prints `❌ Setting  scanRoots is global-only, use set
+scanRoots <value> without --repo`.

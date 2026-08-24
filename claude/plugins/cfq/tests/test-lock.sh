@@ -9,7 +9,7 @@ repo=$(mktemp -d)
 home=$(mktemp -d)
 trap 'rm -rf "$repo" "$home"' EXIT
 
-lock="$repo/.claude/code-for-queue/.lock"
+lock="$repo/.claude/cfq/.lock"
 slug="$(printf '%s' "$repo" | tr '/' '-')"
 tdir="$home/.claude/projects/$slug"
 

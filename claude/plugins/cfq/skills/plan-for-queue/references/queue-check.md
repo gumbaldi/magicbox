@@ -3,7 +3,7 @@
 Only read when Step 5 finds at least one open batch for the target repo.
 
 ```bash
-for f in <repo-root>/.claude/code-for-queue/impl/<batch>/[0-9]*.md; do
+for f in <repo-root>/.claude/cfq/impl/<batch>/[0-9]*.md; do
   printf '%s\n' "== $f"
   sed -n '/^## Affected Files/,/^## /p' "$f" | sed -n 's/^- `\([^`]*\)`.*/\1/p'
 done

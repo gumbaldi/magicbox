@@ -1,7 +1,7 @@
 ---
 name: implement-for-queue
 description: >
-  Work off parked phase plans from the repo-local queue (<repo>/.claude/code-for-queue/) one
+  Work off parked phase plans from the repo-local queue (<repo>/.claude/cfq/) one
   batch per session, phase by phase, stopping when the context window gets too full. Use for
   "/ifq", "/implement-for-queue", "implement the queue", "work off the plans", "continue with
   the plans", "next phase".
@@ -50,7 +50,7 @@ recommendations on this list are ignored. Print the `Plugin Boundaries` status l
 ## 3a. Choose a Batch
 
 Repo root via `git rev-parse --show-toplevel`; no git repo → abort, report, end. Check
-`<repo-root>/.claude/code-for-queue/impl/` for open batches (directories beneath it, excluding
+`<repo-root>/.claude/cfq/impl/` for open batches (directories beneath it, excluding
 `done/`, with at least one top-level `NN-*.md` phase file); none → report "No open plans for this
 repo in the queue.", end. Read `.priority` per batch (missing → not flagged); default order:
 flagged batches first, then folder name ascending (date-prefixed; oldest first, ties by name).
@@ -118,8 +118,12 @@ column), don't re-read the phase file just for this:
 One line back: `PCT=<n|?> SIZE=<S|M|L> EXPECTED=<pp> [PROJECTED=<pp>] LIMIT=<n> START|HANDOFF
 (<info>)`. `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the
 `Size Gate` status line with `PCT`/`SIZE`/decision; this closes `PRECHECKS`.
-**(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full, implement it completely,
-run the plan's verification with output filtered. A phase touching `docs/<codeLanguage>/…` →
+**(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
+unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
+implementation itself never runs on one. Implement it completely, run the plan's verification with
+output filtered — a green run may delegate the filtering to the same subagent, a red run never does
+(full unfiltered failure back either way), per `references/queues.md`'s **Research and Verification
+Delegation**. A phase touching `docs/<codeLanguage>/…` →
 write the counterparts in every `docLanguages` entry before it goes green, per
 `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or `<repo>/docs/STYLE.md` if present. Work found
 beyond this phase's scope → one `AskUserQuestion` on parking it: yes writes
@@ -177,7 +181,7 @@ never leave the repo locked), and prints one JSON object. Render its fields:
 - Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
 
 Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
-"<repo-root>/.claude/code-for-queue/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
+"<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
 /rfq renders on demand` and no `file://` line in Step 8. Hand the batch to Step 8 for the closing report.
 
 ## 8. Closing Reports

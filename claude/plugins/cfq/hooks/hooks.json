@@ -1,0 +1,17 @@
+{
+  "description": "cfq host dependency check — warns when a required command (jq, git, ...) is missing",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-doctor.sh",
+            "args": ["hook"]
+          }
+        ]
+      }
+    ]
+  }
+}

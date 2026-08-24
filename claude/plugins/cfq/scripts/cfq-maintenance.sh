@@ -7,15 +7,17 @@ command -v jq >/dev/null 2>&1 || { echo "cfq-maintenance.sh: jq is required" >&2
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 settings_sh="$script_dir/cfq-settings.sh"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 
-marker() { printf '%s/.claude/code-for-queue/.maintenance' "$1"; }
+marker() { maintenance_marker "$1"; }
 
 cmd="${1:-}"
 case "$cmd" in
   due)
     repo="${2:?usage: cfq-maintenance.sh due <repo-root>}"
 
-    every=$("$settings_sh" get maintenanceEvery 2>/dev/null || echo 50)
+    every=$("$settings_sh" get maintenanceEvery)
     if [ "$every" = "0" ]; then
       echo OFF
       exit 0

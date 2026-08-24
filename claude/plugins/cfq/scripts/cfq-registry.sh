@@ -5,6 +5,10 @@ set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-registry.sh: jq is required" >&2; exit 1; }
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
+
 dir="$HOME/.claude/code-for-queue"
 reg="$dir/repos.json"
 
@@ -29,7 +33,7 @@ case "$cmd" in
   prune)
     ensure
     removed=$(jq -r '.repos[]' "$reg" | while read -r r; do
-      [ -d "$r/.claude/code-for-queue" ] || echo "$r"
+      [ -d "$(cfq_repo_dir "$r")" ] || echo "$r"
     done)
     if [ -n "$removed" ]; then
       keep=$(jq -Rn '[inputs]' <<<"$removed")

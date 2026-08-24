@@ -6,15 +6,15 @@ set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-lock.sh: jq is required" >&2; exit 1; }
 
-STALE_S=1800   # 30 min without a transcript write counts as dead
-
-lockfile() { printf '%s/.claude/code-for-queue/.lock' "$1"; }
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cfq-paths.sh
+. "$script_dir/cfq-paths.sh"
 
 mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
 
-# Prints "alive" or "dead" for the lock content on stdin.
+# Prints "alive" or "dead" for the lock content on stdin. $1: epoch fallback, $2: stale seconds.
 liveness() {
-  local t at age now
+  local t at age now stale_s="$2"
   now=$(date +%s)
   t=$(jq -r '.transcript // ""')
   if [ -n "$t" ] && [ -f "$t" ]; then
@@ -23,7 +23,7 @@ liveness() {
     at=$(printf '%s' "$1")
     age=$(( now - at ))
   fi
-  [ "$age" -lt "$STALE_S" ] && echo alive || echo dead
+  [ "$age" -lt "$stale_s" ] && echo alive || echo dead
 }
 
 cmd="${1:-}"
@@ -31,11 +31,12 @@ case "$cmd" in
   acquire)
     repo="${2:?usage: cfq-lock.sh acquire <repo-root> <batch>}"
     batch="${3:?usage: cfq-lock.sh acquire <repo-root> <batch>}"
+    "$script_dir/cfq-layout.sh" ensure "$repo" >/dev/null
+    stale_s=$("$script_dir/cfq-settings.sh" get --repo "$repo" sessionStaleSeconds)
     f="$(lockfile "$repo")"
     mkdir -p "$(dirname "$f")"
     sid="${CLAUDE_CODE_SESSION_ID:-unknown}"
-    slug="$(printf '%s' "$repo" | tr '/' '-')"
-    tpath="$HOME/.claude/projects/$slug/$sid.jsonl"
+    tpath=$("$script_dir/cfq-runtime.sh" transcript-path --repo "$repo" --exact)
 
     if [ -f "$f" ]; then
       holder=$(jq -r '.session_id // ""' "$f" 2>/dev/null || true)
@@ -44,7 +45,7 @@ case "$cmd" in
       if [ "$holder" = "$sid" ]; then
         echo "OK $hbatch (already held by this session)"; exit 0
       fi
-      state=$(jq -c . "$f" | liveness "$hepoch")
+      state=$(jq -c . "$f" | liveness "$hepoch" "$stale_s")
       if [ "$state" = "alive" ]; then
         echo "LOCKED $holder $hbatch $(jq -r '.at // "?"' "$f")" >&2
         exit 1
@@ -77,8 +78,9 @@ case "$cmd" in
     repo="${2:?usage: cfq-lock.sh status <repo-root>}"
     f="$(lockfile "$repo")"
     [ -f "$f" ] || { echo "FREE"; exit 0; }
+    stale_s=$("$script_dir/cfq-settings.sh" get --repo "$repo" sessionStaleSeconds)
     hepoch=$(jq -r '.epoch // 0' "$f")
-    state=$(jq -c . "$f" | liveness "$hepoch")
+    state=$(jq -c . "$f" | liveness "$hepoch" "$stale_s")
     jq -r --arg st "$state" '"\($st | ascii_upcase) \(.session_id) \(.batch) \(.at)"' "$f"
     ;;
 
