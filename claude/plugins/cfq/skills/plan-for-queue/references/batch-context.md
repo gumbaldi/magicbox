@@ -1,6 +1,6 @@
 # Batch Context File
 
-Every batch gets `<batch-dir>/.batch-context.md`, written once during Step 10, alongside the phase
+Every batch gets `<batch-dir>/.batch-context.md`, written once during Step 9, alongside the phase
 files. It carries batch-wide information — decisions and constraints that hold across every phase,
 not any one phase's job — so it survives `/clear`, a phase finishing, the batch's move into
 `impl/done/`, and a later `/ifq` resume, none of which touch phase files or read them again in full.

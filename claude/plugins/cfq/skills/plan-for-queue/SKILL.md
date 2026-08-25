@@ -38,7 +38,7 @@ Print the `INTERVIEW` header on entering, then run the preflight once for the wh
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-pfq-preflight.sh" "$(pwd)"
 ```
 `status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 3,
-5, 7, 10a, 12) — never re-derive `repo.root` or re-run
+5, 7, 9a, 11) — never re-derive `repo.root` or re-run
 `cfq-settings.sh`/`cfq-scan.sh`/`cfq-registry.sh`/`cfq-maintenance.sh` for anything it already
 carries. Run the model-gate check per `references/interview-depth.md`'s **Model Gate** section,
 then print `Model Check` regardless. Ask interview depth before anything else, every time — never
@@ -133,7 +133,7 @@ planning. Store the snapshot with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh"
 the hint as detail when `available == false`, `⚠️` with the count per severity when findings are
 present, or `➖ no findings` when the scan ran clean.
 
-## Step 10 — Park
+## Step 9 — Park
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 - Repo root: Step 1's preflight `repo.root` (no repeat `git rev-parse`).
@@ -154,40 +154,40 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 Print four status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
 `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
-## Step 10a — New Repo: Config Overview
+## Step 9a — New Repo: Config Overview
 
-Read `repo.known` from Step 1's preflight result (no new call) — check **before** Step 10 calls
+Read `repo.known` from Step 1's preflight result (no new call) — check **before** Step 9 calls
 `cfq-park.sh` (registry `add` is a side effect of that). `true` → skip, print `➖ Config
-known repo`, straight to Step 11. `false` (genuinely new) → read `references/config-overview.md`
+known repo`, straight to Step 10. `false` (genuinely new) → read `references/config-overview.md`
 and follow it, then print `Config`.
 
-## Step 11 — Plan Lint
+## Step 10 — Plan Lint
 
 Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lint.sh" "<batch-dir>"`. Findings are fixed **immediately**
 and the lint re-run until clean — a batch never hands off with open lint findings. `warn:` lines
 (an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `rm -f
 "<batch-dir>/.planning"` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
 
-## Step 12 — Maintenance
+## Step 11 — Maintenance
 
 Read `maintenance.status`/`.n` from Step 1's preflight result (no new call) — reflects commit
 counts as of Step 1, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
 `Maintenance`, move on. `DUE` → read `references/maintenance.md` and follow it.
 
-## Step 13 — Telemetry and Sync
+## Step 12 — Telemetry and Sync
 
 Run `cfq-telemetry.sh record "<batch-dir>" planning` then `cfq-telemetry.sh sync "<repo-root>"`
 (both via `${CLAUDE_PLUGIN_ROOT}/scripts/`). Failures of either call are non-fatal and get one
 line in the final report, not a comment. Print the `Telemetry` status line.
 
-## Step 14 — Final Report
+## Step 13 — Final Report
 
 A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding
 rule: `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when
 Step 7's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
-→ `/ifq`). A cleanup batch from Step 12 gets a second `RESULT · plan-for-queue` block the same
+→ `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
 way, noting it can be worked off independently — no repetition of the plan contents.
 
 ## Phase File Structure
