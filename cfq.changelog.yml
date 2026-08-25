@@ -360,4 +360,8 @@
       summary: ""
 - batchNumber: 5
   batch: 005-2026-08-25-cfq-plugin-status-detection
-  status: parked
+  branch: cfq/005-2026-08-25-cfq-plugin-status-detection
+  base: cfq/004-2026-08-25-cfq-branch-remote-source-of-truth
+  started: 2026-08-25
+  status: in-progress
+  legacy: false
