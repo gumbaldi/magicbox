@@ -43,14 +43,28 @@ echo the batch's own stable identity (`batchNumber` is `null` for a legacy unnum
 `mode` says what to do. Always use the `branch` field directly for checkout — never reconstruct a
 branch string from a number/slug:
 
+`cfq-branch.sh plan` is remote-aware: it fetches `origin` once (best-effort — no `origin`, or the
+fetch fails offline/sandboxed, and everything falls back to local-only behavior unchanged) before
+deciding, so a stale local `main`/branch never gets silently proposed as a base. Two additive
+fields ride along with every response: `remoteChecked` (bool) and `remoteWarning` (string or
+`null`, set only when local has commits `origin` doesn't and that gap can't be auto-resolved).
+
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
 - **`continue`** (a branch for this batch already exists) → `git checkout "<branch>"`, don't write
-  a changelog entry (the batch is already recorded).
-- **`new`** → `base` is already `main` when `candidates` is empty; non-empty → one
-  `AskUserQuestion` listing every entry in `candidates` plus `main`, asking which one the new
-  branch builds on. Recommended (first, labelled `(Recommended)`): the currently checked-out
-  branch if it's in the list, otherwise the first candidate. Each option's description names how
-  many commits it is ahead of `main` (`git rev-list --count main..<branch>`). Then:
+  a changelog entry (the batch is already recorded). Local purely behind its own
+  `origin/<branch>` is fast-forwarded automatically before checkout. `remoteWarning` non-null here
+  (local ahead of/diverged from `origin/<branch>`) doesn't block — `git checkout "<branch>"` still
+  runs, but the `Branch` status line surfaces the warning as a `⚠️` note.
+- **`new`** → `base` is already `main` when `candidates` is empty; local `main` purely behind
+  `origin/main` is fast-forwarded first, same as the `continue` case. Non-empty `candidates` → one
+  `AskUserQuestion` listing every entry in `candidates` plus `main`, deduplicated (`main` itself
+  ends up in `candidates` when it's the one that's ahead of `origin/main` — see below), asking
+  which one the new branch builds on. Recommended (first, labelled `(Recommended)`): the currently
+  checked-out branch if it's in the list, otherwise the first candidate. Each option's description
+  names how many commits it is ahead of `main` (`git rev-list --count main..<branch>`) — except the
+  branch `remoteWarning` is about: its option is phrased "use local `<branch>` anyway (ahead of
+  origin, deliberate)" and the question's context includes `remoteWarning` verbatim, so the choice
+  to override is explicit rather than an unremarked list entry. Then:
 
 ```bash
 git checkout "<base>"
@@ -63,6 +77,25 @@ The `new`-mode `cfq-branch.sh plan` re-run above is the one and only place this 
 step calls it directly — solely to reconfirm the branch now exists post-checkout; `continue`/`off`
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
+
+## Pre-Implementation Go Gate (Step 4b2)
+
+Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
+to Step 3b's one coarse per-batch go-ahead. The status line uses fields already on hand, no new
+data model: phase number and title from the phase file's own top-level context (its filename's
+`NN-<slug>` plus the first line of its `## Context` section, or the slug alone if `## Context` is
+missing), the `## Size` letter, and the `## Affected Files` list verbatim (absolute paths, one per
+line or comma-joined if short). Example:
+
+```
+P02 ifq-per-phase-go-gate [L]
+Affected: cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+```
+
+Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
+**Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
+`cfq-lock.sh release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
+and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
 
 ## Phase Commit Trailers (Step 5)
 

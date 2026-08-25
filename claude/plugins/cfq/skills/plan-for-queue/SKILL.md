@@ -11,26 +11,19 @@ description: >
 # Plan-for-Queue: Interview, Park, Hand Off
 
 Always answer in the user's language. The output of this session is plan files only — no code
-edits, no builds, no commits, not even "just this one line." This holds even once a harness-level
-plan-mode approval says "you can now start coding," and even with an autonomous/auto-run mode
-active — that approval covers parking the plan, never implementing what it describes.
-Implementation happens later, in a separate `implement-for-queue` session.
+edits, no builds, no commits, not even "just this one line," even once a harness-level plan-mode
+approval says "you can now start coding," and even with an autonomous/auto-run mode active — that
+approval covers parking the plan, never implementing it. Implementation happens later, in a
+separate `implement-for-queue` session.
 
 ## Output Format
 
-Progress is reported as status lines, not prose, one line per step, printed as soon as that step
-is done. Section headers print once, on entering the section.
+Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
-```
-SECTION HEADER IN CAPS
-<icon> <label padded to 16 chars><detail, one short clause>
-```
+## Plan-Mode Gate
 
-Icons: `✅` done · `⚠️` warning/unavailable/degraded · `❌` failed · `➖` skipped/not applicable.
-Rules: detail = what happened, not what happens next · a step that didn't run still gets its line
-with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` line, never the detail column ·
-headers/labels/status lines are always English, interactive parts stay in the user's language ·
-no commentary around the block.
+Before Step 0, check for Plan Mode — read `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s
+**Plan-Mode Gate** section and follow it.
 
 ## Step 0 — Inbox
 
@@ -44,38 +37,30 @@ Print the `INTERVIEW` header on entering, then run the preflight once for the wh
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-pfq-preflight.sh" "$(pwd)"
 ```
-`status: "NO_REPO"` → report and end, nothing else runs. Otherwise this result's `repo.root` is
-`<repo-root>` for every later step — never re-derive it with a separate `git rev-parse` call, and
-never re-run `cfq-settings.sh`/`cfq-scan.sh`/`cfq-registry.sh`/`cfq-maintenance.sh` for anything
-this one result already carries (Steps 3, 5, 7, 10a, 12 below). Read
-`planningPolicy.planModels`/`.allowAnyModel` for the model-gate check: `allowAnyModel: true` →
-skip, `Model Check` is `➖ allowAnyModel`. Otherwise substring-match the running model (from the
-system prompt) against `planModels`, like `ifq`'s gate — no match → warn naming the model and the
-list, and continue; this never blocks, unlike `ifq`. Print `Model Check` either way. Ask this
-before anything else, every time, even for a small task or a familiar codebase
-— never skip, never infer. One `AskUserQuestion` with three options, the recommendation derived
-from scope (components touched, how unclear the requirement is, how far consequences reach) and
-justified in the option text — don't always mark the same one:
+`status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 3,
+5, 7, 9a, 11) — never re-derive `repo.root` or re-run
+`cfq-settings.sh`/`cfq-scan.sh`/`cfq-registry.sh`/`cfq-maintenance.sh` for anything it already
+carries. Run the model-gate check per `references/interview-depth.md`'s **Model Gate** section,
+then print `Model Check` regardless. Ask interview depth before anything else, every time — never
+skip, never infer. One `AskUserQuestion` with three options, the recommendation derived from scope
+(components touched, how unclear the requirement is, how far consequences reach) and justified in
+the option text — don't always mark the same one:
 
-- **Quick interview** — a handful of targeted questions; fits when the scope is manageable.
-- **Thorough grilling** — a design tree, round by round, until nothing is left open. Costs
-  noticeably more planning tokens; recommended for complex reworks.
-- **Grilling with docs** — thorough grilling plus a paper trail: domain terms into a `CONTEXT.md`
-  glossary, hard-to-reverse/surprising trade-off decisions into ADRs under `docs/adr/`. Most
-  expensive; writes versioned files into the target repo — recommend only for genuinely new
-  domain vocabulary or decisions someone would otherwise have to re-derive.
+- **Quick interview** — a handful of targeted questions.
+- **Thorough grilling** — a design tree, round by round, until nothing is left open.
+- **Grilling with docs** — thorough grilling plus a `CONTEXT.md` glossary and ADRs under `docs/adr/`.
 
-On **Thorough** or **Grilling with docs**, read `references/grilling.md` and follow it. Print the
-`Interview Depth` status line once answered.
+Full rationale in `references/interview-depth.md`. On **Thorough** or **Grilling with docs**, read
+`references/grilling.md` and follow it. Print the `Interview Depth` status line once answered.
 
 ## Step 2 — Understand
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
-Explore agents instead of reading everything inline — one for a narrow, known area, up to three in
-parallel for broad scope, each with a specific focus. Run them on
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel`, not this
-session's own model — research is delegatable, the planning model is the expensive part.
+Explore agents instead of reading inline — one for a narrow area, up to three in parallel for
+broad scope, each with a specific focus — run on
+`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel`; research is delegatable,
+the planning model is the expensive part.
 
 ## Step 3 — Plugin Boundaries
 
@@ -86,7 +71,9 @@ produces. Print the `Plugin Boundaries` status line.
 ## Step 4 — Interview
 
 Clarify open points as long as different readings would lead to materially different work.
-Decide and name routine decisions yourself instead of asking.
+Decide and name routine decisions yourself instead of asking — but first read
+`${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s **Active Interview Duty** section
+(also governs Step 6's closing check).
 
 ## Step 5 — Queue Check
 
@@ -101,123 +88,114 @@ nothing to check.
 Once nothing is left open, ask once more before writing any plans, in one `AskUserQuestion` with
 two independent questions: "Before I write the plans: is there anything else we should discuss?
 Something I misunderstood, an edge case, a constraint?" and "Should this batch be flagged high
-priority?" (flagged batches are picked first by `ifq`'s automatic ordering and marked in the `/cfq`
-dashboard; not flagging is the normal case and needs no answer). Proceed only once the user says
-nothing else is open; if something comes up, work it in and ask again afterward — the priority
-answer from this round still stands unless the new discussion changes it.
+priority?" (picked first by `ifq`'s ordering, marked in the `/cfq` dashboard; not flagging is
+normal and needs no answer). Proceed only once nothing else is open; if something comes up, work
+it in and ask again — the priority answer still stands unless the new discussion changes it.
 
 ## Step 7 — Language and Cut Phases
 
 Entering this step closes `INTERVIEW`, opens `PLANNING`.
 Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 1's preflight result (no new
-call). `codeLanguage` governs everything a phase specifies without exception — code, comments, commit
-messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own output
-too: plan files, `## Decisions`, the batch directory name. A phase touching documentation → read
-`references/language.md` and follow it. Print the `Language` status line once read. Propose a split
-— one phase = one self-testable, individually committable unit; three honest phases beat seven
-artificial ones — state it as a status update (phase list + S/M/L sizes) and proceed directly to
-writing the phase files; the user can still redirect at any point by simply saying so, same as any
-other proposal in this skill, but no dedicated confirmation question gates the write. A phase that
-moves, extracts, or reuses existing logic verbatim, or introduces non-trivial logic of its own (a
-branch, a parser, a resolution chain, an adapter) → read `references/phase-quality.md` and follow
-it before writing that phase's Changes and Verification text; it also steers the Size letter
-(rule 5 there). For each
-phase, estimate **Size** `S`/`M`/`L` (`S` one file and one test, `M` several files or a new script,
-`L` a new script **with** a new test or a skill rework — steers whether `ifq` even starts a phase)
-and write it into that phase's file as a `## Size` heading (structural markers are always English,
-independent of `codeLanguage`) with the letter alone on the next non-empty line — this is what
-`cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades to `M`.
-Optionally add **Recommended skills** (half-sentence reason each, never from `implBlockedPlugins`;
-usually omitted). Print the `Phases` status line once written — phase count and size mix.
+call). `codeLanguage` governs everything a phase specifies without exception — code, comments,
+commit messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own
+output too: plan files, `## Decisions`, the batch directory name. A phase touching documentation →
+read `references/language.md` and follow it. Print the `Language` status line once read. Propose a
+split — one phase = one self-testable, individually committable unit; three honest phases beat
+seven artificial ones — as a status update (phase list + S/M/L sizes) and proceed directly to
+writing the phase files; the user can still redirect at any point, same as any other proposal
+here, but no dedicated confirmation question gates the write. A phase that moves, extracts, or
+reuses existing logic verbatim, or introduces non-trivial logic of its own (a branch, a parser, a
+resolution chain, an adapter) → read `references/phase-quality.md` and follow it before writing
+that phase's Changes and Verification text; it also steers the Size letter (rule 5 there). For
+each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `references/phase-quality.md`
+rule 5) and write it into that phase's file as a `## Size` heading (structural markers are always
+English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
+what `cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
+to `M`. Optionally add **Recommended skills** (half-sentence reason each, never from
+`implBlockedPlugins`; usually omitted). Print the `Phases` status line once written.
 
 ## Step 8 — Security Check
 
-Step 1's preflight `security.available` is a capability hint only (a `gh`/`tea` binary is on
-`PATH`) — `false` means the forge-side check below will come back empty, but a repo with a
-`package.json` still gets a local `npm audit`, so this step still runs unconditionally:
+`security.available` (Step 1's preflight, a `gh`/`tea` binary on `PATH`) is a capability hint only
+— `false` means the forge-side check below comes back empty, but a `package.json` repo still gets
+a local `npm audit`, so this step always runs:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-security.sh" "<repo-root>" > /tmp/cfq-sec.json
 jq -c '{available, sources, counts, fixable}' /tmp/cfq-sec.json
 ```
 
-`available == false` → print the `hint` once, never mention it again. Findings present → state the
-count per severity. Only when `fixable.critical`/`fixable.high` > 0: one `AskUserQuestion` asking
-whether a security phase should join the batch (suggested first, since it's independent).
-Anything below that stays a warning line, no further planning. Store the snapshot after parking
-with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security "<batch-dir>" "$(cat
-/tmp/cfq-sec.json)"` so `ifq` can diff it later. Print the `Security` status line — count per
-severity, or `➖ no findings`.
+`available == false` → print the `hint` once. Findings present → state the count per severity.
+Only when `fixable.critical`/`fixable.high` > 0: one `AskUserQuestion` on joining a security phase
+to the batch (suggested first, it's independent) — anything below stays a warning line, no
+planning. Store the snapshot with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security
+"<batch-dir>" "$(cat /tmp/cfq-sec.json)"` so `ifq` can diff it later. Print `Security`: `⚠️` with
+the hint as detail when `available == false`, `⚠️` with the count per severity when findings are
+present, or `➖ no findings` when the scan ran clean.
 
-## Step 10 — Park
+## Step 9 — Park
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
-- Repo root: Step 1's preflight `repo.root` (already validated there — no repeat `git rev-parse`).
-- Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only — no umlauts) plus today's
-  date (`YYYY-MM-DD`) go to one allocation call:
+- Repo root: Step 1's preflight `repo.root` (no repeat `git rev-parse`).
+- Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today's date
+  (`YYYY-MM-DD`) go to one allocation call:
   `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-batch-id.sh" allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`.
-  Never compute/pad the number or check queue width by hand — the helper reserves it in the local
-  changelog (`status: parked`) and the queue directory, returning the final `batch` name as
-  `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface the `action` field and stop,
-  nothing parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending.
+  Never compute/pad the number by hand — the helper reserves it in the local changelog
+  (`status: parked`) and the queue directory, returning the final `batch` name as
+  `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing
+  parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending.
 - `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-park.sh" "<repo-root>" "<batch-dir-name>" "<high|normal>"
-  [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 5's dependency, if any — the full
-  batch directory name; `.priority` only when Step 7's flag answer was high), ensures the local
-  git-exclude entry, and registers the repo — idempotent, safe to re-run.
+  [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 5's dependency, if any; `.priority`
+  only when Step 7's flag answer was high), ensures the git-exclude entry, registers the repo —
+  idempotent.
 - Write `<batch-dir>/.batch-context.md` — batch-wide context, replacing the old practice of writing
   Grilling decisions into the first phase file. Read `references/batch-context.md` and follow it.
 
 Print four status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
 `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
-## Step 10a — New Repo: Config Overview
+## Step 9a — New Repo: Config Overview
 
-Read `repo.known` from Step 1's preflight result (no new `cfq-registry.sh list` call) — determine
-this **before** Step 10 calls `cfq-park.sh` (registry `add` is a side effect of that). `true`
-(already known) → skip, print `➖ Config          known repo`, straight to Step 11. `false`
-(genuinely new) → read `references/config-overview.md` and follow it, then print the `Config`
-status line.
+Read `repo.known` from Step 1's preflight result (no new call) — check **before** Step 9 calls
+`cfq-park.sh` (registry `add` is a side effect of that). `true` → skip, print `➖ Config
+known repo`, straight to Step 10. `false` (genuinely new) → read `references/config-overview.md`
+and follow it, then print `Config`.
 
-## Step 11 — Plan Lint
+## Step 10 — Plan Lint
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lint.sh" "<batch-dir>"`. Findings are fixed
-**immediately** and the lint re-run until it's clean — a batch never goes into handoff with open
-lint findings. `warn:` lines (an unresolvable `.dependsOn` edge) are mentioned but don't block.
-Once clean, `rm -f "<batch-dir>/.planning"` — the batch is now complete and consistent, so `/ifq`
-may pick it up. Print the `Lint` status line — clean pass, or the fixed finding on re-check.
+Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lint.sh" "<batch-dir>"`. Findings are fixed **immediately**
+and the lint re-run until clean — a batch never hands off with open lint findings. `warn:` lines
+(an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `rm -f
+"<batch-dir>/.planning"` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
 
-## Step 12 — Maintenance
+## Step 11 — Maintenance
 
-Read `maintenance.status`/`.n` from Step 1's preflight result (no new `cfq-maintenance.sh due`
-call) — note this reflects commit counts as of Step 1, not this later point in the session, same
-staleness Step 1's single call already accepted for every other field. `OFF` or `NOT_DUE` → print
-the `Maintenance` status line and move on, nothing is loaded. `DUE` → read
-`references/maintenance.md` and follow it.
+Read `maintenance.status`/`.n` from Step 1's preflight result (no new call) — reflects commit
+counts as of Step 1, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
+`Maintenance`, move on. `DUE` → read `references/maintenance.md` and follow it.
 
-## Step 13 — Telemetry and Sync
+## Step 12 — Telemetry and Sync
 
 Run `cfq-telemetry.sh record "<batch-dir>" planning` then `cfq-telemetry.sh sync "<repo-root>"`
 (both via `${CLAUDE_PLUGIN_ROOT}/scripts/`). Failures of either call are non-fatal and get one
 line in the final report, not a comment. Print the `Telemetry` status line.
 
-## Step 14 — Final Report
+## Step 13 — Final Report
 
-A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule: `Batch`
-(absolute path) · `Phases` (in order, each with its size) · `Priority` (only when Step 7's flag
-answer was high, omit the line entirely otherwise) ·
-`Waiting on` (the `.dependsOn` edge and its reason, omit the line entirely when there is none) ·
-`Cost` (interview depth, turns, tokens, model, effort) · `Security` (count, "unavailable"+hint, or
-"no findings") · `Handoff` (`/clear` → `/model <first implModels>` → `/ifq`). If a cleanup batch
-came out of Step 12, print a second `RESULT · plan-for-queue` block the same way, noting it can be
-worked off independently — no repetition of the plan contents, that's what the files are for.
+A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding
+rule: `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when
+Step 7's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
+reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
+(count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
+→ `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
+way, noting it can be worked off independently — no repetition of the plan contents.
 
 ## Phase File Structure
 
 Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
 absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
-filtering). Plus the conventions:
-absolute paths, no project-specific proper nouns in test data, token hygiene in the verification
-section, and the verification must check the real path the user actually takes.
+filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
+hygiene in verification, and verification must check the real path the user actually takes.
 `Reuse` entries that carry logic over verbatim, and `Verification`'s test-first/bundled-smoke/
 sandboxed-debugging requirements, are governed by `references/phase-quality.md` whenever Step 7
-triggers it — not only on the documentation or grilling paths.
+triggers it.

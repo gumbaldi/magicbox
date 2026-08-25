@@ -49,6 +49,9 @@ The phase's `Verification` section names one command that runs all of them toget
 
 ## 5. Size reflects verify-the-reuse work, not just new lines
 
+The three letters: `S` one file and one test, `M` several files or a new script, `L` a new script
+**with** a new test or a skill rework — this is what steers whether `ifq` even starts a phase.
+
 A phase carrying `(verbatim)` blocks per rule 2 costs more than its new-code line count alone
 suggests — writing the fixture, running it, and fixing whatever the move actually broke is real
 work a pure-new-code phase of the same file count doesn't have. Bump the `Size` letter one step

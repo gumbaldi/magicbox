@@ -3,14 +3,13 @@
 Only read when Step 5 finds at least one open batch for the target repo.
 
 ```bash
-for f in <repo-root>/.claude/cfq/impl/<batch>/[0-9]*.md; do
-  printf '%s\n' "== $f"
-  sed -n '/^## Affected Files/,/^## /p' "$f" | sed -n 's/^- `\([^`]*\)`.*/\1/p'
-done
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-queue-overlap.sh" "<repo-root>"
 ```
 
-Read only the "Affected Files" section of each phase file — never the whole file. Intersect the
-resulting path set against the files the new work will touch.
+Prints `{"batches": [{"batch": "<name>", "files": ["<path>", ...]}, ...]}` — one entry per open
+batch, `files` from each of its open phases' `## Affected Files` section, `[]` when none list one.
+Intersect each batch's `files` against the paths the new work will touch (e.g. `jq --argjson mine
+<json-array> '.batches[] | select(.files | any(. as $f | $mine | index($f)))'`).
 
 - **No overlap** → one sentence, move on. No question.
 - **Overlap** → name the affected paths and the batch, then ask one `AskUserQuestion`: set

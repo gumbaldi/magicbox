@@ -49,7 +49,28 @@ Rules:
 |---|---|---|---|
 | PRECHECKS | A | `Setup` | `➖ already done` / `⚠️ first run · 2 questions follow` |
 | PRECHECKS | B | `Scan` | `4 repos · 3 with open work` / `➖ no open batches` |
-| PRECHECKS | B | `Plugins` | `➖ mattpocock-skills and ponytail not installed · classic grill and audit off` |
+| PRECHECKS | B | `Plugins` | `✅ mattpocock-skills and ponytail installed · classic grill and audit on` |
+
+## Plugin Status Line (shared by Steps A and B)
+
+Both steps need the same live check — computed once here so the two never drift out of sync:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-runtime.sh" plugins
+```
+
+then locally `jq` for whether `mattpocock-skills` (→ classic grill, `useMattpocockGrilling`) and
+`ponytail` (→ maintenance audit, `usePonytailAudit`) are present in the returned `.plugins` array.
+Step B additionally reads each matching switch (`cfq-settings.sh get useMattpocockGrilling` /
+`... get usePonytailAudit`) to render the `Plugins` status line:
+
+- Neither plugin installed → `➖ mattpocock-skills/ponytail not installed`.
+- Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
+  that are actually off (`grill: classic off`, `audit off`), comma-joined when both are off.
+- Both installed, both switches on → `✅ mattpocock-skills and ponytail installed · classic grill
+  and audit on`.
+- One plugin installed, the other missing → name the missing one and the installed one's switch
+  state in the same clause, e.g. `➖ ponytail not installed · classic grill on`.
 
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 
@@ -76,11 +97,11 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    | `mattpocock-skills` | classic grill mode (`grillMode: classic`) | `/plugin install mattpocock-skills@claude-plugins-official` — if the marketplace is missing: `/plugin marketplace add anthropics/claude-plugins-official` | `github.com/anthropics/claude-plugins-official`, locally the `SKILL.md` under `skills/productivity/grilling/` in the plugin cache |
    | `ponytail` | one of several tasks in the maintenance run: an optional cleanup audit | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
 
-   Check availability yourself beforehand (the skill list in context, or one
-   `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-runtime.sh" plugins` call, then locally `jq` for whether
-   `mattpocock-skills`/`ponytail` are in the returned `.plugins` array) and only offer what's
-   missing. Agreement → **hand the user the `/plugin` command to run**
-   (plugins can't be installed from within a skill) and set the matching switch
+   Check availability yourself beforehand using the installed/not-installed half of the **Plugin
+   Status Line** check above (the skill list in context, or the same `cfq-runtime.sh plugins` +
+   `jq` call) and only offer what's missing — an already-installed plugin starts enabled (its
+   switch now defaults to `true`) without asking here. Agreement → **hand the user the `/plugin`
+   command to run** (plugins can't be installed from within a skill) and set the matching switch
    (`useMattpocockGrilling` / `usePonytailAudit`) to `true`. Decline → the switch stays `false`,
    the feature is disabled, and that's noted once in a sentence. **cfq must work fully without
    either plugin** — no path may run into a dead end without them.
@@ -95,7 +116,8 @@ status line — `➖ already done` when this step didn't run at all.
 "${CLAUDE_PLUGIN_ROOT}/scripts/cfq-scan.sh" --format=md
 ```
 
-Print the `Scan` and `Plugins` status lines, then render the returned Markdown table essentially
+Compute the `Plugins` status line per the shared **Plugin Status Line** rule above. Print the
+`Scan` and `Plugins` status lines, then render the returned Markdown table essentially
 verbatim — sorting, priority marking and the `Status` column (`BLOCKED`/`PLANNING`/`IN_PROGRESS`/
 `OK`, per `CLAUDE.md`'s Status Vocabulary) are already computed by the script, not rebuilt from
 JSON by hand:

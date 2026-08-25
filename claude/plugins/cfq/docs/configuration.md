@@ -87,7 +87,7 @@ interactively.
 | `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
 | `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 | `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `cfq-settings.sh state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 10a) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `cfq-settings.sh state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 9a) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set

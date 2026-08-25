@@ -28,8 +28,8 @@ schema='{
   "implExploreModel": {"type":"string","default":"haiku","scope":["global","repo"],"env":"CFQ_IMPL_EXPLORE_MODEL","description":"Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
   "allowAnyModel": {"type":"bool","default":false,"scope":["global","repo"],"env":"CFQ_ALLOW_ANY_MODEL","description":"Skip the implModels/planModels gate entirely."},
   "scanRoots": {"type":"array","default":["~/git"],"scope":["global"],"env":"CFQ_SCAN_ROOTS","description":"Root directories cfq-scan.sh searches for repos with a queue."},
-  "useMattpocockGrilling": {"type":"bool","default":false,"scope":["global","repo"],"env":"CFQ_USE_MATTPOCOCK","description":"Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
-  "usePonytailAudit": {"type":"bool","default":false,"scope":["global","repo"],"env":"CFQ_USE_PONYTAIL","description":"Run the optional ponytail-audit cleanup task during maintenance."},
+  "useMattpocockGrilling": {"type":"bool","default":true,"scope":["global","repo"],"env":"CFQ_USE_MATTPOCOCK","description":"Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
+  "usePonytailAudit": {"type":"bool","default":true,"scope":["global","repo"],"env":"CFQ_USE_PONYTAIL","description":"Run the optional ponytail-audit cleanup task during maintenance."},
   "codeLanguage": {"type":"string","default":"en","pattern":"^[A-Za-z][A-Za-z-]*$","scope":["global","repo"],"env":"CFQ_CODE_LANGUAGE","description":"Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
   "docLanguages": {"type":"array","default":[],"scope":["global","repo"],"env":"CFQ_DOC_LANGUAGES","description":"Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
   "docLevel": {"type":"enum","default":"minimal","values":["minimal","standard","full"],"scope":["global","repo"],"env":"CFQ_DOC_LEVEL","description":"How much documentation a repo keeps: minimal (README only), standard, or full."},
@@ -41,11 +41,13 @@ schema='{
   "implBlockedPlugins": {"type":"array","default":["superpowers"],"scope":["global","repo"],"env":null,"description":"Plugins /ifq must never call, even indirectly."},
   "telemetrySyncRepo": {"type":"string","default":"","pattern":"^($|/.*)$","scope":["global","repo"],"env":"CFQ_TELEMETRY_SYNC_REPO","description":"Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
   "stopUsed": {"type":"int","default":100000,"min":-1,"scope":["global","repo"],"env":"CFQ_STOP_USED","description":"Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
+  "onePhasePerSession": {"type":"bool","default":true,"scope":["global","repo"],"env":"CFQ_ONE_PHASE_PER_SESSION","description":"When true, /ifq always hands off after one phase instead of continuing automatically while the context gate allows it."},
   "sessionStaleSeconds": {"type":"int","default":1800,"min":1,"scope":["global","repo"],"env":"CFQ_SESSION_STALE_SECONDS","description":"Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
   "ctxWindowLimits": {"type":"object","shape":{"default":"int","large":"object"},"default":{"default":200000,"large":{"models":["claude-opus-5","claude-sonnet-5","claude-opus-4-8"],"limit":1000000}},"scope":["global","repo"],"env":null,"description":"Context-window size in tokens per model, keyed by whether the model gets the large window."},
   "securityTimeoutSeconds": {"type":"int","default":30,"min":1,"scope":["global"],"env":null,"description":"Timeout in seconds for the batch-completion security scan."},
   "securityFindingsCap": {"type":"int","default":20,"min":1,"scope":["global"],"env":null,"description":"Maximum number of security findings surfaced per batch-completion scan."},
-  "gitStatePolicy": {"type":"enum","default":"local","values":["local","trackable"],"scope":["global","repo"],"env":null,"description":"Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."}
+  "gitStatePolicy": {"type":"enum","default":"local","values":["local","trackable"],"scope":["global","repo"],"env":null,"description":"Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
+  "i18nExcludePatterns": {"type":"array","default":["*/locales/*","*/locale/*","*/i18n/*","*/lang/*","*/translations/*"],"scope":["global","repo"],"env":null,"description":"Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."}
 }'
 
 defaults=$(jq -c 'map_values(.default)' <<<"$schema")

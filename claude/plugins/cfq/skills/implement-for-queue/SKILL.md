@@ -13,19 +13,12 @@ Always answer in the user's language.
 
 ## Output Format
 
-Progress is reported as status lines, not prose, one line per step, printed as soon as that step
-is done. Section headers print once, on entering the section.
+Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
-```
-SECTION HEADER IN CAPS
-<icon> <label padded to 16 chars><detail, one short clause>
-```
+## Step 0 — Plan-Mode Gate
 
-Icons: `✅` done · `⚠️` warning/unavailable/degraded · `❌` failed · `➖` skipped/not applicable.
-Rules: detail = what happened, not what happens next · a step that didn't run still gets its line
-with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` line, never the detail column ·
-headers/labels/status lines are always English, interactive parts stay in the user's language ·
-no commentary around the block.
+Before Step 1-3a, check for Plan Mode — read
+`${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s **Plan-Mode Gate** section and follow it.
 
 ## 1-3a. Preflight: Policy, Batch Selection
 
@@ -80,12 +73,10 @@ context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing th
 - **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
-  (from the preflight — already computed, no new call) decides `off` / `continue` / `new`: `off` →
-  nothing to check out; `continue` → `git checkout "<branch.branch>"`; `new` → `git checkout
-  "<branch.base>"` then `git checkout -b "<branch.branch>"`, `cfq-changelog.sh init` runs, then —
-  **only here** — re-run `cfq-branch.sh plan "<repo-root>" "<batch>"` once to reconfirm the branch
-  now exists (`references/queues.md`'s **Branch and Changelog on Go-Ahead**); `continue`/`off`
-  never call `cfq-branch.sh` again. `Branch` renders whichever happened. `resume` (same preflight
+  (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
+  base-branch question, checkout, changelog init, post-checkout reconfirm) — now fetch-checked against `origin`
+  first — in `references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+  happened. `resume` (same preflight
   result) already carries done/open phases, last commit, deviations, red-phase history,
   `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`
   it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 4.
@@ -109,6 +100,10 @@ preflight from the phase's `## Size` heading, never prose arithmetic. `contextGa
 `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
 status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
 <contextGate.verdict> (<contextGate.note>)`; this closes `PRECHECKS`.
+**(4b2) Go Gate.** Print one status line — phase number/title (from the phase file's own heading),
+`## Size` letter, `Affected Files` — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel**
+(release the lock, end the session, nothing touched). Field mapping and option copy in
+`references/queues.md`'s **Pre-Implementation Go Gate**.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
 implementation itself never runs on one. Implement it completely, run the plan's verification with
@@ -142,14 +137,18 @@ status line — branch and commits pushed.
 
 ## 6. Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `STOP` → print `POSTCHECKS`, sync telemetry and
-release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
+Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `policy.onePhasePerSession` (Step 1-3a's
+preflight, no new call) `true` → treat exactly like `STOP` below, regardless of the context gate's
+own verdict; `false` → the context gate alone decides. `STOP` → print `POSTCHECKS`, sync telemetry
+and release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
 half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
 from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
 deliberate, not a misconfiguration — `STOP` fires after every phase, one context window each; hand
 off without commenting on it. `stopUsed: -1` is equally deliberate — `STOP` never fires for this
-reason; the batch only ends when every phase is done.
+reason. `onePhasePerSession: true` (the default) is the finer of two gates: the batch-level Step 3b
+go-ahead is coarse, this and (4b2)'s per-phase Go question are fine — together nothing is ever
+implemented without an explicit confirmation naming what's about to change.
 
 ## 7. Batch Done
 
@@ -160,7 +159,10 @@ telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-seq
 never leave the repo locked), and prints one JSON object. Render its fields:
 - `Language`: `.lang.issues` from the JSON is the structural count (`missing`/`stray`/`unfiled`);
   judge `.lang.prose.sample` for prose, comments, identifiers and commit messages not in
-  `codeLanguage` — any language, never hardcode one to look for. `.lang.prose.truncated: true`
+  `codeLanguage` — any language, never hardcode one to look for. `i18nExcludePatterns` keeps
+  locale/translation resources out of the sample by default; a line that lands anyway (custom
+  naming the patterns miss) from an evident translation resource isn't a `codeLanguage` violation —
+  expected multi-language content, not a policy breach. `.lang.prose.truncated: true`
   means the sample is exactly that, a sample, so the status line says so (`⚠️ 2 issues ·
   sampled`); an empty sample (no git repo, unknown ref) is `➖`, not a finding. Either source
   finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no

@@ -371,4 +371,46 @@ got=$(HOME="$home" bash "$settings_sh" get securityTimeoutSeconds)
 got=$(HOME="$home" bash "$settings_sh" get securityFindingsCap)
 [ "$got" = "20" ] || { echo "FAIL: default securityFindingsCap = '$got', want 20"; exit 1; }
 
+# 14. onePhasePerSession: default, list, set/unset round-trip, invalid value, env override
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "true" ] || { echo "FAIL: default onePhasePerSession = '$got', want true"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.onePhasePerSession')
+[ "$got" = "true" ] || { echo "FAIL: list onePhasePerSession = '$got', want true"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set onePhasePerSession nope 2>/dev/null; then
+  echo "FAIL: set onePhasePerSession nope should fail"; exit 1
+fi
+
+HOME="$home" bash "$settings_sh" set onePhasePerSession false
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "false" ] || { echo "FAIL: set onePhasePerSession false -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" unset onePhasePerSession
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "true" ] || { echo "FAIL: unset onePhasePerSession -> got '$got', want default true"; exit 1; }
+
+got=$(HOME="$home" CFQ_ONE_PHASE_PER_SESSION=false bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "false" ] || { echo "FAIL: env override onePhasePerSession -> got '$got'"; exit 1; }
+
+# 15. i18nExcludePatterns: default, list, set/unset round-trip
+default_i18n='*/locales/*,*/locale/*,*/i18n/*,*/lang/*,*/translations/*'
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: default i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.i18nExcludePatterns | join(",")')
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: list i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set i18nExcludePatterns '*/vendor/*,*/gen/*'
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = '*/vendor/*,*/gen/*' ] \
+  || { echo "FAIL: set i18nExcludePatterns -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" unset i18nExcludePatterns
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: unset i18nExcludePatterns -> got '$got', want default"; exit 1; }
+
 echo PASS

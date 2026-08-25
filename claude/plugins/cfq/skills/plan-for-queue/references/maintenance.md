@@ -1,6 +1,6 @@
 # Maintenance Run
 
-Only read when Step 12 finds `DUE <n>`.
+Only read when Step 11 finds `DUE <n>`.
 
 1. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-lang.sh" "<repo-root>"` — always, no plugin dependency.
    Its `missing`, `stray`, and `unfiled` arrays become findings.

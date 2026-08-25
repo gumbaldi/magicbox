@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single read-only preflight aggregator for plan-for-queue's Step 1: batches every
 # cfq-settings.sh/cfq-scan.sh/cfq-registry.sh/cfq-maintenance.sh call the skill used to issue
-# separately (Steps 1, 3, 5, 7, 10a, 12) into one JSON object, one process invocation of
+# separately (Steps 1, 3, 5, 7, 9a, 11) into one JSON object, one process invocation of
 # cfq-settings.sh covering every policy/language key at once. Security (Step 8) stays a separate
 # call on purpose — this only reports capability (a security backend reachable at all), never live
 # finding counts, which need a network round-trip.

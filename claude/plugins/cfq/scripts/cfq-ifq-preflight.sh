@@ -28,7 +28,7 @@ resolved_root=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || {
 repo="$resolved_root"
 
 settings=$("$script_dir/cfq-settings.sh" list --repo "$repo")
-policy=$(jq -c '{implModels, allowAnyModel, implBlockedPlugins}' <<<"$settings")
+policy=$(jq -c '{implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession}' <<<"$settings")
 
 candidates=$("$script_dir/cfq-scan.sh" | jq -c --arg repo "$repo" \
   '[(.repos[]? | select(.path == $repo) | .batches[]?
