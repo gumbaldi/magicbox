@@ -13,19 +13,12 @@ Always answer in the user's language.
 
 ## Output Format
 
-Progress is reported as status lines, not prose, one line per step, printed as soon as that step
-is done. Section headers print once, on entering the section.
+Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
-```
-SECTION HEADER IN CAPS
-<icon> <label padded to 16 chars><detail, one short clause>
-```
+## Step 0 — Plan-Mode Gate
 
-Icons: `✅` done · `⚠️` warning/unavailable/degraded · `❌` failed · `➖` skipped/not applicable.
-Rules: detail = what happened, not what happens next · a step that didn't run still gets its line
-with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` line, never the detail column ·
-headers/labels/status lines are always English, interactive parts stay in the user's language ·
-no commentary around the block.
+Before Step 1-3a, check for Plan Mode — read
+`${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s **Plan-Mode Gate** section and follow it.
 
 ## 1-3a. Preflight: Policy, Batch Selection
 
@@ -80,12 +73,10 @@ context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing th
 - **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
-  (from the preflight — already computed, no new call) decides `off` / `continue` / `new`: `off` →
-  nothing to check out; `continue` → `git checkout "<branch.branch>"`; `new` → `git checkout
-  "<branch.base>"` then `git checkout -b "<branch.branch>"`, `cfq-changelog.sh init` runs, then —
-  **only here** — re-run `cfq-branch.sh plan "<repo-root>" "<batch>"` once to reconfirm the branch
-  now exists (`references/queues.md`'s **Branch and Changelog on Go-Ahead**); `continue`/`off`
-  never call `cfq-branch.sh` again. `Branch` renders whichever happened. `resume` (same preflight
+  (from the preflight — already computed, no new call) decides the checkout — full behavior
+  (`off`/`continue`/`new`, base-branch question, checkout, changelog init, post-checkout reconfirm)
+  in `references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+  happened. `resume` (same preflight
   result) already carries done/open phases, last commit, deviations, red-phase history,
   `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`
   it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 4.

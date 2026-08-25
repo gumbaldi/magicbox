@@ -300,7 +300,11 @@
       summary: ""
 - batchNumber: 1
   batch: 001-2026-08-25-ifq-pfq-process-hygiene
-  status: parked
+  branch: cfq/001-2026-08-25-ifq-pfq-process-hygiene
+  base: main
+  started: 2026-08-25
+  status: in-progress
+  legacy: false
 - batchNumber: 2
   batch: 002-2026-08-25-cfq-scan-numbered-batch-regex
   branch: cfq/002-2026-08-25-cfq-scan-numbered-batch-regex
