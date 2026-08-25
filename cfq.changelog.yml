@@ -336,8 +336,16 @@
   branch: cfq/003-2026-08-25-pfq-step9-gap-security-icon
   base: cfq/001-2026-08-25-ifq-pfq-process-hygiene
   started: 2026-08-25
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-25
+  phases:
+    - phase: "01-security-status-line-icons"
+      status: "green"
+      summary: ""
+    - phase: "02-close-step9-gap"
+      status: "green"
+      summary: ""
 - batchNumber: 4
   batch: 004-2026-08-25-cfq-branch-remote-source-of-truth
   status: parked
