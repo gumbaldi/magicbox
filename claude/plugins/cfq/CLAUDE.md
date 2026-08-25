@@ -34,6 +34,7 @@ bash claude/plugins/cfq/tests/test-layout.sh        # cfq-paths.sh + cfq-layout.
 bash claude/plugins/cfq/tests/test-layout-migration.sh  # scripts/migrations/cfq-layout-v1.sh, prints PASS
 bash claude/plugins/cfq/tests/test-doctor.sh        # cfq-doctor.sh dependency checks, prints PASS
 bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh  # no script hardcodes a copy of a schema default, prints PASS
+bash claude/plugins/cfq/tests/test-queue-overlap.sh   # cfq-queue-overlap.sh Affected Files extraction, prints PASS
 ```
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
