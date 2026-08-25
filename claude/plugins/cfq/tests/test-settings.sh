@@ -393,4 +393,24 @@ got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
 got=$(HOME="$home" CFQ_ONE_PHASE_PER_SESSION=false bash "$settings_sh" get onePhasePerSession)
 [ "$got" = "false" ] || { echo "FAIL: env override onePhasePerSession -> got '$got'"; exit 1; }
 
+# 15. i18nExcludePatterns: default, list, set/unset round-trip
+default_i18n='*/locales/*,*/locale/*,*/i18n/*,*/lang/*,*/translations/*'
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: default i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.i18nExcludePatterns | join(",")')
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: list i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set i18nExcludePatterns '*/vendor/*,*/gen/*'
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = '*/vendor/*,*/gen/*' ] \
+  || { echo "FAIL: set i18nExcludePatterns -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" unset i18nExcludePatterns
+got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+[ "$got" = "$default_i18n" ] \
+  || { echo "FAIL: unset i18nExcludePatterns -> got '$got', want default"; exit 1; }
+
 echo PASS

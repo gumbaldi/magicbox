@@ -46,7 +46,8 @@ schema='{
   "ctxWindowLimits": {"type":"object","shape":{"default":"int","large":"object"},"default":{"default":200000,"large":{"models":["claude-opus-5","claude-sonnet-5","claude-opus-4-8"],"limit":1000000}},"scope":["global","repo"],"env":null,"description":"Context-window size in tokens per model, keyed by whether the model gets the large window."},
   "securityTimeoutSeconds": {"type":"int","default":30,"min":1,"scope":["global"],"env":null,"description":"Timeout in seconds for the batch-completion security scan."},
   "securityFindingsCap": {"type":"int","default":20,"min":1,"scope":["global"],"env":null,"description":"Maximum number of security findings surfaced per batch-completion scan."},
-  "gitStatePolicy": {"type":"enum","default":"local","values":["local","trackable"],"scope":["global","repo"],"env":null,"description":"Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."}
+  "gitStatePolicy": {"type":"enum","default":"local","values":["local","trackable"],"scope":["global","repo"],"env":null,"description":"Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
+  "i18nExcludePatterns": {"type":"array","default":["*/locales/*","*/locale/*","*/i18n/*","*/lang/*","*/translations/*"],"scope":["global","repo"],"env":null,"description":"Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."}
 }'
 
 defaults=$(jq -c 'map_values(.default)' <<<"$schema")

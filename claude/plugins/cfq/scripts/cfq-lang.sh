@@ -30,6 +30,7 @@ settings_sh="$script_dir/cfq-settings.sh"
 code_language=$("$settings_sh" get codeLanguage)
 doc_languages_csv=$("$settings_sh" get docLanguages 2>/dev/null || true)
 doc_level=$("$settings_sh" get docLevel)
+i18n_exclude_csv=$("$settings_sh" get i18nExcludePatterns 2>/dev/null || true)
 
 if [ -z "$doc_languages_csv" ]; then
   doc_languages_json='[]'
@@ -46,10 +47,21 @@ if [ "$mode" = "prose" ]; then
   truncated=false
   note=""
 
+  # i18n/locale resource directories intentionally hold multiple languages by design — excluded
+  # from the diff pathspec so their content never lands in the drift sample in the first place.
+  # A leading "*/" in a stored pattern only matches nested paths under git's glob pathspec magic
+  # (single "*" doesn't cross "/"), so it's normalized to "**/" here to also match a top-level
+  # directory of the same name (e.g. "*/locales/*" -> "**/locales/*", matches both locales/de.json
+  # and app/locales/de.json).
+  i18n_exclude_json=$(jq -Rc 'split(",") | map(select(length > 0))' <<<"$i18n_exclude_csv")
+  mapfile -t i18n_pathspecs < <(jq -r '
+    .[] | (if startswith("*/") then .[2:] elif startswith("/") then .[1:] else . end) as $p
+        | ":(exclude,glob)**/" + $p' <<<"$i18n_exclude_json")
+
   if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
      && git -C "$repo" rev-parse --verify "$prose_ref" >/dev/null 2>&1; then
     commits=$(git -C "$repo" log --format=%B "$prose_ref"..HEAD 2>/dev/null || true)
-    added=$(git -C "$repo" diff "$prose_ref"...HEAD -- . 2>/dev/null \
+    added=$(git -C "$repo" diff "$prose_ref"...HEAD -- . "${i18n_pathspecs[@]}" 2>/dev/null \
       | grep '^+' | grep -v '^+++' | sed 's/^+//' || true)
     combined=$(printf '%s\n%s' "$commits" "$added")
 

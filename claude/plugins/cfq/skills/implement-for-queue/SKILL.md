@@ -159,7 +159,10 @@ telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-seq
 never leave the repo locked), and prints one JSON object. Render its fields:
 - `Language`: `.lang.issues` from the JSON is the structural count (`missing`/`stray`/`unfiled`);
   judge `.lang.prose.sample` for prose, comments, identifiers and commit messages not in
-  `codeLanguage` — any language, never hardcode one to look for. `.lang.prose.truncated: true`
+  `codeLanguage` — any language, never hardcode one to look for. `i18nExcludePatterns` keeps
+  locale/translation resources out of the sample by default; a line that lands anyway (custom
+  naming the patterns miss) from an evident translation resource isn't a `codeLanguage` violation —
+  expected multi-language content, not a policy breach. `.lang.prose.truncated: true`
   means the sample is exactly that, a sample, so the status line says so (`⚠️ 2 issues ·
   sampled`); an empty sample (no git repo, unknown ref) is `➖`, not a finding. Either source
   finding → `⚠️` with the combined count, details as `   └ ` lines; nothing found → `✅ no
