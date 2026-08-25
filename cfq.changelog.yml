@@ -363,5 +363,10 @@
   branch: cfq/005-2026-08-25-cfq-plugin-status-detection
   base: cfq/004-2026-08-25-cfq-branch-remote-source-of-truth
   started: 2026-08-25
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-25
+  phases:
+    - phase: "01-fix-plugin-status-detection"
+      status: "green"
+      summary: ""
