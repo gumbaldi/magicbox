@@ -100,6 +100,10 @@ preflight from the phase's `## Size` heading, never prose arithmetic. `contextGa
 `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
 status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
 <contextGate.verdict> (<contextGate.note>)`; this closes `PRECHECKS`.
+**(4b2) Go Gate.** Print one status line — phase number/title (from the phase file's own heading),
+`## Size` letter, `Affected Files` — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel**
+(release the lock, end the session, nothing touched). Field mapping and option copy in
+`references/queues.md`'s **Pre-Implementation Go Gate**.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
 implementation itself never runs on one. Implement it completely, run the plan's verification with
@@ -133,14 +137,18 @@ status line — branch and commits pushed.
 
 ## 6. Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `STOP` → print `POSTCHECKS`, sync telemetry and
-release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
+Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `policy.onePhasePerSession` (Step 1-3a's
+preflight, no new call) `true` → treat exactly like `STOP` below, regardless of the context gate's
+own verdict; `false` → the context gate alone decides. `STOP` → print `POSTCHECKS`, sync telemetry
+and release the lock (`cfq-telemetry.sh sync "<repo-root>"`, `cfq-lock.sh release "<repo-root>"`),
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
 half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
 from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
 deliberate, not a misconfiguration — `STOP` fires after every phase, one context window each; hand
 off without commenting on it. `stopUsed: -1` is equally deliberate — `STOP` never fires for this
-reason; the batch only ends when every phase is done.
+reason. `onePhasePerSession: true` (the default) is the finer of two gates: the batch-level Step 3b
+go-ahead is coarse, this and (4b2)'s per-phase Go question are fine — together nothing is ever
+implemented without an explicit confirmation naming what's about to change.
 
 ## 7. Batch Done
 

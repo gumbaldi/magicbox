@@ -371,4 +371,26 @@ got=$(HOME="$home" bash "$settings_sh" get securityTimeoutSeconds)
 got=$(HOME="$home" bash "$settings_sh" get securityFindingsCap)
 [ "$got" = "20" ] || { echo "FAIL: default securityFindingsCap = '$got', want 20"; exit 1; }
 
+# 14. onePhasePerSession: default, list, set/unset round-trip, invalid value, env override
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "true" ] || { echo "FAIL: default onePhasePerSession = '$got', want true"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.onePhasePerSession')
+[ "$got" = "true" ] || { echo "FAIL: list onePhasePerSession = '$got', want true"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set onePhasePerSession nope 2>/dev/null; then
+  echo "FAIL: set onePhasePerSession nope should fail"; exit 1
+fi
+
+HOME="$home" bash "$settings_sh" set onePhasePerSession false
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "false" ] || { echo "FAIL: set onePhasePerSession false -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" unset onePhasePerSession
+got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "true" ] || { echo "FAIL: unset onePhasePerSession -> got '$got', want default true"; exit 1; }
+
+got=$(HOME="$home" CFQ_ONE_PHASE_PER_SESSION=false bash "$settings_sh" get onePhasePerSession)
+[ "$got" = "false" ] || { echo "FAIL: env override onePhasePerSession -> got '$got'"; exit 1; }
+
 echo PASS

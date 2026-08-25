@@ -64,6 +64,25 @@ step calls it directly — solely to reconfirm the branch now exists post-checko
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
 
+## Pre-Implementation Go Gate (Step 4b2)
+
+Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
+to Step 3b's one coarse per-batch go-ahead. The status line uses fields already on hand, no new
+data model: phase number and title from the phase file's own top-level context (its filename's
+`NN-<slug>` plus the first line of its `## Context` section, or the slug alone if `## Context` is
+missing), the `## Size` letter, and the `## Affected Files` list verbatim (absolute paths, one per
+line or comma-joined if short). Example:
+
+```
+P02 ifq-per-phase-go-gate [L]
+Affected: cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+```
+
+Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
+**Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
+`cfq-lock.sh release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
+and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
+
 ## Phase Commit Trailers (Step 5)
 
 Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file,
