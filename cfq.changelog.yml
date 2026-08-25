@@ -303,8 +303,22 @@
   branch: cfq/001-2026-08-25-ifq-pfq-process-hygiene
   base: main
   started: 2026-08-25
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-25
+  phases:
+    - phase: "01-interaction-policy-and-plan-mode-gate"
+      status: "green"
+      summary: "Added references/interaction-policy.md (Plan-Mode Gate, No Waiting Questions, Active Interview Duty) and wired short pointers into both SKILL.md files; trimmed plan-for-queue/SKILL.md from 223 to 200 lines and kept implement-for-queue/SKILL.md at 189 by extracting a shared references/output-format.md and moving interview-depth rationale/Model Gate mechanics into references/interview-depth.md."
+    - phase: "02-ifq-per-phase-go-gate"
+      status: "green"
+      summary: "Added onePhasePerSession bool setting (default true) to cfq-settings.sh, carried it through cfq-ifq-preflight.sh policy projection, and added a per-phase Go/Cancel gate (4b2) to implement-for-queue/SKILL.md between the size gate and implementation, plus a Step 6 onePhasePerSession check that hands off like STOP regardless of the context gate when true. Field mapping and AskUserQuestion copy documented in queues.md's new Pre-Implementation Go Gate subsection. test-settings.sh got a full list/get/set/unset/env round-trip assertion for the new key."
+    - phase: "03-queue-overlap-script"
+      status: "green"
+      summary: "Added cfq-queue-overlap.sh, bundling the per-batch \"## Affected Files\" extraction for every open phase of every open batch into one JSON-emitting process invocation, replacing the raw for+sed loop in plan-for-queue/references/queue-check.md Step 5. Test written first (mktemp -d fixture with two overlapping batches, one batch with a phase carrying no Affected Files section, and a done/ phase proving maxdepth-1 exclusion), confirmed red against the not-yet-written script, then green. CLAUDE.md Commands list updated."
+    - phase: "04-lang-i18n-exclusion"
+      status: "green"
+      summary: "Added i18nExcludePatterns array setting (default 5 locale/i18n directory glob patterns) and wired it into cfq-lang.sh prose mode as git diff exclude pathspecs, so translation-resource files never land in the language-drift sample in the first place. Also added a judging clause to implement-for-queue/SKILL.md Step 7 Language rendering for the residual case a custom naming pattern misses. Test-first per phase-quality rule 1: settings round-trip assertion confirmed red pre-schema, green after."
 - batchNumber: 2
   batch: 002-2026-08-25-cfq-scan-numbered-batch-regex
   branch: cfq/002-2026-08-25-cfq-scan-numbered-batch-regex
