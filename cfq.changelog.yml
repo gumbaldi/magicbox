@@ -351,8 +351,13 @@
   branch: cfq/004-2026-08-25-cfq-branch-remote-source-of-truth
   base: cfq/003-2026-08-25-pfq-step9-gap-security-icon
   started: 2026-08-25
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-25
+  phases:
+    - phase: "01-remote-aware-branch-decision"
+      status: "green"
+      summary: ""
 - batchNumber: 5
   batch: 005-2026-08-25-cfq-plugin-status-detection
   status: parked
