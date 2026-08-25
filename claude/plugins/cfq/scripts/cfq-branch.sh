@@ -31,8 +31,16 @@ slug=$(printf '%s' "$batch_name" | sed -E 's/^[0-9]+-[0-9]{4}-[0-9]{2}-[0-9]{2}-
 branch_per_batch=$("$script_dir/cfq-settings.sh" get branchPerBatch)
 if [ "$branch_per_batch" = "false" ]; then
   jq -n --arg batch "$batch_name" --argjson num "$number_json" \
-    '{mode: "off", batch: $batch, batchNumber: $num, branch: null, base: null, candidates: []}'
+    '{mode: "off", batch: $batch, batchNumber: $num, branch: null, base: null, candidates: [], remoteChecked: false, remoteWarning: null}'
   exit 0
+fi
+
+# Best-effort remote check: no origin, or fetch fails (offline/sandboxed) -> remote_checked stays
+# false and every path below behaves exactly as before this was added.
+remote_checked=false
+if git -C "$repo_root" remote get-url origin >/dev/null 2>&1 \
+  && git -C "$repo_root" fetch -q origin >/dev/null 2>&1; then
+  remote_checked=true
 fi
 
 # Prefer the branch already persisted in the CFQ changelog for this exact batch — authoritative,
@@ -52,8 +60,24 @@ if [ -z "$existing" ]; then
 fi
 
 if [ -n "$existing" ]; then
+  continue_warning_json='null'
+  if [ "$remote_checked" = true ] \
+    && git -C "$repo_root" rev-parse --verify -q "refs/heads/$existing" >/dev/null 2>&1 \
+    && git -C "$repo_root" rev-parse --verify -q "refs/remotes/origin/$existing" >/dev/null 2>&1; then
+    if git -C "$repo_root" merge-base --is-ancestor "refs/heads/$existing" "refs/remotes/origin/$existing"; then
+      if [ "$(git -C "$repo_root" symbolic-ref -q --short HEAD 2>/dev/null)" != "$existing" ]; then
+        git -C "$repo_root" update-ref "refs/heads/$existing" "refs/remotes/origin/$existing"
+      fi
+    else
+      ahead_count=$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$existing..refs/heads/$existing")
+      continue_warning_json=$(jq -n --arg msg \
+        "local $existing is $ahead_count commit(s) ahead of/diverged from origin/$existing — resolve before continuing" \
+        '$msg')
+    fi
+  fi
   jq -n --arg batch "$batch_name" --argjson num "$number_json" --arg branch "$existing" \
-    '{mode: "continue", batch: $batch, batchNumber: $num, branch: $branch, base: null, candidates: []}'
+    --argjson remoteChecked "$remote_checked" --argjson remoteWarning "$continue_warning_json" \
+    '{mode: "continue", batch: $batch, batchNumber: $num, branch: $branch, base: null, candidates: [], remoteChecked: $remoteChecked, remoteWarning: $remoteWarning}'
   exit 0
 fi
 
@@ -66,6 +90,21 @@ while IFS= read -r b; do
   [ "$cnt" -gt 0 ] && candidates+=("$b")
 done < <(git -C "$repo_root" branch --format='%(refname:short)')
 
+new_warning_json='null'
+if [ "$remote_checked" = true ] && git -C "$repo_root" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1; then
+  if git -C "$repo_root" merge-base --is-ancestor refs/heads/main refs/remotes/origin/main; then
+    if [ "$(git -C "$repo_root" symbolic-ref -q --short HEAD 2>/dev/null)" != main ]; then
+      git -C "$repo_root" update-ref refs/heads/main refs/remotes/origin/main
+    fi
+  else
+    ahead_count=$(git -C "$repo_root" rev-list --count refs/remotes/origin/main..refs/heads/main)
+    candidates+=(main)
+    new_warning_json=$(jq -n --arg msg \
+      "local main is $ahead_count commit(s) ahead of origin/main — resolve before basing new work on it" \
+      '$msg')
+  fi
+fi
+
 if [ "${#candidates[@]}" -eq 0 ]; then
   base_json='"main"'
 else
@@ -75,4 +114,5 @@ cand_json=$(printf '%s\n' "${candidates[@]:-}" | sed '/^$/d' | jq -R . | jq -s .
 
 jq -n --arg batch "$batch_name" --argjson num "$number_json" --arg branch "$branch" \
   --argjson base "$base_json" --argjson candidates "$cand_json" \
-  '{mode: "new", batch: $batch, batchNumber: $num, branch: $branch, base: $base, candidates: $candidates}'
+  --argjson remoteChecked "$remote_checked" --argjson remoteWarning "$new_warning_json" \
+  '{mode: "new", batch: $batch, batchNumber: $num, branch: $branch, base: $base, candidates: $candidates, remoteChecked: $remoteChecked, remoteWarning: $remoteWarning}'

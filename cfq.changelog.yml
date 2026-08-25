@@ -348,4 +348,11 @@
       summary: ""
 - batchNumber: 4
   batch: 004-2026-08-25-cfq-branch-remote-source-of-truth
+  branch: cfq/004-2026-08-25-cfq-branch-remote-source-of-truth
+  base: cfq/003-2026-08-25-pfq-step9-gap-security-icon
+  started: 2026-08-25
+  status: in-progress
+  legacy: false
+- batchNumber: 5
+  batch: 005-2026-08-25-cfq-plugin-status-detection
   status: parked

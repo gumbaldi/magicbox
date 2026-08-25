@@ -73,9 +73,9 @@ context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing th
 - **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
-  (from the preflight — already computed, no new call) decides the checkout — full behavior
-  (`off`/`continue`/`new`, base-branch question, checkout, changelog init, post-checkout reconfirm)
-  in `references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+  (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
+  base-branch question, checkout, changelog init, post-checkout reconfirm) — now fetch-checked against `origin`
+  first — in `references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
   happened. `resume` (same preflight
   result) already carries done/open phases, last commit, deviations, red-phase history,
   `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`

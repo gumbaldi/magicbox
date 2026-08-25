@@ -43,14 +43,28 @@ echo the batch's own stable identity (`batchNumber` is `null` for a legacy unnum
 `mode` says what to do. Always use the `branch` field directly for checkout — never reconstruct a
 branch string from a number/slug:
 
+`cfq-branch.sh plan` is remote-aware: it fetches `origin` once (best-effort — no `origin`, or the
+fetch fails offline/sandboxed, and everything falls back to local-only behavior unchanged) before
+deciding, so a stale local `main`/branch never gets silently proposed as a base. Two additive
+fields ride along with every response: `remoteChecked` (bool) and `remoteWarning` (string or
+`null`, set only when local has commits `origin` doesn't and that gap can't be auto-resolved).
+
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
 - **`continue`** (a branch for this batch already exists) → `git checkout "<branch>"`, don't write
-  a changelog entry (the batch is already recorded).
-- **`new`** → `base` is already `main` when `candidates` is empty; non-empty → one
-  `AskUserQuestion` listing every entry in `candidates` plus `main`, asking which one the new
-  branch builds on. Recommended (first, labelled `(Recommended)`): the currently checked-out
-  branch if it's in the list, otherwise the first candidate. Each option's description names how
-  many commits it is ahead of `main` (`git rev-list --count main..<branch>`). Then:
+  a changelog entry (the batch is already recorded). Local purely behind its own
+  `origin/<branch>` is fast-forwarded automatically before checkout. `remoteWarning` non-null here
+  (local ahead of/diverged from `origin/<branch>`) doesn't block — `git checkout "<branch>"` still
+  runs, but the `Branch` status line surfaces the warning as a `⚠️` note.
+- **`new`** → `base` is already `main` when `candidates` is empty; local `main` purely behind
+  `origin/main` is fast-forwarded first, same as the `continue` case. Non-empty `candidates` → one
+  `AskUserQuestion` listing every entry in `candidates` plus `main`, deduplicated (`main` itself
+  ends up in `candidates` when it's the one that's ahead of `origin/main` — see below), asking
+  which one the new branch builds on. Recommended (first, labelled `(Recommended)`): the currently
+  checked-out branch if it's in the list, otherwise the first candidate. Each option's description
+  names how many commits it is ahead of `main` (`git rev-list --count main..<branch>`) — except the
+  branch `remoteWarning` is about: its option is phrased "use local `<branch>` anyway (ahead of
+  origin, deliberate)" and the question's context includes `remoteWarning` verbatim, so the choice
+  to override is explicit rather than an unremarked list entry. Then:
 
 ```bash
 git checkout "<base>"
