@@ -129,8 +129,9 @@ jq -c '{available, sources, counts, fixable}' /tmp/cfq-sec.json
 Only when `fixable.critical`/`fixable.high` > 0: one `AskUserQuestion` on joining a security phase
 to the batch (suggested first, it's independent) — anything below stays a warning line, no
 planning. Store the snapshot with `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" security
-"<batch-dir>" "$(cat /tmp/cfq-sec.json)"` so `ifq` can diff it later. Print `Security` — count per
-severity, or `➖ no findings`.
+"<batch-dir>" "$(cat /tmp/cfq-sec.json)"` so `ifq` can diff it later. Print `Security`: `⚠️` with
+the hint as detail when `available == false`, `⚠️` with the count per severity when findings are
+present, or `➖ no findings` when the scan ran clean.
 
 ## Step 10 — Park
 
