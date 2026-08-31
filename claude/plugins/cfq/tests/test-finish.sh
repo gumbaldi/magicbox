@@ -107,4 +107,31 @@ jq -e '.errors[] | select(startswith("security:"))' <<<"$out" >/dev/null \
   && { echo "FAIL: missing planning snapshot must not be an error: $out"; exit 1; }
 rm -rf "$home4"
 
+# ============================================================ htmlReport auto-render (phase 03) ====
+
+home5=$(mktemp -d)
+repo5=$(new_repo repo5)
+batch5=$(new_batch "$repo5" "2026-01-01-htmlon")
+HOME="$home5" bash "$repo_root/scripts/cfq-lock.sh" acquire "$repo5" "2026-01-01-htmlon" >/dev/null
+mkdir -p "$home5/.claude/code-for-queue"
+echo '{"htmlReport": true}' > "$home5/.claude/code-for-queue/settings.json"
+
+out=$(HOME="$home5" bash "$finish_sh" "$repo5" "$batch5" "v0.1-htmlon")
+printf '%s' "$out" | jq -e . >/dev/null || { echo "FAIL: output not valid JSON: $out"; exit 1; }
+[ -f "$repo5/.claude/cfq/impl/done/2026-01-01-htmlon/report.html" ] \
+  || { echo "FAIL: htmlReport=true should auto-render report.html"; exit 1; }
+rm -rf "$home5"
+
+# ============================================================ htmlReport default off =====
+
+home6=$(mktemp -d)
+repo6=$(new_repo repo6)
+batch6=$(new_batch "$repo6" "2026-01-01-htmloff")
+HOME="$home6" bash "$repo_root/scripts/cfq-lock.sh" acquire "$repo6" "2026-01-01-htmloff" >/dev/null
+
+out=$(HOME="$home6" bash "$finish_sh" "$repo6" "$batch6" "v0.1-htmloff")
+[ ! -f "$repo6/.claude/cfq/impl/done/2026-01-01-htmloff/report.html" ] \
+  || { echo "FAIL: default htmlReport=false must not auto-render report.html"; exit 1; }
+rm -rf "$home6"
+
 echo PASS

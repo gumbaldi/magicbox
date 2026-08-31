@@ -83,7 +83,7 @@ interactively.
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
-| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty writes `report.html` into the batch directory instead |
+| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty writes `report.html` into the batch directory instead — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
@@ -98,6 +98,18 @@ them sparingly.
 
 Adding a new setting means adding one schema entry to `cfq-settings.sh` — `list`/`get`/`set`/
 `unset`/`describe` and every precedence tier read it generically, no second place to touch.
+
+## Report collection layout
+
+With `reportDir` set, `cfq-report.sh html <batch-dir>` writes into
+`<reportDir>/<repo-basename>/<batch>.html` instead of the batch directory, and regenerates
+`<reportDir>/index.html` alongside it — one page linking every report-bearing batch across every
+repo (`cfq-report.sh index`'s own data), grouped by repo, newest first. A batch `index` reports
+that has no HTML rendered yet is listed without a link rather than omitted. Leaving `reportDir`
+empty keeps today's behavior: `report.html` next to `report.json` in the batch directory, no
+`index.html`. This is meant for a location reachable outside the queue's own git-excluded
+directory — a WSL user opening reports from Windows Explorer, for example — `htmlReport` (above)
+controls whether it renders automatically at batch completion.
 
 ## Script Output Reference
 

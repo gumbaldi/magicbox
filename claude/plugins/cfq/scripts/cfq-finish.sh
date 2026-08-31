@@ -107,6 +107,11 @@ fi
 
 telemetry=$("$script_dir/cfq-telemetry.sh" sync "$repo_root" 2>&1) || add_error telemetry "$telemetry"
 
+if [ "$("$script_dir/cfq-settings.sh" get --repo "$repo_root" htmlReport)" = "true" ]; then
+  "$script_dir/cfq-report.sh" html "$batch_dir" >/dev/null 2>&1 \
+    || echo "cfq-finish.sh: html report render failed for $batch_dir" >&2
+fi
+
 err_json=$(printf '%s\n' "${errors[@]:-}" | sed '/^$/d' | jq -R . | jq -s .)
 
 jq -n \

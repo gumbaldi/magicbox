@@ -78,7 +78,9 @@ Render `index`'s array directly — already sorted newest-first, already carryin
 **Cost** is `.cost.outputTokens`, rounded to whole thousands with no decimal (`67k`); `0` (no
 telemetry — reports have existed since v0.2, telemetry only since v0.3) renders as `–` instead.
 Repo column: basename of `.repo` only. Visibly mark `RED`/`MIXED` rows. Below the table, one
-`file://` path to the HTML per row.
+`file://` path to the HTML per row. With `reportDir` configured those paths point into the
+collected tree (`<reportDir>/<repo>/<batch>.html`) instead of the batch directory, and
+`<reportDir>/index.html` is the entry point into all of them.
 
 ## 3. Detail
 
