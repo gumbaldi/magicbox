@@ -13,6 +13,10 @@ for v in "${!CFQ_@}"; do unset "$v"; done
 home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 
+# Defaults must be observed without the caller's CFQ_* overrides leaking in.
+# cfq-settings.sh needs HOME (global tier) and PATH (jq); nothing else.
+cfq_clean() { env -i HOME="$HOME" PATH="$PATH" "$@"; }
+
 # 1. Fresh install: list has telemetrySyncRepo, not planPreferredPlugins
 list=$(HOME="$home" bash "$settings_sh" list)
 [ "$(jq 'has("telemetrySyncRepo")' <<<"$list")" = "true" ] \
@@ -26,7 +30,7 @@ mkdir -p "$legacy_home/.claude/code-for-queue"
 echo '{"stopUsed":42,"planPreferredPlugins":["x"]}' \
   >"$legacy_home/.claude/code-for-queue/settings.json"
 
-got=$(HOME="$legacy_home" bash "$settings_sh" get telemetrySyncRepo)
+got=$(HOME="$legacy_home" cfq_clean bash "$settings_sh" get telemetrySyncRepo)
 [ "$got" = "" ] || { echo "FAIL: legacy telemetrySyncRepo = '$got', want empty"; exit 1; }
 
 got=$(HOME="$legacy_home" bash "$settings_sh" get stopUsed)
@@ -55,7 +59,7 @@ got=$(HOME="$home" CFQ_TELEMETRY_SYNC_REPO=/tmp/y bash "$settings_sh" get teleme
 [ "$got" = "/tmp/y" ] || { echo "FAIL: env override -> got '$got'"; exit 1; }
 
 # 5. Unrelated assertions still hold
-got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get stopUsed)
 [ "$got" = "100000" ] || { echo "FAIL: default stopUsed = '$got', want 100000"; exit 1; }
 
 if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
@@ -63,11 +67,11 @@ if HOME="$home" bash "$settings_sh" set grillMode klassisch 2>/dev/null; then
 fi
 
 # 5b. stopUsed: default, set/round-trip, special values -1 and 0, malformed env falls back, list
-got=$(HOME="$home" bash "$settings_sh" get stopUsed)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get stopUsed)
 [ "$got" = "100000" ] || { echo "FAIL: default stopUsed = '$got', want 100000"; exit 1; }
 
 fresh_home=$(mktemp -d)
-got=$(HOME="$fresh_home" bash "$settings_sh" get stopUsed)
+got=$(HOME="$fresh_home" cfq_clean bash "$settings_sh" get stopUsed)
 [ "$got" = "100000" ] || { echo "FAIL: default stopUsed on fresh HOME = '$got', want 100000"; exit 1; }
 rm -rf "$fresh_home"
 
@@ -115,7 +119,7 @@ got=$(HOME="$home" CFQ_SCAN_ROOTS=a,b bash "$settings_sh" get scanRoots)
 [ "$got" = "a,b" ] || { echo "FAIL: CFQ_SCAN_ROOTS comma round-trip -> got '$got'"; exit 1; }
 
 # 5e. gitStatePolicy: default, set, invalid
-got=$(HOME="$home" bash "$settings_sh" get gitStatePolicy)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get gitStatePolicy)
 [ "$got" = "local" ] || { echo "FAIL: default gitStatePolicy = '$got', want local"; exit 1; }
 
 HOME="$home" bash "$settings_sh" set gitStatePolicy trackable
@@ -137,8 +141,8 @@ declare -A want=(
   [implExploreModel]=haiku
   [allowAnyModel]=false
   [scanRoots]="~/git"
-  [useMattpocockGrilling]=false
-  [usePonytailAudit]=false
+  [useMattpocockGrilling]=true
+  [usePonytailAudit]=true
   [codeLanguage]=en
   [docLanguages]=""
   [docLevel]=minimal
@@ -151,13 +155,13 @@ declare -A want=(
   [telemetrySyncRepo]=""
 )
 for k in "${!want[@]}"; do
-  got=$(HOME="$reg_home" bash "$settings_sh" get "$k")
+  got=$(HOME="$reg_home" cfq_clean bash "$settings_sh" get "$k")
   [ "$got" = "${want[$k]}" ] || { echo "FAIL: regression default $k = '$got', want '${want[$k]}'"; exit 1; }
 done
 rm -rf "$reg_home"
 
 # 6. maintenanceEvery: default, set 0, invalid, env override
-got=$(HOME="$home" bash "$settings_sh" get maintenanceEvery)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get maintenanceEvery)
 [ "$got" = "50" ] || { echo "FAIL: default maintenanceEvery = '$got', want 50"; exit 1; }
 
 HOME="$home" bash "$settings_sh" set maintenanceEvery 0
@@ -172,14 +176,19 @@ got=$(HOME="$home" CFQ_MAINTENANCE_EVERY=10 bash "$settings_sh" get maintenanceE
 [ "$got" = "10" ] || { echo "FAIL: env override maintenanceEvery -> got '$got'"; exit 1; }
 
 # 7. codeLanguage, docLanguages, docLevel: defaults, set, invalid, env override, gone key
-got=$(HOME="$home" bash "$settings_sh" get codeLanguage)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get codeLanguage)
 [ "$got" = "en" ] || { echo "FAIL: default codeLanguage = '$got', want en"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" get docLanguages)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get docLanguages)
 [ "$got" = "" ] || { echo "FAIL: default docLanguages = '$got', want empty"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" get docLevel)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get docLevel)
 [ "$got" = "minimal" ] || { echo "FAIL: default docLevel = '$got', want minimal"; exit 1; }
+
+# edge: a CFQ_* var exported by the caller must not leak into an isolated default read
+got=$(CFQ_DOC_LEVEL=standard HOME="$home" cfq_clean bash "$settings_sh" get docLevel)
+[ "$got" = "minimal" ] \
+  || { echo "FAIL: default docLevel under leaked CFQ_DOC_LEVEL = '$got', want minimal"; exit 1; }
 
 HOME="$home" bash "$settings_sh" set docLevel standard
 got=$(HOME="$home" bash "$settings_sh" get docLevel)
@@ -214,7 +223,7 @@ got=$(HOME="$home" bash "$settings_sh" get ponytailAuditEvery)
 [ "$got" = "null" ] || { echo "FAIL: ponytailAuditEvery still present, got '$got'"; exit 1; }
 
 # 8. branchPerBatch, changelogFile, htmlReport: defaults, boolean validation, arbitrary string
-list=$(HOME="$home" bash "$settings_sh" list)
+list=$(HOME="$home" cfq_clean bash "$settings_sh" list)
 [ "$(jq -r '.branchPerBatch' <<<"$list")" = "true" ] \
   || { echo "FAIL: default branchPerBatch = $(jq -r '.branchPerBatch' <<<"$list"), want true"; exit 1; }
 [ "$(jq -r '.changelogFile' <<<"$list")" = ".claude/cfq/changelog.yml" ] \
@@ -246,7 +255,7 @@ got=$(HOME="$home" bash "$settings_sh" get changelogFile)
 [ "$got" = "" ] || { echo "FAIL: set changelogFile empty -> got '$got'"; exit 1; }
 
 # 9. planExploreModel: default, set, env override
-got=$(HOME="$home" bash "$settings_sh" get planExploreModel)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get planExploreModel)
 [ "$got" = "haiku" ] || { echo "FAIL: default planExploreModel = '$got', want haiku"; exit 1; }
 
 HOME="$home" bash "$settings_sh" set planExploreModel opus
@@ -257,7 +266,7 @@ got=$(HOME="$home" CFQ_PLAN_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get pla
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override planExploreModel -> got '$got'"; exit 1; }
 
 # 9b. implExploreModel: default, set, env override
-got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get implExploreModel)
 [ "$got" = "haiku" ] || { echo "FAIL: default implExploreModel = '$got', want haiku"; exit 1; }
 
 HOME="$home" bash "$settings_sh" set implExploreModel opus
@@ -273,7 +282,7 @@ got=$(HOME="$home" CFQ_IMPL_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get imp
 repo_home=$(mktemp -d)
 fixture=$(mktemp -d)
 
-got=$(HOME="$repo_home" bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
+got=$(HOME="$repo_home" cfq_clean bash "$settings_sh" get --repo "$fixture" --source maintenanceEvery)
 [ "$got" = '{"value":50,"source":"default"}' ] \
   || { echo "FAIL: precedence step 1 (default) -> got '$got'"; exit 1; }
 
@@ -365,17 +374,17 @@ list=$(HOME="$state_home" bash "$settings_sh" list)
 rm -rf "$state_home"
 
 # 13. securityTimeoutSeconds / securityFindingsCap: documented defaults
-got=$(HOME="$home" bash "$settings_sh" get securityTimeoutSeconds)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get securityTimeoutSeconds)
 [ "$got" = "30" ] || { echo "FAIL: default securityTimeoutSeconds = '$got', want 30"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" get securityFindingsCap)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get securityFindingsCap)
 [ "$got" = "20" ] || { echo "FAIL: default securityFindingsCap = '$got', want 20"; exit 1; }
 
 # 14. onePhasePerSession: default, list, set/unset round-trip, invalid value, env override
-got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get onePhasePerSession)
 [ "$got" = "true" ] || { echo "FAIL: default onePhasePerSession = '$got', want true"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" list | jq -r '.onePhasePerSession')
+got=$(HOME="$home" cfq_clean bash "$settings_sh" list | jq -r '.onePhasePerSession')
 [ "$got" = "true" ] || { echo "FAIL: list onePhasePerSession = '$got', want true"; exit 1; }
 
 if HOME="$home" bash "$settings_sh" set onePhasePerSession nope 2>/dev/null; then
@@ -387,7 +396,7 @@ got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
 [ "$got" = "false" ] || { echo "FAIL: set onePhasePerSession false -> got '$got'"; exit 1; }
 
 HOME="$home" bash "$settings_sh" unset onePhasePerSession
-got=$(HOME="$home" bash "$settings_sh" get onePhasePerSession)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get onePhasePerSession)
 [ "$got" = "true" ] || { echo "FAIL: unset onePhasePerSession -> got '$got', want default true"; exit 1; }
 
 got=$(HOME="$home" CFQ_ONE_PHASE_PER_SESSION=false bash "$settings_sh" get onePhasePerSession)
@@ -395,11 +404,11 @@ got=$(HOME="$home" CFQ_ONE_PHASE_PER_SESSION=false bash "$settings_sh" get onePh
 
 # 15. i18nExcludePatterns: default, list, set/unset round-trip
 default_i18n='*/locales/*,*/locale/*,*/i18n/*,*/lang/*,*/translations/*'
-got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get i18nExcludePatterns)
 [ "$got" = "$default_i18n" ] \
   || { echo "FAIL: default i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
 
-got=$(HOME="$home" bash "$settings_sh" list | jq -r '.i18nExcludePatterns | join(",")')
+got=$(HOME="$home" cfq_clean bash "$settings_sh" list | jq -r '.i18nExcludePatterns | join(",")')
 [ "$got" = "$default_i18n" ] \
   || { echo "FAIL: list i18nExcludePatterns = '$got', want '$default_i18n'"; exit 1; }
 
@@ -409,7 +418,7 @@ got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
   || { echo "FAIL: set i18nExcludePatterns -> got '$got'"; exit 1; }
 
 HOME="$home" bash "$settings_sh" unset i18nExcludePatterns
-got=$(HOME="$home" bash "$settings_sh" get i18nExcludePatterns)
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get i18nExcludePatterns)
 [ "$got" = "$default_i18n" ] \
   || { echo "FAIL: unset i18nExcludePatterns -> got '$got', want default"; exit 1; }
 

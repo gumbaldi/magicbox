@@ -66,14 +66,16 @@ interactively.
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
+| `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |
 | `implExploreModel` | `CFQ_IMPL_EXPLORE_MODEL` | `haiku` | global, repo | model ifq's pre-implementation research and test-run subagents run on |
+| `implExploreModelComplex` | `CFQ_IMPL_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for ifq's Explore agents whose task is to judge rather than to locate |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `stopUsed` | `CFQ_STOP_USED` | `100000` | global, repo | absolute context tokens at which `ifq` hands off instead of starting another phase; `0` hands off after every phase, `-1` never hands off for this reason |
 | `sessionStaleSeconds` | `CFQ_SESSION_STALE_SECONDS` | `1800` | global, repo | seconds since a session transcript was last touched before it's considered stale (lock takeover, resume staleness) |
 | `ctxWindowLimits` | — | see `describe ctxWindowLimits` | global, repo | context-window size in tokens per model, keyed by whether the model gets the large window |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | global only | roots for automatic queue discovery |
-| `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `false` | global, repo | allows `grillMode: classic` |
-| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `false` | global, repo | enables the optional cleanup audit, one of several maintenance tasks gated by `maintenanceEvery` |
+| `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
+| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `true` | global, repo | enables the optional cleanup audit, one of several maintenance tasks gated by `maintenanceEvery` |
 | `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | global, repo | language of everything executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
 | `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | global, repo | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
 | `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | global, repo | how much documentation a repo keeps: `minimal` (`README` only), `standard` (`docs/` with setup, usage, configuration), `full` (additionally a reference page per module/script and an architecture overview) |
@@ -81,6 +83,7 @@ interactively.
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
+| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty writes `report.html` into the batch directory instead |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
@@ -103,18 +106,20 @@ restate a field list inline — read the field here, then read it back from the 
 `status` values follow CLAUDE.md's Status Vocabulary.
 
 - **`cfq-pfq-preflight.sh <repo-root>`** — `{status, repo: {root, known}, planningPolicy:
-  {planModels, allowAnyModel, planExploreModel, planBlockedPlugins}, language: {codeLanguage,
-  docLanguages, docLevel}, queue: {openBatches: [{name, priority, open, dependsOn}]}, maintenance:
-  {status, n}, security: {available}}`. `status`: `OK` or `NO_REPO` (only `repo.root`/`.known` set
-  then).
+  {planModels, allowAnyModel, planExploreModel, planExploreModelComplex, planBlockedPlugins,
+  grillMode, useMattpocockGrilling, usePonytailAudit}, language: {codeLanguage, docLanguages,
+  docLevel}, queue: {openBatches: [{name, priority, open, dependsOn}]}, maintenance: {status, n},
+  security: {available}, reporting: {reportDir, htmlReport}}`. `status`: `OK` or `NO_REPO` (only
+  `repo.root`/`.known` set then).
 - **`cfq-ifq-preflight.sh <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
-  {implModels, allowAnyModel, implBlockedPlugins}, selection: {selectable: [{name, priority, open,
-  done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …], inProgress,
-  multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} | null, nextPhase:
-  {num, slug, size, failedAttempt} | null, branch: {…cfq-branch.sh plan's shape} | null, resume:
-  {…cfq-resume.sh's shape minus `branch`} | null, contextGate: {pct, size, expected, projected,
-  limit, verdict, note} | null}`. `status`: `OK`, `NO_REPO`, `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or
-  `NO_BATCH`.
+  {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
+  implExploreModelComplex}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
+  priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
+  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
+  null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…cfq-branch.sh plan's shape}
+  | null, resume: {…cfq-resume.sh's shape minus `branch`} | null, contextGate: {pct, size,
+  expected, projected, limit, verdict, note} | null}`. `status`: `OK`, `NO_REPO`,
+  `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
 - **`cfq-scan.sh [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
   batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,

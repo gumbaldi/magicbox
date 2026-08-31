@@ -53,6 +53,10 @@ out=$(HOME="$home" bash "$pf" "$repo1")
 [ "$(jq -r .branch.mode <<<"$out")" = "continue" ] || { echo "FAIL: expected continue mode = $out"; exit 1; }
 calls=$(wc -l < "$count_log")
 [ "$calls" = "1" ] || { echo "FAIL: continue-mode cfq-branch.sh calls = $calls, want 1"; exit 1; }
+jq -e '.policy | has("implExploreModel") and has("implExploreModelComplex")' <<<"$out" >/dev/null \
+  || { echo "FAIL: policy missing implExploreModel/implExploreModelComplex: $out"; exit 1; }
+jq -e '.reporting | has("reportDir") and has("htmlReport")' <<<"$out" >/dev/null \
+  || { echo "FAIL: missing reporting object: $out"; exit 1; }
 
 # ------------------------------------------------------------ new mode: preflight (1) + mutation's
 # post-checkout confirm (1) = 2, combined across the sequence.
