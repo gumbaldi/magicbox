@@ -168,9 +168,9 @@ execution should re-run that comparison first, not take this paragraph on faith.
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
   copies the block from `implement-for-queue/SKILL.md` and adds only its own `## Section Map`.
   `AskUserQuestion`, briefings, and data tables are exempt and stay prose. Change the block →
-  change it in all four `SKILL.md` files. Two forms are in use — the full block (`code-for-queue`,
-  `report-for-queue`) and a shortened one that says the same thing in fewer lines
-  (`implement-for-queue`, `plan-for-queue`), needed to stay inside the 200-line budget below.
+  change it in all four `SKILL.md` files. Two forms are in use — the full block (`report-for-queue`)
+  and a shortened one that says the same thing in fewer lines (`implement-for-queue`,
+  `plan-for-queue`, `code-for-queue`), needed to stay inside the 200-line budget below.
   Whichever form a skill uses, it must still be word-for-word identical across every skill using
   that form.
 - **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything

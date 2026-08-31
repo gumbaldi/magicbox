@@ -63,9 +63,11 @@ Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `br
 /cfq
 ```
 
-First-time setup (see [setup.md](setup.md)), the cross-repo dashboard — every queue in every
-registered repo, at a glance, including what's still open — management of the current repo's
-`todo/` leftovers, and reading or changing settings (see [configuration.md](configuration.md)).
+First-time setup (see [setup.md](setup.md)), the cross-repo dashboard — a `QUEUES` overview table
+across every registered repo plus a `THIS REPO` phase-level table and a `CONFIG` block (only the
+settings that deviate from default, each tagged `[D]`/`[G]`/`[R]`/`[E]` for default/global/repo/env)
+for the repo `/cfq` runs in — management of the current repo's `todo/` leftovers, and reading or
+changing settings (see [configuration.md](configuration.md)).
 
 ## Reports — `/rfq`
 

@@ -160,6 +160,19 @@ tsv_rows=$(wc -l <<<"$out_tsv")
 tsv_fields=$(grep '2026-01-01-demo' <<<"$out_tsv" | awk -F'\t' '{print NF}')
 [ "$tsv_fields" = "5" ] || { echo "FAIL: tsv field count = $tsv_fields"; exit 1; }
 
+# --format=overview: one row per repo, Batches is open/done batch counts (not phase counts),
+# Status the most severe status among that repo's own batches.
+out_overview=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=overview)
+ov_header=$(head -n1 <<<"$out_overview")
+[ "$ov_header" = "| Repo | Plan | Todo | Batches | Status |" ] \
+  || { echo "FAIL: overview header = $ov_header"; exit 1; }
+ov_repo_a=$(grep '^| repo-a ' <<<"$out_overview" || true)
+[ "$ov_repo_a" = "| repo-a | 0 | 0 | 1/0 | IN_PROGRESS |" ] \
+  || { echo "FAIL: overview repo-a row = $ov_repo_a"; exit 1; }
+ov_repo_f=$(grep '^| repo-f ' <<<"$out_overview" || true)
+[ "$ov_repo_f" = "| repo-f | 2 | 1 | 0/0 | OK |" ] \
+  || { echo "FAIL: overview repo-f row = $ov_repo_f"; exit 1; }
+
 # Unknown --format value: clear error, exit 1.
 err_file="$home/cfq-scan-format-err"
 if HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$scan" --format=bogus >/dev/null 2>"$err_file"; then
