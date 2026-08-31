@@ -60,6 +60,11 @@ the option text — don't always mark the same one:
 Full rationale in `references/interview-depth.md`. On **Thorough** or **Grilling with docs**, read
 `references/grilling.md` and follow it. Print the `Interview Depth` status line once answered.
 
+Then probe the write surface before any research starts — read
+`references/write-probe.md` and follow it. Print the `Write Probe` status line either way: `➖` with
+the reason when the docs half was skipped, `❌` plus the blocking hook's reason when a probe was
+denied, in which case the session ends there.
+
 ## Step 2 — Understand
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
