@@ -420,5 +420,13 @@
   branch: cfq/008-2026-08-31-model-detection-stable-source
   base: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
   started: 2026-08-31
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-31
+  phases:
+    - phase: "01-runtime-model-from-payload"
+      status: "green"
+      summary: ""
+    - phase: "02-plan-guard-model-detection"
+      status: "green"
+      summary: ""
