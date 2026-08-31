@@ -169,6 +169,30 @@ flowchart TB
 name that resolves to neither an open nor a finished batch is deliberately never blocking —
 it's flagged in the dashboard instead.
 
+## Hook contract
+
+`PreToolUse` on `Write`/`Edit` is the only hook class that can structurally break a `pfq` session.
+It is the only class that can deny a tool call, and every file a `pfq` session produces is written
+through that tool. A `PreToolUse` hook on `Bash` rewrites commands rather than denying them, and
+`SessionStart` runs before the skill is loaded — neither can stop a park.
+
+A guard hook that restricts writes must let these paths through, or `pfq` dies mid-park with a
+half-written batch in the queue:
+
+- `<repo>/.claude/cfq/**` — the three queues, and the only path every `pfq` session writes.
+  `scripts/cfq-layout.sh` is the source of truth for this list; read it there rather than copying
+  the entries into the hook by hand.
+- `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
+  path, and easy to miss because no other interview depth touches them.
+
+Everything else `cfq` writes — the changelog, the registry, `report.json`, `.priority`,
+`.dependsOn`, the global state store under `$HOME/.claude/code-for-queue/` — goes through cfq's own
+scripts over `Bash` and is never seen by a `Write`/`Edit` hook.
+
+Renaming the queue layout means updating every external guard hook too. That coupling is invisible
+from inside this repository, which is how it broke once: a hook still allowed the pre-migration
+`.claude/code-for-queue/` path long after the queues had moved to `.claude/cfq/`.
+
 ## Batch lifecycle
 
 ```mermaid

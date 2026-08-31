@@ -84,6 +84,8 @@ inside any of the three subdirectories — `.lock` is held by the currently runn
 index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
 `tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
+It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
+key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
 **Three state files, all outside any repo**, in `$HOME/.claude/code-for-queue/` (the global store's
 own path — unrelated to and not renamed by the repo-local `.claude/cfq/` layout above): `repos.json`
