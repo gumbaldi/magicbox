@@ -30,6 +30,17 @@ extract_files_section() {
   sed -n '/^## Affected Files/,/^## /p' "$1"
 }
 
+extract_section() {
+  # $1 = file, $2 = heading. awk, not sed's "/^## H/,/^## /p" range: that range prints through
+  # EOF when H is the file's last heading (Verification usually is), and a trailing sed '1d;$d'
+  # then drops the section's real last line instead of a heading that was never there.
+  awk -v h="$2" '
+    $0 ~ ("^## " h "([[:space:]]|$)") { f=1; next }
+    f && /^## / { f=0 }
+    f
+  ' "$1"
+}
+
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   name="$(basename "$f")"
@@ -39,6 +50,22 @@ while IFS= read -r f; do
   has_heading "$f" "Changes"        || findings+=("$name: sections: missing Changes heading")
   has_heading "$f" "Verification"   || findings+=("$name: sections: missing Verification heading")
   has_heading "$f" "Size"           || findings+=("$name: sections: missing Size heading")
+
+  if has_heading "$f" "Verification"; then
+    verification="$(extract_section "$f" "Verification")"
+    printf '%s\n' "$verification" | grep -qE '^```|`[^`]+`' \
+      || findings+=("$name: verification-cmd: no runnable command in Verification")
+    printf '%s\n' "$verification" | grep -qiE 'expect|PASS|exit 0|prints|must' \
+      || findings+=("$name: verification-expect: no expected result stated")
+  fi
+  if has_heading "$f" "Changes"; then
+    printf '%s\n' "$(extract_section "$f" "Changes")" | grep -q '[^[:space:]]' \
+      || findings+=("$name: changes-empty: Changes section is empty")
+  fi
+  if has_heading "$f" "Affected Files"; then
+    printf '%s\n' "$(extract_files_section "$f")" | grep -qE '^- `' \
+      || findings+=("$name: files-empty: Affected Files has no entries")
+  fi
 
   while IFS= read -r line; do
     path=$(printf '%s' "$line" | sed -n 's/^- `\([^`]*\)`.*/\1/p')

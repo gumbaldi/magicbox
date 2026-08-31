@@ -33,7 +33,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # 02-b: sections violation — missing the Verification heading
@@ -43,6 +43,7 @@ M
 ## Context
 x
 ## Affected Files
+- \`$target\` (ändern)
 ## Changes
 x
 EOF
@@ -58,7 +59,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # 04-d: missing violation — absolute path, marked "(ändern)", does not exist
@@ -72,7 +73,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # 05-e: stale-new violation — marked "(new)" but the path already exists
@@ -86,7 +87,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # 08-g: sections violation — missing the Size heading
@@ -98,7 +99,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # 09-h: sections violation — the old German "Größe" heading no longer counts as Size
@@ -112,7 +113,65 @@ x
 ## Changes
 x
 ## Verification
+\`bash tests/foo.sh\` must exit 0
+EOF
+
+# 10-i: verification-cmd violation — prose only, no fenced code block, no backticked command
+cat >"$dirty/10-i.md" <<EOF
+## Size
+M
+## Context
 x
+## Affected Files
+- \`$target\` (ändern)
+## Changes
+x
+## Verification
+This step must be verified manually by a human tester.
+EOF
+
+# 11-j: verification-expect violation — a command, but no stated expected result
+cat >"$dirty/11-j.md" <<'EOF'
+## Size
+M
+## Context
+x
+## Affected Files
+- `$target` (ändern)
+## Changes
+x
+## Verification
+```bash
+bash tests/foo.sh
+```
+EOF
+# resolve $target after the heredoc, since the quoted heredoc above didn't expand it
+sed -i "s|\$target|$target|" "$dirty/11-j.md"
+
+# 12-k: changes-empty violation — heading present, section body empty
+cat >"$dirty/12-k.md" <<EOF
+## Size
+M
+## Context
+x
+## Affected Files
+- \`$target\` (ändern)
+## Changes
+## Verification
+\`bash tests/foo.sh\` must exit 0
+EOF
+
+# 13-l: files-empty violation — heading present, no \`- \`…\`\` entry
+cat >"$dirty/13-l.md" <<EOF
+## Size
+M
+## Context
+x
+## Affected Files
+## Changes
+x
+## Verification
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 # done/07-f: numbering gap (06 is skipped). Deliberately full of content violations too, to prove
@@ -146,6 +205,10 @@ assert_once missing
 assert_once stale-new
 assert_once priority
 assert_once batch-context 1
+assert_once verification-cmd 1
+assert_once verification-expect 1
+assert_once changes-empty 1
+assert_once files-empty 1
 
 printf '%s\n' "$out" | grep -q '^01-a\.md:' && { echo "FAIL: correct file 01-a.md appears in findings"; exit 1; }
 printf '%s\n' "$out" | grep -q '07-f\.md:' && { echo "FAIL: done/ file content should never be linted, got: $out"; exit 1; }
@@ -166,7 +229,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 
 out=$(bash "$lint_sh" "$clean") && rc=0 || rc=$?
@@ -188,7 +251,7 @@ x
 ## Changes
 x
 ## Verification
-x
+\`bash tests/foo.sh\` must exit 0
 EOF
 if out=$(bash "$lint_sh" "$newmarker" 2>&1); then
   echo "FAIL: English (new) marker on an existing path should fail lint"; exit 1
@@ -199,7 +262,7 @@ printf '%s\n' "$out" | grep -q ': priority:' \
   && { echo "FAIL: batch without .priority should not fire priority: $out"; exit 1; }
 
 # --- batch-context: missing file, missing heading, empty section, good file ---
-phase_body='## Size
+phase_body="## Size
 
 S
 
@@ -207,13 +270,15 @@ S
 x
 
 ## Affected Files
+- \`$target\` (ändern)
 
 ## Changes
 x
 
 ## Verification
-x
-'
+
+\`bash tests/foo.sh\` must exit 0
+"
 
 noctx="$qdir/2026-01-04-noctx"; mkdir -p "$noctx"
 printf '%s' "$phase_body" >"$noctx/01-a.md"
@@ -440,5 +505,13 @@ printf '%s' "$out" | jq -e '(keys | sort) == (["codeLanguage","docLanguages","do
   || { echo "FAIL: unchanged invocation key set changed: $out"; exit 1; }
 
 rm -rf "$prosehome"
+
+# ============================================================ commands/*.toml pairs ==
+
+for pair in pfq:plan-for-queue ifq:implement-for-queue cfq:code-for-queue rfq:report-for-queue; do
+  short="${pair%%:*}"; long="${pair##*:}"
+  cmp -s "$repo_root/commands/$short.toml" "$repo_root/commands/$long.toml" \
+    || { echo "FAIL: commands/$short.toml and commands/$long.toml are not byte-identical"; exit 1; }
+done
 
 echo PASS

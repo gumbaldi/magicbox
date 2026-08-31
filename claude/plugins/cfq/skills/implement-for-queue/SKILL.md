@@ -5,6 +5,7 @@ description: >
   batch per session, phase by phase, stopping when the context window gets too full. Use for
   "/ifq", "/implement-for-queue", "implement the queue", "work off the plans", "continue with
   the plans", "next phase".
+argument-hint: <batch or phase>
 ---
 
 # Implement-for-Queue: Work Off a Batch Phase by Phase
@@ -22,6 +23,10 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 | PRECHECKS | 1-3a | Preflight, Model Check, Batch, Size Gate |
 | IMPLEMENTATION | 4-5 | per phase: announcement, result, Commit |
 | POSTCHECKS | 6-7 | Context Check, Telemetry, Lock, Batch Done |
+
+## Step 0 — Arguments
+
+Text passed with the invocation narrows batch selection in Steps 1-3a — it never replaces the briefing, the go-ahead, or the per-phase Go question.
 
 ## Step 0 — Plan-Mode Gate
 

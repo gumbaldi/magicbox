@@ -1,2 +1,7 @@
 description = "Show implementation reports for finished queue batches"
-prompt = "Use the report-for-queue skill: show the implementation reports for the queue batches, and render the detailed HTML report if asked."
+prompt = """Use the report-for-queue skill and follow its steps from the beginning.
+
+Any text below is a filter or a request for a specific view — see the skill's own ## Arguments
+section for how repo/batch filters are applied.
+
+$ARGUMENTS"""

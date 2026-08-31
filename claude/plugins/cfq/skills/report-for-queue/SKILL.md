@@ -5,6 +5,7 @@ description: >
   implementation departed from the plan, and what broke. Renders a compact table in the terminal and a
   detailed HTML report on request. Use for "/rfq", "/report-for-queue", "show the reports", "how did
   the last batch go", "what went wrong in the implementation".
+argument-hint: <repo or batch>
 ---
 
 # Report-for-Queue: Show What Happened

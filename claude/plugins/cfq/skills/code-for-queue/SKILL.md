@@ -5,6 +5,7 @@ description: >
   repositories — what is still open, how much is done — manage the current repository's queue,
   and change cfq's configuration. Use for "/cfq", "/code-for-queue", "show my queues", "queue
   status", "cfq settings".
+argument-hint: <settings|repo>
 ---
 
 # Code-for-Queue: Dashboard, Settings, First-Time Setup
