@@ -402,8 +402,19 @@
   branch: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
   base: cfq/006-2026-08-31-cfq-phase-io-reports-dashboard
   started: 2026-08-31
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-08-31
+  phases:
+    - phase: "01-plan-guard-queue-paths"
+      status: "green"
+      summary: ""
+    - phase: "02-hook-contract-docs"
+      status: "green"
+      summary: ""
+    - phase: "03-pfq-write-probe"
+      status: "green"
+      summary: ""
 - batchNumber: 8
   batch: 008-2026-08-31-model-detection-stable-source
   status: parked
