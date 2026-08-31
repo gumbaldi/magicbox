@@ -399,7 +399,11 @@
       summary: ""
 - batchNumber: 7
   batch: 007-2026-08-31-pfq-hook-contract-and-write-probe
-  status: parked
+  branch: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
+  base: cfq/006-2026-08-31-cfq-phase-io-reports-dashboard
+  started: 2026-08-31
+  status: in-progress
+  legacy: false
 - batchNumber: 8
   batch: 008-2026-08-31-model-detection-stable-source
   status: parked
