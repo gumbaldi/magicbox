@@ -417,4 +417,8 @@
       summary: ""
 - batchNumber: 8
   batch: 008-2026-08-31-model-detection-stable-source
-  status: parked
+  branch: cfq/008-2026-08-31-model-detection-stable-source
+  base: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
+  started: 2026-08-31
+  status: in-progress
+  legacy: false

@@ -175,6 +175,7 @@ do_resolve() {
           ok:*)
             rest="${kind#ok:}"
             read -r pct used windowSize <<<"$rest"
+            model=$(jq -r '.model.id // empty' "$p" 2>/dev/null || true)
             source="payload"; status="ok"; note="$used/$windowSize, src=payload"
             add_source "statusline-payload" true true "" "$note"
             ;;
