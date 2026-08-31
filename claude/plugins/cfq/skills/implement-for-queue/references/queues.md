@@ -78,24 +78,56 @@ step calls it directly — solely to reconfirm the branch now exists post-checko
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
 
-## Pre-Implementation Go Gate (Step 4b2)
+## Phase Announcement and Go Gate (Step 4b2)
 
 Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
-to Step 3b's one coarse per-batch go-ahead. The status line uses fields already on hand, no new
-data model: phase number and title from the phase file's own top-level context (its filename's
-`NN-<slug>` plus the first line of its `## Context` section, or the slug alone if `## Context` is
-missing), the `## Size` letter, and the `## Affected Files` list verbatim (absolute paths, one per
-line or comma-joined if short). Example:
+to Step 3b's one coarse per-batch go-ahead. The announcement is
+`cfq-brief.sh "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
+deterministic, extracted from the phase file, so it cannot drift in wording between phases:
 
 ```
-P02 ifq-per-phase-go-gate [L]
-Affected: cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+PHASE 02 · ifq-per-phase-go-gate · Size L
+  Goal     <first two non-empty lines of ## Context>
+  Files    cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+  Check    <first command line from ## Verification>
 ```
 
 Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
 **Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
 `cfq-lock.sh release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
 and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
+
+## Phase Summary (Step 4, after 4c)
+
+Printed after (4c), before the `cfq-report.sh append` call:
+
+```
+PHASE 02 DONE
+✅ Implemented     <one clause: what was built>
+✅ Verification    <command, and its result>
+⚠️ Deviation       <one line per deviation>
+```
+
+`Implemented` and `Verification` are the model's own prose — no script can know what actually
+happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report.json`
+`deviations` entry: one source, two renderings, never worded differently for the two audiences. No
+deviations → the `Deviation` line is omitted entirely, not printed empty.
+
+## Stop Rule (Step 4, before the next phase)
+
+A gate, not a status line — checked after a phase goes green, before auto-advancing to the next
+open phase in the same session. Exactly four triggers, nothing else:
+
+- (a) files were changed that `## Affected Files` does not list — checked mechanically, never by
+  judgement: `git diff --name-only HEAD~1..HEAD` against that phase's `## Affected Files`.
+- (b) verification came back red, or was not run
+- (c) a change the plan specifies was deliberately left out
+- (d) a new dependency or a new script was introduced that the plan does not name
+
+Any of the four firing → do not auto-advance; state which trigger fired and ask once
+(`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
+Everything that is not one of the four is a note in the report, never a stop — say so explicitly so
+a future reader does not add a fifth trigger by interpretation.
 
 ## Phase Commit Trailers (Step 5)
 
@@ -112,6 +144,44 @@ Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber`
 human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
 unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
 `CFQ-*` trailer.
+
+## Batch-Done Report Fields (Step 7)
+
+`cfq-finish.sh`'s one JSON object, rendered field by field:
+
+- `Language`: `.lang.issues` is the structural count (`missing`/`stray`/`unfiled`); judge
+  `.lang.prose.sample` for prose, comments, identifiers and commit messages not in `codeLanguage` —
+  any language, never hardcode one to look for. `i18nExcludePatterns` keeps locale/translation
+  resources out of the sample by default; a line that lands anyway (custom naming the patterns
+  miss) from an evident translation resource isn't a `codeLanguage` violation — expected
+  multi-language content, not a policy breach. `.lang.prose.truncated: true` means the sample is
+  exactly that, a sample, so the status line says so (`⚠️ 2 issues · sampled`); an empty sample (no
+  git repo, unknown ref) is `➖`, not a finding. Either source finding → `⚠️` with the combined
+  count, details as `   └ ` lines; nothing found → `✅ no issues`. No repair here — every finding
+  becomes a `todo/` entry per **Follow-Up** below.
+- `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
+  run /pfq`.
+- `Security Diff` from `.security.new` — the difference only, no repeat of the overall count, no
+  new planning, no automatic fix; an empty `.security` block (older batch, no planning snapshot)
+  → skip without comment.
+- `Changelog` from `.changelog` as-is.
+- `Telemetry` from `.telemetry`, `Lock` from `.lock`.
+- Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
+
+## Closing Report Fields (Step 8, full format)
+
+`RESULT · implement-for-queue` header, one label/value line per field:
+
+- `Batch` — batch and repo, phases total, green/red split.
+- `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" summary "<batch-dir>"` (same call
+  `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
+  tokens total (planning's share named separately), models, efforts.
+- `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
+- `Security` — the difference only, one line.
+- `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
+  `   └ ` line, printed not run; also a `todo/` entry per **Follow-Up** below without asking, so a
+  forgotten merge is never lost.
+- `Report` — `file://` path, only when Step 7 rendered one, else the line is omitted.
 
 ## Skills Recommended vs. Used (Step 8)
 
@@ -151,19 +221,23 @@ itself is unchanged; only who calls it and what's kept from its output moved.
 
 ## Research and Verification Delegation (Step 4c)
 
-Two, and only two, places in Step 4c may run on an Explore subagent
-(`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implExploreModel`, default `haiku`) instead of
-the implementing session's own model — never a blanket "delegate whatever seems slow":
+Two, and only two, places in Step 4c may run on an Explore subagent instead of the implementing
+session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
+a mood — cheap model to locate, expensive to judge; read
+`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys
+(`implExploreModel`/`.implExploreModelComplex`) come from the preflight's `policy` object, no
+`cfq-settings.sh get` call here:
 
 - **Pre-implementation research.** Before writing any code, a phase that touches several files or
   whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate
   the relevant code, existing patterns, and callers, and return a distilled summary. This mirrors
-  `plan-for-queue` Step 2 exactly — same reasoning, same default model. A narrow, single-file phase
-  needs no subagent; reading the phase file is enough.
+  `plan-for-queue` Step 2 exactly — same reasoning, same escalation rule. A narrow, single-file
+  phase needs no subagent; reading the phase file is enough.
 - **Verification output filtering, green case only.** Running the phase's verification command
   (tests, build, lint) can itself be delegated to an `implExploreModel` subagent when the raw output
   would be long — it runs the command and reports back pass/fail plus which command ran, nothing
-  more. This keeps noisy log output out of the expensive model's context on the common path.
+  more. This is a locate-shaped task (pass/fail, which command), so it always stays on the cheap
+  model even where the pre-implementation research above escalated.
 
 **Never delegate a red result.** The moment verification fails, the subagent (if one was used for
 that run) returns the complete, unfiltered failure output — full stack trace, full diff, everything
@@ -178,3 +252,22 @@ code the parent must then read back in full to verify or commit is strictly more
 parent writing it directly. See the plugin `CLAUDE.md`'s "Subagents are for exploration and
 mechanical test execution" section for the full reasoning and the measurement anyone changing this
 should re-run first.
+
+## Reusing a Warm Explore Agent (Step 4c)
+
+Only applies when a second phase runs in the same session, i.e. when `onePhasePerSession` is
+`false`. Under the default (`true`) this never applies and nothing below happens.
+
+When the next phase's `## Affected Files` overlaps the files an Explore agent of this session has
+already read, continue that agent with `SendMessage` instead of starting a new one — its context
+still holds those files. Continue it only if nothing has changed underneath it:
+
+```bash
+git diff --name-only <sha-when-the-agent-started>..HEAD
+```
+
+If that output intersects the files the agent read, its knowledge is stale — start a fresh agent.
+One `git` call decides this; do not reason about what an agent "probably still knows".
+
+This never applies to implementation, test writing or documentation, which stay off subagents
+entirely.

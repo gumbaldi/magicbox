@@ -28,7 +28,8 @@ resolved_root=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || {
 repo="$resolved_root"
 
 settings=$("$script_dir/cfq-settings.sh" list --repo "$repo")
-policy=$(jq -c '{implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession}' <<<"$settings")
+policy=$(jq -c '{implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel, implExploreModelComplex}' <<<"$settings")
+reporting=$(jq -c '{reportDir, htmlReport}' <<<"$settings")
 
 candidates=$("$script_dir/cfq-scan.sh" | jq -c --arg repo "$repo" \
   '[(.repos[]? | select(.path == $repo) | .batches[]?
@@ -43,8 +44,8 @@ inprogress_names=$(jq -c '[.[] | select(.inProgress == true) | .name]' <<<"$elig
 inprogress_count=$(jq 'length' <<<"$inprogress_names")
 
 if [ "$inprogress_count" -gt 1 ]; then
-  jq -n --arg repo "$repo" --argjson policy "$policy" --argjson names "$inprogress_names" \
-    '{status: "MULTIPLE_IN_PROGRESS", repo: {root: $repo}, policy: $policy,
+  jq -n --arg repo "$repo" --argjson policy "$policy" --argjson reporting "$reporting" --argjson names "$inprogress_names" \
+    '{status: "MULTIPLE_IN_PROGRESS", repo: {root: $repo}, policy: $policy, reporting: $reporting,
       selection: {selectable: [], blocked: [], planning: [], inProgress: null, multipleInProgress: $names},
       batch: null, nextPhase: null, branch: null, resume: null, contextGate: null}'
   exit 0
@@ -76,9 +77,9 @@ if [ -z "$chosen" ]; then
   if [ "$(jq 'length' <<<"$selectable")" -eq 0 ]; then
     if [ "$(jq 'length' <<<"$blocked_json")" -gt 0 ]; then status="BLOCKED"; else status="NO_BATCH"; fi
   fi
-  jq -n --arg repo "$repo" --argjson policy "$policy" --arg status "$status" \
+  jq -n --arg repo "$repo" --argjson policy "$policy" --argjson reporting "$reporting" --arg status "$status" \
     --argjson selectable "$selectable" --argjson blocked "$blocked_json" --argjson planning "$planning_json" \
-    '{status: $status, repo: {root: $repo}, policy: $policy,
+    '{status: $status, repo: {root: $repo}, policy: $policy, reporting: $reporting,
       selection: {selectable: $selectable, blocked: $blocked, planning: $planning, inProgress: null, multipleInProgress: []},
       batch: null, nextPhase: null, branch: null, resume: null, contextGate: null}'
   exit 0
@@ -111,7 +112,7 @@ else
   gate_json="null"
 fi
 
-jq -n --arg repo "$repo" --argjson policy "$policy" \
+jq -n --arg repo "$repo" --argjson policy "$policy" --argjson reporting "$reporting" \
   --argjson selectable "$selectable" --argjson blocked "$blocked_json" --argjson planning "$planning_json" \
   --arg inprog "$inprogress_name" \
   --argjson cand "$cand" --arg briefText "$brief_text" \
@@ -121,6 +122,7 @@ jq -n --arg repo "$repo" --argjson policy "$policy" \
     status: "OK",
     repo: {root: $repo},
     policy: $policy,
+    reporting: $reporting,
     selection: {selectable: $selectable, blocked: $blocked, planning: $planning,
                 inProgress: (if $inprog == "" then null else $inprog end), multipleInProgress: []},
     batch: {name: $cand.name, priority: $cand.priority, phaseCount: $cand.open,

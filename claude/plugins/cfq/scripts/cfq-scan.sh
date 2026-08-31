@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The single source of numbers for the dashboard. Usage: cfq-scan.sh [--format=json|md|tsv]
+# The single source of numbers for the dashboard. Usage: cfq-scan.sh [--format=json|md|tsv|overview]
 # json (default): one JSON object on stdout: { "repos": [ { "path", "plan", "todo", "batches": [
 #   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress,
 #    planning} ] } ] } — byte-identical to the no-flag output for every existing caller.
@@ -7,6 +7,8 @@
 # one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
 # additive per-batch-row extension, same pattern as RFQ's GREEN/RED/MIXED), sorted open-first,
 # then flagged priority first, then name.
+# overview: one row per repo (Repo, Plan, Todo, Batches, Status) — Batches is open/done batch
+# counts, Status the most severe status among the repo's own batches, same vocabulary as above.
 set -eu
 
 format=json
@@ -17,8 +19,8 @@ for arg in "$@"; do
   esac
 done
 case "$format" in
-  json|md|tsv) ;;
-  *) echo "cfq-scan.sh: unknown --format value '$format' (expected json|md|tsv)" >&2; exit 1 ;;
+  json|md|tsv|overview) ;;
+  *) echo "cfq-scan.sh: unknown --format value '$format' (expected json|md|tsv|overview)" >&2; exit 1 ;;
 esac
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-scan.sh: jq is required" >&2; exit 1; }
@@ -188,6 +190,23 @@ case "$format" in
   tsv)
     jq -r "$row_filter"'
       | .[] | [.repo,.name,.priority,.openDone,.status] | @tsv
+    ' <<<"$scan_json"
+    ;;
+  overview)
+    jq -r '
+      def st($b):
+        if ([$b[] | .blocked] | any) then "BLOCKED"
+        elif ([$b[] | .planning] | any) then "PLANNING"
+        elif ([$b[] | .inProgress] | any) then "IN_PROGRESS"
+        else "OK" end;
+      (["Repo","Plan","Todo","Batches","Status"] | "| " + join(" | ") + " |"),
+      "|---|---|---|---|---|",
+      (.repos[] | [
+          (.path | split("/") | last), (.plan|tostring), (.todo|tostring),
+          (([.batches[] | select(.archived == false)] | length | tostring) + "/"
+            + ([.batches[] | select(.archived == true)] | length | tostring)),
+          st(.batches)
+        ] | "| " + join(" | ") + " |")
     ' <<<"$scan_json"
     ;;
 esac

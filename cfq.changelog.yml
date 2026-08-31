@@ -370,3 +370,63 @@
     - phase: "01-fix-plugin-status-detection"
       status: "green"
       summary: ""
+- batchNumber: 6
+  batch: 006-2026-08-31-cfq-phase-io-reports-dashboard
+  branch: cfq/006-2026-08-31-cfq-phase-io-reports-dashboard
+  base: cfq/005-2026-08-25-cfq-plugin-status-detection
+  started: 2026-08-31
+  status: done
+  legacy: false
+  finished: 2026-08-31
+  phases:
+    - phase: "01-settings-and-preflight-bundling"
+      status: "green"
+      summary: "Added reportDir/planExploreModelComplex/implExploreModelComplex to the settings schema, bundled the new keys into cfq-pfq-preflight.sh and cfq-ifq-preflight.sh single-read output, and fixed the test-settings.sh env-leak isolation via a per-assertion cfq_clean() helper."
+    - phase: "02-cfq-dashboard-aggregator"
+      status: "green"
+      summary: "Added cfq-dash.sh (single read-only aggregator: plugin status + switches, per-repo scan rollup, this-repo settings-with-sources) with tests/test-dash.sh written first; added cfq-scan.sh --format=overview; rewrote code-for-queue SKILL.md around the one aggregator call (218 -> 122 lines) and moved Step C/D detail plus the plugin-offer table into the new skills/code-for-queue/references/dashboard.md; updated docs/usage.md's /cfq section."
+    - phase: "03-html-reports-configurable-directory"
+      status: "green"
+      summary: "reportDir collects HTML reports (per-batch + index.html) outside the git-excluded queue dir; each phase section now shows its plan goal; cfq-finish.sh auto-renders on htmlReport=true."
+    - phase: "04-ifq-phase-io-and-format"
+      status: "green"
+      summary: ""
+    - phase: "05-arguments-framing-and-plan-depth"
+      status: "green"
+      summary: ""
+    - phase: "06-explore-model-escalation-and-session-reuse"
+      status: "green"
+      summary: ""
+- batchNumber: 7
+  batch: 007-2026-08-31-pfq-hook-contract-and-write-probe
+  branch: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
+  base: cfq/006-2026-08-31-cfq-phase-io-reports-dashboard
+  started: 2026-08-31
+  status: done
+  legacy: false
+  finished: 2026-08-31
+  phases:
+    - phase: "01-plan-guard-queue-paths"
+      status: "green"
+      summary: ""
+    - phase: "02-hook-contract-docs"
+      status: "green"
+      summary: ""
+    - phase: "03-pfq-write-probe"
+      status: "green"
+      summary: ""
+- batchNumber: 8
+  batch: 008-2026-08-31-model-detection-stable-source
+  branch: cfq/008-2026-08-31-model-detection-stable-source
+  base: cfq/007-2026-08-31-pfq-hook-contract-and-write-probe
+  started: 2026-08-31
+  status: done
+  legacy: false
+  finished: 2026-08-31
+  phases:
+    - phase: "01-runtime-model-from-payload"
+      status: "green"
+      summary: ""
+    - phase: "02-plan-guard-model-detection"
+      status: "green"
+      summary: ""

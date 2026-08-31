@@ -84,6 +84,8 @@ inside any of the three subdirectories — `.lock` is held by the currently runn
 index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
 `tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
+It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
+key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
 **Three state files, all outside any repo**, in `$HOME/.claude/code-for-queue/` (the global store's
 own path — unrelated to and not renamed by the repo-local `.claude/cfq/` layout above): `repos.json`
@@ -144,9 +146,12 @@ the same way — pass/fail plus which command ran is enough. A **red** run does 
 the subagent returns the complete, unfiltered failure output, because the implementing model needs
 the full error to fix it; summarizing a failure is exactly the case where a cheaper model can lose
 the detail that matters. Implementation, test writing and documentation stay off subagents
-entirely — the subagent starts cold, re-reads what the parent already holds, and the parent then
-reads the subagent's output again to verify it, two or three reads where a direct read-and-edit
-would have been one. That trade-off is measurable, not asserted: compare a subagent call's reported
+entirely — a *newly spawned* subagent starts cold and re-reads what the parent already holds (a
+continued one, addressed via `SendMessage`, keeps its context instead — see
+`implement-for-queue/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
+and the parent then reads the subagent's output again to verify it, two or three reads where a
+direct read-and-edit would have been one. That trade-off is measurable, not asserted: compare a
+subagent call's reported
 input-token count (`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent
 reading and editing the same files directly — for implementation, test writing and documentation
 the subagent path loses. Anyone tempted to delegate anything beyond exploration or verification
@@ -168,9 +173,9 @@ execution should re-run that comparison first, not take this paragraph on faith.
   16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
   copies the block from `implement-for-queue/SKILL.md` and adds only its own `## Section Map`.
   `AskUserQuestion`, briefings, and data tables are exempt and stay prose. Change the block →
-  change it in all four `SKILL.md` files. Two forms are in use — the full block (`code-for-queue`,
-  `report-for-queue`) and a shortened one that says the same thing in fewer lines
-  (`implement-for-queue`, `plan-for-queue`), needed to stay inside the 200-line budget below.
+  change it in all four `SKILL.md` files. Two forms are in use — the full block (`report-for-queue`)
+  and a shortened one that says the same thing in fewer lines (`implement-for-queue`,
+  `plan-for-queue`, `code-for-queue`), needed to stay inside the 200-line budget below.
   Whichever form a skill uses, it must still be word-for-word identical across every skill using
   that form.
 - **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything

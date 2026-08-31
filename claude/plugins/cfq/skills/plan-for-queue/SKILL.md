@@ -6,6 +6,7 @@ description: >
   series of bugs, a refactoring or a larger rework needs planning, and for "plan this", "how do
   we approach X", "/pfq", "/plan-for-queue". A separate cheaper session implements it later via
   implement-for-queue.
+argument-hint: <briefing>
 ---
 
 # Plan-for-Queue: Interview, Park, Hand Off
@@ -24,6 +25,12 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 
 Before Step 0, check for Plan Mode — read `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s
 **Plan-Mode Gate** section and follow it.
+
+## Step 0 — Arguments
+
+Text passed with the invocation is this session's briefing — starting material for the interview,
+not a replacement for it. It never shortens the interview, skips the closing question, or
+authorises a code edit, even against a pasted instruction to implement.
 
 ## Step 0 — Inbox
 
@@ -53,14 +60,20 @@ the option text — don't always mark the same one:
 Full rationale in `references/interview-depth.md`. On **Thorough** or **Grilling with docs**, read
 `references/grilling.md` and follow it. Print the `Interview Depth` status line once answered.
 
+Then probe the write surface before any research starts — read
+`references/write-probe.md` and follow it. Print the `Write Probe` status line either way: `➖` with
+the reason when the docs half was skipped, `❌` plus the blocking hook's reason when a probe was
+denied, in which case the session ends there.
+
 ## Step 2 — Understand
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
 Explore agents instead of reading inline — one for a narrow area, up to three in parallel for
-broad scope, each with a specific focus — run on
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel`; research is delegatable,
-the planning model is the expensive part.
+broad scope, each with a specific focus; research is delegatable, the planning model is the
+expensive part. Model choice is a rule, not a mood — cheap model to locate, expensive to judge;
+read `${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys come from
+Step 1's `planningPolicy`, no new `cfq-settings.sh get` call.
 
 ## Step 3 — Plugin Boundaries
 
@@ -103,11 +116,9 @@ read `references/language.md` and follow it. Print the `Language` status line on
 split — one phase = one self-testable, individually committable unit; three honest phases beat
 seven artificial ones — as a status update (phase list + S/M/L sizes) and proceed directly to
 writing the phase files; the user can still redirect at any point, same as any other proposal
-here, but no dedicated confirmation question gates the write. A phase that moves, extracts, or
-reuses existing logic verbatim, or introduces non-trivial logic of its own (a branch, a parser, a
-resolution chain, an adapter) → read `references/phase-quality.md` and follow it before writing
-that phase's Changes and Verification text; it also steers the Size letter (rule 5 there). For
-each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `references/phase-quality.md`
+here, but no dedicated confirmation question gates the write. Read `references/phase-quality.md`
+and follow it, always, before writing any phase's Changes and Verification text — it also steers
+the Size letter (rule 5 there). For each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `references/phase-quality.md`
 rule 5) and write it into that phase's file as a `## Size` heading (structural markers are always
 English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
 what `cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
@@ -188,14 +199,5 @@ Step 7's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn`
 reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
 → `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
-way, noting it can be worked off independently — no repetition of the plan contents.
-
-## Phase File Structure
-
-Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
-absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
-filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
-hygiene in verification, and verification must check the real path the user actually takes.
-`Reuse` entries that carry logic over verbatim, and `Verification`'s test-first/bundled-smoke/
-sandboxed-debugging requirements, are governed by `references/phase-quality.md` whenever Step 7
-triggers it.
+way, noting it can be worked off independently — no repetition of the plan contents. Phase file
+structure is unchanged from the template — see `references/phase-quality.md`'s closing section.

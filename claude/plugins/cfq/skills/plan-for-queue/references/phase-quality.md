@@ -1,9 +1,10 @@
 # Phase Quality: Test-First, Risk Flags, Bundled Verification
 
-Read when Step 7 finds a phase that moves, extracts, or reuses existing logic verbatim, or that
-introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution
-chain, an adapter). A phase that is pure new, self-contained code with no such reuse or complexity
-does not need this file.
+Read unconditionally in Step 7, before any phase's Changes and Verification text is written — not
+only for a phase that moves, extracts, or reuses existing logic verbatim, or introduces non-trivial
+logic of its own (a branch, a loop, a parser, a multi-step resolution chain, an adapter). Rules 1-4
+name their own trigger condition inline; a phase outside that condition simply has nothing to apply
+for that rule.
 
 This file exists because one `/ifq` phase burned far more tokens than the task itself required —
 not the logic, the debugging: a raw `bash -x` trace dumped whole into context, and a dozen one-off
@@ -62,3 +63,12 @@ this applies — decide it here, at planning time, not discover it mid-`ifq` as 
 
 None of this adds a new required heading. All five rules live inside a phase's existing `Changes`,
 `Affected Files`/`Reuse`, and `Verification` prose — `cfq-lint.sh`'s heading checks are unaffected.
+
+## Phase File Structure
+
+Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
+absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
+filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
+hygiene in verification, and verification must check the real path the user actually takes.
+`Reuse` entries that carry logic over verbatim, and `Verification`'s test-first/bundled-smoke/
+sandboxed-debugging requirements are rules 2-4 above.

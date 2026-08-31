@@ -4,6 +4,7 @@ set -eu
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rep="$repo_root/scripts/cfq-report.sh"
+cfq_clean() { env -i HOME="$HOME" PATH="$PATH" "$@"; }
 
 tmp=$(mktemp -d)
 home=$(mktemp -d)
@@ -25,8 +26,8 @@ s=$(bash "$rep" summary "$batch")
 expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0	0		"
 [ "$s" = "$expected" ] || { echo "FAIL: summary = $s"; exit 1; }
 
-out=$(bash "$rep" html "$batch")
-[ "$out" = "$batch/report.html" ] || { echo "FAIL: html path = $out"; exit 1; }
+out=$(HOME="$home" cfq_clean bash "$rep" html "$batch")
+[ "$out" = "$batch/report.html" ] || { echo "FAIL: html path (default reportDir) = $out"; exit 1; }
 [ -f "$out" ] || { echo "FAIL: report.html not created"; exit 1; }
 
 grep -q '01-a' "$out" || { echo "FAIL: report.html missing 01-a"; exit 1; }
@@ -158,5 +159,72 @@ jq -n --arg v "$long_verification" \
 det_long=$(bash "$rep" detail "$long_batch")
 vlines=$(jq -r '.phases[0].verification' <<<"$det_long" | wc -l)
 [ "$vlines" -lt 200 ] || { echo "FAIL: detail should bound verification output, got $vlines lines"; exit 1; }
+
+# --- html: reportDir collection, phase goal, index.html (phase 03) ---
+
+rd=$(mktemp -d)
+repo_x="$tmp/repo-x"
+batch_x_name="2026-03-01-goaltest"
+batch_x="$repo_x/.claude/cfq/impl/done/$batch_x_name"
+mkdir -p "$batch_x/done"
+cat > "$batch_x/done/01-a.md" <<'EOF'
+# A phase
+
+## Context
+
+This phase adds the goal-extraction test.
+It covers the two-line context excerpt.
+
+## Size
+
+M
+EOF
+HOME="$home" bash "$rep" append "$batch_x" '{"phase":"01-a","status":"green","finished":"2026-03-01T10:00:00+01:00","summary":"ok","deviations":[],"errors":[],"verification":"tests -> PASS","commit":"eee5555"}'
+
+out_x=$(HOME="$home" CFQ_REPORT_DIR="$rd" CFQ_SCAN_ROOTS="$tmp" bash "$rep" html "$batch_x")
+[ "$out_x" = "$rd/repo-x/$batch_x_name.html" ] \
+  || { echo "FAIL: reportDir html path = $out_x"; exit 1; }
+[ -f "$out_x" ] || { echo "FAIL: collected report.html not created: $out_x"; exit 1; }
+[ -f "$rd/index.html" ] || { echo "FAIL: index.html not created"; exit 1; }
+grep -q 'This phase adds the goal-extraction test' "$out_x" \
+  || { echo "FAIL: report.html missing phase goal text"; exit 1; }
+grep -q "$batch_x_name" "$rd/index.html" \
+  || { echo "FAIL: index.html missing batch $batch_x_name"; exit 1; }
+n_links=$(grep -c '<a href=' "$rd/index.html" || true)
+[ "$n_links" -ge 1 ] || { echo "FAIL: index.html has no links: $n_links"; exit 1; }
+
+# edge: batch whose phase file no longer exists -> phase still renders, goal omitted, no crash
+batch_y_name="2026-03-02-nogoal"
+batch_y="$repo_x/.claude/cfq/impl/done/$batch_y_name"
+mkdir -p "$batch_y/done"
+HOME="$home" bash "$rep" append "$batch_y" '{"phase":"01-a","status":"green","finished":"2026-03-02T10:00:00+01:00","summary":"ok","deviations":[],"errors":[],"verification":"tests -> PASS","commit":"fff6666"}'
+out_y=$(HOME="$home" CFQ_REPORT_DIR="$rd" CFQ_SCAN_ROOTS="$tmp" bash "$rep" html "$batch_y")
+[ -f "$out_y" ] || { echo "FAIL: html for missing-plan-file batch not created: $out_y"; exit 1; }
+grep -q 'class="goal"' "$out_y" \
+  && { echo "FAIL: goal markup present despite no plan file"; exit 1; }
+
+# edge: called twice -> overwritten not duplicated, index still lists the batch once
+out_x2=$(HOME="$home" CFQ_REPORT_DIR="$rd" CFQ_SCAN_ROOTS="$tmp" bash "$rep" html "$batch_x")
+[ "$out_x2" = "$out_x" ] || { echo "FAIL: second html call path differs: $out_x2"; exit 1; }
+count_x=$(find "$rd/repo-x" -name "$batch_x_name.html" | wc -l | tr -d ' ')
+[ "$count_x" = "1" ] || { echo "FAIL: duplicate html file for batch_x: $count_x"; exit 1; }
+href_count=$(grep -o "repo-x/${batch_x_name}\.html" "$rd/index.html" | wc -l | tr -d ' ')
+[ "$href_count" = "1" ] || { echo "FAIL: index.html links batch_x more than once: $href_count"; exit 1; }
+
+# must-fall-back: reportDir pointing at a path that cannot be created -> non-zero exit, stderr
+# message, batch-directory file NOT silently written instead
+robase="$tmp/readonly-parent"
+mkdir -p "$robase"
+chmod 555 "$robase"
+badrd="$robase/reports"
+set +e
+err_out=$(HOME="$home" CFQ_REPORT_DIR="$badrd" CFQ_SCAN_ROOTS="$tmp" bash "$rep" html "$batch_x" 2>&1 >/dev/null)
+rc=$?
+set -e
+chmod 755 "$robase"
+[ "$rc" -ne 0 ] || { echo "FAIL: html should fail when reportDir cannot be created"; exit 1; }
+[ -n "$err_out" ] || { echo "FAIL: no stderr message on reportDir mkdir failure"; exit 1; }
+[ ! -f "$batch_x/report.html" ] \
+  || { echo "FAIL: fell back to writing batch-dir report.html on reportDir failure"; exit 1; }
 
 echo PASS

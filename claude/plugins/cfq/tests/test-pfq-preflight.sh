@@ -114,10 +114,13 @@ out=$(HOME="$home" PATH="$stubbin:$bindir" bash "$pf" "$reg")
 out=$(HOME="$home" bash "$pf" "$reg")
 list_calls=$(grep -cx list "$count_log" || true)
 [ "$list_calls" = "1" ] || { echo "FAIL: expected exactly 1 'list' cfq-settings.sh call, got $list_calls (log: $(cat "$count_log"))"; exit 1; }
-for k in planModels allowAnyModel planExploreModel planBlockedPlugins codeLanguage docLanguages docLevel; do
+for k in planModels allowAnyModel planExploreModel planExploreModelComplex planBlockedPlugins \
+         grillMode useMattpocockGrilling usePonytailAudit codeLanguage docLanguages docLevel; do
   jq -e --arg k "$k" '(.planningPolicy + .language) | has($k)' <<<"$out" >/dev/null \
     || { echo "FAIL: batched settings call missing key '$k': $out"; exit 1; }
 done
+jq -e '.reporting | has("reportDir") and has("htmlReport")' <<<"$out" >/dev/null \
+  || { echo "FAIL: batched settings call missing reporting object: $out"; exit 1; }
 
 # ------------------------------------------------------------ deterministic ------------
 out1=$(HOME="$home" bash "$pf" "$reg")

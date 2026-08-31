@@ -257,4 +257,29 @@ out=$(HOME="$h" bash "$runtime_sh" transcript-path --repo "$otherrepo")
 [ "$out" = "$h/.claude/projects/$otherslug/$sid.jsonl" ] || fail "16b repo-slug: $out"
 rm -rf "$h" "$otherrepo"
 
+# 17. Payload carries a model -> context reports it (the case that fails today)
+h=$(new_home)
+write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}},"model":{"id":"claude-opus-5","display_name":"Opus 5"}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "17 source: $out"
+[ "$(jq -r '.model' <<<"$out")" = "claude-opus-5" ] || fail "17 model: $out"
+rm -rf "$h"
+
+# 18. Payload without a model key -> degrades to null, not an error or literal "null" string
+h=$(new_home)
+write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "18 source: $out"
+[ "$(jq -r '.status' <<<"$out")" = "ok" ] || fail "18 status: $out"
+[ "$(jq -r '.model' <<<"$out")" = "null" ] || fail "18 model: $out"
+rm -rf "$h"
+
+# 19. No payload, healthy transcript -> transcript branch still reports its own model
+h=$(new_home)
+write_transcript "$h" claude-sonnet-5 40000 1000 1000 2.1.0
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.source' <<<"$out")" = "transcript" ] || fail "19 source: $out"
+[ "$(jq -r '.model' <<<"$out")" = "claude-sonnet-5" ] || fail "19 model: $out"
+rm -rf "$h"
+
 echo PASS

@@ -53,7 +53,11 @@ jq -n \
       planModels: $settings.planModels,
       allowAnyModel: $settings.allowAnyModel,
       planExploreModel: $settings.planExploreModel,
-      planBlockedPlugins: $settings.planBlockedPlugins
+      planExploreModelComplex: $settings.planExploreModelComplex,
+      planBlockedPlugins: $settings.planBlockedPlugins,
+      grillMode: $settings.grillMode,
+      useMattpocockGrilling: $settings.useMattpocockGrilling,
+      usePonytailAudit: $settings.usePonytailAudit
     },
     language: {
       codeLanguage: $settings.codeLanguage,
@@ -62,5 +66,6 @@ jq -n \
     },
     queue: {openBatches: $batches},
     maintenance: {status: $maintStatus, n: $maintN},
-    security: {available: $secAvailable}
+    security: {available: $secAvailable},
+    reporting: {reportDir: $settings.reportDir, htmlReport: $settings.htmlReport}
   }'

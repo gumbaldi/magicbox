@@ -47,7 +47,10 @@ schema='{
   "securityTimeoutSeconds": {"type":"int","default":30,"min":1,"scope":["global"],"env":null,"description":"Timeout in seconds for the batch-completion security scan."},
   "securityFindingsCap": {"type":"int","default":20,"min":1,"scope":["global"],"env":null,"description":"Maximum number of security findings surfaced per batch-completion scan."},
   "gitStatePolicy": {"type":"enum","default":"local","values":["local","trackable"],"scope":["global","repo"],"env":null,"description":"Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
-  "i18nExcludePatterns": {"type":"array","default":["*/locales/*","*/locale/*","*/i18n/*","*/lang/*","*/translations/*"],"scope":["global","repo"],"env":null,"description":"Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."}
+  "i18nExcludePatterns": {"type":"array","default":["*/locales/*","*/locale/*","*/i18n/*","*/lang/*","*/translations/*"],"scope":["global","repo"],"env":null,"description":"Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
+  "reportDir": {"type":"string","default":"","pattern":"^($|/.*)$","scope":["global","repo"],"env":"CFQ_REPORT_DIR","description":"Absolute path of the directory HTML reports are collected in; empty writes report.html into the batch directory instead."},
+  "planExploreModelComplex": {"type":"string","default":"sonnet","scope":["global","repo"],"env":"CFQ_PLAN_EXPLORE_MODEL_COMPLEX","description":"Model for /pfq Explore agents whose task is to judge rather than to locate."},
+  "implExploreModelComplex": {"type":"string","default":"sonnet","scope":["global","repo"],"env":"CFQ_IMPL_EXPLORE_MODEL_COMPLEX","description":"Model for /ifq Explore agents whose task is to judge rather than to locate."}
 }'
 
 defaults=$(jq -c 'map_values(.default)' <<<"$schema")

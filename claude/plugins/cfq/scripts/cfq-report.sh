@@ -14,17 +14,41 @@ command -v jq >/dev/null 2>&1 || { echo "cfq-report.sh: jq is required" >&2; exi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Shared by html's per-batch report and its collected index.html — one visual language, not two.
+report_style_css='body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
+@media (prefers-color-scheme: dark){body{color:#e8e8e8;background:#1a1a1a}code{background:#2a2a2a}}
+.meta,.summary{color:#666}section.phase{border-left:4px solid #999;padding:0.5rem 1rem;margin:1rem 0}
+section.phase.green{border-color:#2a8f4a}section.phase.red{border-color:#c0392b}
+.badge{display:inline-block;padding:0.1rem 0.5rem;border-radius:0.3rem;font-size:0.8rem;color:#fff}
+.badge.green{background:#2a8f4a}.badge.red{background:#c0392b}.badge.mixed{background:#c98a1b}
+code{background:#f0f0f0;padding:0.1rem 0.3rem;border-radius:0.2rem}
+.telemetry{color:#666;font-size:0.85rem}.kv{margin-right:0.4rem}
+.goal{color:#666;font-style:italic}
+section.repo{margin:1.5rem 0}'
+
 # Shared by index/detail: GREEN if no phase ever went red; RED if any phase's most recent attempt
 # is still red; MIXED if every phase that ever went red now shows green as its latest attempt.
 outcome_def='
   def outcome:
     (.phases // []) as $ph
-    | (reduce $ph[] as $p ({}; .[$p.phase] = $p.status)) as $latest
+    | (reduce $ph[] as $p ({}; .[($p.phase // "")] = $p.status)) as $latest
     | if ([$ph[] | select(.status == "red")] | length) == 0 then "GREEN"
       elif ($latest | to_entries | any(.value == "red")) then "RED"
       else "MIXED"
       end;
 '
+
+# Batch dir -> containing repo root, stripping the known queue suffixes (canonicalized first so a
+# relative batch-dir path resolves the same as an absolute one). Empty string if it isn't nested
+# under either suffix.
+repo_root_of() {
+  local d="${1%/}" abs r
+  abs="$(cd "$d" 2>/dev/null && pwd)" || abs="$d"
+  r="${abs%/.claude/cfq/impl/done/*}"
+  [ "$r" = "$abs" ] && r="${abs%/.claude/cfq/impl/*}"
+  [ "$r" = "$abs" ] && r=""
+  printf '%s' "$r"
+}
 
 # report.json is created by whoever writes to it first — planning-time security snapshot or the
 # first phase. Same shape in both cases.
@@ -104,10 +128,44 @@ case "$cmd" in
     ;;
   html)
     dir="${2:?usage: cfq-report.sh html <batch-dir>}"
+    dir="${dir%/}"
     f="$dir/report.json"
     [ -f "$f" ] || { echo "cfq-report.sh: no report.json in $dir" >&2; exit 1; }
-    out="$dir/report.html"
-    jq -r '
+
+    repo_root="$(repo_root_of "$dir")"
+    if [ -n "$repo_root" ]; then
+      report_dir=$("$script_dir/cfq-settings.sh" get --repo "$repo_root" reportDir 2>/dev/null || true)
+    else
+      report_dir=$("$script_dir/cfq-settings.sh" get reportDir 2>/dev/null || true)
+    fi
+    case "$report_dir" in
+      ''|null)
+        out="$dir/report.html"
+        ;;
+      *)
+        out="$report_dir/$(basename "$repo_root")/$(basename "$dir").html"
+        mkdir -p "$(dirname "$out")" \
+          || { echo "cfq-report.sh: cannot create $(dirname "$out")" >&2; exit 1; }
+        ;;
+    esac
+
+    # Phase goal per phase, from its plan file's `## Context` — same extraction as
+    # cfq-brief.sh:31-38's k/ctx/n logic, carried over verbatim. Missing plan file -> omitted.
+    goals_json="{}"
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      planfile="$dir/done/$p.md"
+      [ -f "$planfile" ] || planfile="$dir/$p.md"
+      [ -f "$planfile" ] || continue
+      goal=$(awk '
+        /^## Context/ { k = 1; next }
+        k && NF       { ctx = ctx $0 " "; if (++n >= 2) k = 0; next }
+        END { print substr(ctx, 1, 220) }
+      ' "$planfile")
+      [ -n "$goal" ] && goals_json=$(jq -c --arg p "$p" --arg g "$goal" '. + {($p): $g}' <<<"$goals_json")
+    done < <(jq -r '[.phases[].phase] | unique | .[]' "$f")
+
+    jq -r --argjson goals "$goals_json" --arg style "$report_style_css" '
       def esc: (. // "") | tostring | @html;
       def section_list(title): if length > 0 then
         "<h4>" + title + "</h4><ul>" + (map("<li>" + esc + "</li>") | join("")) + "</ul>"
@@ -128,9 +186,11 @@ case "$cmd" in
              ] | map(kv) | join(" · ")) + "</p>"
           end;
       def phase_html:
-        "<section class=\"phase " + .status + "\">" +
-        "<h3><span class=\"badge " + .status + "\">" + (.status | ascii_upcase | @html) + "</span> " +
+        ($goals[(.phase // "")] // "") as $goal
+        | "<section class=\"phase " + .status + "\">" +
+        "<h3><span class=\"badge " + .status + "\">" + ((.status // "") | ascii_upcase | @html) + "</span> " +
         (.phase | esc) + "</h3>" +
+        (if $goal != "" then "<p class=\"goal\">" + ($goal | esc) + "</p>" else "" end) +
         "<p>" + (.summary | esc) + "</p>" +
         telemetry_html +
         ((.deviations // []) | section_list("Deviations")) +
@@ -138,16 +198,7 @@ case "$cmd" in
         (if (.verification // "") != "" then "<p class=\"verification\"><code>" + (.verification | esc) + "</code></p>" else "" end) +
         (if (.commit // "") != "" then "<p class=\"commit\">Commit: <code>" + (.commit | esc) + "</code></p>" else "" end) +
         "</section>";
-      "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + (.batch | esc) + " report</title><style>" +
-      "body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}" +
-      "@media (prefers-color-scheme: dark){body{color:#e8e8e8;background:#1a1a1a}code{background:#2a2a2a}}" +
-      ".meta,.summary{color:#666}section.phase{border-left:4px solid #999;padding:0.5rem 1rem;margin:1rem 0}" +
-      "section.phase.green{border-color:#2a8f4a}section.phase.red{border-color:#c0392b}" +
-      ".badge{display:inline-block;padding:0.1rem 0.5rem;border-radius:0.3rem;font-size:0.8rem;color:#fff}" +
-      ".badge.green{background:#2a8f4a}.badge.red{background:#c0392b}" +
-      "code{background:#f0f0f0;padding:0.1rem 0.3rem;border-radius:0.2rem}" +
-      ".telemetry{color:#666;font-size:0.85rem}.kv{margin-right:0.4rem}" +
-      "</style></head><body>" +
+      "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + (.batch | esc) + " report</title><style>" + $style + "</style></head><body>" +
       "<h1>" + (.batch | esc) + "</h1>" +
       "<p class=\"meta\">Repo: " + (.repo | esc) + " · Started: " + (.started | esc) + "</p>" +
       "<p class=\"summary\">Phases: " + (.phases | length | tostring) +
@@ -163,6 +214,41 @@ case "$cmd" in
     ' "$f" >"$out.tmp"
     mv "$out.tmp" "$out"
     echo "$out"
+
+    # Collected-tree mode also regenerates the directory-of-everything index.
+    if [ -n "$report_dir" ] && [ "$report_dir" != null ]; then
+      idx_json=$("$script_dir/cfq-report.sh" index)
+      rows="[]"
+      while IFS= read -r row; do
+        rb=$(basename "$(jq -r '.repo' <<<"$row")")
+        b=$(jq -r '.batch' <<<"$row")
+        rendered=false
+        [ -f "$report_dir/$rb/$b.html" ] && rendered=true
+        rows=$(jq -c --argjson row "$row" --arg rb "$rb" --argjson rendered "$rendered" \
+          '. + [$row + {repoBase: $rb, rendered: $rendered}]' <<<"$rows")
+      done < <(jq -c '.[]' <<<"$idx_json")
+
+      idx_out="$report_dir/index.html"
+      jq -r --arg style "$report_style_css" '
+        def esc: (. // "") | tostring | @html;
+        def row_html:
+          "<li><span class=\"badge " + (.status | ascii_downcase) + "\">" + (.status | esc) + "</span> " +
+          (if .rendered then "<a href=\"" + (.repoBase | esc) + "/" + (.batch | esc) + ".html\">" + (.batch | esc) + "</a>"
+           else (.batch | esc) end) +
+          " · " + (.date | esc) + " · " + ((.cost.outputTokens // 0) | tostring) + " out, " +
+          ((.cost.turns // 0) | tostring) + " Turns" +
+          (if .deviations > 0 then " · " + (.deviations | tostring) + " Deviations" else "" end) +
+          "</li>";
+        def repo_section:
+          "<section class=\"repo\"><h2>" + (.[0].repoBase | esc) + "</h2><ul>" +
+          (map(row_html) | join("")) + "</ul></section>";
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>cfq reports</title><style>" + $style + "</style></head><body>" +
+        "<h1>cfq reports</h1>" +
+        ((group_by(.repoBase) | map(repo_section) | join("")) as $body | if length == 0 then "<p class=\"meta\">No reports yet.</p>" else $body end) +
+        "</body></html>"
+      ' <<<"$rows" >"$idx_out.tmp"
+      mv "$idx_out.tmp" "$idx_out"
+    fi
     ;;
   index)
     shift
@@ -214,9 +300,7 @@ case "$cmd" in
     if [ ! -f "$f" ]; then
       jq -n '{found: false}'
     else
-      repo_root="${dir%/.claude/cfq/impl/done/*}"
-      [ "$repo_root" = "$dir" ] && repo_root="${dir%/.claude/cfq/impl/*}"
-      [ "$repo_root" = "$dir" ] && repo_root=""
+      repo_root="$(repo_root_of "$dir")"
       todos="[]"
       if [ -n "$repo_root" ] && [ -d "$repo_root/.claude/cfq/todo" ]; then
         todos=$(

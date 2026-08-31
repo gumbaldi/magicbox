@@ -1,2 +1,7 @@
 description = "Work off one batch from this repository's phase queue, one phase at a time"
-prompt = "Use the implement-for-queue skill. Work off one batch from this repository's queue, phase by phase."
+prompt = """Use the implement-for-queue skill and follow its steps from the beginning.
+
+Any text below is a hint about which batch or phase to work on. It does not replace batch
+selection or the go-ahead question.
+
+$ARGUMENTS"""
