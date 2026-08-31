@@ -30,12 +30,24 @@ First context line.
 Second context line.
 
 ## Affected Files
+
+- `/tmp/example/foo.sh`
+- `/tmp/example/bar.sh`
+
+## Verification
+
+```bash
+bash tests/test-foo.sh
+echo done
+```
 EOF
 
 cat > "$batch/02-incomplete.md" <<'EOF'
 # Incomplete phase
 
 ## Affected Files
+
+- `/tmp/example/only.sh`
 EOF
 
 out=$(bash "$brief_sh" "$batch")
@@ -47,6 +59,42 @@ printf '%s\n' "$out" | grep -q '^01  Complete phase  \[S\]  First context line. 
   || { echo "FAIL: complete phase line wrong: $out"; exit 1; }
 printf '%s\n' "$out" | grep -q '^02  Incomplete phase  \[M\]' \
   || { echo "FAIL: incomplete phase should default to [M]: $out"; exit 1; }
+
+# regression guard: the two no-flag assertions above stay byte-identical to today's output;
+# --phase is additive, tested separately below.
+
+# ---- --phase <NN> announcement mode -------------------------------------------------
+
+out=$(bash "$brief_sh" "$batch" --phase 01)
+expected="PHASE 01 · Complete phase · Size S
+  Goal     First context line. Second context line.
+  Files    foo.sh, bar.sh
+  Check    bash tests/test-foo.sh"
+[ "$out" = "$expected" ] || { echo "FAIL: --phase 01 block wrong: $out"; exit 1; }
+
+# edge: no ## Size -> falls back to M; no ## Verification -> Check line omitted entirely
+out=$(bash "$brief_sh" "$batch" --phase 02)
+printf '%s\n' "$out" | grep -qx 'PHASE 02 · Incomplete phase · Size M' \
+  || { echo "FAIL: --phase 02 header wrong: $out"; exit 1; }
+printf '%s\n' "$out" | grep -qx '  Files    only.sh' \
+  || { echo "FAIL: --phase 02 files line wrong: $out"; exit 1; }
+printf '%s\n' "$out" | grep -q '^  Check' \
+  && { echo "FAIL: --phase 02 should omit Check line entirely: $out"; exit 1; }
+
+# edge: no such phase number -> non-zero exit, message on stderr, no partial block
+errfile="$tmp/err99"
+if out=$(bash "$brief_sh" "$batch" --phase 99 2>"$errfile"); then
+  echo "FAIL: --phase 99 should exit non-zero"; exit 1
+fi
+[ -z "$out" ] || { echo "FAIL: --phase 99 should print no partial block: $out"; exit 1; }
+[ -s "$errfile" ] || { echo "FAIL: --phase 99 should print a message on stderr"; exit 1; }
+
+# edge: phase already moved to done/ -> found there too
+mkdir -p "$batch/done"
+mv "$batch/01-complete.md" "$batch/done/01-complete.md"
+out=$(bash "$brief_sh" "$batch" --phase 01)
+printf '%s\n' "$out" | grep -qx 'PHASE 01 · Complete phase · Size S' \
+  || { echo "FAIL: --phase should find a phase already moved to done/: $out"; exit 1; }
 
 # unflagged batch (no .priority file): header line omits the priority clause entirely
 unflagged="$tmp/2026-01-03-unflagged"

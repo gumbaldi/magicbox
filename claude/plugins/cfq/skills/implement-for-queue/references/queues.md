@@ -78,24 +78,56 @@ step calls it directly — solely to reconfirm the branch now exists post-checko
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
 
-## Pre-Implementation Go Gate (Step 4b2)
+## Phase Announcement and Go Gate (Step 4b2)
 
 Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
-to Step 3b's one coarse per-batch go-ahead. The status line uses fields already on hand, no new
-data model: phase number and title from the phase file's own top-level context (its filename's
-`NN-<slug>` plus the first line of its `## Context` section, or the slug alone if `## Context` is
-missing), the `## Size` letter, and the `## Affected Files` list verbatim (absolute paths, one per
-line or comma-joined if short). Example:
+to Step 3b's one coarse per-batch go-ahead. The announcement is
+`cfq-brief.sh "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
+deterministic, extracted from the phase file, so it cannot drift in wording between phases:
 
 ```
-P02 ifq-per-phase-go-gate [L]
-Affected: cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+PHASE 02 · ifq-per-phase-go-gate · Size L
+  Goal     <first two non-empty lines of ## Context>
+  Files    cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+  Check    <first command line from ## Verification>
 ```
 
 Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
 **Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
 `cfq-lock.sh release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
 and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
+
+## Phase Summary (Step 4, after 4c)
+
+Printed after (4c), before the `cfq-report.sh append` call:
+
+```
+PHASE 02 DONE
+✅ Implemented     <one clause: what was built>
+✅ Verification    <command, and its result>
+⚠️ Deviation       <one line per deviation>
+```
+
+`Implemented` and `Verification` are the model's own prose — no script can know what actually
+happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report.json`
+`deviations` entry: one source, two renderings, never worded differently for the two audiences. No
+deviations → the `Deviation` line is omitted entirely, not printed empty.
+
+## Stop Rule (Step 4, before the next phase)
+
+A gate, not a status line — checked after a phase goes green, before auto-advancing to the next
+open phase in the same session. Exactly four triggers, nothing else:
+
+- (a) files were changed that `## Affected Files` does not list — checked mechanically, never by
+  judgement: `git diff --name-only HEAD~1..HEAD` against that phase's `## Affected Files`.
+- (b) verification came back red, or was not run
+- (c) a change the plan specifies was deliberately left out
+- (d) a new dependency or a new script was introduced that the plan does not name
+
+Any of the four firing → do not auto-advance; state which trigger fired and ask once
+(`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
+Everything that is not one of the four is a note in the report, never a stop — say so explicitly so
+a future reader does not add a fifth trigger by interpretation.
 
 ## Phase Commit Trailers (Step 5)
 
@@ -112,6 +144,44 @@ Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber`
 human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
 unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
 `CFQ-*` trailer.
+
+## Batch-Done Report Fields (Step 7)
+
+`cfq-finish.sh`'s one JSON object, rendered field by field:
+
+- `Language`: `.lang.issues` is the structural count (`missing`/`stray`/`unfiled`); judge
+  `.lang.prose.sample` for prose, comments, identifiers and commit messages not in `codeLanguage` —
+  any language, never hardcode one to look for. `i18nExcludePatterns` keeps locale/translation
+  resources out of the sample by default; a line that lands anyway (custom naming the patterns
+  miss) from an evident translation resource isn't a `codeLanguage` violation — expected
+  multi-language content, not a policy breach. `.lang.prose.truncated: true` means the sample is
+  exactly that, a sample, so the status line says so (`⚠️ 2 issues · sampled`); an empty sample (no
+  git repo, unknown ref) is `➖`, not a finding. Either source finding → `⚠️` with the combined
+  count, details as `   └ ` lines; nothing found → `✅ no issues`. No repair here — every finding
+  becomes a `todo/` entry per **Follow-Up** below.
+- `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
+  run /pfq`.
+- `Security Diff` from `.security.new` — the difference only, no repeat of the overall count, no
+  new planning, no automatic fix; an empty `.security` block (older batch, no planning snapshot)
+  → skip without comment.
+- `Changelog` from `.changelog` as-is.
+- `Telemetry` from `.telemetry`, `Lock` from `.lock`.
+- Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
+
+## Closing Report Fields (Step 8, full format)
+
+`RESULT · implement-for-queue` header, one label/value line per field:
+
+- `Batch` — batch and repo, phases total, green/red split.
+- `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" summary "<batch-dir>"` (same call
+  `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
+  tokens total (planning's share named separately), models, efforts.
+- `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
+- `Security` — the difference only, one line.
+- `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
+  `   └ ` line, printed not run; also a `todo/` entry per **Follow-Up** below without asking, so a
+  forgotten merge is never lost.
+- `Report` — `file://` path, only when Step 7 rendered one, else the line is omitted.
 
 ## Skills Recommended vs. Used (Step 8)
 

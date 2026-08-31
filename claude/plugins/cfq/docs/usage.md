@@ -49,8 +49,28 @@ green phase.
 4. Implements one phase at a time — for a phase spanning multiple files or unclear scope, it may
    delegate pre-implementation research (and, on green/red, mechanical test-run output filtering)
    to Explore subagents running on `implExploreModel`; implementation itself always stays in the
-   main session. Runs the phase's own verification, commits and pushes on every green phase
-   immediately.
+   main session. Before touching any file, it announces the phase and asks for a go-ahead:
+
+   ```
+   PHASE 02 · ifq-per-phase-go-gate · Size L
+     Goal     Deterministic phase announcement, extracted from the phase file itself.
+     Files    cfq-brief.sh, SKILL.md, queues.md
+     Check    bash tests/test-brief-park.sh
+   ```
+
+   Runs the phase's own verification, commits and pushes on every green phase immediately, then
+   prints what actually happened:
+
+   ```
+   PHASE 02 DONE
+   ✅ Implemented     Added --phase to cfq-brief.sh, extended its test.
+   ✅ Verification    bash tests/test-brief-park.sh — PASS
+   ```
+
+   Before starting the next phase in the same session, it checks four fixed triggers (files
+   changed beyond the plan's list, verification red or skipped, a planned change left out, an
+   unnamed new dependency) — any of them stops the automatic advance and asks once whether to
+   continue.
 5. Hands the session off once the absolute context-token count crosses `stopUsed`, or finishes the
    batch and moves it to `impl/done/`.
 
