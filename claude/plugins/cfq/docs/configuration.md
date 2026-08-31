@@ -99,6 +99,17 @@ them sparingly.
 Adding a new setting means adding one schema entry to `cfq-settings.sh` — `list`/`get`/`set`/
 `unset`/`describe` and every precedence tier read it generically, no second place to touch.
 
+## Explore model escalation
+
+`planExploreModel`/`implExploreModel` and their `.Complex` counterparts aren't picked by mood —
+both worker skills apply the same rule: the cheap model when the Explore agent's task is to
+**locate** (find a file, list callers, check a naming convention, count occurrences), the
+`.Complex` model when the task is to **judge** (compare two files for consistency, name the rule
+behind a pattern, establish that something is *not* stated anywhere, weigh two implementations
+against each other). A list-shaped answer stays on the cheap model; an assessment escalates.
+Changing either `.Complex` model changes only the second kind of task — the everyday locate work
+still runs on the cheap default.
+
 ## Report collection layout
 
 With `reportDir` set, `cfq-report.sh html <batch-dir>` writes into

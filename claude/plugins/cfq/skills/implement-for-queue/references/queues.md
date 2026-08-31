@@ -221,19 +221,23 @@ itself is unchanged; only who calls it and what's kept from its output moved.
 
 ## Research and Verification Delegation (Step 4c)
 
-Two, and only two, places in Step 4c may run on an Explore subagent
-(`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get implExploreModel`, default `haiku`) instead of
-the implementing session's own model — never a blanket "delegate whatever seems slow":
+Two, and only two, places in Step 4c may run on an Explore subagent instead of the implementing
+session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
+a mood — cheap model to locate, expensive to judge; read
+`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys
+(`implExploreModel`/`.implExploreModelComplex`) come from the preflight's `policy` object, no
+`cfq-settings.sh get` call here:
 
 - **Pre-implementation research.** Before writing any code, a phase that touches several files or
   whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate
   the relevant code, existing patterns, and callers, and return a distilled summary. This mirrors
-  `plan-for-queue` Step 2 exactly — same reasoning, same default model. A narrow, single-file phase
-  needs no subagent; reading the phase file is enough.
+  `plan-for-queue` Step 2 exactly — same reasoning, same escalation rule. A narrow, single-file
+  phase needs no subagent; reading the phase file is enough.
 - **Verification output filtering, green case only.** Running the phase's verification command
   (tests, build, lint) can itself be delegated to an `implExploreModel` subagent when the raw output
   would be long — it runs the command and reports back pass/fail plus which command ran, nothing
-  more. This keeps noisy log output out of the expensive model's context on the common path.
+  more. This is a locate-shaped task (pass/fail, which command), so it always stays on the cheap
+  model even where the pre-implementation research above escalated.
 
 **Never delegate a red result.** The moment verification fails, the subagent (if one was used for
 that run) returns the complete, unfiltered failure output — full stack trace, full diff, everything
@@ -248,3 +252,22 @@ code the parent must then read back in full to verify or commit is strictly more
 parent writing it directly. See the plugin `CLAUDE.md`'s "Subagents are for exploration and
 mechanical test execution" section for the full reasoning and the measurement anyone changing this
 should re-run first.
+
+## Reusing a Warm Explore Agent (Step 4c)
+
+Only applies when a second phase runs in the same session, i.e. when `onePhasePerSession` is
+`false`. Under the default (`true`) this never applies and nothing below happens.
+
+When the next phase's `## Affected Files` overlaps the files an Explore agent of this session has
+already read, continue that agent with `SendMessage` instead of starting a new one — its context
+still holds those files. Continue it only if nothing has changed underneath it:
+
+```bash
+git diff --name-only <sha-when-the-agent-started>..HEAD
+```
+
+If that output intersects the files the agent read, its knowledge is stale — start a fresh agent.
+One `git` call decides this; do not reason about what an agent "probably still knows".
+
+This never applies to implementation, test writing or documentation, which stay off subagents
+entirely.

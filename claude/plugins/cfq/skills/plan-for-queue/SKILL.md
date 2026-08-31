@@ -65,9 +65,10 @@ Full rationale in `references/interview-depth.md`. On **Thorough** or **Grilling
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
 Explore agents instead of reading inline — one for a narrow area, up to three in parallel for
-broad scope, each with a specific focus — run on
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get planExploreModel`; research is delegatable,
-the planning model is the expensive part.
+broad scope, each with a specific focus; research is delegatable, the planning model is the
+expensive part. Model choice is a rule, not a mood — cheap model to locate, expensive to judge;
+read `${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys come from
+Step 1's `planningPolicy`, no new `cfq-settings.sh get` call.
 
 ## Step 3 — Plugin Boundaries
 
@@ -193,8 +194,5 @@ Step 7's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn`
 reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
 → `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
-way, noting it can be worked off independently — no repetition of the plan contents.
-
-## Phase File Structure
-
-Unchanged from the template — see `references/phase-quality.md`'s closing section for headings and conventions.
+way, noting it can be worked off independently — no repetition of the plan contents. Phase file
+structure is unchanged from the template — see `references/phase-quality.md`'s closing section.

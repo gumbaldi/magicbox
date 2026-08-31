@@ -144,9 +144,12 @@ the same way — pass/fail plus which command ran is enough. A **red** run does 
 the subagent returns the complete, unfiltered failure output, because the implementing model needs
 the full error to fix it; summarizing a failure is exactly the case where a cheaper model can lose
 the detail that matters. Implementation, test writing and documentation stay off subagents
-entirely — the subagent starts cold, re-reads what the parent already holds, and the parent then
-reads the subagent's output again to verify it, two or three reads where a direct read-and-edit
-would have been one. That trade-off is measurable, not asserted: compare a subagent call's reported
+entirely — a *newly spawned* subagent starts cold and re-reads what the parent already holds (a
+continued one, addressed via `SendMessage`, keeps its context instead — see
+`implement-for-queue/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
+and the parent then reads the subagent's output again to verify it, two or three reads where a
+direct read-and-edit would have been one. That trade-off is measurable, not asserted: compare a
+subagent call's reported
 input-token count (`cfq-telemetry.sh`'s per-turn numbers) against the token cost of the parent
 reading and editing the same files directly — for implementation, test writing and documentation
 the subagent path loses. Anyone tempted to delegate anything beyond exploration or verification

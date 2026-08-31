@@ -1,12 +1,8 @@
 # Grilling: the Thorough Interview Path
 
-Only read when the user picked "Thorough grilling" or "Grilling with docs" in Step 1. Start with the
-mode switch:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get grillMode
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get useMattpocockGrilling
-```
+Only read when the user picked "Thorough grilling" or "Grilling with docs" in Step 1. Use Step 1's
+preflight result directly — `planningPolicy.grillMode`/`.useMattpocockGrilling` — no new
+`cfq-settings.sh get` call:
 
 - `grillMode = classic` **and** `useMattpocockGrilling = true` **and** the skill
   `mattpocock-skills:grilling` is available → call that skill and follow it, using its own round
@@ -61,11 +57,7 @@ step 6 of the skill before writing any plans.
 ## With-Docs Path
 
 Only on the third option from Step 1. The interview above runs unchanged; this adds the written
-paper trail.
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" get useMattpocockGrilling
-```
+paper trail. Reuses Step 1's `planningPolicy.useMattpocockGrilling` — no new call.
 
 `useMattpocockGrilling = true` **and** both `mattpocock-skills:grilling` and
 `mattpocock-skills:domain-modeling` available → call both and follow them. (`grill-with-docs` itself
