@@ -14,6 +14,9 @@ Always answer in the user's language.
 
 ## Output Format
 
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
+resolves against it.
+
 Progress is reported as status lines, not prose. One line per step, printed **as soon as that
 step is done** — never collected and dumped at the end. Section headers are printed once, on
 entering the section.

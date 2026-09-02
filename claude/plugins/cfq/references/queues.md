@@ -69,8 +69,8 @@ fields ride along with every response: `remoteChecked` (bool) and `remoteWarning
 ```bash
 git checkout "<base>"
 git checkout -b "<branch>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" init "<repo-root>" "<branch>" "<base>" "<batch>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
+"<plugin-root>/scripts/cfq-changelog.sh" init "<repo-root>" "<branch>" "<base>" "<batch>"
+"<plugin-root>/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
 ```
 
 The `new`-mode `cfq-branch.sh plan` re-run above is the one and only place this batch's mutation
@@ -135,7 +135,7 @@ Write the human-written subject/body (plus `Co-Authored-By`, as before) to a tem
 then run it through:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
+"<plugin-root>/scripts/cfq-changelog.sh" commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
 ```
 
 Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 3b's
@@ -173,7 +173,7 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 `RESULT · implement-for-queue` header, one label/value line per field:
 
 - `Batch` — batch and repo, phases total, green/red split.
-- `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" summary "<batch-dir>"` (same call
+- `Cost` — run `"<plugin-root>/scripts/cfq-report.sh" summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
   tokens total (planning's share named separately), models, efforts.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
@@ -224,7 +224,7 @@ itself is unchanged; only who calls it and what's kept from its output moved.
 Two, and only two, places in Step 4c may run on an Explore subagent instead of the implementing
 session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
 a mood — cheap model to locate, expensive to judge; read
-`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys
+`<plugin-root>/references/explore-escalation.md` and follow it. Both keys
 (`implExploreModel`/`.implExploreModelComplex`) come from the preflight's `policy` object, no
 `cfq-settings.sh get` call here:
 

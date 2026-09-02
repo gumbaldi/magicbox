@@ -14,6 +14,9 @@ Always answer in the user's language.
 
 ## Output Format
 
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
+resolves against it.
+
 Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Section Map

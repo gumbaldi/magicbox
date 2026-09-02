@@ -19,6 +19,9 @@ separate `implement-for-queue` session.
 
 ## Output Format
 
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
+resolves against it.
+
 Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Plan-Mode Gate
@@ -36,7 +39,7 @@ authorises a code edit, even against a pasted instruction to implement.
 
 List `"<repo-root>/.claude/cfq/plan"/*.md`, sorted by filename ascending (the
 `<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). No entries → skip silently, no status
-line, no mention. One or more entries → read `references/plan-inbox.md` and follow it.
+line, no mention. One or more entries → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
 
 ## Step 1 — Interview Depth (unconditional, always, before anything else)
 
@@ -47,7 +50,7 @@ Print the `INTERVIEW` header on entering, then run the preflight once for the wh
 `status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 3,
 5, 7, 9a, 11) — never re-derive `repo.root` or re-run
 `cfq-settings.sh`/`cfq-scan.sh`/`cfq-registry.sh`/`cfq-maintenance.sh` for anything it already
-carries. Run the model-gate check per `references/interview-depth.md`'s **Model Gate** section,
+carries. Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section,
 then print `Model Check` regardless. Ask interview depth before anything else, every time — never
 skip, never infer. One `AskUserQuestion` with three options, the recommendation derived from scope
 (components touched, how unclear the requirement is, how far consequences reach) and justified in
@@ -57,11 +60,11 @@ the option text — don't always mark the same one:
 - **Thorough grilling** — a design tree, round by round, until nothing is left open.
 - **Grilling with docs** — thorough grilling plus a `CONTEXT.md` glossary and ADRs under `docs/adr/`.
 
-Full rationale in `references/interview-depth.md`. On **Thorough** or **Grilling with docs**, read
-`references/grilling.md` and follow it. Print the `Interview Depth` status line once answered.
+Full rationale in `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`. On **Thorough** or **Grilling with docs**, read
+`${CLAUDE_PLUGIN_ROOT}/references/grilling.md` and follow it. Print the `Interview Depth` status line once answered.
 
 Then probe the write surface before any research starts — read
-`references/write-probe.md` and follow it. Print the `Write Probe` status line either way: `➖` with
+`${CLAUDE_PLUGIN_ROOT}/references/write-probe.md` and follow it. Print the `Write Probe` status line either way: `➖` with
 the reason when the docs half was skipped, `❌` plus the blocking hook's reason when a probe was
 denied, in which case the session ends there.
 
@@ -92,7 +95,7 @@ Decide and name routine decisions yourself instead of asking — but first read
 
 Read `queue.openBatches` from Step 1's preflight result (no new `cfq-scan.sh | jq` call).
 
-Any batch found → read `references/queue-check.md` and follow it. No open batches → skip the step
+Any batch found → read `${CLAUDE_PLUGIN_ROOT}/references/queue-check.md` and follow it. No open batches → skip the step
 without mentioning it. Either way, print the `Queue Check` status line — `➖` when there was
 nothing to check.
 
@@ -112,13 +115,13 @@ Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 1's preflight
 call). `codeLanguage` governs everything a phase specifies without exception — code, comments,
 commit messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own
 output too: plan files, `## Decisions`, the batch directory name. A phase touching documentation →
-read `references/language.md` and follow it. Print the `Language` status line once read. Propose a
+read `${CLAUDE_PLUGIN_ROOT}/references/language.md` and follow it. Print the `Language` status line once read. Propose a
 split — one phase = one self-testable, individually committable unit; three honest phases beat
 seven artificial ones — as a status update (phase list + S/M/L sizes) and proceed directly to
 writing the phase files; the user can still redirect at any point, same as any other proposal
-here, but no dedicated confirmation question gates the write. Read `references/phase-quality.md`
+here, but no dedicated confirmation question gates the write. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 and follow it, always, before writing any phase's Changes and Verification text — it also steers
-the Size letter (rule 5 there). For each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `references/phase-quality.md`
+the Size letter (rule 5 there). For each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 rule 5) and write it into that phase's file as a `## Size` heading (structural markers are always
 English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
 what `cfq-brief.sh` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
@@ -160,7 +163,7 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
   only when Step 7's flag answer was high), ensures the git-exclude entry, registers the repo —
   idempotent.
 - Write `<batch-dir>/.batch-context.md` — batch-wide context, replacing the old practice of writing
-  Grilling decisions into the first phase file. Read `references/batch-context.md` and follow it.
+  Grilling decisions into the first phase file. Read `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it.
 
 Print four status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
 `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
@@ -169,7 +172,7 @@ Print four status lines: `Park` (file count and batch dir, also covers the Step 
 
 Read `repo.known` from Step 1's preflight result (no new call) — check **before** Step 9 calls
 `cfq-park.sh` (registry `add` is a side effect of that). `true` → skip, print `➖ Config
-known repo`, straight to Step 10. `false` (genuinely new) → read `references/config-overview.md`
+known repo`, straight to Step 10. `false` (genuinely new) → read `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`
 and follow it, then print `Config`.
 
 ## Step 10 — Plan Lint
@@ -183,7 +186,7 @@ and the lint re-run until clean — a batch never hands off with open lint findi
 
 Read `maintenance.status`/`.n` from Step 1's preflight result (no new call) — reflects commit
 counts as of Step 1, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
-`Maintenance`, move on. `DUE` → read `references/maintenance.md` and follow it.
+`Maintenance`, move on. `DUE` → read `${CLAUDE_PLUGIN_ROOT}/references/maintenance.md` and follow it.
 
 ## Step 12 — Telemetry and Sync
 
@@ -200,4 +203,4 @@ reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
 → `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
 way, noting it can be worked off independently — no repetition of the plan contents. Phase file
-structure is unchanged from the template — see `references/phase-quality.md`'s closing section.
+structure is unchanged from the template — see `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`'s closing section.

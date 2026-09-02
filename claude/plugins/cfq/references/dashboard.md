@@ -16,7 +16,7 @@ On request, two extensions of the same block, same rendering:
 
 - **Full list** — re-run `cfq-dash.sh`'s settings call without the `marker != "D"` filter, so
   default-valued keys show too.
-- **Global view** — `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" list --sources` without
+- **Global view** — `"<plugin-root>/scripts/cfq-settings.sh" list --sources` without
   `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
 ## Step C — Management, Six Actions (current repo only, always confirm before writing)
@@ -63,7 +63,7 @@ ACTION
 
 Pair each `.settings` row with its explanation from `cfq-settings.sh describe [<key>]` — that
 schema call is the single source for per-key prose, not a hand-maintained table;
-`${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md` adds only the nuance that doesn't reduce to
+`<plugin-root>/references/settings-explain.md` adds only the nuance that doesn't reduce to
 schema data.
 
 **All** keys are changeable, including `planBlockedPlugins`/`implBlockedPlugins` (strict

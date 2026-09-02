@@ -167,7 +167,7 @@ language in `docLanguages` gets its own tree at `docs/<lang>/…`, mirroring the
 `docLevel` controls how much documentation a repo keeps at all (table above). Override any of the
 three per repo via `set --repo` or the legacy `env` block shown above.
 
-The documentation standard itself lives in `references/doc-style.md` (page structure, formatting,
+The documentation standard itself lives in `claude/plugins/cfq/references/doc-style.md` (page structure, formatting,
 translation rules); a repo overrides it by adding its own `docs/STYLE.md`, which wins whenever it
 exists.
 

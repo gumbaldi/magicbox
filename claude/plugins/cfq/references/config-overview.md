@@ -4,7 +4,7 @@ Only read when Step 9a's registry check finds the repo genuinely new.
 
 After Step 9's three status lines print, show the full config:
 run `cfq-settings.sh list --repo <repo-root> --sources` alongside the per-key explanations from
-`cfq-settings.sh describe` and `${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md`. Most keys
+`cfq-settings.sh describe` and `<plugin-root>/references/settings-explain.md`. Most keys
 have a per-repo override available (`scope` includes `repo` in the schema — only `scanRoots`,
 `securityTimeoutSeconds` and `securityFindingsCap` are global-only); call out `codeLanguage`,
 `docLanguages`, `docLevel` specifically since they matter most to a repo the user is newly working

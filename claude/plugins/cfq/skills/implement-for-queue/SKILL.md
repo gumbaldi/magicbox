@@ -14,6 +14,9 @@ Always answer in the user's language.
 
 ## Output Format
 
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
+resolves against it.
+
 Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Section Map
@@ -57,7 +60,7 @@ ignored. Print the `Plugin Boundaries` status line.
 **Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open
 plans for this repo in the queue.", end. `BLOCKED`/`MULTIPLE_IN_PROGRESS`/`selection.planning`
 entries each need specific wording (wait list, stop-immediately rule, the still-planning notice) —
-cold-path detail: read `references/queues.md`'s **Batch Selection Rules** section on first use each
+cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Batch Selection Rules** section on first use each
 session and apply it here.
 
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
@@ -88,7 +91,7 @@ context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing th
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
   (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
   base-branch question, checkout, changelog init, post-checkout reconfirm) — now fetch-checked against `origin`
-  first — in `references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+  first — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
   happened. `resume` (same preflight
   result) already carries done/open phases, last commit, deviations, red-phase history,
   `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`
@@ -117,20 +120,20 @@ status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<context
 **(4b2) Announcement and Go Gate.** Print the phase announcement —
 `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-brief.sh" "<batch-dir>" --phase <NN>`, rendered as returned, no
 rewording — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel** (release the lock, end
-the session). Rendering example and option copy in `references/queues.md`'s **Phase Announcement
+the session). Rendering example and option copy in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement
 and Go Gate**.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
 implementation itself never runs on one. Implement it completely, run the plan's verification with
 output filtered — a green run may delegate the filtering to the same subagent, a red run never does
-(full unfiltered failure back either way), per `references/queues.md`'s **Research and Verification
+(full unfiltered failure back either way), per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Research and Verification
 Delegation**. A phase touching `docs/<codeLanguage>/…` →
 write the counterparts in every `docLanguages` entry before it goes green, per
 `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or `<repo>/docs/STYLE.md` if present. Work found
 beyond this phase's scope → one `AskUserQuestion` on parking it: yes writes
-`plan/<YYYY-MM-DD>-<slug>.md` per `references/queues.md`, no stays a sentence in the report, no
+`plan/<YYYY-MM-DD>-<slug>.md` per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`, no stays a sentence in the report, no
 second attempt. Green → move the file to `<batch>/done/` (`mkdir -p` first), register the repo
-(`cfq-registry.sh add "<repo-root>"`), print the **Summary** (`references/queues.md`'s **Phase
+(`cfq-registry.sh add "<repo-root>"`), print the **Summary** (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase
 Summary** — its `Deviation` lines double as this call's `deviations` array, one source, two
 renderings); red → **stop**, print `❌ red` with each trimmed error as `   └ ` lines, the file stays
 open, don't move on. Record the phase either way, before anything else, with
@@ -141,7 +144,7 @@ carries the actual failure output, trimmed to what identifies it.
 
 **Stop rule**, before the next phase in the same session: (a) files beyond `## Affected Files`, (b)
 verification red or skipped, (c) a planned change omitted, (d) an unnamed new dependency/script —
-mechanics in `references/queues.md`'s **Stop Rule**. Any firing → ask once before continuing; none
+mechanics in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Stop Rule**. Any firing → ask once before continuing; none
 → continue as today, no question.
 
 ## 5. Commit & Push (on green, every phase)
@@ -149,7 +152,7 @@ mechanics in `references/queues.md`'s **Stop Rule**. Any firing → ask once bef
 Automatically, right after moving the file to `done/`, even if more phases follow — never
 collected until batch end or a `/clear`. The branch already exists (Step 3b created it or checked
 an existing one out) — commit, message in `codeLanguage`, composed via `cfq-changelog.sh
-commit-message` (`references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
+commit-message` (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
 <branch>` on this session's first push, a plain `git push` after that. Then backfill the commit
 hash via
 `git rev-parse HEAD` and `cfq-report.sh set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
@@ -180,7 +183,7 @@ the batch into `impl/done/`, registers the repo, runs the language/maintenance/s
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
 never leave the repo locked), and prints one JSON object. Render its fields — `Language`/
 `Maintenance`/`Security Diff`/`Changelog`/`Telemetry`/`Lock`/`.errors` — field-by-field detail in
-`references/queues.md`'s **Batch-Done Report Fields**.
+`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Batch-Done Report Fields**.
 
 Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
 "<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
@@ -192,7 +195,7 @@ One format, two lengths, both end the session, both a label/value list under the
 padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short).
 **Full format** — `RESULT · implement-for-queue` header, fields `Batch`/`Cost`/`Skills`/
 `Security`/`Merge`/`Report` — field-by-field detail (which script call, what each renders, the
-`todo/` entry for a forgotten merge) in `references/queues.md`'s **Closing Report Fields**.
+`todo/` entry for a forgotten merge) in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Closing Report Fields**.
 
 **Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases open, the `USED`
 value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the full format,

@@ -430,3 +430,10 @@
     - phase: "02-plan-guard-model-detection"
       status: "green"
       summary: ""
+- batchNumber: 9
+  batch: 009-2026-09-02-deterministic-cli-and-reference-paths
+  branch: cfq/009-2026-09-02-deterministic-cli-and-reference-paths
+  base: main
+  started: 2026-09-02
+  status: in-progress
+  legacy: false
