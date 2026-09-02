@@ -113,7 +113,10 @@ whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) curren
 the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
 is resolved by `ctx-usage.sh` through `cfq-settings.sh get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
-point. `setupDone` is the
+point. The gate has two independent stop reasons — capacity (`stopUsed`) and rate limit
+(`stopFiveHourPct`/`stopSevenDayPct`) — each resolved through the same precedence chain, with
+three independent `-1` off switches; a rate-limit stop is checked first and always wins over the
+`stopUsed: 0` bypass. `setupDone` is the
 one exception that lives outside this schema entirely — it's runtime state, not policy, and goes
 through `cfq-settings.sh state get/set` against a separate schema-less store instead.
 
