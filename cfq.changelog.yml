@@ -456,4 +456,8 @@
       summary: "cfq-batch-id.sh action strings now name the resolved changelogFile path instead of a hardcoded default; added `cfq batch reconcile [--fix]`, comparing queue directories under impl/(done/) against the numbered ledger entries and repairing orphaned directories."
 - batchNumber: 10
   batch: 010-2026-09-02-context-gate-payload-keys-and-rate-limits
-  status: parked
+  branch: cfq/010-2026-09-02-context-gate-payload-keys-and-rate-limits
+  base: cfq/009-2026-09-02-deterministic-cli-and-reference-paths
+  started: 2026-09-03
+  status: in-progress
+  legacy: false
