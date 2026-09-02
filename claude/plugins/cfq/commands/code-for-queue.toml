@@ -1,7 +1,0 @@
-description = "Show the cross-repo queue dashboard and manage cfq settings"
-prompt = """Use the code-for-queue skill and follow its steps from the beginning.
-
-Any text below is a filter or a request for a specific view (a repo name, a settings key, a
-management action) — not a replacement for the dashboard steps.
-
-$ARGUMENTS"""

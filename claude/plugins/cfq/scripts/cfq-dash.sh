@@ -2,18 +2,31 @@
 # Single read-only aggregator for the /cfq dashboard: bundles plugin status (installed + the two
 # switches), the cross-repo scan rolled up per repo, and this repo's (or, outside a repo, the
 # global) settings-with-sources — the four separate calls the skill used to make — into one JSON
-# object. Usage: cfq-dash.sh [<cwd>]
+# object. Usage: cfq-dash.sh [render] [<cwd>]
+# Default mode emits the JSON object. `render` formats the identical aggregation as the terminal
+# text the /cfq dashboard prints — same data, no second aggregator.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-dash.sh: jq is required" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mode="json"
+if [ "${1:-}" = "render" ]; then
+  mode="render"
+  shift
+fi
 cwd="${1:-$(pwd)}"
 
 runtime_json=$("$script_dir/cfq-runtime.sh" plugins)
 if [ "$(jq -r '.status' <<<"$runtime_json")" != "OK" ]; then
-  jq -n --argjson rt "$runtime_json" \
-    '{status: "RUNTIME_DEGRADED", runtimeDiagnostic: $rt, plugins: null, repos: [], thisRepo: null, settings: []}'
+  if [ "$mode" = "render" ]; then
+    printf 'PRECHECKS\n'
+    printf '⚠️ %-16s%s\n' "Dash" "runtime degraded · $(jq -r '.code // .cap // "see detail"' <<<"$runtime_json")"
+    printf '➖ %-16s%s\n' "Plugins" "unknown · runtime degraded"
+  else
+    jq -n --argjson rt "$runtime_json" \
+      '{status: "RUNTIME_DEGRADED", runtimeDiagnostic: $rt, plugins: null, repos: [], thisRepo: null, settings: []}'
+  fi
   exit 0
 fi
 plugins_list=$(jq -c '.plugins' <<<"$runtime_json")
@@ -89,6 +102,83 @@ elif [ "$(jq 'length' <<<"$repos_json")" -eq 0 ]; then
   status="NO_REPO"
 fi
 
-jq -n --arg status "$status" --argjson plugins "$plugins_obj" --argjson repos "$repos_json" \
-  --argjson thisRepo "$this_repo_json" --argjson settings "$settings_json" \
-  '{status: $status, plugins: $plugins, repos: $repos, thisRepo: $thisRepo, settings: $settings}'
+if [ "$mode" != "render" ]; then
+  jq -n --arg status "$status" --argjson plugins "$plugins_obj" --argjson repos "$repos_json" \
+    --argjson thisRepo "$this_repo_json" --argjson settings "$settings_json" \
+    '{status: $status, plugins: $plugins, repos: $repos, thisRepo: $thisRepo, settings: $settings}'
+  exit 0
+fi
+
+# --- render mode: same aggregation, formatted as the terminal text /cfq's dashboard prints. ---
+
+dash_line=$(jq -rn --arg status "$status" --argjson repos "$repos_json" --argjson thisRepo "$this_repo_json" '
+  if $status == "MULTIPLE_IN_PROGRESS" then
+    "⚠️\tMULTIPLE_IN_PROGRESS in " + $thisRepo.name + ": "
+    + ([$thisRepo.batches[] | select(.status == "IN_PROGRESS") | .name] | join(", "))
+    + " — invariant violation, resolve manually"
+  else
+    "✅\t" + ($repos | length | tostring) + " repos · "
+    + ([$repos[] | select(.open > 0)] | length | tostring) + " with open work"
+  end
+'
+)
+plugins_line=$(jq -rn --argjson p "$plugins_obj" '
+  $p as $p
+  | if ($p.mattpocock == false) and ($p.ponytail == false) then
+      "➖\tmattpocock-skills/ponytail not installed"
+    elif ($p.mattpocock == true) and ($p.ponytail == true) then
+      ([ (if $p.useMattpocockGrilling then empty else "grill: classic off" end),
+         (if $p.usePonytailAudit then empty else "audit off" end) ]) as $off
+      | if ($off | length) == 0 then
+          "✅\tmattpocock-skills and ponytail installed · classic grill and audit on"
+        else
+          "➖\tinstalled · " + ($off | join(", "))
+        end
+    else
+      (if $p.mattpocock then
+         {missing: "ponytail", state: (if $p.useMattpocockGrilling then "classic grill on" else "classic grill off" end)}
+       else
+         {missing: "mattpocock-skills", state: (if $p.usePonytailAudit then "audit on" else "audit off" end)}
+       end) as $m
+      | "➖\t" + $m.missing + " not installed · " + $m.state
+    end
+'
+)
+
+printf 'PRECHECKS\n'
+printf '%s %-16s%s\n' "${dash_line%%$'\t'*}" "Dash" "${dash_line#*$'\t'}"
+printf '%s %-16s%s\n' "${plugins_line%%$'\t'*}" "Plugins" "${plugins_line#*$'\t'}"
+
+jq -rn --argjson repos "$repos_json" --argjson thisRepo "$this_repo_json" --argjson settings "$settings_json" '
+  def implModel: (($settings[] | select(.key == "implModels") | .value[0]) // "sonnet");
+  ( if ($repos | length) == 0 then
+      ["", "No repos with a queue yet."]
+    else
+      ["", "QUEUES", "| Repo | Plan | Todo | Batches | Status |", "|---|---|---|---|---|"]
+      + [ $repos[] | "| " + .name + " | " + (.plan|tostring) + " | " + (.todo|tostring) + " | "
+          + ((.open|tostring) + "/" + (.done|tostring)) + " | " + .status + " |" ]
+    end
+  )
+  + ( if $thisRepo == null then [] else
+      ["", ("THIS REPO · " + $thisRepo.name), "| Batch | Priority | Open/Done | Status |", "|---|---|---|---|"]
+      + [ $thisRepo.batches[] | "| " + .name + " | " + (if .priority == "" then "-" else .priority end) + " | "
+          + ((.open|tostring) + "/" + (.done|tostring)) + " | " + .status + " |" ]
+    end
+  )
+  + [ $repos[] | select(.status != "BLOCKED" and .open > 0)
+      | "\ncd " + .path + "\n/model " + implModel + "\n/ifq" ]
+  + ( if $thisRepo == null then [] else
+      ([ $settings[] | select(.marker != "D") ]) as $rows
+      | ["", ("CONFIG · " + $thisRepo.name),
+         (($rows|length|tostring) + " of " + ($settings|length|tostring) + " keys differ from default")]
+      + ( if ($rows|length) == 0 then [] else
+          [ $rows[] | "[" + .marker + "] " + .key + "  " + (.value|tostring)
+            + (if has("maskedValue") then
+                 "\n   └ ⚠ masks " + .maskedSource + " value `" + (.maskedValue|tostring) + "`"
+               else "" end) ]
+        end)
+      + ["Full list: bin/cfq settings list --repo " + $thisRepo.path + " --sources · Global view: bin/cfq settings list --sources"]
+    end
+  )
+  | .[]
+'

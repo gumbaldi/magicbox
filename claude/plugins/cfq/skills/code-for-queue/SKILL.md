@@ -40,7 +40,11 @@ this repo has one. `RUNTIME_DEGRADED` → surface `.runtimeDiagnostic` verbatim,
 as not installed for this run. `MULTIPLE_IN_PROGRESS` → this repo has more than one batch
 locked/in-progress at once, an invariant violation — surface it, never silently pick one.
 
-## Plugin Status Line (Steps A and B)
+## Plugin Status Line (Step A)
+
+`cfq dash render` (Step B) computes this identically inside the script — this section is Step A's
+own copy, needed there because Step A's offer flow reacts to `.plugins` directly rather than
+printing the rendered block.
 
 From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilling`/
 `.usePonytailAudit` (the switches) — computed once by the aggregator, no separate call.
@@ -79,32 +83,17 @@ step didn't run at all.
 
 ## Step B — Dashboard (default behavior with no argument)
 
-Print the `Dash` and `Plugins` status lines, then render:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" dash render
+```
 
-**`QUEUES`** — one row per `.repos[]` entry:
-
-| Repo | Plan | Todo | Batches | Status |
-|---|---|---|---|---|
-| kankuri | 1 | 0 | 1/2 | IN_PROGRESS |
-
-`Batches` is open/done **batch** counts (not phases). `Status` is BLOCKED/PLANNING/IN_PROGRESS/OK
-per `CLAUDE.md`'s Status Vocabulary — explain the values once, not per row. Empty `.repos` → say
-so plainly, no empty table.
-
-**`THIS REPO · <name>`** — only when `.thisRepo` is non-null, one row per batch:
-
-| Batch | Priority | Open/Done | Status |
-|---|---|---|---|
-| 2026-08-13-cfq-plugin | high | 4/2 | IN_PROGRESS |
-
-For every repo whose overview `Status` is not `BLOCKED` and whose open count is nonzero, print the
-copyable sequence once: `cd <repo>` → `/model sonnet` (or the first `implModels` entry) → `/ifq`.
-
-**`CONFIG · <name>`** — only when `.thisRepo` is non-null: from `.settings`, only entries whose
-`marker` is not `D`, each as `[<marker>] <key>  <value>`; an entry carrying `maskedValue`
-additionally shows `⚠ masks <maskedSource> value '<maskedValue>'`. A header line states the
-deviation count and total key count. One closing line offers the full list and the global view —
-see `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`.
+Print its output exactly as returned — the `PRECHECKS` header, `Dash`/`Plugins` status lines,
+`QUEUES`, `THIS REPO · <name>` (when applicable), the copyable `cd`/`/model`/`/ifq` sequence, and
+`CONFIG · <name>` are all already rendered. No reformatting, no rebuilding a table from `.repos`/
+`.thisRepo`/`.settings` by hand — this is the same aggregation Step 0 fetches as JSON, formatted by
+the script instead of the model. (The bare `/cfq` slash command already prints this block via its
+own injection before the model runs at all; this step exists for every other way the skill gets
+invoked — natural language, or as part of Step A's flow.)
 
 The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request.
 

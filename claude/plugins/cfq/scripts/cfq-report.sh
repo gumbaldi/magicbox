@@ -6,7 +6,7 @@
 #        cfq-report.sh last-failure <batch-dir> <phase-slug>
 #        cfq-report.sh summary <batch-dir>
 #        cfq-report.sh html <batch-dir>
-#        cfq-report.sh index [--repo <substr>] [--batch <substr>]
+#        cfq-report.sh index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]
 #        cfq-report.sh detail <batch-dir>
 set -eu
 
@@ -48,6 +48,23 @@ repo_root_of() {
   [ "$r" = "$abs" ] && r="${abs%/.claude/cfq/impl/*}"
   [ "$r" = "$abs" ] && r=""
   printf '%s' "$r"
+}
+
+# Resolves the path report.html lives (or would live) at for a batch directory, honoring the
+# reportDir setting when configured — same resolution `html` and `index --text`'s file:// lines
+# both need. Read-only: a caller that's about to write creates the directory itself.
+resolve_html_path() {
+  local dir="${1%/}" repo_root report_dir
+  repo_root="$(repo_root_of "$dir")"
+  if [ -n "$repo_root" ]; then
+    report_dir=$("$script_dir/cfq-settings.sh" get --repo "$repo_root" reportDir 2>/dev/null || true)
+  else
+    report_dir=$("$script_dir/cfq-settings.sh" get reportDir 2>/dev/null || true)
+  fi
+  case "$report_dir" in
+    ''|null) printf '%s/report.html' "$dir" ;;
+    *) printf '%s/%s/%s.html' "$report_dir" "$(basename "$repo_root")" "$(basename "$dir")" ;;
+  esac
 }
 
 # report.json is created by whoever writes to it first — planning-time security snapshot or the
@@ -138,15 +155,11 @@ case "$cmd" in
     else
       report_dir=$("$script_dir/cfq-settings.sh" get reportDir 2>/dev/null || true)
     fi
+    out="$(resolve_html_path "$dir")"
     case "$report_dir" in
-      ''|null)
-        out="$dir/report.html"
-        ;;
-      *)
-        out="$report_dir/$(basename "$repo_root")/$(basename "$dir").html"
-        mkdir -p "$(dirname "$out")" \
-          || { echo "cfq-report.sh: cannot create $(dirname "$out")" >&2; exit 1; }
-        ;;
+      ''|null) ;;
+      *) mkdir -p "$(dirname "$out")" \
+           || { echo "cfq-report.sh: cannot create $(dirname "$out")" >&2; exit 1; } ;;
     esac
 
     # Phase goal per phase, from its plan file's `## Context` — same extraction as
@@ -252,29 +265,37 @@ case "$cmd" in
     ;;
   index)
     shift
-    repo_filter=""; batch_filter=""
+    repo_filter=""; batch_filter=""; any_filter=""; text_mode=0
+    usage="usage: cfq-report.sh index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]"
     while [ $# -gt 0 ]; do
       case "$1" in
-        --repo) repo_filter="${2:?usage: cfq-report.sh index [--repo <substr>] [--batch <substr>]}"; shift 2 ;;
-        --batch) batch_filter="${2:?usage: cfq-report.sh index [--repo <substr>] [--batch <substr>]}"; shift 2 ;;
+        --repo) repo_filter="${2:?$usage}"; shift 2 ;;
+        --batch) batch_filter="${2:?$usage}"; shift 2 ;;
+        --any) any_filter="${2:?$usage}"; shift 2 ;;
+        --text) text_mode=1; shift ;;
         *) echo "cfq-report.sh: unknown argument: $1" >&2; exit 1 ;;
       esac
     done
     scan_json="$("$script_dir/cfq-scan.sh")"
-    meta=$(jq -c --arg repoF "$repo_filter" --arg batchF "$batch_filter" '
+    # --any matches either the repo path or the batch name — the merge-and-dedupe an ambiguous
+    # single argument used to need (two index calls, merged by the caller) collapses into one
+    # OR'd selection here, inherently deduped since each batch is visited once.
+    meta=$(jq -c --arg repoF "$repo_filter" --arg batchF "$batch_filter" --arg anyF "$any_filter" '
       [ .repos[] as $r
         | $r.batches[]
         | select(.report == true)
         | select($repoF == "" or ($r.path | ascii_downcase | contains($repoF | ascii_downcase)))
         | select($batchF == "" or (.name | ascii_downcase | contains($batchF | ascii_downcase)))
+        | select($anyF == "" or ($r.path | ascii_downcase | contains($anyF | ascii_downcase))
+                          or (.name | ascii_downcase | contains($anyF | ascii_downcase)))
         | { repo: $r.path, name,
             path: ($r.path + (if .archived then "/.claude/cfq/impl/done/" else "/.claude/cfq/impl/" end) + .name + "/report.json") }
       ]' <<<"$scan_json")
     if [ "$(jq 'length' <<<"$meta")" -eq 0 ]; then
-      echo '[]'
+      rows='[]'
     else
       mapfile -t report_files < <(jq -r '.[].path' <<<"$meta")
-      jq -s -c --argjson meta "$meta" "$outcome_def"'
+      rows=$(jq -s -c --argjson meta "$meta" "$outcome_def"'
         [ range(0; length) as $i
           | .[$i] as $r
           | $meta[$i] as $m
@@ -290,7 +311,32 @@ case "$cmd" in
               }
             }
         ] | sort_by(.date) | reverse
-      ' "${report_files[@]}"
+      ' "${report_files[@]}")
+    fi
+    if [ "$text_mode" != "1" ]; then
+      printf '%s\n' "$rows"
+    elif [ "$(jq 'length' <<<"$rows")" -eq 0 ]; then
+      echo "No batch has a report yet — reports have existed only since v0.2, so older batches never got one."
+    else
+      jq -r '
+        (["Repo","Batch","Status","Dev.","Date","Cost"] | "| " + join(" | ") + " |"),
+        "|---|---|---|---|---|---|",
+        (.[] | [
+            (.repo | split("/") | last),
+            .batch,
+            (if .status == "RED" or .status == "MIXED" then "**" + .status + "**" else .status end),
+            (.deviations | tostring),
+            .date,
+            (if .cost.outputTokens == 0 then "–" else (((.cost.outputTokens / 1000) | round | tostring) + "k") end)
+          ] | "| " + join(" | ") + " |")
+      ' <<<"$rows"
+      while IFS= read -r row; do
+        rrepo=$(jq -r '.repo' <<<"$row")
+        rbatch=$(jq -r '.batch' <<<"$row")
+        bpath=$(jq -r --arg repo "$rrepo" --arg batch "$rbatch" \
+          '.[] | select(.repo == $repo and .name == $batch) | .path' <<<"$meta")
+        printf 'file://%s\n' "$(resolve_html_path "${bpath%/report.json}")"
+      done < <(jq -c '.[]' <<<"$rows")
     fi
     ;;
   detail)
@@ -343,7 +389,7 @@ case "$cmd" in
     fi
     ;;
   *)
-    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | set-commit <batch-dir> <phase-slug> <sha> | last-failure <batch-dir> <phase-slug> | summary <batch-dir> | html <batch-dir> | index [--repo <substr>] [--batch <substr>] | detail <batch-dir>" >&2
+    echo "usage: cfq-report.sh append <batch-dir> <phase-json> | security <batch-dir> <security-json> | set-commit <batch-dir> <phase-slug> <sha> | last-failure <batch-dir> <phase-slug> | summary <batch-dir> | html <batch-dir> | index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text] | detail <batch-dir>" >&2
     exit 1
     ;;
 esac

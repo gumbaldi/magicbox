@@ -57,7 +57,7 @@ defaults=$(jq -c 'map_values(.default)' <<<"$schema")
 
 ensure() {
   mkdir -p "$dir"
-  [ -f "$settings" ] || printf '%s\n' "$defaults" > "$settings"
+  [ -f "$settings" ] || printf '{}\n' > "$settings"
 }
 
 ensure_state() {
@@ -141,11 +141,11 @@ with_overrides() {
 }
 
 # Determines which tier actually supplied $key's final value: env:process / env:repo-legacy /
-# repo / global / default. $global_existed reflects whether the global file existed *before*
-# this invocation's ensure() ran (a fresh file, just materialized with defaults, still counts
-# as "default").
+# repo / global / default. "global"/"repo" mean the key is actually present in that tier's file
+# on disk — ensure() only ever materializes an empty {} for a fresh global file, so a key no one
+# ever `set` stays "default" no matter how many other cfq-settings.sh calls touched the file.
 key_source() {
-  local key="$1" repo_path="$2" global_existed="$3" base_json="$4" final_json="$5"
+  local key="$1" repo_path="$2" base_json="$3" final_json="$4"
   local env_name same legacy_settings legacy_val
   env_name=$(jq -r --arg k "$key" '.[$k].env // empty' <<<"$schema")
   if [ -n "$env_name" ]; then
@@ -165,7 +165,7 @@ key_source() {
      && jq -e --arg k "$key" 'has($k)' "$repo_path/.claude/cfq/settings.json" >/dev/null 2>&1; then
     echo "repo"; return
   fi
-  if [ "$global_existed" = "1" ]; then
+  if [ -f "$settings" ] && jq -e --arg k "$key" 'has($k)' "$settings" >/dev/null 2>&1; then
     echo "global"
   else
     echo "default"
@@ -190,14 +190,13 @@ set -- "${positional[@]}"
 
 case "$cmd" in
   list)
-    global_existed=$([ -f "$settings" ] && echo 1 || echo 0)
     ensure
     base_json=$(merged_tiers "$repo_path")
     final_json=$(printf '%s' "$base_json" | with_overrides)
     if [ "$want_source" = "1" ]; then
       out="{}"
       while IFS= read -r k; do
-        src=$(key_source "$k" "$repo_path" "$global_existed" "$base_json" "$final_json")
+        src=$(key_source "$k" "$repo_path" "$base_json" "$final_json")
         out=$(jq --arg k "$k" --arg s "$src" --argjson fj "$final_json" '.[$k] = {value: $fj[$k], source: $s}' <<<"$out")
       done < <(jq -r 'keys[]' <<<"$schema")
       printf '%s\n' "$out"
@@ -207,12 +206,11 @@ case "$cmd" in
     ;;
   get)
     key="${1:?usage: cfq-settings.sh get [--repo <path>] [--source] <key>}"
-    global_existed=$([ -f "$settings" ] && echo 1 || echo 0)
     ensure
     base_json=$(merged_tiers "$repo_path")
     final_json=$(printf '%s' "$base_json" | with_overrides)
     if [ "$want_source" = "1" ]; then
-      src=$(key_source "$key" "$repo_path" "$global_existed" "$base_json" "$final_json")
+      src=$(key_source "$key" "$repo_path" "$base_json" "$final_json")
       jq -c --arg k "$key" --arg s "$src" '{value: .[$k], source: $s}' <<<"$final_json"
     else
       type=$(jq -r --arg k "$key" '.[$k].type // empty' <<<"$schema")

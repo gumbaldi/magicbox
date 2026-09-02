@@ -136,6 +136,17 @@ idx_batch=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$stub_dir/cfq-report.sh" in
 [ "$(jq 'length' <<<"$idx_batch")" = "1" ] || { echo "FAIL: --batch filter did not narrow to 1: $idx_batch"; exit 1; }
 [ "$(jq -r '.[0].batch' <<<"$idx_batch")" = "2026-02-01-alpha" ] || { echo "FAIL: --batch filter wrong batch: $idx_batch"; exit 1; }
 
+# --any matches either field, deduped, no separate merge on the caller's side
+idx_any=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$stub_dir/cfq-report.sh" index --any repo-q)
+[ "$(jq 'length' <<<"$idx_any")" = "1" ] || { echo "FAIL: --any filter did not narrow to 1: $idx_any"; exit 1; }
+
+# --text is additive, not a substitute: same fixture, JSON above is untouched, and RED/MIXED show
+# up visibly marked. Deep render coverage (zero-cost dash, no-HTML-entity) lives in
+# tests/test-render.sh, not duplicated here.
+idx_text=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$stub_dir/cfq-report.sh" index --text)
+echo "$idx_text" | grep -qF '**RED**' || { echo "FAIL: --text missing marked RED row"; echo "$idx_text"; exit 1; }
+echo "$idx_text" | grep -qF '**MIXED**' || { echo "FAIL: --text missing marked MIXED row"; echo "$idx_text"; exit 1; }
+
 # detail on a batch with no report.json -> clear not-found result, no crash
 noreport_batch="$tmp/repo-p/.claude/cfq/impl/nope"
 mkdir -p "$noreport_batch"

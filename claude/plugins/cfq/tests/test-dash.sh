@@ -35,6 +35,13 @@ a=$(jq -c --arg p "$tmp/repo-a" '[.repos[] | select(.path == $p)]' <<<"$out")
 b=$(jq -c --arg p "$tmp/repo-b" '.repos[] | select(.path == $p) | {open, done, status}' <<<"$out")
 [ "$b" = '{"open":0,"done":0,"status":"OK"}' ] || { echo "FAIL: repo-b rollup = $b"; exit 1; }
 
+# 1b. `render` is additive, not a substitute: same fixture, JSON default above is untouched, and
+# the terminal render mentions both repos. Deep render coverage (tables, MULTIPLE_IN_PROGRESS,
+# equivalence, no-HTML-entity) lives in tests/test-render.sh, not duplicated here.
+rendered=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash "$dash" render "$tmp")
+echo "$rendered" | grep -qF 'repo-a' || { echo "FAIL: render output missing repo-a"; exit 1; }
+echo "$rendered" | grep -qF 'repo-b' || { echo "FAIL: render output missing repo-b"; exit 1; }
+
 # 2. Run from inside a registered repo -> .thisRepo.batches lists that repo's batches only.
 out_inside=$(HOME="$home" CFQ_SCAN_ROOTS="$tmp" bash -c "cd '$tmp/repo-a' && bash '$dash'")
 this=$(jq -c '.thisRepo.batches | map(.name)' <<<"$out_inside")

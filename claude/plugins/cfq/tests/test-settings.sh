@@ -276,6 +276,16 @@ got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
 got=$(HOME="$home" CFQ_IMPL_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get implExploreModel)
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override implExploreModel -> got '$got'"; exit 1; }
 
+# 9b. Regression: an unrelated global `get` (e.g. cfq-runtime.sh's internal `get ctxWindowLimits`
+# call inside cfq-dash.sh) must not make every other untouched key report source "global"
+# afterwards — ensure() only ever materializes an empty {}, never a full copy of the defaults.
+marker_home=$(mktemp -d)
+HOME="$marker_home" cfq_clean bash "$settings_sh" get ctxWindowLimits >/dev/null
+got=$(HOME="$marker_home" cfq_clean bash "$settings_sh" get --source maintenanceEvery)
+[ "$got" = '{"value":50,"source":"default"}' ] \
+  || { echo "FAIL: untouched key after unrelated get -> got '$got', want source default"; exit 1; }
+rm -rf "$marker_home"
+
 # 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
 # detection, migrate. Fresh HOME (a prior section already customized maintenanceEvery in
 # $home) and a throwaway fixture repo — never the real repo.

@@ -44,8 +44,6 @@ Rules:
 - The result section is a label/value list under the same padding, not a table.
 - Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
   user stay in the user's language.
-- The data tables of this skill are not status lines and stay exactly as specified below — the
-  format applies to what happens around them.
 
 ## Section Map
 
@@ -58,33 +56,29 @@ Rules:
 ## 1. Collect
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>]
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>]
 ```
 
 Print the `PRECHECKS` header on entering this step. One call: `index` already discovers every
 `report: true` batch (open and archived alike) via its own internal `bin/cfq scan` call, computes
 each batch's `GREEN`/`RED`/`MIXED` status, and returns the sorted (newest-first), filtered array —
 no separate scan, no per-batch `summary` loop, no filtering after the fact. Print the `Scan` status
-line.
+line. `--any` is for a single argument that could name either a repo or a batch — see `## Arguments`
+below.
 
 No batch has a report (`index` returns `[]`) → say so plainly, and mention that reports have
-existed only since v0.2, so older batches never got one. Do not render an empty table.
+existed only since v0.2, so older batches never got one. Exactly one match → skip Step 2 entirely
+and go straight to Step 3's detail view.
 
 ## 2. Terminal Table
 
-Render `index`'s array directly — already sorted newest-first, already carrying a computed
-`status`:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] --text
+```
 
-| Repo | Batch | Status | Dev. | Date | Cost |
-|---|---|---|---|---|---|
-| magicbox | 2026-08-13-cfq-v02 | RED | 2 | 2026-08-14 | 67k |
-
-**Cost** is `.cost.outputTokens`, rounded to whole thousands with no decimal (`67k`); `0` (no
-telemetry — reports have existed since v0.2, telemetry only since v0.3) renders as `–` instead.
-Repo column: basename of `.repo` only. Visibly mark `RED`/`MIXED` rows. Below the table, one
-`file://` path to the HTML per row. With `reportDir` configured those paths point into the
-collected tree (`<reportDir>/<repo>/<batch>.html`) instead of the batch directory, and
-`<reportDir>/index.html` is the entry point into all of them.
+Same filters as Step 1 — another cheap single-scan call, this time rendered. Print its output
+exactly as returned (the table plus one `file://` line per row, already pointing into the collected
+tree when `reportDir` is configured) — no rebuilding the table from Step 1's JSON by hand.
 
 ## 3. Detail
 
@@ -114,13 +108,11 @@ the section is left out entirely.
 
 ## Arguments
 
-No argument → all repos, `index` called without flags. With an argument, `--repo` and `--batch`
-each narrow independently (both given → both must match, AND not OR) — an argument that could name
-either a repo or a batch is passed through as two separate calls, `index --repo <arg>` and `index
---batch <arg>`, merged and deduplicated by `(repo, batch)`, never filtered by Claude after the
-fact. Both calls stay cheap (each is `index`'s single internal `bin/cfq scan` call). Exactly one
-match in the merged set → go straight to the detail view instead of the table. Print the `Filter`
-status line right after `Scan`, before Step 2's table.
+No argument → all repos, `index` called without flags. With an argument that clearly names a repo
+or a batch, pass it as `--repo`/`--batch` — narrowing independently when both are given (AND, not
+OR). An argument that could name either → `--any <arg>` instead: `index` matches it against repo
+path or batch name and dedupes internally, one call, never two calls merged by Claude after the
+fact. Print the `Filter` status line right after `Scan`, before Step 2's table.
 
 ## Boundary
 
