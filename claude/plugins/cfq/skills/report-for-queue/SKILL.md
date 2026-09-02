@@ -58,11 +58,11 @@ Rules:
 ## 1. Collect
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" index [--repo <substr>] [--batch <substr>]
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>]
 ```
 
 Print the `PRECHECKS` header on entering this step. One call: `index` already discovers every
-`report: true` batch (open and archived alike) via its own internal `cfq-scan.sh` call, computes
+`report: true` batch (open and archived alike) via its own internal `bin/cfq scan` call, computes
 each batch's `GREEN`/`RED`/`MIXED` status, and returns the sorted (newest-first), filtered array —
 no separate scan, no per-batch `summary` loop, no filtering after the fact. Print the `Scan` status
 line.
@@ -91,7 +91,7 @@ collected tree (`<reportDir>/<repo>/<batch>.html`) instead of the batch director
 On request for a single batch, print the `POSTCHECKS` header, then call:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" detail "<batch-dir>"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report detail "<batch-dir>"
 ```
 
 and render its `phases` in prose — status, summary, deviations, errors, and, if present, the
@@ -101,7 +101,7 @@ are already bounded, render as-is. `found: false` → say plainly there is no re
 For the HTML view:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" html "<batch-dir>"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report html "<batch-dir>"
 ```
 
 (renders fresh, overwrites a stale file) and state the printed path as a `file://` URL, printing
@@ -118,7 +118,7 @@ No argument → all repos, `index` called without flags. With an argument, `--re
 each narrow independently (both given → both must match, AND not OR) — an argument that could name
 either a repo or a batch is passed through as two separate calls, `index --repo <arg>` and `index
 --batch <arg>`, merged and deduplicated by `(repo, batch)`, never filtered by Claude after the
-fact. Both calls stay cheap (each is `index`'s single internal `cfq-scan.sh` call). Exactly one
+fact. Both calls stay cheap (each is `index`'s single internal `bin/cfq scan` call). Exactly one
 match in the merged set → go straight to the detail view instead of the table. Print the `Filter`
 status line right after `Scan`, before Step 2's table.
 

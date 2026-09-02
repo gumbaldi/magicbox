@@ -44,13 +44,17 @@ Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a thro
 user's real registry and settings stay untouched:
 
 ```bash
-HOME=$(mktemp -d) bash claude/plugins/cfq/scripts/cfq-settings.sh list
-HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture bash claude/plugins/cfq/scripts/cfq-scan.sh | jq .
-bash claude/plugins/cfq/scripts/ctx-usage.sh        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
+HOME=$(mktemp -d) claude/plugins/cfq/bin/cfq settings list
+HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture claude/plugins/cfq/bin/cfq scan | jq .
+claude/plugins/cfq/bin/cfq ctx        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
 ```
 
-Skills call scripts as `"${CLAUDE_PLUGIN_ROOT}/scripts/<x>.sh"` — that variable only exists in an
-installed-plugin session, so use relative paths (`claude/plugins/cfq/scripts/...`) when testing from a checkout.
+**`bin/cfq <noun> <verb>` is the entrypoint.** Skills call it as
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" <noun> <verb>` — that variable only exists in an installed-plugin
+session, so use a relative path (`claude/plugins/cfq/bin/cfq ...`) when testing from a checkout. The
+21 scripts under `scripts/` are implementations, still directly executable (the test suite calls
+them that way on purpose — see Architecture) but no longer the documented interface; add a new
+script's noun to `bin/cfq`'s routing table, not a new call site naming the script.
 
 ## Architecture
 

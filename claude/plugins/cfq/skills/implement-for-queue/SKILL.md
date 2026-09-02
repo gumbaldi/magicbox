@@ -40,7 +40,7 @@ Before Step 1-3a, check for Plan Mode — read
 
 Print the `PRECHECKS` header, then one call:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-ifq-preflight.sh" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 `status: "NO_REPO"` → abort, report, end. Otherwise this one call already resolved Steps 1
 (model gate), 2 (plugin gate) and 3a (batch selection) together — read its fields below, no
@@ -86,7 +86,7 @@ Nothing is touched, no lock taken, until the user has seen what the batch contai
 phase files in full here, that's Step 4's job. Present `batch.briefText` compactly (already the
 full per-phase listing — name/priority/phase count/`dependsOn`/one line per phase with size and
 context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing this batch?":
-- **Start** → acquire the repo lock (`cfq-lock.sh acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
+- **Start** → acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
   (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
@@ -94,7 +94,7 @@ context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing th
   first — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
   happened. `resume` (same preflight
   result) already carries done/open phases, last commit, deviations, red-phase history,
-  `.batch-context.md`'s path — no new `cfq-resume.sh` call; if `resume.batchContext.exists`, `Read`
+  `.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
   it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 4.
 - **A different batch** → back to Step 3a's question with the remaining batches; the declined one
   isn't offered again. Nothing left → report and end. Not offered at all when Step 3a didn't run a
@@ -118,7 +118,7 @@ preflight from the phase's `## Size` heading, never prose arithmetic. `contextGa
 status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
 <contextGate.verdict> (<contextGate.note>)`; this closes `PRECHECKS`.
 **(4b2) Announcement and Go Gate.** Print the phase announcement —
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-brief.sh" "<batch-dir>" --phase <NN>`, rendered as returned, no
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --phase <NN>`, rendered as returned, no
 rewording — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel** (release the lock, end
 the session). Rendering example and option copy in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement
 and Go Gate**.
@@ -133,11 +133,11 @@ write the counterparts in every `docLanguages` entry before it goes green, per
 beyond this phase's scope → one `AskUserQuestion` on parking it: yes writes
 `plan/<YYYY-MM-DD>-<slug>.md` per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`, no stays a sentence in the report, no
 second attempt. Green → move the file to `<batch>/done/` (`mkdir -p` first), register the repo
-(`cfq-registry.sh add "<repo-root>"`), print the **Summary** (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase
+(`bin/cfq registry add "<repo-root>"`), print the **Summary** (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase
 Summary** — its `Deviation` lines double as this call's `deviations` array, one source, two
 renderings); red → **stop**, print `❌ red` with each trimmed error as `   └ ` lines, the file stays
 open, don't move on. Record the phase either way, before anything else, with
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" append "<batch-dir>" '<phase-json>'` — this captures
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report append "<batch-dir>" '<phase-json>'` — this captures
 telemetry automatically. `deviations` is not optional padding — name what the plan said, what was
 built, and why; an honest empty array is fine, a glossed-over deviation is not. On red, `errors`
 carries the actual failure output, trimmed to what identifies it.
@@ -151,21 +151,21 @@ mechanics in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Stop Rule**. Any f
 
 Automatically, right after moving the file to `done/`, even if more phases follow — never
 collected until batch end or a `/clear`. The branch already exists (Step 3b created it or checked
-an existing one out) — commit, message in `codeLanguage`, composed via `cfq-changelog.sh
+an existing one out) — commit, message in `codeLanguage`, composed via `bin/cfq changelog
 commit-message` (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
 <branch>` on this session's first push, a plain `git push` after that. Then backfill the commit
 hash via
-`git rev-parse HEAD` and `cfq-report.sh set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
-it, `cfq-resume.sh`'s commit fields stay empty for every phase from here on. Print the `Commit`
+`git rev-parse HEAD` and `bin/cfq report set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
+it, `bin/cfq resume`'s commit fields stay empty for every phase from here on. Print the `Commit`
 status line — branch and commits pushed.
 
 ## 6. Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-usage.sh"`. `policy.onePhasePerSession` (Step 1-3a's
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`. `policy.onePhasePerSession` (Step 1-3a's
 preflight, no new call) `true` → treat exactly like `STOP` below, regardless of the context gate's
 own verdict; `false` → the context gate alone decides. `STOP` → print `POSTCHECKS` (this closes
-`IMPLEMENTATION`), sync telemetry and release the lock (`cfq-telemetry.sh sync "<repo-root>"`,
-`cfq-lock.sh release "<repo-root>"`),
+`IMPLEMENTATION`), sync telemetry and release the lock (`bin/cfq telemetry sync "<repo-root>"`,
+`bin/cfq lock release "<repo-root>"`),
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
 half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
 from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
@@ -178,14 +178,14 @@ implemented without an explicit confirmation naming what's about to change.
 ## 7. Batch Done
 
 No open `NN-*.md` left → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
-`"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-finish.sh" "<repo-root>" "<batch-dir>" "<branch>"`, which moves
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"`, which moves
 the batch into `impl/done/`, registers the repo, runs the language/maintenance/security/changelog/
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
 never leave the repo locked), and prints one JSON object. Render its fields — `Language`/
 `Maintenance`/`Security Diff`/`Changelog`/`Telemetry`/`Lock`/`.errors` — field-by-field detail in
 `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Batch-Done Report Fields**.
 
-Render the HTML report only when `htmlReport` is `true` (`cfq-report.sh html
+Render the HTML report only when `htmlReport` is `true` (`bin/cfq report html
 "<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
 /rfq renders on demand` and no `file://` line in Step 8. Hand the batch to Step 8 for the closing report.
 

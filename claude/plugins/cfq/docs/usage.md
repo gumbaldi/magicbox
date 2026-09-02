@@ -54,7 +54,7 @@ green phase.
    ```
    PHASE 02 · ifq-per-phase-go-gate · Size L
      Goal     Deterministic phase announcement, extracted from the phase file itself.
-     Files    cfq-brief.sh, SKILL.md, queues.md
+     Files    bin/cfq, SKILL.md, queues.md
      Check    bash tests/test-brief-park.sh
    ```
 
@@ -63,7 +63,7 @@ green phase.
 
    ```
    PHASE 02 DONE
-   ✅ Implemented     Added --phase to cfq-brief.sh, extended its test.
+   ✅ Implemented     Added --phase to the brief noun, extended its test.
    ✅ Verification    bash tests/test-brief-park.sh — PASS
    ```
 

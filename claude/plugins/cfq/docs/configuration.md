@@ -32,7 +32,7 @@ forever; the original file is left untouched.
 ## View settings
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" list [--repo <path>] [--sources]
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings list [--repo <path>] [--sources]
 ```
 
 `--repo` folds in that repo's tier-2 file. `--sources` adds, per key, which tier actually supplied
@@ -44,13 +44,13 @@ presented as a table.
 
 ```bash
 # Global (tier 3)
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set maintenanceEvery 25
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set maintenanceEvery 25
 
 # Repo-scoped (tier 2) — only for this clone's repo
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set --repo "$(git rev-parse --show-toplevel)" docLevel standard
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set --repo "$(git rev-parse --show-toplevel)" docLevel standard
 
 # Remove an override, falling back to the next tier
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" unset --repo "$(git rev-parse --show-toplevel)" docLevel
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings unset --repo "$(git rev-parse --show-toplevel)" docLevel
 ```
 
 `get [--repo <path>] [--source] <key>` reads a single key the same way `list` does; `describe
@@ -90,14 +90,15 @@ interactively.
 | `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
 | `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 | `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `cfq-settings.sh state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 9a) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 9a) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set
 them sparingly.
 
-Adding a new setting means adding one schema entry to `cfq-settings.sh` — `list`/`get`/`set`/
-`unset`/`describe` and every precedence tier read it generically, no second place to touch.
+Adding a new setting means adding one schema entry inside the script behind `bin/cfq settings` —
+`list`/`get`/`set`/`unset`/`describe` and every precedence tier read it generically, no second
+place to touch.
 
 ## Explore model escalation
 
@@ -112,10 +113,10 @@ still runs on the cheap default.
 
 ## Report collection layout
 
-With `reportDir` set, `cfq-report.sh html <batch-dir>` writes into
+With `reportDir` set, `bin/cfq report html <batch-dir>` writes into
 `<reportDir>/<repo-basename>/<batch>.html` instead of the batch directory, and regenerates
 `<reportDir>/index.html` alongside it — one page linking every report-bearing batch across every
-repo (`cfq-report.sh index`'s own data), grouped by repo, newest first. A batch `index` reports
+repo (`bin/cfq report index`'s own data), grouped by repo, newest first. A batch `index` reports
 that has no HTML rendered yet is listed without a link rather than omitted. Leaving `reportDir`
 empty keeps today's behavior: `report.html` next to `report.json` in the batch directory, no
 `index.html`. This is meant for a location reachable outside the queue's own git-excluded
@@ -128,36 +129,36 @@ The canonical JSON shape for every read-only aggregator a skill calls, so no `SK
 restate a field list inline — read the field here, then read it back from the call's own output.
 `status` values follow CLAUDE.md's Status Vocabulary.
 
-- **`cfq-pfq-preflight.sh <repo-root>`** — `{status, repo: {root, known}, planningPolicy:
+- **`bin/cfq preflight-plan <repo-root>`** — `{status, repo: {root, known}, planningPolicy:
   {planModels, allowAnyModel, planExploreModel, planExploreModelComplex, planBlockedPlugins,
   grillMode, useMattpocockGrilling, usePonytailAudit}, language: {codeLanguage, docLanguages,
   docLevel}, queue: {openBatches: [{name, priority, open, dependsOn}]}, maintenance: {status, n},
   security: {available}, reporting: {reportDir, htmlReport}}`. `status`: `OK` or `NO_REPO` (only
   `repo.root`/`.known` set then).
-- **`cfq-ifq-preflight.sh <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
+- **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
   implExploreModelComplex}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
   inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
-  null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…cfq-branch.sh plan's shape}
-  | null, resume: {…cfq-resume.sh's shape minus `branch`} | null, contextGate: {pct, size,
+  null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
+  | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {pct, size,
   expected, projected, limit, verdict, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
-- **`cfq-scan.sh [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
+- **`bin/cfq scan [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
   batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
   Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
-- **`cfq-report.sh index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
+- **`bin/cfq report index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
   deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
   `MIXED`.
-- **`cfq-report.sh detail <batch-dir>`** — `{found, batch, repo, started, status, deviationsTotal,
+- **`bin/cfq report detail <batch-dir>`** — `{found, batch, repo, started, status, deviationsTotal,
   cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
   commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no
   `report.json`.
-- **`cfq-report.sh last-failure <batch-dir> <phase-slug>`** — `{found: false}` or `{found: true,
+- **`bin/cfq report last-failure <batch-dir> <phase-slug>`** — `{found: false}` or `{found: true,
   phase, note, at}` for that phase's most recent red attempt, if any.
-- **`cfq-runtime.sh plugins`** — `{status: "OK", plugins: [name, …]}`.
-- **`cfq-runtime.sh plugin-installed <name>`** — `{installed: boolean}`.
+- **`bin/cfq runtime plugins`** — `{status: "OK", plugins: [name, …]}`.
+- **`bin/cfq runtime plugin-installed <name>`** — `{installed: boolean}`.
 
 ## Language and documentation
 

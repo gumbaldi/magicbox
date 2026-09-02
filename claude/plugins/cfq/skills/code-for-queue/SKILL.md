@@ -32,7 +32,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 One call, reused by Steps A through D — never re-derive any of the following by hand:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-dash.sh"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" dash
 ```
 
 `status: "NO_REPO"` means no repo anywhere has a queue yet — say so, Steps C/D still work once
@@ -58,7 +58,7 @@ From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilli
 Print the `PRECHECKS` header on entering this step.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" state get setupDone
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings state get setupDone
 ```
 
 If it hasn't run yet, clarify two things **before** anything else — each its own
@@ -118,7 +118,7 @@ confirm → mutate → report under an `ACTION` header. Full per-action detail i
 
 ## Step D — Settings
 
-Change requests go through `cfq-settings.sh set [--repo <path>] <key> <value>` (or `unset`) — read
+Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
 each key's value/source straight from `.settings` (Step 0's call), never re-list. Scope inference,
 the global-only rejection, and the `env:repo-legacy` migration note are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:

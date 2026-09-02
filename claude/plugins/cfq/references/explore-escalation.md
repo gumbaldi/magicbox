@@ -12,5 +12,5 @@ Delegation (`<plugin-root>/references/queues.md`) — same rule, both places, wo
 
 Both keys already ride on each skill's own Step 1 preflight result
 (`planningPolicy.planExploreModel`/`.planExploreModelComplex` for `pfq`,
-`policy.implExploreModel`/`.implExploreModelComplex` for `ifq`) — no `cfq-settings.sh get` call at
+`policy.implExploreModel`/`.implExploreModelComplex` for `ifq`) — no `bin/cfq settings get` call at
 either site.

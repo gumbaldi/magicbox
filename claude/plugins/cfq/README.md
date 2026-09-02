@@ -180,8 +180,8 @@ A guard hook that restricts writes must let these paths through, or `pfq` dies m
 half-written batch in the queue:
 
 - `<repo>/.claude/cfq/**` — the three queues, and the only path every `pfq` session writes.
-  `scripts/cfq-layout.sh` is the source of truth for this list; read it there rather than copying
-  the entries into the hook by hand.
+  `bin/cfq layout` (implemented in `scripts/`) is the source of truth for this list; read it there
+  rather than copying the entries into the hook by hand.
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
 
@@ -280,7 +280,7 @@ stays a warning line.
 ## Configuration
 
 Precedence: **env var > repo `.claude/cfq/settings.json` > global `settings.json` > default**.
-Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set [--repo <path>] <key>
+Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set [--repo <path>] <key>
 <value>`. The legacy per-repo mechanism — an `env` block in `<repo>/.claude/settings.json` — still
 works and still sits at the top tier:
 
@@ -294,7 +294,7 @@ the language and documentation-level settings.
 ## Host dependencies
 
 Required: `bash`, `git`, `jq`. Installing the plugin does not install any of these — it only adds
-the plugin's own files. `cfq-doctor.sh check` reports what's missing and, for a required gap, a
+the plugin's own files. `bin/cfq doctor check` reports what's missing and, for a required gap, a
 platform-appropriate install hint; the bundled `SessionStart` hook runs it automatically and stays
 completely silent on a healthy host, only warning (user and Claude both) when a required command is
 absent. Optional, each degrading only the one feature it powers rather than blocking the plugin:

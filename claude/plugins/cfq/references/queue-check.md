@@ -3,7 +3,7 @@
 Only read when Step 5 finds at least one open batch for the target repo.
 
 ```bash
-"<plugin-root>/scripts/cfq-queue-overlap.sh" "<repo-root>"
+"<plugin-root>/bin/cfq" overlap "<repo-root>"
 ```
 
 Prints `{"batches": [{"batch": "<name>", "files": ["<path>", ...]}, ...]}` — one entry per open

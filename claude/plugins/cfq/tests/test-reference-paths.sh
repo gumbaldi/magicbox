@@ -50,14 +50,23 @@ check_no_token_in_references() {
   return "$fails"
 }
 
-# 4. Every cfq-<name>.sh mentioned anywhere exists under <root>/scripts/.
-check_scripts_exist() {
+# 4. Inverted by Phase 02: bin/cfq's noun routing replaced per-script call sites, so no .md under
+#    skills/ or references/ may name a cfq-*.sh at all any more. CLAUDE.md is the one allow-listed
+#    exception (it legitimately discusses implementation files by name) and keeps Phase 01's
+#    original existence check instead.
+check_no_scripts_named() {
   local root="$1" fails=0 file lineno match
   while IFS=: read -r file lineno match; do
-    [ -f "$root/scripts/$match" ] && continue
-    echo "FAIL: $file:$lineno names missing script: $match"
+    echo "FAIL: $file:$lineno names a script directly, route through bin/cfq's noun instead: $match"
     fails=$((fails + 1))
-  done < <(grep -rnoE 'cfq-[a-z-]+\.sh' "$root" --include='*.md' 2>/dev/null || true)
+  done < <(grep -rnoE 'cfq-[a-z-]+\.sh' "$root/skills" "$root/references" --include='*.md' 2>/dev/null || true)
+  if [ -f "$root/CLAUDE.md" ]; then
+    while IFS=: read -r lineno match; do
+      [ -f "$root/scripts/$match" ] && continue
+      echo "FAIL: CLAUDE.md:$lineno names missing script: $match"
+      fails=$((fails + 1))
+    done < <(grep -noE 'cfq-[a-z-]+\.sh' "$root/CLAUDE.md" 2>/dev/null || true)
+  fi
   return "$fails"
 }
 
@@ -66,7 +75,7 @@ run_all() {
   check_links_resolve "$root" || fails=$((fails + $?))
   check_no_bare_relative "$root" || fails=$((fails + $?))
   check_no_token_in_references "$root" || fails=$((fails + $?))
-  check_scripts_exist "$root" || fails=$((fails + $?))
+  check_no_scripts_named "$root" || fails=$((fails + $?))
   return "$fails"
 }
 
@@ -102,15 +111,18 @@ out=$(check_no_token_in_references "$tmp/f3-bad" 2>&1) || true
 out=$(check_no_token_in_references "$tmp/f3-good" 2>&1) || true
 [ -z "$out" ] || { echo "FAIL: check 3 self-test false-flagged the bound <plugin-root> token: $out"; exit 1; }
 
-# --- fixture 4: a named-but-missing script must fail, a real one must not ---
-mkdir -p "$tmp/f4-bad/scripts" "$tmp/f4-good/scripts"
-touch "$tmp/f4-good/scripts/cfq-real.sh"
-echo 'run `cfq-ghost.sh`' >"$tmp/f4-bad/skill.md"
-echo 'run `cfq-real.sh`' >"$tmp/f4-good/skill.md"
-out=$(check_scripts_exist "$tmp/f4-bad" 2>&1) || true
-echo "$out" | grep -q 'cfq-ghost.sh' || { echo "FAIL: check 4 self-test did not catch a ghost script"; exit 1; }
-out=$(check_scripts_exist "$tmp/f4-good" 2>&1) || true
-[ -z "$out" ] || { echo "FAIL: check 4 self-test false-flagged a real script: $out"; exit 1; }
+# --- fixture 4: a skills/ or references/ file naming any script must fail (even a real one);
+#     CLAUDE.md may name a real script but not a missing one ---
+mkdir -p "$tmp/f4/skills/some-skill" "$tmp/f4/references" "$tmp/f4/scripts"
+touch "$tmp/f4/scripts/cfq-real.sh"
+echo 'run `cfq-real.sh`' >"$tmp/f4/skills/some-skill/SKILL.md"
+echo 'run `cfq-real.sh`' >"$tmp/f4/references/r.md"
+echo 'discusses `cfq-real.sh` and `cfq-ghost.sh` by name' >"$tmp/f4/CLAUDE.md"
+out=$(check_no_scripts_named "$tmp/f4" 2>&1) || true
+echo "$out" | grep -q 'SKILL.md' || { echo "FAIL: check 4 self-test did not catch a script named under skills/"; exit 1; }
+echo "$out" | grep -q 'references/r.md' || { echo "FAIL: check 4 self-test did not catch a script named under references/"; exit 1; }
+echo "$out" | grep -q 'CLAUDE.md.*cfq-ghost.sh' || { echo "FAIL: check 4 self-test did not catch CLAUDE.md naming a missing script"; exit 1; }
+echo "$out" | grep -q 'CLAUDE.md.*cfq-real.sh' && { echo "FAIL: check 4 self-test false-flagged CLAUDE.md naming a real script"; exit 1; }
 
 # --- the real plugin tree must pass every check ---
 run_all "$plugin_root" || { echo "FAIL: $? issue(s) found in $plugin_root"; exit 1; }

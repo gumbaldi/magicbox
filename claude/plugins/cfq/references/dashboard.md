@@ -14,9 +14,9 @@ only offer what `.plugins` reports missing.
 
 On request, two extensions of the same block, same rendering:
 
-- **Full list** — re-run `cfq-dash.sh`'s settings call without the `marker != "D"` filter, so
+- **Full list** — re-run `bin/cfq dash`'s settings call without the `marker != "D"` filter, so
   default-valued keys show too.
-- **Global view** — `"<plugin-root>/scripts/cfq-settings.sh" list --sources` without
+- **Global view** — `"<plugin-root>/bin/cfq" settings list --sources` without
   `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
 ## Step C — Management, Six Actions (current repo only, always confirm before writing)
@@ -31,7 +31,7 @@ mutation script executes → the structured result is shown. No new script per a
    lost beforehand, and get explicit confirmation.
 3. **Archive a batch** — move to `<repo>/.claude/cfq/impl/done/<batch>/` without working it off.
    Open phases then count as done-but-not-implemented; say so in the confirmation text.
-4. **Clean the registry** — `cfq-registry.sh prune`, list the removed paths.
+4. **Clean the registry** — `bin/cfq registry prune`, list the removed paths.
 5. **Set/remove a dependency** — write or delete `.dependsOn` in the chosen batch. Before writing,
    check whether the named batch exists (open or in `done/`); if not, warn but write anyway on
    request — the edge is fail-soft by design.
@@ -61,7 +61,7 @@ ACTION
 
 ## Step D — Settings, Full Detail
 
-Pair each `.settings` row with its explanation from `cfq-settings.sh describe [<key>]` — that
+Pair each `.settings` row with its explanation from `bin/cfq settings describe [<key>]` — that
 schema call is the single source for per-key prose, not a hand-maintained table;
 `<plugin-root>/references/settings-explain.md` adds only the nuance that doesn't reduce to
 schema data.
@@ -79,7 +79,7 @@ genuinely ambiguous, not on every request.
 
 If any `.settings` entry has `source: "env:repo-legacy"` (the value comes from the old per-repo
 `env` block in `<repo>/.claude/settings.json`, not a `CFQ_*` shell variable), print one note
-pointing at `cfq-settings.sh migrate <repo-root>` to carry that override into the repo settings
+pointing at `bin/cfq settings migrate <repo-root>` to carry that override into the repo settings
 file — once per session, not once per key.
 
 A rejected out-of-scope `--repo` attempt prints `❌ Setting  scanRoots is global-only, use set
