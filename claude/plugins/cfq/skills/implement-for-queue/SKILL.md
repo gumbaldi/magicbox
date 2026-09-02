@@ -116,7 +116,9 @@ way. **(4b) Size gate.** `contextGate` — deterministic projection, already com
 preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`:
 `START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
 status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
-<contextGate.verdict> (<contextGate.note>)`; this closes `PRECHECKS`.
+<contextGate.verdict> (<contextGate.note>)`; the note names which threshold fired — capacity or a
+rate limit — so a handoff report repeats that specific reason instead of describing every handoff
+as a full context window; this closes `PRECHECKS`.
 **(4b2) Announcement and Go Gate.** Print the phase announcement —
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --phase <NN>`, rendered as returned, no
 rewording — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel** (release the lock, end
@@ -169,9 +171,13 @@ own verdict; `false` → the context gate alone decides. `STOP` → print `POSTC
 printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
 half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
 from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
-deliberate, not a misconfiguration — `STOP` fires after every phase, one context window each; hand
-off without commenting on it. `stopUsed: -1` is equally deliberate — `STOP` never fires for this
-reason. `onePhasePerSession: true` (the default) is the finer of two gates: the batch-level Step 3b
+deliberate, not a misconfiguration — `STOP` fires after every phase for the capacity reason, one
+context window each; a rate-limit stop still wins over that bypass. `stopUsed: -1` is equally
+deliberate — `STOP` never fires **for the capacity reason**; the rate-limit reason has its own
+switches. `stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — hands off
+nothing for that reason either; a payload without `rate_limits` (API-level billing) means the
+check simply doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default)
+is the finer of two gates: the batch-level Step 3b
 go-ahead is coarse, this and (4b2)'s per-phase Go question are fine — together nothing is ever
 implemented without an explicit confirmation naming what's about to change.
 

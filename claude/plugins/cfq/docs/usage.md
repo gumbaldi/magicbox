@@ -74,11 +74,12 @@ green phase.
    changed beyond the plan's list, verification red or skipped, a planned change left out, an
    unnamed new dependency) — any of them stops the automatic advance and asks once whether to
    continue.
-5. Hands the session off once the absolute context-token count crosses `stopUsed`, or finishes the
+5. Hands the session off once either stop reason fires — capacity (`stopUsed`) or a rate limit
+   (`stopFiveHourPct` / `stopSevenDayPct`), whichever crosses its threshold first — or finishes the
    batch and moves it to `impl/done/`.
 
-Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `branchPerBatch`,
-`changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
+Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
+`stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 ## Dashboard, queue and settings — `/cfq`
 

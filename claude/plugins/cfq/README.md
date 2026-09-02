@@ -9,7 +9,7 @@ flowchart LR
   A["/pfq — expensive model<br/>interview, phase plans"] --> B["/clear<br/>/model sonnet"]
   B --> C["/ifq — cheap model<br/>one batch, phase by phase"]
   C --> D["/rfq — reports"]
-  C -->|"context full"| B
+  C -->|"capacity or rate limit"| B
 ```
 
 ## Guides
@@ -59,7 +59,9 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
 takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
-green phase immediately, and hands the session off when the context window fills.
+green phase immediately, and hands the session off when either stop reason fires — capacity
+(`stopUsed`) or a rate limit (`stopFiveHourPct` / `stopSevenDayPct`) — whichever crosses its
+threshold first.
 
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
