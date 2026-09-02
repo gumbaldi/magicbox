@@ -459,5 +459,16 @@
   branch: cfq/010-2026-09-02-context-gate-payload-keys-and-rate-limits
   base: cfq/009-2026-09-02-deterministic-cli-and-reference-paths
   started: 2026-09-03
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-03
+  phases:
+    - phase: "01-payload-adapter-real-schema"
+      status: "green"
+      summary: ""
+    - phase: "02-gate-rate-limits-and-cache-display"
+      status: "green"
+      summary: ""
+    - phase: "03-surface-the-second-stop-reason"
+      status: "green"
+      summary: ""
