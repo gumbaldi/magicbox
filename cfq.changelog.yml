@@ -435,5 +435,25 @@
   branch: cfq/009-2026-09-02-deterministic-cli-and-reference-paths
   base: main
   started: 2026-09-02
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-02
+  phases:
+    - phase: "01"
+      status: "green"
+      summary: ""
+    - phase: "02"
+      status: "green"
+      summary: ""
+    - phase: "03-deterministic-read-views"
+      status: "green"
+      summary: "cfq dash render and cfq report index --text now render the terminal blocks the script used to leave to the model; code-for-queue and report-for-queue SKILL.md lost their table specs; /cfq and /rfq converted from .toml to .md with an argument-free !`cmd` injection for the bare view. Fixed a pre-existing cfq-settings.sh marker bug along the way (user-approved)."
+    - phase: "04-ponytail-dormant"
+      status: "green"
+      summary: "Ponytail dormant by default: mode detection in cfq-runtime.sh, surfaced in cfq dash render, offered in /cfq Step A, advised by cfq-doctor.sh."
+    - phase: "05-batch-ledger-invariant"
+      status: "green"
+      summary: "cfq-batch-id.sh action strings now name the resolved changelogFile path instead of a hardcoded default; added `cfq batch reconcile [--fix]`, comparing queue directories under impl/(done/) against the numbered ledger entries and repairing orphaned directories."
+- batchNumber: 10
+  batch: 010-2026-09-02-context-gate-payload-keys-and-rate-limits
+  status: parked
