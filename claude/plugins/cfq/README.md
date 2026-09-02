@@ -9,7 +9,7 @@ flowchart LR
   A["/pfq — expensive model<br/>interview, phase plans"] --> B["/clear<br/>/model sonnet"]
   B --> C["/ifq — cheap model<br/>one batch, phase by phase"]
   C --> D["/rfq — reports"]
-  C -->|"context full"| B
+  C -->|"capacity or rate limit"| B
 ```
 
 ## Guides
@@ -59,7 +59,9 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
 takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
-green phase immediately, and hands the session off when the context window fills.
+green phase immediately, and hands the session off when either stop reason fires — capacity
+(`stopUsed`) or a rate limit (`stopFiveHourPct` / `stopSevenDayPct`) — whichever crosses its
+threshold first.
 
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
@@ -180,8 +182,8 @@ A guard hook that restricts writes must let these paths through, or `pfq` dies m
 half-written batch in the queue:
 
 - `<repo>/.claude/cfq/**` — the three queues, and the only path every `pfq` session writes.
-  `scripts/cfq-layout.sh` is the source of truth for this list; read it there rather than copying
-  the entries into the hook by hand.
+  `bin/cfq layout` (implemented in `scripts/`) is the source of truth for this list; read it there
+  rather than copying the entries into the hook by hand.
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
 
@@ -280,7 +282,7 @@ stays a warning line.
 ## Configuration
 
 Precedence: **env var > repo `.claude/cfq/settings.json` > global `settings.json` > default**.
-Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" set [--repo <path>] <key>
+Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set [--repo <path>] <key>
 <value>`. The legacy per-repo mechanism — an `env` block in `<repo>/.claude/settings.json` — still
 works and still sits at the top tier:
 
@@ -294,7 +296,7 @@ the language and documentation-level settings.
 ## Host dependencies
 
 Required: `bash`, `git`, `jq`. Installing the plugin does not install any of these — it only adds
-the plugin's own files. `cfq-doctor.sh check` reports what's missing and, for a required gap, a
+the plugin's own files. `bin/cfq doctor check` reports what's missing and, for a required gap, a
 platform-appropriate install hint; the bundled `SessionStart` hook runs it automatically and stays
 completely silent on a healthy host, only warning (user and Claude both) when a required command is
 absent. Optional, each degrading only the one feature it powers rather than blocking the plugin:
@@ -308,7 +310,11 @@ repos with a `package.json`, `timeout`/`gtimeout` to bound the security check's 
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
 - **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
-  maintenance run (`maintenanceEvery`), not the maintenance run itself.
+  maintenance run (`maintenanceEvery`), not the maintenance run itself. cfq expects ponytail
+  dormant (`defaultMode: off` in `~/.config/ponytail/config.json`) outside that one audit — its
+  own default is `full`, which would otherwise load it into every `pfq`/`ifq` session. `/cfq`
+  offers to set this on first-time setup; `bin/cfq doctor check` keeps advising it afterward if
+  declined or if ponytail is installed later.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 

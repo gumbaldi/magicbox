@@ -1,6 +1,6 @@
 # Settings Explanations
 
-Per-key one-line explanations come from `cfq-settings.sh describe [<key>]` — this file only holds
+Per-key one-line explanations come from `bin/cfq settings describe [<key>]` — this file only holds
 nuance that doesn't reduce to schema data.
 
 - `usePonytailAudit` — gates only the optional cleanup audit, **one task among several** in the
@@ -8,8 +8,11 @@ nuance that doesn't reduce to schema data.
   `maintenanceEvery`.
 - `stopUsed` — absolute context-token ceiling; `0` hands off after every phase, `-1` disables this
   gate entirely. Normal global/repo setting like any other.
+- `stopFiveHourPct` / `stopSevenDayPct` — rate-limit ceilings, independent of `stopUsed`; checked
+  first since the context window resets on `/clear` but the rate-limit window does not. `-1`
+  disables either check on its own; capacity keeps working even with both disabled.
 - `codeLanguage` / `docLanguages` / `docLevel` — global defaults, but a repo's own language can
-  differ: override them per repo via `cfq-settings.sh set --repo` or the legacy `env` block in
+  differ: override them per repo via `bin/cfq settings set --repo` or the legacy `env` block in
   `<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.), so the override travels with the repo
   rather than living in global settings.
 - `gitStatePolicy` — controls only cfq's own managed block in Git's local `info/exclude`; it never

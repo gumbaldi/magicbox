@@ -10,6 +10,6 @@ already read in Step 7, so it only covers the documentation-specific consequence
   size estimate.
 - `docLevel: minimal` → no `docs/` tree, `README` only, `docLanguages` is moot. Say so once as a
   hint, never a warning, and never repeat it for the rest of the session.
-- Point the phase at `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md`, or `<repo>/docs/STYLE.md` if
+- Point the phase at `<plugin-root>/references/doc-style.md`, or `<repo>/docs/STYLE.md` if
   that file exists in the target repo — either way, the file is loaded when that phase actually
   runs, not during this planning session.

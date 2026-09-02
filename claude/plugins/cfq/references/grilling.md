@@ -2,7 +2,7 @@
 
 Only read when the user picked "Thorough grilling" or "Grilling with docs" in Step 1. Use Step 1's
 preflight result directly — `planningPolicy.grillMode`/`.useMattpocockGrilling` — no new
-`cfq-settings.sh get` call:
+`bin/cfq settings get` call:
 
 - `grillMode = classic` **and** `useMattpocockGrilling = true` **and** the skill
   `mattpocock-skills:grilling` is available → call that skill and follow it, using its own round

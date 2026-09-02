@@ -38,6 +38,30 @@ missing_required="${missing_required# }"
 missing_alt_groups="${missing_alt_groups# }"
 missing_optional="${missing_optional# }"
 
+# Ponytail advisory: cfq only ever uses ponytail for one thing (the optional maintenance-run
+# audit, a one-shot skill invocation) and expects it dormant otherwise. jq-free by design, same
+# as the rest of this script — a grep for the key is enough for an advisory. Mirrors, at grep
+# precision, the tier order ponytail/hooks/ponytail-config.js:76 getDefaultMode() itself uses:
+# env var, then config file, then "full".
+ponytail_advisory=""
+if find "$HOME/.claude/plugins/cache" -mindepth 2 -maxdepth 2 -type d -name ponytail \
+     2>/dev/null | grep -q .; then
+  pony_mode=$(printf '%s' "${PONYTAIL_DEFAULT_MODE:-}" | tr 'A-Z' 'a-z')
+  case "$pony_mode" in off|lite|full|ultra) ;; *) pony_mode="" ;; esac
+  if [ -z "$pony_mode" ]; then
+    pony_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/ponytail/config.json"
+    if [ -f "$pony_cfg" ]; then
+      pony_mode=$(grep -o '"defaultMode"[[:space:]]*:[[:space:]]*"[A-Za-z]*"' "$pony_cfg" 2>/dev/null \
+        | head -1 | sed -E 's/.*"([A-Za-z]+)"[[:space:]]*$/\1/' | tr 'A-Z' 'a-z')
+      case "$pony_mode" in off|lite|full|ultra) ;; *) pony_mode="" ;; esac
+    fi
+  fi
+  [ -z "$pony_mode" ] && pony_mode="full"
+  if [ "$pony_mode" != "off" ]; then
+    ponytail_advisory="ponytail mode: $pony_mode (cfq expects off) -- fix: /ponytail default off"
+  fi
+fi
+
 install_hint() {
   # $1: command name. Best-effort, environment-owner action only — never executed here.
   if command -v apt-get >/dev/null 2>&1; then echo "apt-get install -y $1"
@@ -71,8 +95,10 @@ case "$mode" in
     if [ "$fmt" = "--json" ]; then
       ok="true"
       [ -z "$missing_required" ] && [ -z "$missing_alt_groups" ] || ok="false"
-      printf '{"ok":%s,"missingRequired":%s,"missingAlternativeGroups":%s,"missingOptional":%s}\n' \
-        "$ok" "$(json_array "$missing_required")" "$(json_array "$missing_alt_groups")" "$(json_array "$missing_optional")"
+      pony_json="null"
+      [ -n "$ponytail_advisory" ] && pony_json="\"$(json_escape "$ponytail_advisory")\""
+      printf '{"ok":%s,"missingRequired":%s,"missingAlternativeGroups":%s,"missingOptional":%s,"ponytailAdvisory":%s}\n' \
+        "$ok" "$(json_array "$missing_required")" "$(json_array "$missing_alt_groups")" "$(json_array "$missing_optional")" "$pony_json"
     else
       echo "cfq dependency check"
       if [ -z "$missing_required" ] && [ -z "$missing_alt_groups" ]; then
@@ -88,6 +114,9 @@ case "$mode" in
         echo "  optional (degraded, not blocking): $missing_optional"
       else
         echo "  optional: ok"
+      fi
+      if [ -n "$ponytail_advisory" ]; then
+        echo "  optional advisory: $ponytail_advisory"
       fi
     fi
     ;;

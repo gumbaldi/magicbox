@@ -276,6 +276,16 @@ got=$(HOME="$home" bash "$settings_sh" get implExploreModel)
 got=$(HOME="$home" CFQ_IMPL_EXPLORE_MODEL=haiku-fast bash "$settings_sh" get implExploreModel)
 [ "$got" = "haiku-fast" ] || { echo "FAIL: env override implExploreModel -> got '$got'"; exit 1; }
 
+# 9b. Regression: an unrelated global `get` (e.g. cfq-runtime.sh's internal `get ctxWindowLimits`
+# call inside cfq-dash.sh) must not make every other untouched key report source "global"
+# afterwards — ensure() only ever materializes an empty {}, never a full copy of the defaults.
+marker_home=$(mktemp -d)
+HOME="$marker_home" cfq_clean bash "$settings_sh" get ctxWindowLimits >/dev/null
+got=$(HOME="$marker_home" cfq_clean bash "$settings_sh" get --source maintenanceEvery)
+[ "$got" = '{"value":50,"source":"default"}' ] \
+  || { echo "FAIL: untouched key after unrelated get -> got '$got', want source default"; exit 1; }
+rm -rf "$marker_home"
+
 # 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
 # detection, migrate. Fresh HOME (a prior section already customized maintenanceEvery in
 # $home) and a throwaway fixture repo — never the real repo.
@@ -421,5 +431,52 @@ HOME="$home" bash "$settings_sh" unset i18nExcludePatterns
 got=$(HOME="$home" cfq_clean bash "$settings_sh" get i18nExcludePatterns)
 [ "$got" = "$default_i18n" ] \
   || { echo "FAIL: unset i18nExcludePatterns -> got '$got', want default"; exit 1; }
+
+# 16. stopFiveHourPct / stopSevenDayPct: defaults, set/round-trip, -1 (disabled) is valid, below
+# -1 rejected, env override, malformed env falls back to default, list
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get stopFiveHourPct)
+[ "$got" = "70" ] || { echo "FAIL: default stopFiveHourPct = '$got', want 70"; exit 1; }
+
+got=$(HOME="$home" cfq_clean bash "$settings_sh" get stopSevenDayPct)
+[ "$got" = "95" ] || { echo "FAIL: default stopSevenDayPct = '$got', want 95"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set stopFiveHourPct 60
+got=$(HOME="$home" bash "$settings_sh" get stopFiveHourPct)
+[ "$got" = "60" ] || { echo "FAIL: set stopFiveHourPct 60 -> got '$got'"; exit 1; }
+
+HOME="$home" bash "$settings_sh" set stopFiveHourPct -1
+got=$(HOME="$home" bash "$settings_sh" get stopFiveHourPct)
+[ "$got" = "-1" ] || { echo "FAIL: set stopFiveHourPct -1 -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set stopFiveHourPct -2 2>/dev/null; then
+  echo "FAIL: set stopFiveHourPct -2 should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set stopFiveHourPct 70
+
+HOME="$home" bash "$settings_sh" set stopSevenDayPct -1
+got=$(HOME="$home" bash "$settings_sh" get stopSevenDayPct)
+[ "$got" = "-1" ] || { echo "FAIL: set stopSevenDayPct -1 -> got '$got'"; exit 1; }
+
+if HOME="$home" bash "$settings_sh" set stopSevenDayPct -2 2>/dev/null; then
+  echo "FAIL: set stopSevenDayPct -2 should fail"; exit 1
+fi
+HOME="$home" bash "$settings_sh" set stopSevenDayPct 95
+
+got=$(HOME="$home" CFQ_STOP_FIVE_HOUR_PCT=50 bash "$settings_sh" get stopFiveHourPct)
+[ "$got" = "50" ] || { echo "FAIL: env override stopFiveHourPct -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_STOP_FIVE_HOUR_PCT=abc bash "$settings_sh" get stopFiveHourPct)
+[ "$got" = "70" ] || { echo "FAIL: malformed CFQ_STOP_FIVE_HOUR_PCT -> got '$got', want 70"; exit 1; }
+
+got=$(HOME="$home" CFQ_STOP_SEVEN_DAY_PCT=50 bash "$settings_sh" get stopSevenDayPct)
+[ "$got" = "50" ] || { echo "FAIL: env override stopSevenDayPct -> got '$got'"; exit 1; }
+
+got=$(HOME="$home" CFQ_STOP_SEVEN_DAY_PCT=abc bash "$settings_sh" get stopSevenDayPct)
+[ "$got" = "95" ] || { echo "FAIL: malformed CFQ_STOP_SEVEN_DAY_PCT -> got '$got', want 95"; exit 1; }
+
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopFiveHourPct')
+[ "$got" = "70" ] || { echo "FAIL: list stopFiveHourPct = '$got', want 70"; exit 1; }
+got=$(HOME="$home" bash "$settings_sh" list | jq -r '.stopSevenDayPct')
+[ "$got" = "95" ] || { echo "FAIL: list stopSevenDayPct = '$got', want 95"; exit 1; }
 
 echo PASS

@@ -8,7 +8,7 @@ Install the `cfq` plugin marketplace and run first-time setup once per machine.
 `gh` (GitHub) or `tea` (Gitea/Forgejo) for the security check, logged in to the forge cfq should
 query; `npm` for `npm audit` on repos with a `package.json`.
 
-Run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-doctor.sh" check` any time to see what's missing and how to
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" doctor check` any time to see what's missing and how to
 install it. The bundled `SessionStart` hook runs the same check automatically and stays silent on a
 healthy host — it only speaks up when a required command is absent, and never installs anything
 itself.
@@ -23,7 +23,10 @@ itself.
 ## First-time setup
 
 Run `/cfq` once. It creates `~/.claude/code-for-queue/settings.json` with defaults and
-`repos.json` (the cross-repo registry), and marks `setupDone` so this step only runs once.
+`repos.json` (the cross-repo registry), and marks `setupDone` so this step only runs once. If
+`ponytail` is installed and not already set to `defaultMode: off`, first-time setup also offers to
+turn it dormant — cfq only ever wakes it for the optional maintenance-run cleanup audit and expects
+it dormant everywhere else; declining changes nothing.
 
 ## Upgrading
 

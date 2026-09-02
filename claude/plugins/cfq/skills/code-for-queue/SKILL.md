@@ -14,6 +14,9 @@ Always answer in the user's language.
 
 ## Output Format
 
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
+resolves against it.
+
 Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Section Map
@@ -29,7 +32,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 One call, reused by Steps A through D — never re-derive any of the following by hand:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-dash.sh"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" dash
 ```
 
 `status: "NO_REPO"` means no repo anywhere has a queue yet — say so, Steps C/D still work once
@@ -37,10 +40,15 @@ this repo has one. `RUNTIME_DEGRADED` → surface `.runtimeDiagnostic` verbatim,
 as not installed for this run. `MULTIPLE_IN_PROGRESS` → this repo has more than one batch
 locked/in-progress at once, an invariant violation — surface it, never silently pick one.
 
-## Plugin Status Line (Steps A and B)
+## Plugin Status Line (Step A)
 
-From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilling`/
-`.usePonytailAudit` (the switches) — computed once by the aggregator, no separate call.
+`cfq dash render` (Step B) computes this identically inside the script — this section is Step A's
+own copy, needed there because Step A's offer flow reacts to `.plugins` directly rather than
+printing the rendered block.
+
+From `.plugins`: `.mattpocock`/`.ponytail` (installed), `.useMattpocockGrilling`/
+`.usePonytailAudit` (the switches), and `.ponytailMode` (`off`/`lite`/`full`/`ultra`/`unknown`) —
+computed once by the aggregator, no separate call.
 
 - Neither installed → `➖ mattpocock-skills/ponytail not installed`.
 - Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
@@ -49,13 +57,17 @@ From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilli
   on`.
 - One installed, one missing → name the missing one and the installed one's switch state, e.g.
   `➖ ponytail not installed · classic grill on`.
+- Ponytail installed and `.ponytailMode` is not `off` → append `· mode: <mode> · cfq expects off`
+  and force the icon to `⚠️`, regardless of which of the four cases above applies — cfq expects
+  ponytail dormant outside the maintenance audit. `.ponytailMode == "off"` → append `· mode: off`
+  with no icon change, no warning.
 
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 
 Print the `PRECHECKS` header on entering this step.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" state get setupDone
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings state get setupDone
 ```
 
 If it hasn't run yet, clarify two things **before** anything else — each its own
@@ -69,6 +81,14 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → hand the user the `/plugin` command
    to run and set the matching switch to `true`. Decline → the switch stays `false`; cfq must work
    fully without either plugin, no path may run into a dead end without them.
+3. *Ponytail dormant by default* — only when `.plugins.ponytail` is `true` and `.plugins.ponytailMode`
+   is not `off`: offer to set `~/.config/ponytail/config.json`'s `defaultMode` to `off`, copy in
+   `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → merge the key into the existing
+   config (create the file/directory if absent, never overwrite unrelated keys). Decline → write
+   nothing; don't ask again this session. This question runs once, here — a session where ponytail
+   gets installed or its mode changes after `setupDone` is already `true` relies on
+   `cfq doctor check`'s advisory line (which already carries the fix command) instead of a second
+   interactive ask.
 
 Afterward set `setupDone` to `true`. Both switches stay changeable later via Step C or the env
 vars, even with a plugin installed. Print the `Setup` status line — `➖ already done` when this
@@ -76,32 +96,17 @@ step didn't run at all.
 
 ## Step B — Dashboard (default behavior with no argument)
 
-Print the `Dash` and `Plugins` status lines, then render:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" dash render
+```
 
-**`QUEUES`** — one row per `.repos[]` entry:
-
-| Repo | Plan | Todo | Batches | Status |
-|---|---|---|---|---|
-| kankuri | 1 | 0 | 1/2 | IN_PROGRESS |
-
-`Batches` is open/done **batch** counts (not phases). `Status` is BLOCKED/PLANNING/IN_PROGRESS/OK
-per `CLAUDE.md`'s Status Vocabulary — explain the values once, not per row. Empty `.repos` → say
-so plainly, no empty table.
-
-**`THIS REPO · <name>`** — only when `.thisRepo` is non-null, one row per batch:
-
-| Batch | Priority | Open/Done | Status |
-|---|---|---|---|
-| 2026-08-13-cfq-plugin | high | 4/2 | IN_PROGRESS |
-
-For every repo whose overview `Status` is not `BLOCKED` and whose open count is nonzero, print the
-copyable sequence once: `cd <repo>` → `/model sonnet` (or the first `implModels` entry) → `/ifq`.
-
-**`CONFIG · <name>`** — only when `.thisRepo` is non-null: from `.settings`, only entries whose
-`marker` is not `D`, each as `[<marker>] <key>  <value>`; an entry carrying `maskedValue`
-additionally shows `⚠ masks <maskedSource> value '<maskedValue>'`. A header line states the
-deviation count and total key count. One closing line offers the full list and the global view —
-see `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`.
+Print its output exactly as returned — the `PRECHECKS` header, `Dash`/`Plugins` status lines,
+`QUEUES`, `THIS REPO · <name>` (when applicable), the copyable `cd`/`/model`/`/ifq` sequence, and
+`CONFIG · <name>` are all already rendered. No reformatting, no rebuilding a table from `.repos`/
+`.thisRepo`/`.settings` by hand — this is the same aggregation Step 0 fetches as JSON, formatted by
+the script instead of the model. (The bare `/cfq` slash command already prints this block via its
+own injection before the model runs at all; this step exists for every other way the skill gets
+invoked — natural language, or as part of Step A's flow.)
 
 The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request.
 
@@ -115,7 +120,7 @@ confirm → mutate → report under an `ACTION` header. Full per-action detail i
 
 ## Step D — Settings
 
-Change requests go through `cfq-settings.sh set [--repo <path>] <key> <value>` (or `unset`) — read
+Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
 each key's value/source straight from `.settings` (Step 0's call), never re-list. Scope inference,
 the global-only rejection, and the `env:repo-legacy` migration note are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:

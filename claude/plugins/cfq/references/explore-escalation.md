@@ -1,7 +1,7 @@
 # Explore Model Escalation
 
 Shared by `plan-for-queue` Step 2 and `implement-for-queue`'s Research and Verification
-Delegation (`references/queues.md`) — same rule, both places, worded identically:
+Delegation (`<plugin-root>/references/queues.md`) — same rule, both places, worded identically:
 
 > Run an Explore agent on `planExploreModel` / `implExploreModel` when the task is to **locate**:
 > find a file, list the callers of a function, check a naming convention, count occurrences. Run it
@@ -12,5 +12,5 @@ Delegation (`references/queues.md`) — same rule, both places, worded identical
 
 Both keys already ride on each skill's own Step 1 preflight result
 (`planningPolicy.planExploreModel`/`.planExploreModelComplex` for `pfq`,
-`policy.implExploreModel`/`.implExploreModelComplex` for `ifq`) — no `cfq-settings.sh get` call at
+`policy.implExploreModel`/`.implExploreModelComplex` for `ifq`) — no `bin/cfq settings get` call at
 either site.

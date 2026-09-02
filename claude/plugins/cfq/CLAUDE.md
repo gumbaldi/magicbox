@@ -10,9 +10,12 @@ A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`), twe
 hard-fails without jq except `cfq-doctor.sh` itself, which is jq-free on purpose — see Architecture).
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
-Conventions): plugin-level under `references/` (e.g. `doc-style.md`), or per-skill under
-`skills/<name>/references/` (e.g. `implement-for-queue/references/queues.md`). Either way they're
-loaded only on the path that actually needs them, not by every session.
+Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
+`queues.md`) — no per-skill `references/` directory, one path style everywhere
+(`${CLAUDE_PLUGIN_ROOT}/references/<file>.md` from a `SKILL.md`, `<plugin-root>/references/<file>.md`
+from inside another reference file, since the loader only expands `${CLAUDE_PLUGIN_ROOT}` in
+`SKILL.md` itself). Reference files are loaded only on the path that actually needs them, not by
+every session.
 
 ## Commands
 
@@ -41,13 +44,17 @@ Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a thro
 user's real registry and settings stay untouched:
 
 ```bash
-HOME=$(mktemp -d) bash claude/plugins/cfq/scripts/cfq-settings.sh list
-HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture bash claude/plugins/cfq/scripts/cfq-scan.sh | jq .
-bash claude/plugins/cfq/scripts/ctx-usage.sh        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
+HOME=$(mktemp -d) claude/plugins/cfq/bin/cfq settings list
+HOME=$(mktemp -d) CFQ_SCAN_ROOTS=/some/fixture claude/plugins/cfq/bin/cfq scan | jq .
+claude/plugins/cfq/bin/cfq ctx        # read-only, safe as-is; must print PCT=<n> OK|STOP, never UNKNOWN
 ```
 
-Skills call scripts as `"${CLAUDE_PLUGIN_ROOT}/scripts/<x>.sh"` — that variable only exists in an
-installed-plugin session, so use relative paths (`claude/plugins/cfq/scripts/...`) when testing from a checkout.
+**`bin/cfq <noun> <verb>` is the entrypoint.** Skills call it as
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" <noun> <verb>` — that variable only exists in an installed-plugin
+session, so use a relative path (`claude/plugins/cfq/bin/cfq ...`) when testing from a checkout. The
+21 scripts under `scripts/` are implementations, still directly executable (the test suite calls
+them that way on purpose — see Architecture) but no longer the documented interface; add a new
+script's noun to `bin/cfq`'s routing table, not a new call site naming the script.
 
 ## Architecture
 
@@ -72,7 +79,7 @@ after every phase and travelling with the batch into `impl/done/`), `.planning` 
 younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
-(`<YYYY-MM-DD>-<slug>.md`, format in `references/queues.md`) that `implement-for-queue` drops for
+(`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queues.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off (Step C, current repo only), and
@@ -106,7 +113,10 @@ whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) curren
 the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
 is resolved by `ctx-usage.sh` through `cfq-settings.sh get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
-point. `setupDone` is the
+point. The gate has two independent stop reasons — capacity (`stopUsed`) and rate limit
+(`stopFiveHourPct`/`stopSevenDayPct`) — each resolved through the same precedence chain, with
+three independent `-1` off switches; a rate-limit stop is checked first and always wins over the
+`stopUsed: 0` bypass. `setupDone` is the
 one exception that lives outside this schema entirely — it's runtime state, not policy, and goes
 through `cfq-settings.sh state get/set` against a separate schema-less store instead.
 
@@ -148,7 +158,7 @@ the full error to fix it; summarizing a failure is exactly the case where a chea
 the detail that matters. Implementation, test writing and documentation stay off subagents
 entirely — a *newly spawned* subagent starts cold and re-reads what the parent already holds (a
 continued one, addressed via `SendMessage`, keeps its context instead — see
-`implement-for-queue/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
+`claude/plugins/cfq/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
 and the parent then reads the subagent's output again to verify it, two or three reads where a
 direct read-and-edit would have been one. That trade-off is measurable, not asserted: compare a
 subagent call's reported
@@ -180,7 +190,7 @@ execution should re-run that comparison first, not take this paragraph on faith.
   that form.
 - **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything
   happens. Content that would push a file past that moves to `references/` and is loaded only on
-  the path that needs it — pattern: `skills/plan-for-queue/references/grilling.md`.
+  the path that needs it — pattern: `claude/plugins/cfq/references/grilling.md`.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.

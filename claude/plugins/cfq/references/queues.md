@@ -2,7 +2,7 @@
 
 ## Batch Selection Rules (Step 1-3a)
 
-`cfq-ifq-preflight.sh`'s `selection` object carries `blocked`, `planning`, `inProgress`, and
+`bin/cfq preflight-impl`'s `selection` object carries `blocked`, `planning`, `inProgress`, and
 `multipleInProgress` — the filters and stop conditions Step 1-3a applies before any picker runs.
 The preflight itself already excludes blocked/planning/other-in-progress batches from
 `selection.selectable`; this section only covers the wording each case needs.
@@ -28,7 +28,7 @@ reappeared after the batch was started, so it waits like any other blocked batch
 
 ## Batch Briefing (Step 3b)
 
-`batch.briefText` in the preflight result already holds `cfq-brief.sh`'s output for the resolved
+`batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
 batch — batch name, priority, phase count, `.dependsOn` if present, then one line per phase (number
 and title, size in brackets, context excerpt). Present it as-is, compactly: no prose around it, no
 repetition of the plan, no commentary on the phases. A phase file without `## Size` counts as `M`;
@@ -38,12 +38,12 @@ aborting over.
 ## Branch and Changelog on Go-Ahead (Step 3b)
 
 The preflight's `branch` field (already computed pre-mutation — see **Resume Snapshot** above) is
-the same JSON `cfq-branch.sh plan "<repo-root>" "<batch>"` itself returns: `batch`/`batchNumber`
+the same JSON `bin/cfq branch plan "<repo-root>" "<batch>"` itself returns: `batch`/`batchNumber`
 echo the batch's own stable identity (`batchNumber` is `null` for a legacy unnumbered batch);
 `mode` says what to do. Always use the `branch` field directly for checkout — never reconstruct a
 branch string from a number/slug:
 
-`cfq-branch.sh plan` is remote-aware: it fetches `origin` once (best-effort — no `origin`, or the
+`bin/cfq branch plan` is remote-aware: it fetches `origin` once (best-effort — no `origin`, or the
 fetch fails offline/sandboxed, and everything falls back to local-only behavior unchanged) before
 deciding, so a stale local `main`/branch never gets silently proposed as a base. Two additive
 fields ride along with every response: `remoteChecked` (bool) and `remoteWarning` (string or
@@ -69,37 +69,54 @@ fields ride along with every response: `remoteChecked` (bool) and `remoteWarning
 ```bash
 git checkout "<base>"
 git checkout -b "<branch>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" init "<repo-root>" "<branch>" "<base>" "<batch>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-branch.sh" plan "<repo-root>" "<batch>"
+"<plugin-root>/bin/cfq" changelog init "<repo-root>" "<branch>" "<base>" "<batch>"
+"<plugin-root>/bin/cfq" branch plan "<repo-root>" "<batch>"
 ```
 
-The `new`-mode `cfq-branch.sh plan` re-run above is the one and only place this batch's mutation
+The `new`-mode `bin/cfq branch plan` re-run above is the one and only place this batch's mutation
 step calls it directly — solely to reconfirm the branch now exists post-checkout; `continue`/`off`
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
+
+## Batch Allocation Errors (`cfq batch allocate` — pfq Step 9)
+
+`BATCH_LEDGER_MISMATCH` means a numbered queue directory exists with no matching ledger entry.
+`allocate` cannot itself produce this state — it reserves the ledger entry before creating the
+directory and never rolls the reservation back on a later failure, so the recoverable half (a
+ledger entry with no directory) is the only one `allocate` can ever leave behind. The error's
+`action` field already names the resolved `changelogFile` path and the repair, computed, never
+hardcoded:
+
+```bash
+"<plugin-root>/bin/cfq" batch reconcile "<repo-root>"          # read-only, exits non-zero on a gap
+"<plugin-root>/bin/cfq" batch reconcile "<repo-root>" --fix    # reserves every orphaned directory
+```
+
+`reconcile` never deletes anything and never touches a ledger entry with no directory — a reserved
+number whose batch never got parked is a legitimate abandoned reservation, not a gap to close.
 
 ## Phase Announcement and Go Gate (Step 4b2)
 
 Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
 to Step 3b's one coarse per-batch go-ahead. The announcement is
-`cfq-brief.sh "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
+`bin/cfq brief "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
 deterministic, extracted from the phase file, so it cannot drift in wording between phases:
 
 ```
 PHASE 02 · ifq-per-phase-go-gate · Size L
   Goal     <first two non-empty lines of ## Context>
-  Files    cfq-settings.sh, cfq-ifq-preflight.sh, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+  Files    bin/cfq, implement-for-queue/SKILL.md, queues.md, test-settings.sh
   Check    <first command line from ## Verification>
 ```
 
 Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
 **Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
-`cfq-lock.sh release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
+`bin/cfq lock release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
 and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
 
 ## Phase Summary (Step 4, after 4c)
 
-Printed after (4c), before the `cfq-report.sh append` call:
+Printed after (4c), before the `bin/cfq report append` call:
 
 ```
 PHASE 02 DONE
@@ -135,7 +152,7 @@ Write the human-written subject/body (plus `Co-Authored-By`, as before) to a tem
 then run it through:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-changelog.sh" commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
+"<plugin-root>/bin/cfq" changelog commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
 ```
 
 Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 3b's
@@ -147,7 +164,7 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 
 ## Batch-Done Report Fields (Step 7)
 
-`cfq-finish.sh`'s one JSON object, rendered field by field:
+`bin/cfq finish`'s one JSON object, rendered field by field:
 
 - `Language`: `.lang.issues` is the structural count (`missing`/`stray`/`unfiled`); judge
   `.lang.prose.sample` for prose, comments, identifiers and commit messages not in `codeLanguage` —
@@ -173,7 +190,7 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 `RESULT · implement-for-queue` header, one label/value line per field:
 
 - `Batch` — batch and repo, phases total, green/red split.
-- `Cost` — run `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-report.sh" summary "<batch-dir>"` (same call
+- `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
   tokens total (planning's share named separately), models, efforts.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
@@ -211,12 +228,12 @@ inside them follows `codeLanguage`.
 
 ## Resume Snapshot (Step 1-3a preflight)
 
-`cfq-ifq-preflight.sh`'s `resume` field carries what `cfq-resume.sh` itself returns for the
+`bin/cfq preflight-impl`'s `resume` field carries what `bin/cfq resume` itself returns for the
 resolved batch, minus its own `branch` sub-object (redundant with the preflight's top-level
-`branch`, computed by that same underlying call — see `cfq-resume.sh`'s own header comment for the
-full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
+`branch`, computed by that same underlying call — see the `resume` noun's own script header
+comment for the full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
 `lastCommitSource`, `deviations`, `redPhases`, `batchContext.exists`/`.path`). One JSON object,
-deterministic — no summarization, only facts read from disk, `report.json`, and git. `cfq-resume.sh`
+deterministic — no summarization, only facts read from disk, `report.json`, and git. The script
 itself is unchanged; only who calls it and what's kept from its output moved.
 
 ## Research and Verification Delegation (Step 4c)
@@ -224,9 +241,9 @@ itself is unchanged; only who calls it and what's kept from its output moved.
 Two, and only two, places in Step 4c may run on an Explore subagent instead of the implementing
 session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
 a mood — cheap model to locate, expensive to judge; read
-`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys
+`<plugin-root>/references/explore-escalation.md` and follow it. Both keys
 (`implExploreModel`/`.implExploreModelComplex`) come from the preflight's `policy` object, no
-`cfq-settings.sh get` call here:
+`bin/cfq settings get` call here:
 
 - **Pre-implementation research.** Before writing any code, a phase that touches several files or
   whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate

@@ -23,7 +23,10 @@ edits code.
    running on `planExploreModel` rather than reading everything in the main session.
 5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
    high-priority flag (optional — not flagging is the normal case).
-6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`.
+6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`. If this ever
+   reports `BATCH_LEDGER_MISMATCH` (a queue directory with no matching changelog entry),
+   `bin/cfq batch reconcile <repo-root>` reports the gap and `--fix` closes it — it never deletes
+   anything, and never touches a reserved number whose directory never got created.
 
 Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `planBlockedPlugins`.
@@ -54,7 +57,7 @@ green phase.
    ```
    PHASE 02 · ifq-per-phase-go-gate · Size L
      Goal     Deterministic phase announcement, extracted from the phase file itself.
-     Files    cfq-brief.sh, SKILL.md, queues.md
+     Files    bin/cfq, SKILL.md, queues.md
      Check    bash tests/test-brief-park.sh
    ```
 
@@ -63,7 +66,7 @@ green phase.
 
    ```
    PHASE 02 DONE
-   ✅ Implemented     Added --phase to cfq-brief.sh, extended its test.
+   ✅ Implemented     Added --phase to the brief noun, extended its test.
    ✅ Verification    bash tests/test-brief-park.sh — PASS
    ```
 
@@ -71,11 +74,12 @@ green phase.
    changed beyond the plan's list, verification red or skipped, a planned change left out, an
    unnamed new dependency) — any of them stops the automatic advance and asks once whether to
    continue.
-5. Hands the session off once the absolute context-token count crosses `stopUsed`, or finishes the
+5. Hands the session off once either stop reason fires — capacity (`stopUsed`) or a rate limit
+   (`stopFiveHourPct` / `stopSevenDayPct`), whichever crosses its threshold first — or finishes the
    batch and moves it to `impl/done/`.
 
-Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `branchPerBatch`,
-`changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
+Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
+`stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 ## Dashboard, queue and settings — `/cfq`
 

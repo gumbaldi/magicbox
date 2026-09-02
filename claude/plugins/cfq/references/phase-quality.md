@@ -62,7 +62,7 @@ this applies — decide it here, at planning time, not discover it mid-`ifq` as 
 ---
 
 None of this adds a new required heading. All five rules live inside a phase's existing `Changes`,
-`Affected Files`/`Reuse`, and `Verification` prose — `cfq-lint.sh`'s heading checks are unaffected.
+`Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected.
 
 ## Phase File Structure
 

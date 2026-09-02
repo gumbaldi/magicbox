@@ -58,10 +58,10 @@ done
 
 # --- PFQ never hand-rolls batch-number padding/max arithmetic; it always calls the helper ---
 
-grep -q 'cfq-batch-id.sh" allocate' "$skills/plan-for-queue/SKILL.md" \
-  || fail "plan-for-queue/SKILL.md no longer calls cfq-batch-id.sh allocate"
+grep -q 'bin/cfq" batch allocate' "$skills/plan-for-queue/SKILL.md" \
+  || fail "plan-for-queue/SKILL.md no longer calls bin/cfq batch allocate"
 grep -rqE "printf '%0[0-9]+d'|printf \"%0[0-9]+d\"" "$skills/plan-for-queue" \
-  && fail "plan-for-queue hand-rolls zero-padding instead of delegating to cfq-batch-id.sh" || true
+  && fail "plan-for-queue hand-rolls zero-padding instead of delegating to the batch noun" || true
 
 # --- fixed-width numbered names sort lexicographically in numeric order, by construction ---
 

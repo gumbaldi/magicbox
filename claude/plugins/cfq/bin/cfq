@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Single entrypoint for every cfq operation. Routes `cfq <noun> <verb> [args]` to the
+# implementation script for <noun>, passing everything after the noun through untouched.
+# Deliberately logic-free: the noun-to-script map is the entire contract. Implementations may be
+# reimplemented in any language without any caller noticing, which is the point.
+set -eu
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
+
+# noun -> script, one script per noun, named for what it operates on rather than for the file.
+declare -A NOUN_SCRIPT=(
+  [batch]=cfq-batch-id.sh
+  [branch]=cfq-branch.sh
+  [brief]=cfq-brief.sh
+  [changelog]=cfq-changelog.sh
+  [dash]=cfq-dash.sh
+  [doctor]=cfq-doctor.sh
+  [finish]=cfq-finish.sh
+  [lang]=cfq-lang.sh
+  [layout]=cfq-layout.sh
+  [lint]=cfq-lint.sh
+  [lock]=cfq-lock.sh
+  [maintenance]=cfq-maintenance.sh
+  [overlap]=cfq-queue-overlap.sh
+  [park]=cfq-park.sh
+  [preflight-plan]=cfq-pfq-preflight.sh
+  [preflight-impl]=cfq-ifq-preflight.sh
+  [registry]=cfq-registry.sh
+  [report]=cfq-report.sh
+  [resume]=cfq-resume.sh
+  [runtime]=cfq-runtime.sh
+  [scan]=cfq-scan.sh
+  [security]=cfq-security.sh
+  [settings]=cfq-settings.sh
+  [telemetry]=cfq-telemetry.sh
+  [ctx]=ctx-usage.sh
+)
+
+# First "# Usage: ..." comment in a script, or its first description comment line if none.
+script_one_liner() {
+  local f="$script_dir/$1" line
+  line="$(grep -m1 -E '^# ?[Uu]sage:' "$f" 2>/dev/null || true)"
+  [ -n "$line" ] || line="$(sed -n '2p' "$f" 2>/dev/null || true)"
+  printf '%s\n' "${line#\# }"
+}
+
+list_nouns() {
+  local n
+  {
+    echo "usage: cfq <noun> <verb> [args...]"
+    echo "       cfq <noun> --help"
+    echo
+    echo "nouns:"
+    for n in $(printf '%s\n' "${!NOUN_SCRIPT[@]}" | sort); do
+      printf '  %-16s %s\n' "$n" "$(script_one_liner "${NOUN_SCRIPT[$n]}")"
+    done
+  } >&2
+}
+
+if [ "$#" -eq 0 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  list_nouns
+  [ "$#" -eq 0 ] && exit 1
+  exit 0
+fi
+
+noun="$1"
+shift
+
+script="${NOUN_SCRIPT[$noun]:-}"
+if [ -z "$script" ]; then
+  echo "cfq: unknown noun '$noun'" >&2
+  list_nouns
+  exit 1
+fi
+
+if [ "${1:-}" = "--help" ]; then
+  if out="$("$script_dir/$script" --help 2>&1)"; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  echo "$noun ($script):" >&2
+  script_one_liner "$script" >&2
+  exit 0
+fi
+
+exec "$script_dir/$script" "$@"

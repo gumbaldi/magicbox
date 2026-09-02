@@ -116,14 +116,20 @@ out2="$(bash "$bi" allocate "$repo12" 2026-08-20 second-feature)"
 [ "$(jq -r .batch <<<"$out2")" = "002-2026-08-20-second-feature" ] || { echo "FAIL: second allocate batch = $(jq -r .batch <<<"$out2")"; exit 1; }
 
 # simulated failure after changelog reservation never allows the number to be reused: make the
-# impl directory unwritable so allocate's own mkdir fails after the changelog reserve succeeds
+# impl directory unwritable so allocate's own mkdir fails after the changelog reserve succeeds.
+# The invariant: a queue directory never exists without its ledger entry, so on this failure the
+# *ledger entry* is the state that may remain (recoverable -- reconcile reports it, a retry moves
+# past it) and the *directory* must not exist (that's the state that breaks numbering).
 repo13="$tmp/repo13"; mkdir -p "$repo13"
 bash "$layout" ensure "$repo13" >/dev/null
 chmod 555 "$repo13/.claude/cfq/impl"
 out="$(bash "$bi" allocate "$repo13" 2026-08-19 blocked)" && { chmod 755 "$repo13/.claude/cfq/impl"; echo "FAIL: colliding allocate exited 0"; exit 1; }
 chmod 755 "$repo13/.claude/cfq/impl"
 [ "$(status "$out")" = "INTERNAL_ERROR" ] || { echo "FAIL: colliding allocate status = $(status "$out")"; exit 1; }
-[ "$(bash "$cl" max-batch-number "$repo13")" = "1" ] || { echo "FAIL: failed allocate did not consume number 1"; exit 1; }
+[ "$(bash "$cl" max-batch-number "$repo13")" = "1" ] || { echo "FAIL: failed allocate did not consume number 1 (ledger entry lost)"; exit 1; }
+[ ! -e "$repo13/.claude/cfq/impl/001-2026-08-19-blocked" ] || { echo "FAIL: failed allocate left an orphaned queue directory"; exit 1; }
+action13="$(jq -r .action <<<"$out")"
+case "$action13" in (*.claude/cfq/changelog.yml*) : ;; (*) echo "FAIL: failed-allocate action does not name the resolved changelog path: $action13"; exit 1 ;; esac
 out2="$(bash "$bi" allocate "$repo13" 2026-08-19 retry)"
 [ "$(jq -r .batch <<<"$out2")" = "002-2026-08-19-retry" ] || { echo "FAIL: retry after failed allocate reused number 1: $(jq -r .batch <<<"$out2")"; exit 1; }
 
@@ -255,5 +261,65 @@ grep -qxF '  batch: 0001-2026-08-01-a' "$target22" || { echo "FAIL: interrupted-
 
 # width migration never touches Git: no history rewrite, no branch/version scanning
 grep -qE '(^|[^A-Za-z])git([^A-Za-z]|$)' "$repo_root/scripts/cfq-batch-id.sh" && { echo "FAIL: cfq-batch-id.sh performs Git operations (width migration must never touch Git)"; exit 1; }
+
+# the reported bug: a non-default changelogFile must appear verbatim in the action, never the
+# hardcoded default -- this is the assertion that fails against the pre-fix code
+repo23="$tmp/repo23"; mkdir -p "$repo23/.claude/cfq/impl/003-2026-08-01-a"
+"$repo_root/scripts/cfq-settings.sh" set changelogFile "cfq.changelog.yml"
+out="$(bash "$bi" next "$repo23" 2026-08-19 example)" && { "$repo_root/scripts/cfq-settings.sh" set changelogFile ".claude/cfq/changelog.yml"; echo "FAIL: mismatched-path next exited 0"; exit 1; }
+"$repo_root/scripts/cfq-settings.sh" set changelogFile ".claude/cfq/changelog.yml"
+[ "$(status "$out")" = "BATCH_LEDGER_MISMATCH" ] || { echo "FAIL: mismatched-path status = $(status "$out")"; exit 1; }
+action23="$(jq -r .action <<<"$out")"
+case "$action23" in (*cfq.changelog.yml*) : ;; (*) echo "FAIL: action does not name the configured changelog path: $action23"; exit 1 ;; esac
+case "$action23" in (*.claude/cfq/changelog.yml*) echo "FAIL: action still names the hardcoded default path: $action23"; exit 1 ;; (*) : ;; esac
+case "$action23" in (*"cfq batch reconcile"*) : ;; (*) echo "FAIL: action does not name the repair command: $action23"; exit 1 ;; esac
+
+# reconcile, read-only: one orphaned directory (no matching ledger entry) is reported and the
+# call exits non-zero
+repo24="$tmp/repo24"; mkdir -p "$repo24/.claude/cfq/impl/005-2026-08-19-orphan"
+out="$(bash "$bi" reconcile "$repo24")" && { echo "FAIL: reconcile with an orphaned directory exited 0"; exit 1; }
+[ "$(status "$out")" = "OK" ] || { echo "FAIL: reconcile status = $(status "$out")"; exit 1; }
+[ "$(jq -r '.orphanDirs | length' <<<"$out")" = "1" ] || { echo "FAIL: reconcile orphanDirs count = $(jq -r '.orphanDirs | length' <<<"$out")"; exit 1; }
+[ "$(jq -r '.orphanDirs[0]' <<<"$out")" = "005-2026-08-19-orphan" ] || { echo "FAIL: reconcile orphanDirs[0] = $(jq -r '.orphanDirs[0]' <<<"$out")"; exit 1; }
+[ "$(jq -r .dirMax <<<"$out")" = "5" ] || { echo "FAIL: reconcile dirMax = $(jq -r .dirMax <<<"$out")"; exit 1; }
+
+# reconcile --fix: the same shape becomes consistent, the ledger entry carries status: parked,
+# and a second (read-only) run exits zero
+repo25="$tmp/repo25"; mkdir -p "$repo25/.claude/cfq/impl/006-2026-08-19-orphan"
+out="$(bash "$bi" reconcile "$repo25" --fix)"
+[ "$(jq -r '.orphanDirs | length' <<<"$out")" = "0" ] || { echo "FAIL: reconcile --fix left orphanDirs non-empty: $out"; exit 1; }
+target25="$repo25/.claude/cfq/changelog.yml"
+grep -qxF '  batch: 006-2026-08-19-orphan' "$target25" || { echo "FAIL: reconcile --fix did not reserve the orphaned directory"; exit 1; }
+grep -q '^  status: parked$' "$target25" || { echo "FAIL: reconcile --fix did not write status: parked"; exit 1; }
+bash "$bi" reconcile "$repo25" >/dev/null
+
+# reconcile, nothing to do: exits zero, reports empty arrays
+repo26="$tmp/repo26"; mkdir -p "$repo26"
+out="$(bash "$bi" reconcile "$repo26")"
+[ "$(status "$out")" = "OK" ] || { echo "FAIL: empty-repo reconcile status = $(status "$out")"; exit 1; }
+[ "$(jq -r '.orphanDirs | length' <<<"$out")" = "0" ] || { echo "FAIL: empty-repo reconcile orphanDirs not empty"; exit 1; }
+[ "$(jq -r '.orphanEntries | length' <<<"$out")" = "0" ] || { echo "FAIL: empty-repo reconcile orphanEntries not empty"; exit 1; }
+
+# edge: a ledger entry with no directory (an abandoned reservation) is reported but never
+# "fixed" by --fix -- it never deletes anything and never touches this category
+repo27="$tmp/repo27"; mkdir -p "$repo27"
+bash "$cl" reserve "$repo27" 8 008-2026-08-19-abandoned
+out="$(bash "$bi" reconcile "$repo27" --fix)"
+[ "$(jq -r '.orphanEntries | length' <<<"$out")" = "1" ] || { echo "FAIL: abandoned-reservation reconcile orphanEntries count = $(jq -r '.orphanEntries | length' <<<"$out")"; exit 1; }
+[ "$(jq -r '.orphanEntries[0]' <<<"$out")" = "008-2026-08-19-abandoned" ] || { echo "FAIL: abandoned-reservation orphanEntries[0] = $(jq -r '.orphanEntries[0]' <<<"$out")"; exit 1; }
+[ ! -d "$repo27/.claude/cfq/impl/008-2026-08-19-abandoned" ] || { echo "FAIL: reconcile --fix created a directory for an abandoned reservation"; exit 1; }
+[ "$(jq -r '.orphanDirs | length' <<<"$out")" = "0" ] || { echo "FAIL: abandoned-reservation reconcile unexpectedly reports orphanDirs"; exit 1; }
+
+# reconcile's error objects (a helper copied from compute_next into a new verb) carry all three
+# {status, detail, action} keys with non-empty values
+repo28="$tmp/repo28"; mkdir -p "$repo28"
+"$repo_root/scripts/cfq-settings.sh" set changelogFile ""
+out="$(bash "$bi" reconcile "$repo28")" && { "$repo_root/scripts/cfq-settings.sh" set changelogFile ".claude/cfq/changelog.yml"; echo "FAIL: disabled-changelog reconcile exited 0"; exit 1; }
+"$repo_root/scripts/cfq-settings.sh" set changelogFile ".claude/cfq/changelog.yml"
+[ "$(status "$out")" = "BATCH_CHANGELOG_REQUIRED" ] || { echo "FAIL: disabled-changelog reconcile status = $(status "$out")"; exit 1; }
+for k in status detail action; do
+  v="$(jq -r --arg k "$k" '.[$k]' <<<"$out")"
+  [ -n "$v" ] || { echo "FAIL: disabled-changelog reconcile error missing/empty field $k"; exit 1; }
+done
 
 echo PASS

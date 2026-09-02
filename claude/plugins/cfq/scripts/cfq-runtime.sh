@@ -64,12 +64,12 @@ ctx_window_limit_for() {
 }
 
 # Classifies a statusline payload file. Prints one of:
-#   ok:<pct>\t<used>\t<windowSize>
+#   ok:<pct>\t<used>\t<windowSize>\t<fresh>\t<cacheCreation>\t<cacheRead>\t<fiveHourPct>\t<sevenDayPct>
 #   not-yet-populated
 #   schema-mismatch:<detail>
 #   invalid-json
 inspect_payload() {
-  local file="$1" size row
+  local file="$1" size row used_field
   if ! jq -e . "$file" >/dev/null 2>&1; then
     echo "invalid-json"
     return
@@ -85,14 +85,26 @@ inspect_payload() {
     return
   fi
   row=$(jq -r '
-    .context_window
-    | select(.context_window_size > 0)
-    | [ ((.used_percentage // ((.current_usage.input + .current_usage.creation + .current_usage.read)
-                              / .context_window_size * 100)) | floor),
-        ((.current_usage.input // 0) + (.current_usage.creation // 0) + (.current_usage.read // 0)),
-        .context_window_size ] | @tsv' "$file" 2>/dev/null || true)
+    .context_window as $cw
+    | (($cw.current_usage // {})) as $u
+    | (($u.input_tokens // 0) + ($u.cache_creation_input_tokens // 0)
+       + ($u.cache_read_input_tokens // 0)) as $used
+    | [ (($cw.used_percentage // ($used / $cw.context_window_size * 100)) | floor),
+        $used,
+        $cw.context_window_size,
+        ($u.input_tokens // 0),
+        ($u.cache_creation_input_tokens // 0),
+        ($u.cache_read_input_tokens // 0),
+        ((.rate_limits.five_hour.used_percentage // -1) | floor),
+        ((.rate_limits.seven_day.used_percentage // -1) | floor)
+      ] | @tsv' "$file" 2>/dev/null || true)
   if [ -z "$row" ]; then
-    echo "schema-mismatch:used_percentage and current_usage both missing"
+    echo "schema-mismatch:context_window present but unreadable"
+    return
+  fi
+  used_field=$(printf '%s' "$row" | cut -f2)
+  if [ "$used_field" -le 0 ] 2>/dev/null; then
+    echo "schema-mismatch:current_usage token fields sum to 0"
     return
   fi
   printf 'ok:%s\n' "$row"
@@ -119,6 +131,31 @@ plugins_capability_code() {
   fi
 }
 
+# Mirrors ponytail's own default-mode resolution (ponytail/hooks/ponytail-config.js:76
+# getDefaultMode(), same tier order: env var, then config file, then "full") so cfq reports
+# the mode ponytail itself would actually use. A ponytail release changing this precedence
+# makes this read stale. cfq only ever *reports* the value, never writes it outside the
+# explicit offer flow in code-for-queue/SKILL.md Step A.
+ponytail_mode() {
+  local dir cfg mode env_mode
+  env_mode="${PONYTAIL_DEFAULT_MODE:-}"
+  env_mode="${env_mode,,}"
+  case "$env_mode" in
+    off|lite|full|ultra) printf '%s' "$env_mode"; return ;;
+  esac
+  dir="${XDG_CONFIG_HOME:-$HOME/.config}/ponytail"
+  cfg="$dir/config.json"
+  if [ -f "$cfg" ]; then
+    # Strip a UTF-8 BOM, as ponytail does, before parsing.
+    mode=$(sed '1s/^\xef\xbb\xbf//' "$cfg" 2>/dev/null | jq -r '.defaultMode // empty' 2>/dev/null || true)
+    mode="${mode,,}"
+    case "$mode" in
+      off|lite|full|ultra) printf '%s' "$mode"; return ;;
+    esac
+  fi
+  printf 'full'
+}
+
 sources_json='[]'
 add_source() {
   # $1 name, $2 tried(true|false), $3 used(true|false), $4 code(""|CODE), $5 detail
@@ -128,6 +165,7 @@ add_source() {
 }
 
 status="" pct="" windowSize="" used="" model="" source="" note="" code="" diagnostic="null"
+fresh="" cacheCreation="" cacheRead="" fiveHourPct="" sevenDayPct=""
 
 # Runs the full pct-resolution chain once: test-override > statusline payload > transcript
 # fallback. Populates the script-scope result variables above plus $sources_json,
@@ -174,7 +212,7 @@ do_resolve() {
         case "$kind" in
           ok:*)
             rest="${kind#ok:}"
-            read -r pct used windowSize <<<"$rest"
+            read -r pct used windowSize fresh cacheCreation cacheRead fiveHourPct sevenDayPct <<<"$rest"
             model=$(jq -r '.model.id // empty' "$p" 2>/dev/null || true)
             source="payload"; status="ok"; note="$used/$windowSize, src=payload"
             add_source "statusline-payload" true true "" "$note"
@@ -223,11 +261,14 @@ do_resolve() {
       fi
     else
       line=$(grep '"type":"assistant"' "$transcript_path" | grep -v '"isSidechain":true' | tail -1)
-      read -r t_used t_model <<<"$(printf '%s' "$line" | jq -r '
+      read -r t_used t_model t_fresh t_cache_creation t_cache_read <<<"$(printf '%s' "$line" | jq -r '
         [((.message.usage.input_tokens // 0)
           + (.message.usage.cache_read_input_tokens // 0)
           + (.message.usage.cache_creation_input_tokens // 0)),
-         (.message.model // "?")] | @tsv' 2>/dev/null || true)"
+         (.message.model // "?"),
+         (.message.usage.input_tokens // 0),
+         (.message.usage.cache_creation_input_tokens // 0),
+         (.message.usage.cache_read_input_tokens // 0)] | @tsv' 2>/dev/null || true)"
       if [ -z "${t_used:-}" ] || ! [ "$t_used" -gt 0 ] 2>/dev/null; then
         add_source "transcript" true false "FALLBACK_FAILED" "transcript found but no usable usage data"
         if [ -z "$primary_code" ]; then
@@ -244,6 +285,7 @@ do_resolve() {
       else
         windowSize=$(ctx_window_limit_for "$t_model")
         used="$t_used"
+        fresh="$t_fresh"; cacheCreation="$t_cache_creation"; cacheRead="$t_cache_read"
         [ "$t_model" != "?" ] && model="$t_model"
         pct=$(( used * 100 / windowSize ))
         note="$used/$windowSize, src=transcript"
@@ -268,6 +310,15 @@ do_resolve() {
 }
 
 result_json() {
+  local cache_json="null" rate_limits_json="null"
+  if [ -n "$fresh" ] && [ -n "$cacheCreation" ] && [ -n "$cacheRead" ]; then
+    cache_json=$(jq -n --argjson f "$fresh" --argjson c "$cacheCreation" --argjson r "$cacheRead" \
+      '{fresh:$f, creation:$c, read:$r}')
+  fi
+  if [ -n "$fiveHourPct" ] && [ "$fiveHourPct" != "-1" ] && [ -n "$sevenDayPct" ] && [ "$sevenDayPct" != "-1" ]; then
+    rate_limits_json=$(jq -n --argjson f "$fiveHourPct" --argjson s "$sevenDayPct" \
+      '{fiveHourPct:$f, sevenDayPct:$s}')
+  fi
   jq -n \
     --arg status "$status" \
     --argjson pct "${pct:-null}" \
@@ -278,12 +329,16 @@ result_json() {
     --arg note "$note" \
     --arg code "$code" \
     --argjson diagnostic "$diagnostic" \
+    --argjson cache "$cache_json" \
+    --argjson rateLimits "$rate_limits_json" \
     '{status:$status, pct:$pct, windowSize:$windowSize, used:$used,
       model: (if $model == "" then null else $model end),
       source: (if $source == "" then null else $source end),
       note: (if $note == "" then null else $note end),
       code: (if $code == "" then null else $code end),
-      diagnostic: $diagnostic}'
+      diagnostic: $diagnostic,
+      cache: $cache,
+      rateLimits: $rateLimits}'
 }
 
 cmd="${1:-}"
@@ -345,7 +400,11 @@ case "$cmd" in
       '{statuslinePayload:$sp, transcriptAvailable:$ta}'
     ;;
   plugins)
-    jq -n --argjson plugins "$(list_plugins)" '{status: "OK", plugins: $plugins}'
+    plugins_json="$(list_plugins)"
+    pony_mode="unknown"
+    [ "$(jq -c 'index("ponytail") != null' <<<"$plugins_json")" = "true" ] && pony_mode="$(ponytail_mode)"
+    jq -n --argjson plugins "$plugins_json" --arg pm "$pony_mode" \
+      '{status: "OK", plugins: $plugins, ponytailMode: $pm}'
     ;;
   plugin-installed)
     [ -n "$plugin_name" ] || { echo '{"code":"INVALID_ARGUMENT","message":"plugin-installed requires a plugin name"}' >&2; exit 1; }

@@ -10,13 +10,33 @@
 An already-installed plugin starts enabled (its switch defaults to `true`) without asking here —
 only offer what `.plugins` reports missing.
 
+## Ponytail Dormant-by-Default Offer (Step A, third question)
+
+Only asked when `.plugins.ponytail` is `true` and `.plugins.ponytailMode` is not `off` — ponytail
+defaults to `full` mode itself when unconfigured, which loads it into every session including
+`pfq`/`ifq` and every Explore subagent. cfq only ever uses ponytail for one thing: the optional
+cleanup audit inside the maintenance run, a one-shot skill invocation that doesn't need the
+persistent mode. State plainly, in order:
+
+- **What changes**: `~/.config/ponytail/config.json` gets `{"defaultMode": "off"}`, merged into
+  whatever is already there (a user may already have `hideStatus` or `quietStartup` set) — never an
+  overwrite. The directory is created if it doesn't exist yet.
+- **What it means**: ponytail stops loading into every session; `/ponytail full` (or any mode)
+  still switches it on by hand at any time, and `ponytail:ponytail-audit` keeps working untouched
+  either way — it doesn't depend on the persistent mode.
+- **Why cfq asks**: `pfq`'s plan detail and `ifq`'s scope fidelity both degrade under an always-on
+  lazy mode — full mode's "does this need to exist at all?" can silently shrink a scope `pfq`'s
+  interview already agreed on.
+- **Declining is fine and changes nothing** — no file is written, and this question isn't asked
+  again this session.
+
 ## CONFIG Block: Full List and Global View (Step B)
 
 On request, two extensions of the same block, same rendering:
 
-- **Full list** — re-run `cfq-dash.sh`'s settings call without the `marker != "D"` filter, so
+- **Full list** — re-run `bin/cfq dash`'s settings call without the `marker != "D"` filter, so
   default-valued keys show too.
-- **Global view** — `"${CLAUDE_PLUGIN_ROOT}/scripts/cfq-settings.sh" list --sources` without
+- **Global view** — `"<plugin-root>/bin/cfq" settings list --sources` without
   `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
 ## Step C — Management, Six Actions (current repo only, always confirm before writing)
@@ -31,7 +51,7 @@ mutation script executes → the structured result is shown. No new script per a
    lost beforehand, and get explicit confirmation.
 3. **Archive a batch** — move to `<repo>/.claude/cfq/impl/done/<batch>/` without working it off.
    Open phases then count as done-but-not-implemented; say so in the confirmation text.
-4. **Clean the registry** — `cfq-registry.sh prune`, list the removed paths.
+4. **Clean the registry** — `bin/cfq registry prune`, list the removed paths.
 5. **Set/remove a dependency** — write or delete `.dependsOn` in the chosen batch. Before writing,
    check whether the named batch exists (open or in `done/`); if not, warn but write anyway on
    request — the edge is fail-soft by design.
@@ -61,17 +81,17 @@ ACTION
 
 ## Step D — Settings, Full Detail
 
-Pair each `.settings` row with its explanation from `cfq-settings.sh describe [<key>]` — that
+Pair each `.settings` row with its explanation from `bin/cfq settings describe [<key>]` — that
 schema call is the single source for per-key prose, not a hand-maintained table;
-`${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md` adds only the nuance that doesn't reduce to
+`<plugin-root>/references/settings-explain.md` adds only the nuance that doesn't reduce to
 schema data.
 
 **All** keys are changeable, including `planBlockedPlugins`/`implBlockedPlugins` (strict
 prohibition) — there is no exception left. A key whose `scope` is global-only (`scanRoots`,
 `securityTimeoutSeconds`, `securityFindingsCap`) rejects `--repo`; say so and fall back to a global
-`set`. `0` is a valid, deliberate value for `stopUsed` meaning "hand off after every phase"; `-1`
-is equally valid, meaning "never hand off for this reason" — neither is a misconfiguration, don't
-flag either.
+`set`. `0` is a valid, deliberate value for `stopUsed` meaning "hand off after every phase"; `-1` is
+equally valid on `stopUsed`, `stopFiveHourPct` and `stopSevenDayPct`, meaning "never hand off for
+this reason" — none of these is a misconfiguration, don't flag any of them.
 
 Infer `--global` vs. `--repo` from the user's own phrasing where it's unambiguous ("for this repo",
 "just here" → `--repo`; "everywhere", "by default" → global) — only ask via `AskUserQuestion` when
@@ -79,7 +99,7 @@ genuinely ambiguous, not on every request.
 
 If any `.settings` entry has `source: "env:repo-legacy"` (the value comes from the old per-repo
 `env` block in `<repo>/.claude/settings.json`, not a `CFQ_*` shell variable), print one note
-pointing at `cfq-settings.sh migrate <repo-root>` to carry that override into the repo settings
+pointing at `bin/cfq settings migrate <repo-root>` to carry that override into the repo settings
 file — once per session, not once per key.
 
 A rejected out-of-scope `--repo` attempt prints `❌ Setting  scanRoots is global-only, use set

@@ -506,12 +506,13 @@ printf '%s' "$out" | jq -e '(keys | sort) == (["codeLanguage","docLanguages","do
 
 rm -rf "$prosehome"
 
-# ============================================================ commands/*.toml pairs ==
+# ========================================================== commands/* pairs, .toml or .md ==
+# cfq/rfq converted to .md (phase 03, injection-based render); pfq/ifq stay .toml.
 
-for pair in pfq:plan-for-queue ifq:implement-for-queue cfq:code-for-queue rfq:report-for-queue; do
-  short="${pair%%:*}"; long="${pair##*:}"
-  cmp -s "$repo_root/commands/$short.toml" "$repo_root/commands/$long.toml" \
-    || { echo "FAIL: commands/$short.toml and commands/$long.toml are not byte-identical"; exit 1; }
+for pair in pfq:plan-for-queue:toml ifq:implement-for-queue:toml cfq:code-for-queue:md rfq:report-for-queue:md; do
+  short="${pair%%:*}"; rest="${pair#*:}"; long="${rest%%:*}"; ext="${rest##*:}"
+  cmp -s "$repo_root/commands/$short.$ext" "$repo_root/commands/$long.$ext" \
+    || { echo "FAIL: commands/$short.$ext and commands/$long.$ext are not byte-identical"; exit 1; }
 done
 
 echo PASS

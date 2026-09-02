@@ -7,11 +7,14 @@
 # Usage: cfq-batch-id.sh next          <repo-root> <YYYY-MM-DD> <slug>
 #        cfq-batch-id.sh allocate      <repo-root> <YYYY-MM-DD> <slug>
 #        cfq-batch-id.sh migrate-width <repo-root>
+#        cfq-batch-id.sh reconcile     <repo-root> [--fix]
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
 # path never needs a separate manual step. `migrate-width` is the same operation exposed directly,
 # useful for recovery/testing; it is a no-op (`status: OK`) when no migration is currently needed.
+# `reconcile` compares queue directories against the ledger's numbered entries and reports/repairs
+# the gap BATCH_LEDGER_MISMATCH refuses to allocate through -- see reconcile() below.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "cfq-batch-id.sh: jq is required" >&2; exit 1; }
@@ -119,7 +122,8 @@ compute_next() {
   qmax="$(queue_max "$repo")"
 
   if [ "$qmax" -gt "$changelog_max" ]; then
-    err BATCH_LEDGER_MISMATCH "queue directory number $qmax exceeds changelog max $changelog_max" "reconcile .claude/cfq/impl/ against .claude/cfq/changelog.yml before allocating"
+    err BATCH_LEDGER_MISMATCH "queue directory number $qmax exceeds changelog max $changelog_max" \
+      "reconcile the queue directory against $cf -- \`cfq batch reconcile <repo>\` reports the gap and \`--fix\` can close it"
     return 1
   fi
 
@@ -233,6 +237,126 @@ migrate_width() {
   jq -n --argjson w "$to" --argjson n "${#pairs[@]}" '{status:"OK", width:$w, migrated:$n}'
 }
 
+# All numbered directory names under impl/ (excluding "done" itself) and impl/done/, one per
+# line -- both count against the ledger, since a finished batch's directory persists there.
+numbered_dir_names() {
+  local repo="$1" d p name
+  for d in "$(impl_dir "$repo")" "$(impl_done_dir "$repo")"; do
+    [ -d "$d" ] || continue
+    for p in "$d"/*/; do
+      [ -d "$p" ] || continue
+      name="$(basename "$p")"
+      [ "$name" = "done" ] && continue
+      numbered_width "$name" >/dev/null 2>&1 && printf '%s\n' "$name"
+    done
+  done
+}
+
+# Numbered ledger entries as "<number>:<batch>" pairs, one per line. Relies on render_block's
+# fixed field order in cfq-changelog.sh (batchNumber is always immediately followed by batch).
+ledger_numbered_pairs() {
+  local target="$1"
+  [ -n "$target" ] && [ -f "$target" ] || return 0
+  awk '
+    /^- batchNumber: / { bn=$0; sub(/^- batchNumber: /,"",bn); next }
+    /^  batch: / {
+      b=$0; sub(/^  batch: /,"",b)
+      if (bn != "" && bn ~ /^[0-9]+$/) print bn":"b
+      bn=""
+    }
+  ' "$target"
+}
+
+# Read-only comparison of queue directories against the ledger's numbered entries, plus (fix=1)
+# reservation of every orphaned directory, ascending by number, driven through cfq-changelog.sh
+# reserve rather than writing YAML here. Never deletes anything, never touches an orphaned ledger
+# entry (a reserved-but-abandoned number is a legitimate state, not a gap to close). Prints one
+# {status, orphanDirs, orphanEntries, dirMax, ledgerMax} object; returns 1 when orphanDirs is
+# non-empty in the final (post-fix, if requested) state, 0 otherwise -- usable as a check.
+reconcile() {
+  local repo="$1" fix="$2" target
+  target="$(changelog_path "$repo" 2>/dev/null || true)"
+  if [ -z "$target" ]; then
+    err BATCH_CHANGELOG_REQUIRED "changelogFile is disabled; reconcile needs the CFQ workflow changelog" "set changelogFile before reconciling"
+    return 1
+  fi
+
+  local -a dir_pairs=()
+  local name num
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    num="$(numbered_number "$name")"
+    dir_pairs+=("$num:$name")
+  done < <(numbered_dir_names "$repo" | sort -u)
+
+  local -a ledger_pairs=()
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    ledger_pairs+=("$line")
+  done < <(ledger_numbered_pairs "$target" | sort -u)
+
+  local -a orphan_dirs=()
+  local dp dname found lp lname
+  for dp in "${dir_pairs[@]}"; do
+    dname="${dp#*:}"
+    found=0
+    for lp in "${ledger_pairs[@]}"; do
+      lname="${lp#*:}"
+      [ "$lname" = "$dname" ] && { found=1; break; }
+    done
+    [ "$found" -eq 1 ] || orphan_dirs+=("$dp")
+  done
+
+  local -a orphan_entries=()
+  for lp in "${ledger_pairs[@]}"; do
+    lname="${lp#*:}"
+    found=0
+    for dp in "${dir_pairs[@]}"; do
+      dname="${dp#*:}"
+      [ "$dname" = "$lname" ] && { found=1; break; }
+    done
+    [ "$found" -eq 1 ] || orphan_entries+=("$lname")
+  done
+
+  if [ "$fix" = "1" ] && [ "${#orphan_dirs[@]}" -gt 0 ]; then
+    local -a ordered=()
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      ordered+=("$line")
+    done < <(printf '%s\n' "${orphan_dirs[@]}" | sort -t: -k1,1n)
+
+    local reserve_out
+    for dp in "${ordered[@]}"; do
+      num="${dp%%:*}"; name="${dp#*:}"
+      if ! reserve_out="$("$here/cfq-changelog.sh" reserve "$repo" "$num" "$name" 2>&1)"; then
+        err BATCH_ID_CONFLICT "reconcile --fix: reserving $name failed: $reserve_out" "resolve manually, then retry reconcile"
+        return 1
+      fi
+    done
+    orphan_dirs=()
+  fi
+
+  local dir_max=0 ledger_max
+  for dp in "${dir_pairs[@]}"; do
+    num="${dp%%:*}"
+    [ "$num" -gt "$dir_max" ] && dir_max="$num"
+  done
+  ledger_max="$("$here/cfq-changelog.sh" max-batch-number "$repo")"
+
+  local -a orphan_dir_names=()
+  for dp in "${orphan_dirs[@]}"; do orphan_dir_names+=("${dp#*:}"); done
+
+  local od_json oe_json
+  od_json="$(printf '%s\n' "${orphan_dir_names[@]}" | jq -R -s 'split("\n") | map(select(length>0))')"
+  oe_json="$(printf '%s\n' "${orphan_entries[@]}" | jq -R -s 'split("\n") | map(select(length>0))')"
+
+  jq -n --argjson od "$od_json" --argjson oe "$oe_json" --argjson dm "$dir_max" --argjson lm "$ledger_max" \
+    '{status:"OK", orphanDirs:$od, orphanEntries:$oe, dirMax:$dm, ledgerMax:$lm}'
+
+  [ "${#orphan_dirs[@]}" -eq 0 ]
+}
+
 validate_args() {
   local date="$1" slug="$2"
   if [[ ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
@@ -324,6 +448,12 @@ case "$cmd" in
     number="$(jq -r .batchNumber <<<"$result")"
     batch="$(jq -r .batch <<<"$result")"
 
+    # Invariant: a queue directory never exists without its ledger entry. The reservation is
+    # written first and the directory second; a number is never un-reserved once burned (see
+    # BATCH_ID_CONFLICT below) -- so on a directory-creation failure below, the ledger entry is
+    # the state left standing on purpose. That's the recoverable half: `cfq batch reconcile`
+    # reports a ledger entry with no directory and a later allocate simply moves past it, whereas
+    # the reverse (a directory with no entry) is exactly what breaks numbering.
     if ! reserve_out="$("$here/cfq-changelog.sh" reserve "$repo" "$number" "$batch" 2>&1)"; then
       err BATCH_ID_CONFLICT "changelog reservation for $batch failed: $reserve_out" "retry; the failed number stays consumed and is never reused"
       exit 1
@@ -331,7 +461,8 @@ case "$cmd" in
 
     target_dir="$(impl_dir "$repo")/$batch"
     if ! mkdir "$target_dir" 2>/dev/null; then
-      err INTERNAL_ERROR "changelog reserved $batch but the queue directory could not be created; the number stays consumed" "inspect $target_dir and .claude/cfq/changelog.yml manually, then park under a new slug/date"
+      cf_target="$(changelog_path "$repo" 2>/dev/null || true)"
+      err INTERNAL_ERROR "changelog reserved $batch but the queue directory could not be created; the number stays consumed" "inspect $target_dir and $cf_target manually, then park under a new slug/date"
       exit 1
     fi
 
@@ -348,8 +479,19 @@ case "$cmd" in
     migrate_width "$repo"
     ;;
 
+  reconcile)
+    repo="${2:?usage: cfq-batch-id.sh reconcile <repo-root> [--fix]}"
+    fix=0
+    case "${3:-}" in
+      --fix) fix=1 ;;
+      "") : ;;
+      *) echo "usage: cfq-batch-id.sh reconcile <repo-root> [--fix]" >&2; exit 1 ;;
+    esac
+    reconcile "$repo" "$fix"
+    ;;
+
   *)
-    echo "usage: cfq-batch-id.sh next <repo-root> <YYYY-MM-DD> <slug> | allocate <repo-root> <YYYY-MM-DD> <slug> | migrate-width <repo-root>" >&2
+    echo "usage: cfq-batch-id.sh next <repo-root> <YYYY-MM-DD> <slug> | allocate <repo-root> <YYYY-MM-DD> <slug> | migrate-width <repo-root> | reconcile <repo-root> [--fix]" >&2
     exit 1
     ;;
 esac

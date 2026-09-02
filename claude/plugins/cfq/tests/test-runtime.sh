@@ -39,7 +39,7 @@ fail() { echo "FAIL: $1"; exit 1; }
 
 # 1. Valid statusline payload -> source: payload, correct pct
 h=$(new_home)
-write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}}}'
+write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1}}}'
 out=$(HOME="$h" bash "$runtime_sh" context)
 [ "$(jq -r '.status' <<<"$out")" = "ok" ] || fail "1 status: $out"
 [ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "1 source: $out"
@@ -48,7 +48,7 @@ rm -rf "$h"
 
 # 2. Payload missing used_percentage but has current_usage.* -> computed correctly
 h=$(new_home)
-write_payload "$h" '{"context_window":{"context_window_size":200000,"current_usage":{"input":20000,"creation":10000,"read":12000}}}'
+write_payload "$h" '{"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":20000,"cache_creation_input_tokens":10000,"cache_read_input_tokens":12000}}}'
 out=$(HOME="$h" bash "$runtime_sh" context)
 [ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "2 source: $out"
 [ "$(jq -r '.pct' <<<"$out")" = "21" ] || fail "2 pct: $out"
@@ -57,7 +57,7 @@ rm -rf "$h"
 
 # 3. Payload present but stale (mtime >=600s) -> falls through to transcript
 h=$(new_home)
-write_payload "$h" '{"context_window":{"used_percentage":99,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}}}'
+write_payload "$h" '{"context_window":{"used_percentage":99,"context_window_size":200000,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1}}}'
 touch -d '-700 seconds' "$h/.claude/.ctx/$sid.json"
 write_transcript "$h" claude-sonnet-5 40000 1000 1000 2.1.0
 out=$(HOME="$h" bash "$runtime_sh" context)
@@ -212,6 +212,60 @@ out=$(HOME="$h" bash "$runtime_sh" diagnose)
 [ "$(jq -r '.pluginsCacheCode' <<<"$out")" = "CAPABILITY_UNAVAILABLE" ] || fail "14c pluginsCacheCode: $out"
 rm -rf "$h"
 
+# 14d-j. ponytailMode resolution -- fresh HOME + XDG_CONFIG_HOME per case, never the real ones.
+pony_home() {
+  local h; h=$(mktemp -d)
+  mkdir -p "$h/.claude/plugins/cache/ponytail/ponytail/4.8.4" "$h/xdg/ponytail"
+  printf '%s' "$h"
+}
+
+# 14d. ponytail not installed -> unknown, even with env var/config both set
+h=$(pony_home); rm -rf "$h/.claude/plugins/cache/ponytail"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=off bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "unknown" ] || fail "14d not-installed: $out"
+rm -rf "$h"
+
+# 14e. env var set to a valid mode wins over any config file
+h=$(pony_home)
+printf '{"defaultMode":"off"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=ultra bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "ultra" ] || fail "14e env wins: $out"
+rm -rf "$h"
+
+# 14f. env var set to garbage -> falls through to config
+h=$(pony_home)
+printf '{"defaultMode":"lite"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=bogus bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "lite" ] || fail "14f garbage env falls through: $out"
+rm -rf "$h"
+
+# 14g. config file with off
+h=$(pony_home)
+printf '{"defaultMode":"off"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "off" ] || fail "14g config off: $out"
+rm -rf "$h"
+
+# 14h. config file with a BOM still parses
+h=$(pony_home)
+printf '\xef\xbb\xbf{"defaultMode":"lite"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "lite" ] || fail "14h BOM config: $out"
+rm -rf "$h"
+
+# 14i. config file with invalid JSON -> falls back to full, does not crash
+h=$(pony_home)
+printf '{not valid' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "full" ] || fail "14i invalid JSON: $out"
+rm -rf "$h"
+
+# 14j. no config file at all -> full
+h=$(pony_home); rm -rf "$h/xdg"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "full" ] || fail "14j no config: $out"
+rm -rf "$h"
+
 # 14. jq unavailable -> DEPENDENCY_MISSING, exit 1, on every subcommand
 nojq_dir=$(mktemp -d)
 for b in bash git head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm find sort; do
@@ -259,7 +313,7 @@ rm -rf "$h" "$otherrepo"
 
 # 17. Payload carries a model -> context reports it (the case that fails today)
 h=$(new_home)
-write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}},"model":{"id":"claude-opus-5","display_name":"Opus 5"}}'
+write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1}},"model":{"id":"claude-opus-5","display_name":"Opus 5"}}'
 out=$(HOME="$h" bash "$runtime_sh" context)
 [ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "17 source: $out"
 [ "$(jq -r '.model' <<<"$out")" = "claude-opus-5" ] || fail "17 model: $out"
@@ -267,7 +321,7 @@ rm -rf "$h"
 
 # 18. Payload without a model key -> degrades to null, not an error or literal "null" string
 h=$(new_home)
-write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}}}'
+write_payload "$h" '{"context_window":{"used_percentage":21,"context_window_size":200000,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1}}}'
 out=$(HOME="$h" bash "$runtime_sh" context)
 [ "$(jq -r '.source' <<<"$out")" = "payload" ] || fail "18 source: $out"
 [ "$(jq -r '.status' <<<"$out")" = "ok" ] || fail "18 status: $out"
@@ -280,6 +334,66 @@ write_transcript "$h" claude-sonnet-5 40000 1000 1000 2.1.0
 out=$(HOME="$h" bash "$runtime_sh" context)
 [ "$(jq -r '.source' <<<"$out")" = "transcript" ] || fail "19 source: $out"
 [ "$(jq -r '.model' <<<"$out")" = "claude-sonnet-5" ] || fail "19 model: $out"
+rm -rf "$h"
+
+# 20. Real shape, complete: used_percentage, all four current_usage keys, rate_limits present
+h=$(new_home)
+write_payload "$h" '{"context_window":{"used_percentage":19,"context_window_size":1000000,"current_usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":4000,"cache_read_input_tokens":180000}},"rate_limits":{"five_hour":{"used_percentage":28},"seven_day":{"used_percentage":10}}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.used' <<<"$out")" = "184002" ] || fail "20 used: $out"
+[ "$(jq -r '.pct' <<<"$out")" = "19" ] || fail "20 pct: $out"
+[ "$(jq -r '.cache.fresh' <<<"$out")" = "2" ] || fail "20 cache.fresh: $out"
+[ "$(jq -r '.cache.creation' <<<"$out")" = "4000" ] || fail "20 cache.creation: $out"
+[ "$(jq -r '.cache.read' <<<"$out")" = "180000" ] || fail "20 cache.read: $out"
+[ "$(jq -r '.rateLimits.fiveHourPct' <<<"$out")" = "28" ] || fail "20 fiveHourPct: $out"
+[ "$(jq -r '.rateLimits.sevenDayPct' <<<"$out")" = "10" ] || fail "20 sevenDayPct: $out"
+rm -rf "$h"
+
+# 21. Same shape, no used_percentage -> pct computed from summed used and context_window_size
+h=$(new_home)
+write_payload "$h" '{"context_window":{"context_window_size":1000000,"current_usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":4000,"cache_read_input_tokens":180000}},"rate_limits":{"five_hour":{"used_percentage":28},"seven_day":{"used_percentage":10}}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.used' <<<"$out")" = "184002" ] || fail "21 used: $out"
+[ "$(jq -r '.pct' <<<"$out")" = "18" ] || fail "21 pct: $out"
+rm -rf "$h"
+
+# 22. Regression guard: invented schema keys sum to 0 -> rejected, falls to transcript, degraded
+h=$(new_home)
+write_payload "$h" '{"context_window":{"used_percentage":50,"context_window_size":200000,"current_usage":{"input":1,"creation":1,"read":1}}}'
+write_transcript "$h" claude-sonnet-5 40000 1000 1000 2.1.0
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.status' <<<"$out")" = "degraded" ] || fail "22 status: $out"
+[ "$(jq -r '.code' <<<"$out")" = "RUNTIME_SCHEMA_MISMATCH" ] || fail "22 code: $out"
+[ "$(jq -r '.source' <<<"$out")" = "transcript" ] || fail "22 source: $out"
+[ "$(jq -e '.diagnostic' <<<"$out" >/dev/null; echo $?)" = "0" ] || fail "22 diagnostic missing: $out"
+[ "$(jq -r '.diagnostic' <<<"$out")" != "null" ] || fail "22 diagnostic null: $out"
+rm -rf "$h"
+
+# 23. current_usage missing entirely, size > 0, no transcript -> unavailable, RUNTIME_SCHEMA_MISMATCH
+h=$(new_home)
+write_payload "$h" '{"context_window":{"context_window_size":200000}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.status' <<<"$out")" = "unavailable" ] || fail "23 status: $out"
+[ "$(jq -r '.code' <<<"$out")" = "RUNTIME_SCHEMA_MISMATCH" ] || fail "23 code: $out"
+rm -rf "$h"
+
+# 24. No rate_limits key -> normal resolution, rateLimits null, no warning/diagnostic
+h=$(new_home)
+write_payload "$h" '{"context_window":{"used_percentage":19,"context_window_size":1000000,"current_usage":{"input_tokens":2,"cache_creation_input_tokens":4000,"cache_read_input_tokens":180000}}}'
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.status' <<<"$out")" = "ok" ] || fail "24 status: $out"
+[ "$(jq -r '.rateLimits' <<<"$out")" = "null" ] || fail "24 rateLimits: $out"
+rm -rf "$h"
+
+# 25. Transcript fallback carries the cache split; rateLimits stays null (transcript has none)
+h=$(new_home)
+write_transcript "$h" claude-sonnet-5 40000 1000 2000 2.1.0
+out=$(HOME="$h" bash "$runtime_sh" context)
+[ "$(jq -r '.source' <<<"$out")" = "transcript" ] || fail "25 source: $out"
+[ "$(jq -r '.cache.fresh' <<<"$out")" = "40000" ] || fail "25 cache.fresh: $out"
+[ "$(jq -r '.cache.creation' <<<"$out")" = "2000" ] || fail "25 cache.creation: $out"
+[ "$(jq -r '.cache.read' <<<"$out")" = "1000" ] || fail "25 cache.read: $out"
+[ "$(jq -r '.rateLimits' <<<"$out")" = "null" ] || fail "25 rateLimits: $out"
 rm -rf "$h"
 
 echo PASS
