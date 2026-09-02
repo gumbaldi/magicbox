@@ -46,8 +46,9 @@ locked/in-progress at once, an invariant violation — surface it, never silentl
 own copy, needed there because Step A's offer flow reacts to `.plugins` directly rather than
 printing the rendered block.
 
-From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilling`/
-`.usePonytailAudit` (the switches) — computed once by the aggregator, no separate call.
+From `.plugins`: `.mattpocock`/`.ponytail` (installed), `.useMattpocockGrilling`/
+`.usePonytailAudit` (the switches), and `.ponytailMode` (`off`/`lite`/`full`/`ultra`/`unknown`) —
+computed once by the aggregator, no separate call.
 
 - Neither installed → `➖ mattpocock-skills/ponytail not installed`.
 - Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
@@ -56,6 +57,10 @@ From `.plugins`: `.mattpocock`/`.ponytail` (installed) and `.useMattpocockGrilli
   on`.
 - One installed, one missing → name the missing one and the installed one's switch state, e.g.
   `➖ ponytail not installed · classic grill on`.
+- Ponytail installed and `.ponytailMode` is not `off` → append `· mode: <mode> · cfq expects off`
+  and force the icon to `⚠️`, regardless of which of the four cases above applies — cfq expects
+  ponytail dormant outside the maintenance audit. `.ponytailMode == "off"` → append `· mode: off`
+  with no icon change, no warning.
 
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 
@@ -76,6 +81,14 @@ If it hasn't run yet, clarify two things **before** anything else — each its o
    `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → hand the user the `/plugin` command
    to run and set the matching switch to `true`. Decline → the switch stays `false`; cfq must work
    fully without either plugin, no path may run into a dead end without them.
+3. *Ponytail dormant by default* — only when `.plugins.ponytail` is `true` and `.plugins.ponytailMode`
+   is not `off`: offer to set `~/.config/ponytail/config.json`'s `defaultMode` to `off`, copy in
+   `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → merge the key into the existing
+   config (create the file/directory if absent, never overwrite unrelated keys). Decline → write
+   nothing; don't ask again this session. This question runs once, here — a session where ponytail
+   gets installed or its mode changes after `setupDone` is already `true` relies on
+   `cfq doctor check`'s advisory line (which already carries the fix command) instead of a second
+   interactive ask.
 
 Afterward set `setupDone` to `true`. Both switches stay changeable later via Step C or the env
 vars, even with a plugin installed. Print the `Setup` status line — `➖ already done` when this

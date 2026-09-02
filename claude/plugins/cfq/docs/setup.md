@@ -23,7 +23,10 @@ itself.
 ## First-time setup
 
 Run `/cfq` once. It creates `~/.claude/code-for-queue/settings.json` with defaults and
-`repos.json` (the cross-repo registry), and marks `setupDone` so this step only runs once.
+`repos.json` (the cross-repo registry), and marks `setupDone` so this step only runs once. If
+`ponytail` is installed and not already set to `defaultMode: off`, first-time setup also offers to
+turn it dormant — cfq only ever wakes it for the optional maintenance-run cleanup audit and expects
+it dormant everywhere else; declining changes nothing.
 
 ## Upgrading
 

@@ -308,7 +308,11 @@ repos with a `package.json`, `timeout`/`gtimeout` to bound the security check's 
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
 - **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
-  maintenance run (`maintenanceEvery`), not the maintenance run itself.
+  maintenance run (`maintenanceEvery`), not the maintenance run itself. cfq expects ponytail
+  dormant (`defaultMode: off` in `~/.config/ponytail/config.json`) outside that one audit — its
+  own default is `full`, which would otherwise load it into every `pfq`/`ifq` session. `/cfq`
+  offers to set this on first-time setup; `bin/cfq doctor check` keeps advising it afterward if
+  declined or if ponytail is installed later.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 

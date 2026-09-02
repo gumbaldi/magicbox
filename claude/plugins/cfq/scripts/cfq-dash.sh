@@ -30,6 +30,7 @@ if [ "$(jq -r '.status' <<<"$runtime_json")" != "OK" ]; then
   exit 0
 fi
 plugins_list=$(jq -c '.plugins' <<<"$runtime_json")
+pony_mode=$(jq -r '.ponytailMode' <<<"$runtime_json")
 
 repo=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)
 repo_args=(); [ -n "$repo" ] && repo_args=(--repo "$repo")
@@ -59,7 +60,8 @@ use_pony=$(jq -r '.usePonytailAudit.value' <<<"$settings_src")
 has_mp=$(jq -c 'index("mattpocock-skills") != null' <<<"$plugins_list")
 has_pt=$(jq -c 'index("ponytail") != null' <<<"$plugins_list")
 plugins_obj=$(jq -n --argjson mp "$has_mp" --argjson pt "$has_pt" --argjson g "$use_grill" --argjson p "$use_pony" \
-  '{mattpocock: $mp, ponytail: $pt, useMattpocockGrilling: $g, usePonytailAudit: $p}')
+  --arg pm "$pony_mode" \
+  '{mattpocock: $mp, ponytail: $pt, useMattpocockGrilling: $g, usePonytailAudit: $p, ponytailMode: $pm}')
 
 scan_json=$("$script_dir/cfq-scan.sh")
 
@@ -124,15 +126,20 @@ dash_line=$(jq -rn --arg status "$status" --argjson repos "$repos_json" --argjso
 )
 plugins_line=$(jq -rn --argjson p "$plugins_obj" '
   $p as $p
-  | if ($p.mattpocock == false) and ($p.ponytail == false) then
-      "➖\tmattpocock-skills/ponytail not installed"
+  | (if $p.ponytail and $p.ponytailMode != "off" then
+       "mode: " + $p.ponytailMode + " · cfq expects off"
+     elif $p.ponytail then
+       "mode: off"
+     else null end) as $modeClause
+  | (if ($p.mattpocock == false) and ($p.ponytail == false) then
+      {icon:"➖", text:"mattpocock-skills/ponytail not installed"}
     elif ($p.mattpocock == true) and ($p.ponytail == true) then
       ([ (if $p.useMattpocockGrilling then empty else "grill: classic off" end),
          (if $p.usePonytailAudit then empty else "audit off" end) ]) as $off
       | if ($off | length) == 0 then
-          "✅\tmattpocock-skills and ponytail installed · classic grill and audit on"
+          {icon:"✅", text:"mattpocock-skills and ponytail installed · classic grill and audit on"}
         else
-          "➖\tinstalled · " + ($off | join(", "))
+          {icon:"➖", text: ("installed · " + ($off | join(", ")))}
         end
     else
       (if $p.mattpocock then
@@ -140,8 +147,11 @@ plugins_line=$(jq -rn --argjson p "$plugins_obj" '
        else
          {missing: "mattpocock-skills", state: (if $p.usePonytailAudit then "audit on" else "audit off" end)}
        end) as $m
-      | "➖\t" + $m.missing + " not installed · " + $m.state
-    end
+      | {icon:"➖", text: ($m.missing + " not installed · " + $m.state)}
+    end) as $base
+  | (if $modeClause == null then $base.text else $base.text + " · " + $modeClause end) as $text
+  | (if $modeClause != null and $p.ponytail and $p.ponytailMode != "off" then "⚠️" else $base.icon end) as $icon
+  | $icon + "\t" + $text
 '
 )
 

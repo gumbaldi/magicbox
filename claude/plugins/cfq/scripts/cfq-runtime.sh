@@ -119,6 +119,31 @@ plugins_capability_code() {
   fi
 }
 
+# Mirrors ponytail's own default-mode resolution (ponytail/hooks/ponytail-config.js:76
+# getDefaultMode(), same tier order: env var, then config file, then "full") so cfq reports
+# the mode ponytail itself would actually use. A ponytail release changing this precedence
+# makes this read stale. cfq only ever *reports* the value, never writes it outside the
+# explicit offer flow in code-for-queue/SKILL.md Step A.
+ponytail_mode() {
+  local dir cfg mode env_mode
+  env_mode="${PONYTAIL_DEFAULT_MODE:-}"
+  env_mode="${env_mode,,}"
+  case "$env_mode" in
+    off|lite|full|ultra) printf '%s' "$env_mode"; return ;;
+  esac
+  dir="${XDG_CONFIG_HOME:-$HOME/.config}/ponytail"
+  cfg="$dir/config.json"
+  if [ -f "$cfg" ]; then
+    # Strip a UTF-8 BOM, as ponytail does, before parsing.
+    mode=$(sed '1s/^\xef\xbb\xbf//' "$cfg" 2>/dev/null | jq -r '.defaultMode // empty' 2>/dev/null || true)
+    mode="${mode,,}"
+    case "$mode" in
+      off|lite|full|ultra) printf '%s' "$mode"; return ;;
+    esac
+  fi
+  printf 'full'
+}
+
 sources_json='[]'
 add_source() {
   # $1 name, $2 tried(true|false), $3 used(true|false), $4 code(""|CODE), $5 detail
@@ -345,7 +370,11 @@ case "$cmd" in
       '{statuslinePayload:$sp, transcriptAvailable:$ta}'
     ;;
   plugins)
-    jq -n --argjson plugins "$(list_plugins)" '{status: "OK", plugins: $plugins}'
+    plugins_json="$(list_plugins)"
+    pony_mode="unknown"
+    [ "$(jq -c 'index("ponytail") != null' <<<"$plugins_json")" = "true" ] && pony_mode="$(ponytail_mode)"
+    jq -n --argjson plugins "$plugins_json" --arg pm "$pony_mode" \
+      '{status: "OK", plugins: $plugins, ponytailMode: $pm}'
     ;;
   plugin-installed)
     [ -n "$plugin_name" ] || { echo '{"code":"INVALID_ARGUMENT","message":"plugin-installed requires a plugin name"}' >&2; exit 1; }

@@ -212,6 +212,60 @@ out=$(HOME="$h" bash "$runtime_sh" diagnose)
 [ "$(jq -r '.pluginsCacheCode' <<<"$out")" = "CAPABILITY_UNAVAILABLE" ] || fail "14c pluginsCacheCode: $out"
 rm -rf "$h"
 
+# 14d-j. ponytailMode resolution -- fresh HOME + XDG_CONFIG_HOME per case, never the real ones.
+pony_home() {
+  local h; h=$(mktemp -d)
+  mkdir -p "$h/.claude/plugins/cache/ponytail/ponytail/4.8.4" "$h/xdg/ponytail"
+  printf '%s' "$h"
+}
+
+# 14d. ponytail not installed -> unknown, even with env var/config both set
+h=$(pony_home); rm -rf "$h/.claude/plugins/cache/ponytail"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=off bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "unknown" ] || fail "14d not-installed: $out"
+rm -rf "$h"
+
+# 14e. env var set to a valid mode wins over any config file
+h=$(pony_home)
+printf '{"defaultMode":"off"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=ultra bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "ultra" ] || fail "14e env wins: $out"
+rm -rf "$h"
+
+# 14f. env var set to garbage -> falls through to config
+h=$(pony_home)
+printf '{"defaultMode":"lite"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" PONYTAIL_DEFAULT_MODE=bogus bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "lite" ] || fail "14f garbage env falls through: $out"
+rm -rf "$h"
+
+# 14g. config file with off
+h=$(pony_home)
+printf '{"defaultMode":"off"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "off" ] || fail "14g config off: $out"
+rm -rf "$h"
+
+# 14h. config file with a BOM still parses
+h=$(pony_home)
+printf '\xef\xbb\xbf{"defaultMode":"lite"}' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "lite" ] || fail "14h BOM config: $out"
+rm -rf "$h"
+
+# 14i. config file with invalid JSON -> falls back to full, does not crash
+h=$(pony_home)
+printf '{not valid' > "$h/xdg/ponytail/config.json"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "full" ] || fail "14i invalid JSON: $out"
+rm -rf "$h"
+
+# 14j. no config file at all -> full
+h=$(pony_home); rm -rf "$h/xdg"
+out=$(HOME="$h" XDG_CONFIG_HOME="$h/xdg" bash "$runtime_sh" plugins)
+[ "$(jq -r '.ponytailMode' <<<"$out")" = "full" ] || fail "14j no config: $out"
+rm -rf "$h"
+
 # 14. jq unavailable -> DEPENDENCY_MISSING, exit 1, on every subcommand
 nojq_dir=$(mktemp -d)
 for b in bash git head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm find sort; do

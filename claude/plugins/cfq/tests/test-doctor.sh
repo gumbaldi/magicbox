@@ -20,7 +20,7 @@ minimal_path() {
   printf '%s' "$dir"
 }
 
-core_bins="bash git timeout head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm"
+core_bins="bash git timeout head ls date stat printf mkdir tr pwd sed grep cat dirname mv rm find"
 
 # 1. Healthy PATH: hook mode is silent, exit 0
 healthy_dir=$(minimal_path $core_bins jq gh tea npm)
@@ -88,5 +88,40 @@ PATH="$full_path" jq -e . "$hooks_json" >/dev/null \
 cmd=$(PATH="$full_path" jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json")
 [[ "$cmd" == '${CLAUDE_PLUGIN_ROOT}'* ]] || { echo "FAIL: hook command does not use \${CLAUDE_PLUGIN_ROOT}: $cmd"; exit 1; }
 [[ "$cmd" != /* ]] || { echo "FAIL: hook command is an absolute path: $cmd"; exit 1; }
+
+# 8. Ponytail advisory: installed, mode full (no config) -> appears in optional section, ok stays
+# true, exit code unchanged (never a required-dependency failure).
+pony_home=$(mktemp -d)
+mkdir -p "$pony_home/.claude/plugins/cache/ponytail/ponytail/4.8.4"
+json=$(HOME="$pony_home" PATH="$healthy_dir" "$doctor_sh" check --json)
+rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL: check --json exit != 0 with ponytail advisory present: $rc"; exit 1; }
+[ "$(jq -r '.ok' <<<"$json")" = "true" ] || { echo "FAIL: ponytail advisory should not affect ok: $json"; exit 1; }
+[[ "$(jq -r '.ponytailAdvisory' <<<"$json")" == *"full"* ]] \
+  || { echo "FAIL: ponytailAdvisory missing/wrong mode: $json"; exit 1; }
+text=$(HOME="$pony_home" PATH="$healthy_dir" "$doctor_sh" check)
+echo "$text" | grep -q "optional advisory:.*full" \
+  || { echo "FAIL: text mode missing ponytail advisory: $text"; exit 1; }
+rm -rf "$pony_home"
+
+# 9. Ponytail advisory: installed, mode off -> no advisory at all
+pony_home=$(mktemp -d)
+mkdir -p "$pony_home/.claude/plugins/cache/ponytail/ponytail/4.8.4" "$pony_home/.config/ponytail"
+printf '{"defaultMode":"off"}' > "$pony_home/.config/ponytail/config.json"
+json=$(HOME="$pony_home" PATH="$healthy_dir" "$doctor_sh" check --json)
+[ "$(jq -r '.ponytailAdvisory' <<<"$json")" = "null" ] \
+  || { echo "FAIL: mode off should suppress the advisory: $json"; exit 1; }
+text=$(HOME="$pony_home" PATH="$healthy_dir" "$doctor_sh" check)
+if echo "$text" | grep -q "optional advisory:"; then
+  echo "FAIL: mode off should not print an advisory line: $text"; exit 1
+fi
+rm -rf "$pony_home"
+
+# 10. Ponytail not installed -> no advisory, even with no plugin cache dir at all
+pony_home=$(mktemp -d)
+json=$(HOME="$pony_home" PATH="$healthy_dir" "$doctor_sh" check --json)
+[ "$(jq -r '.ponytailAdvisory' <<<"$json")" = "null" ] \
+  || { echo "FAIL: not-installed should suppress the advisory: $json"; exit 1; }
+rm -rf "$pony_home"
 
 echo PASS

@@ -60,6 +60,36 @@ echo "$mip_text" | grep -qF '2026-01-02-b' \
   || { echo "FAIL: batch b dropped from MULTIPLE_IN_PROGRESS render"; echo "$mip_text"; exit 1; }
 rm -rf "$mip_tmp" "$mip_home"
 
+# --- dash render: ponytail installed, mode full -> Plugins line carries the warning --------
+
+pony_tmp=$(mktemp -d); pony_home=$(mktemp -d)
+mkdir -p "$pony_home/.claude/plugins/cache/ponytail/ponytail/4.8.4"
+mkdir -p "$pony_tmp/repo-p/.claude/cfq"
+git -C "$pony_tmp/repo-p" init -q
+pony_text=$(HOME="$pony_home" CFQ_SCAN_ROOTS="$pony_tmp" bash "$dash" render "$pony_tmp")
+echo "$pony_text" | grep -qF 'mode: full' \
+  || { echo "FAIL: ponytail full mode not surfaced"; echo "$pony_text"; exit 1; }
+echo "$pony_text" | grep -qF 'cfq expects off' \
+  || { echo "FAIL: ponytail warning text missing"; echo "$pony_text"; exit 1; }
+echo "$pony_text" | grep -qF '⚠️ Plugins' \
+  || { echo "FAIL: ponytail mode warning should force the ⚠️ icon"; echo "$pony_text"; exit 1; }
+rm -rf "$pony_tmp" "$pony_home"
+
+# --- dash render: ponytail installed, mode off -> no warning ----------------------------------
+
+pony_off_tmp=$(mktemp -d); pony_off_home=$(mktemp -d)
+mkdir -p "$pony_off_home/.claude/plugins/cache/ponytail/ponytail/4.8.4" "$pony_off_home/.config/ponytail"
+printf '{"defaultMode":"off"}' > "$pony_off_home/.config/ponytail/config.json"
+mkdir -p "$pony_off_tmp/repo-q/.claude/cfq"
+git -C "$pony_off_tmp/repo-q" init -q
+pony_off_text=$(HOME="$pony_off_home" CFQ_SCAN_ROOTS="$pony_off_tmp" bash "$dash" render "$pony_off_tmp")
+echo "$pony_off_text" | grep -qF 'mode: off' \
+  || { echo "FAIL: ponytail off mode not surfaced"; echo "$pony_off_text"; exit 1; }
+if echo "$pony_off_text" | grep -qF 'cfq expects off'; then
+  echo "FAIL: mode off should not carry a warning"; exit 1
+fi
+rm -rf "$pony_off_tmp" "$pony_off_home"
+
 # --- report index --text: a RED row, zero cost, equivalence with JSON ------
 
 rep_tmp=$(mktemp -d); rep_home=$(mktemp -d)
@@ -95,6 +125,8 @@ rm -rf "$empty_rep_home" "$empty_rep_root"
 all_output="$text
 $empty_text
 $mip_text
+$pony_text
+$pony_off_text
 $rep_text
 $empty_rep_text"
 if grep -qE '&nbsp;|&amp;|&#' <<<"$all_output"; then
