@@ -128,6 +128,12 @@ bash "$cl" reserve "$dup_repo" 5 002-2026-02-02-dup
 bash "$cl" reserve "$dup_repo" 5 003-2026-02-03-other 2>/dev/null && { echo "FAIL: reserve accepted a duplicate batchNumber"; exit 1; }
 bash "$cl" reserve "$dup_repo" 6 002-2026-02-02-dup 2>/dev/null && { echo "FAIL: reserve accepted a duplicate batch"; exit 1; }
 
+# ledger/queue invariant, changelog half: reserve only ever writes the ledger side, never a queue
+# directory -- pairing the two (so a directory never exists without its ledger entry) is
+# cfq-batch-id.sh allocate's job, not this script's. A reserve-only entry is exactly the
+# recoverable half of that invariant (cfq-batch-id.sh reconcile reports it, never "fixes" it).
+[ ! -d "$dup_repo/.claude/cfq/impl/002-2026-02-02-dup" ] || { echo "FAIL: reserve created a queue directory; that pairing must stay cfq-batch-id.sh's job"; exit 1; }
+
 # max-batch-number ignores legacy/null entries and returns the numeric max, not lexicographic max
 maxnum_repo="$tmp/maxnum-repo"
 mkdir -p "$maxnum_repo"

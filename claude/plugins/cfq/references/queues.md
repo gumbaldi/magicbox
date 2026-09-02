@@ -78,6 +78,23 @@ step calls it directly — solely to reconfirm the branch now exists post-checko
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
 
+## Batch Allocation Errors (`cfq batch allocate` — pfq Step 9)
+
+`BATCH_LEDGER_MISMATCH` means a numbered queue directory exists with no matching ledger entry.
+`allocate` cannot itself produce this state — it reserves the ledger entry before creating the
+directory and never rolls the reservation back on a later failure, so the recoverable half (a
+ledger entry with no directory) is the only one `allocate` can ever leave behind. The error's
+`action` field already names the resolved `changelogFile` path and the repair, computed, never
+hardcoded:
+
+```bash
+"<plugin-root>/bin/cfq" batch reconcile "<repo-root>"          # read-only, exits non-zero on a gap
+"<plugin-root>/bin/cfq" batch reconcile "<repo-root>" --fix    # reserves every orphaned directory
+```
+
+`reconcile` never deletes anything and never touches a ledger entry with no directory — a reserved
+number whose batch never got parked is a legitimate abandoned reservation, not a gap to close.
+
 ## Phase Announcement and Go Gate (Step 4b2)
 
 Runs after the size gate, before any code is written, every phase — the fine-grained counterpart

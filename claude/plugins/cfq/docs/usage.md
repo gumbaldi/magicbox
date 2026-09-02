@@ -23,7 +23,10 @@ edits code.
    running on `planExploreModel` rather than reading everything in the main session.
 5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
    high-priority flag (optional — not flagging is the normal case).
-6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`.
+6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`. If this ever
+   reports `BATCH_LEDGER_MISMATCH` (a queue directory with no matching changelog entry),
+   `bin/cfq batch reconcile <repo-root>` reports the gap and `--fix` closes it — it never deletes
+   anything, and never touches a reserved number whose directory never got created.
 
 Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `planBlockedPlugins`.
