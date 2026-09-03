@@ -477,5 +477,22 @@
   branch: cfq/011-2026-09-03-rate-limit-warn-and-plan-self-critique
   base: cfq/010-2026-09-02-context-gate-payload-keys-and-rate-limits
   started: 2026-09-03
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-03
+  phases:
+    - phase: "01-rate-limit-warn-verdict"
+      status: "green"
+      summary: "ctx-usage.sh now emits a distinct WARN verdict (rate-limit/unknown-context) separate from HANDOFF/STOP (capacity), with a REASON token; cfq-ifq-preflight.sh passes reason through and fails loudly on a gate-line parse mismatch."
+    - phase: "02-ifq-forceable-handoff"
+      status: "green"
+      summary: "SKILL.md's Step 6 no longer ends the session on a rate-limit/unknown-context WARN — it loops back to Step 4 so the next phase's Go gate carries the warning and a new Handoff option; Step 3b/4b/4b2 render the warning and the three-way Size Gate verdict; queues.md documents the WARN variant of the Go gate; README/CLAUDE.md/docs/usage.md/docs/configuration.md/dashboard.md/settings-explain.md all rewritten from the two-reason always-blocking model to the three-verdict model, including the stale preflight-impl contextGate shape."
+    - phase: "03-pfq-phase-cut-self-critique"
+      status: "green"
+      summary: ""
+    - phase: "04-skill-step-renumbering"
+      status: "green"
+      summary: ""
+- batchNumber: 12
+  batch: 012-2026-09-03-report-phase-slug-contract
+  status: parked
