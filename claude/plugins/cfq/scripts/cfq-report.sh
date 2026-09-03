@@ -107,9 +107,11 @@ case "$cmd" in
     [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
     f="$dir/report.json"
     [ -f "$f" ] || { echo "cfq-report.sh: no report.json in $dir" >&2; exit 1; }
+    jq -e --arg p "$phase_slug" '[.phases[] | select(.phase == $p)] | length > 0' "$f" >/dev/null \
+      || { echo "cfq-report.sh set-commit: no phase entry '$phase_slug' in $f — the phase field carries the full phase slug (NN-slug), not the bare number" >&2; exit 1; }
     jq --arg p "$phase_slug" --arg c "$sha" '
       (.phases | to_entries | map(select(.value.phase == $p)) | last.key) as $i
-      | if $i == null then . else .phases[$i].commit = $c end
+      | .phases[$i].commit = $c
     ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     ;;
   last-failure)

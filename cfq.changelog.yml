@@ -495,4 +495,8 @@
       summary: ""
 - batchNumber: 12
   batch: 012-2026-09-03-report-phase-slug-contract
-  status: parked
+  branch: cfq/012-2026-09-03-report-phase-slug-contract
+  base: cfq/011-2026-09-03-rate-limit-warn-and-plan-self-critique
+  started: 2026-09-03
+  status: in-progress
+  legacy: false

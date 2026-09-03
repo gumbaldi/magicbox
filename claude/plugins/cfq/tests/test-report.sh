@@ -22,6 +22,35 @@ HOME="$home" bash "$rep" set-commit "$batch" "01-a" "def5678"
 c=$(jq -r '.phases[] | select(.phase=="01-a") | .commit' "$batch/report.json")
 [ "$c" = "def5678" ] || { echo "FAIL: set-commit did not update commit = $c"; exit 1; }
 
+# Unknown phase: set-commit must fail loudly instead of silently returning the file unchanged.
+# Passing the bare number where the report carries the full slug used to exit 0 and leave the
+# commit field null forever — the whole reason this check exists.
+before=$(cat "$batch/report.json")
+set +e
+sc_err=$(HOME="$home" bash "$rep" set-commit "$batch" "01" "9999999" 2>&1 >/dev/null)
+sc_rc=$?
+set -e
+[ "$sc_rc" -ne 0 ] || { echo "FAIL: set-commit with an unknown phase should exit non-zero"; exit 1; }
+[ -n "$sc_err" ] || { echo "FAIL: set-commit gave no stderr message for an unknown phase"; exit 1; }
+[ "$(cat "$batch/report.json")" = "$before" ] \
+  || { echo "FAIL: set-commit modified report.json despite an unknown phase"; exit 1; }
+
+# A batch whose report.json has an empty phases array hits the same path, not a jq crash.
+emptyph="$tmp/2026-01-04-emptyphases"
+mkdir -p "$emptyph"
+printf '%s\n' '{"repo":"","batch":"2026-01-04-emptyphases","started":"2026-01-04T10:00:00+01:00","phases":[]}' \
+  >"$emptyph/report.json"
+set +e
+HOME="$home" bash "$rep" set-commit "$emptyph" "01-a" "aaa1111" >/dev/null 2>&1
+sc_rc=$?
+set -e
+[ "$sc_rc" -ne 0 ] || { echo "FAIL: set-commit on an empty phases array should exit non-zero"; exit 1; }
+
+# The routine case still works after the change — same phase, a second overwrite.
+HOME="$home" bash "$rep" set-commit "$batch" "01-a" "ccc3333"
+c=$(jq -r '.phases[] | select(.phase=="01-a") | .commit' "$batch/report.json")
+[ "$c" = "ccc3333" ] || { echo "FAIL: set-commit no longer updates a known phase = $c"; exit 1; }
+
 s=$(bash "$rep" summary "$batch")
 expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0	0		"
 [ "$s" = "$expected" ] || { echo "FAIL: summary = $s"; exit 1; }
