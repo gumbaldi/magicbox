@@ -51,6 +51,39 @@ HOME="$home" bash "$rep" set-commit "$batch" "01-a" "ccc3333"
 c=$(jq -r '.phases[] | select(.phase=="01-a") | .commit' "$batch/report.json")
 [ "$c" = "ccc3333" ] || { echo "FAIL: set-commit no longer updates a known phase = $c"; exit 1; }
 
+# append validates the phase field before anything is persisted: NN-slug only.
+badph="$tmp/2026-01-05-badphase"
+mkdir -p "$badph"
+
+# bare number — the batch-009 shape that started this
+set +e
+ap_err=$(HOME="$home" bash "$rep" append "$badph" '{"phase":"01","status":"green","summary":"x"}' 2>&1 >/dev/null)
+ap_rc=$?
+set -e
+[ "$ap_rc" -ne 0 ] || { echo "FAIL: append should reject a bare phase number"; exit 1; }
+[ -n "$ap_err" ] || { echo "FAIL: append gave no stderr message for a bare phase number"; exit 1; }
+[ ! -f "$badph/report.json" ] \
+  || { echo "FAIL: append created report.json despite rejecting the phase value"; exit 1; }
+
+# missing phase field entirely
+set +e
+HOME="$home" bash "$rep" append "$badph" '{"status":"green","summary":"x"}' >/dev/null 2>&1
+ap_rc=$?
+set -e
+[ "$ap_rc" -ne 0 ] || { echo "FAIL: append should reject phase JSON without a phase field"; exit 1; }
+
+# empty phase field
+set +e
+HOME="$home" bash "$rep" append "$badph" '{"phase":"","status":"green","summary":"x"}' >/dev/null 2>&1
+ap_rc=$?
+set -e
+[ "$ap_rc" -ne 0 ] || { echo "FAIL: append should reject an empty phase field"; exit 1; }
+
+# routine case still accepted, and it is what creates report.json
+HOME="$home" bash "$rep" append "$badph" '{"phase":"03-c","status":"green","summary":"x"}'
+[ "$(jq -r '.phases[-1].phase' "$badph/report.json")" = "03-c" ] \
+  || { echo "FAIL: append no longer accepts a well-formed phase slug"; exit 1; }
+
 s=$(bash "$rep" summary "$batch")
 expected="$(basename "$batch")	2	1	1	1	2026-01-01T11:00:00+01:00	0	0	0		"
 [ "$s" = "$expected" ] || { echo "FAIL: summary = $s"; exit 1; }
