@@ -472,3 +472,6 @@
     - phase: "03-surface-the-second-stop-reason"
       status: "green"
       summary: ""
+- batchNumber: 11
+  batch: 011-2026-09-03-rate-limit-warn-and-plan-self-critique
+  status: parked
