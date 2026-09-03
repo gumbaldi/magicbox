@@ -474,4 +474,8 @@
       summary: ""
 - batchNumber: 11
   batch: 011-2026-09-03-rate-limit-warn-and-plan-self-critique
-  status: parked
+  branch: cfq/011-2026-09-03-rate-limit-warn-and-plan-self-critique
+  base: cfq/010-2026-09-02-context-gate-payload-keys-and-rate-limits
+  started: 2026-09-03
+  status: in-progress
+  legacy: false
