@@ -1,6 +1,6 @@
 # Plan Inbox: Choosing an Entry
 
-Only read when Step 0 finds at least one entry in `<repo-root>/.claude/cfq/plan/`.
+Only read when Step 3 finds at least one entry in `<repo-root>/.claude/cfq/plan/`.
 
 One `AskUserQuestion`, "There are N planning requests waiting in the queue. How do you want to
 proceed?":

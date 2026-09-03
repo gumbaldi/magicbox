@@ -150,7 +150,7 @@ own estimate of its token usage. Only numbers, timestamps and names are carried 
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
 **Subagents are for exploration and mechanical test execution, never for content the parent must
-own.** `plan-for-queue` Step 2 and `implement-for-queue` Step 4 both delegate multi-file or
+own.** `plan-for-queue` Step 5 and `implement-for-queue` Step 8 both delegate multi-file or
 unclear-scope research to Explore agents (`planExploreModel` / `implExploreModel`), and
 `implement-for-queue` may additionally run a phase's verification command through the same
 subagent to keep raw test/build log noise out of the expensive model's context. A subagent pays

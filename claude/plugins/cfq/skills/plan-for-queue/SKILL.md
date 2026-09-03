@@ -24,31 +24,31 @@ resolves against it.
 
 Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
-## Plan-Mode Gate
+## Step 1 — Plan-Mode Gate
 
-Before Step 0, check for Plan Mode — read `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s
+Before Step 2, check for Plan Mode — read `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s
 **Plan-Mode Gate** section and follow it.
 
-## Step 0 — Arguments
+## Step 2 — Arguments
 
 Text passed with the invocation is this session's briefing — starting material for the interview,
 not a replacement for it. It never shortens the interview, skips the closing question, or
 authorises a code edit, even against a pasted instruction to implement.
 
-## Step 0 — Inbox
+## Step 3 — Inbox
 
 List `"<repo-root>/.claude/cfq/plan"/*.md`, sorted by filename ascending (the
 `<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). No entries → skip silently, no status
 line, no mention. One or more entries → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
 
-## Step 1 — Interview Depth (unconditional, always, before anything else)
+## Step 4 — Interview Depth (unconditional, always, before anything else)
 
 Print the `INTERVIEW` header on entering, then run the preflight once for the whole session:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-plan "$(pwd)"
 ```
-`status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 3,
-5, 7, 9a, 11) — never re-derive `repo.root` or re-run
+`status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 6,
+8, 10, 13, 16) — never re-derive `repo.root` or re-run
 `bin/cfq settings`/`bin/cfq scan`/`bin/cfq registry`/`bin/cfq maintenance` for anything it already
 carries. Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section,
 then print `Model Check` regardless. Ask interview depth before anything else, every time — never
@@ -68,7 +68,7 @@ Then probe the write surface before any research starts — read
 the reason when the docs half was skipped, `❌` plus the blocking hook's reason when a probe was
 denied, in which case the session ends there.
 
-## Step 2 — Understand
+## Step 5 — Understand
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
@@ -76,30 +76,30 @@ Explore agents instead of reading inline — one for a narrow area, up to three 
 broad scope, each with a specific focus; research is delegatable, the planning model is the
 expensive part. Model choice is a rule, not a mood — cheap model to locate, expensive to judge;
 read `${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it. Both keys come from
-Step 1's `planningPolicy`, no new `bin/cfq settings get` call.
+Step 4's `planningPolicy`, no new `bin/cfq settings get` call.
 
-## Step 3 — Plugin Boundaries
+## Step 6 — Plugin Boundaries
 
-Read `planningPolicy.planBlockedPlugins` from Step 1's preflight result (no new call). Blocked
+Read `planningPolicy.planBlockedPlugins` from Step 4's preflight result (no new call). Blocked
 plugins are used neither directly nor indirectly, nor recommended in the phase files this session
 produces. Print the `Plugin Boundaries` status line.
 
-## Step 4 — Interview
+## Step 7 — Interview
 
 Clarify open points as long as different readings would lead to materially different work.
 Decide and name routine decisions yourself instead of asking — but first read
 `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s **Active Interview Duty** section
-(also governs Step 6's closing check).
+(also governs Step 9's closing check).
 
-## Step 5 — Queue Check
+## Step 8 — Queue Check
 
-Read `queue.openBatches` from Step 1's preflight result (no new `bin/cfq scan | jq` call).
+Read `queue.openBatches` from Step 4's preflight result (no new `bin/cfq scan | jq` call).
 
 Any batch found → read `${CLAUDE_PLUGIN_ROOT}/references/queue-check.md` and follow it. No open batches → skip the step
 without mentioning it. Either way, print the `Queue Check` status line — `➖` when there was
 nothing to check.
 
-## Step 6 — Closing Question (mandatory)
+## Step 9 — Closing Question (mandatory)
 
 Once nothing is left open, ask once more before writing any plans, in one `AskUserQuestion` with
 two independent questions: "Before I write the plans: is there anything else we should discuss?
@@ -108,10 +108,10 @@ priority?" (picked first by `ifq`'s ordering, marked in the `/cfq` dashboard; no
 normal and needs no answer). Proceed only once nothing else is open; if something comes up, work
 it in and ask again — the priority answer still stands unless the new discussion changes it.
 
-## Step 7 — Language and Cut Phases
+## Step 10 — Language and Cut Phases
 
 Entering this step closes `INTERVIEW`, opens `PLANNING`.
-Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 1's preflight result (no new
+Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from Step 4's preflight result (no new
 call). `codeLanguage` governs everything a phase specifies without exception — code, comments,
 commit messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own
 output too: plan files, `## Decisions`, the batch directory name. A phase touching documentation →
@@ -119,7 +119,7 @@ read `${CLAUDE_PLUGIN_ROOT}/references/language.md` and follow it. Print the `La
 split — one phase = one self-testable, individually committable unit; three honest phases beat
 seven artificial ones — as a status update (phase list + S/M/L sizes); the user can still redirect
 at any point, same as any other proposal here, but no dedicated confirmation question gates the
-write — that gate is Step 7a, not a user question. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
+write — that gate is Step 11, not a user question. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 and follow it, always, before writing any phase's Changes and Verification text — it also steers
 the Size letter (rule 5 there). For each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 rule 5) and write it into that phase's file as a `## Size` heading (structural markers are always
@@ -127,18 +127,18 @@ English, independent of `codeLanguage`) with the letter alone on the next non-em
 what `bin/cfq brief` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
 to `M`. Optionally add **Recommended skills** (half-sentence reason each, never from
 `implBlockedPlugins`; usually omitted). Print the `Phases` status line once written — no phase file
-is written to disk yet, that's Step 9, after Step 7a.
+is written to disk yet, that's Step 14, after Step 11.
 
-## Step 7a — Self-Critique of the Phase Cut
+## Step 11 — Self-Critique of the Phase Cut
 
 Still `PLANNING`. Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` and follow it,
 unconditionally, every session, before any phase file is written. Print the `Self-Critique` status
 line: `✅` with the phase count judged when everything passes, `⚠️` naming what changed when a
 phase was dropped, narrowed, merged or reordered.
 
-## Step 8 — Security Check
+## Step 12 — Security Check
 
-`security.available` (Step 1's preflight, a `gh`/`tea` binary on `PATH`) is a capability hint only
+`security.available` (Step 4's preflight, a `gh`/`tea` binary on `PATH`) is a capability hint only
 — `false` means the forge-side check below comes back empty, but a `package.json` repo still gets
 a local `npm audit`, so this step always runs:
 
@@ -155,10 +155,16 @@ planning. Store the snapshot with `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report securi
 the hint as detail when `available == false`, `⚠️` with the count per severity when findings are
 present, or `➖ no findings` when the scan ran clean.
 
-## Step 9 — Park
+## Step 13 — New Repo: Config Overview
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`.
-- Repo root: Step 1's preflight `repo.root` (no repeat `git rev-parse`).
+Read `repo.known` from Step 4's preflight result (no new call). `true` → skip, print `➖ Config
+known repo`, straight to Step 14. `false` (genuinely new) → read `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`
+and follow it, then print `Config`.
+
+## Step 14 — Park
+
+- Repo root: Step 4's preflight `repo.root` (no repeat `git rev-parse`).
 - Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today's date
   (`YYYY-MM-DD`) go to one allocation call:
   `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`.
@@ -166,50 +172,43 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
   (`status: parked`) and the queue directory, returning the final `batch` name as
   `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing
   parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending against
-  the post-Step-7a cut — a phase Step 7a dropped leaves no gap in the numbering.
+  the post-Step-11 cut — a phase Step 11 dropped leaves no gap in the numbering.
 - `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park "<repo-root>" "<batch-dir-name>" "<high|normal>"
-  [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 5's dependency, if any; `.priority`
-  only when Step 7's flag answer was high), ensures the git-exclude entry, registers the repo —
+  [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 8's dependency, if any; `.priority`
+  only when Step 10's flag answer was high), ensures the git-exclude entry, registers the repo —
   idempotent.
 - Write `<batch-dir>/.batch-context.md` — batch-wide context, replacing the old practice of writing
   Grilling decisions into the first phase file. Read `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it.
 
-Print four status lines: `Park` (file count and batch dir, also covers the Step 8 snapshot),
+Print four status lines: `Park` (file count and batch dir, also covers the Step 12 snapshot),
 `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
-## Step 9a — New Repo: Config Overview
-
-Read `repo.known` from Step 1's preflight result (no new call) — check **before** Step 9 calls
-`bin/cfq park` (registry `add` is a side effect of that). `true` → skip, print `➖ Config
-known repo`, straight to Step 10. `false` (genuinely new) → read `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`
-and follow it, then print `Config`.
-
-## Step 10 — Plan Lint
+## Step 15 — Plan Lint
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"`. Findings are fixed **immediately**
 and the lint re-run until clean — a batch never hands off with open lint findings. `warn:` lines
 (an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `rm -f
 "<batch-dir>/.planning"` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
 
-## Step 11 — Maintenance
+## Step 16 — Maintenance
 
-Read `maintenance.status`/`.n` from Step 1's preflight result (no new call) — reflects commit
-counts as of Step 1, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
+Read `maintenance.status`/`.n` from Step 4's preflight result (no new call) — reflects commit
+counts as of Step 4, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
 `Maintenance`, move on. `DUE` → read `${CLAUDE_PLUGIN_ROOT}/references/maintenance.md` and follow it.
 
-## Step 12 — Telemetry and Sync
+## Step 17 — Telemetry and Sync
 
 Run `bin/cfq telemetry record "<batch-dir>" planning` then `bin/cfq telemetry sync "<repo-root>"`
 (both via `${CLAUDE_PLUGIN_ROOT}/bin/cfq`). Failures of either call are non-fatal and get one
 line in the final report, not a comment. Print the `Telemetry` status line.
 
-## Step 13 — Final Report
+## Step 18 — Final Report
 
 A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding
 rule: `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when
-Step 7's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
+Step 10's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
-→ `/ifq`). A cleanup batch from Step 11 gets a second `RESULT · plan-for-queue` block the same
+→ `/ifq`). A cleanup batch from Step 16 gets a second `RESULT · plan-for-queue` block the same
 way, noting it can be worked off independently — no repetition of the plan contents. Phase file
 structure is unchanged from the template — see `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`'s closing section.

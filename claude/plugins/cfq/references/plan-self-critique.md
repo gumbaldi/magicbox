@@ -1,6 +1,6 @@
 # Plan Self-Critique: Does the Cut Still Earn Its Place
 
-`Step 6` asks the **user** what is still open. Step 7 proposes the phase cut and, until this file
+`Step 9` asks the **user** what is still open. Step 10 proposes the phase cut and, until this file
 existed, wrote the files right after — nothing asked the **planner** whether the phases it just cut
 actually serve the batch goal. This was observed in batch `009`: six phases were cut, the user said
 "write the plans", and only afterwards, asked unprompted, did re-examining the cut within one turn
@@ -20,7 +20,7 @@ This file governs whether a phase should **exist**. `phase-quality.md` governs w
 
 ## Scope
 
-Read unconditionally at Step 7a, every session, regardless of phase count or interview depth. A
+Read unconditionally at Step 11, every session, regardless of phase count or interview depth. A
 two-phase batch still gets two short verdicts — this step is never skipped as "too small to
 bother".
 
@@ -72,7 +72,7 @@ Self-Critique
   01 audit-log-schema      pass — cites phase 02's read path
   02 audit-log-writer      pass — cites the batch goal directly
   03 audit-log-dashboard   fail (serves the batch goal) — this batch's goal is "make writes
-                           auditable", not "visualize them"; 03 was picked from Step 5's option
+                           auditable", not "visualize them"; 03 was picked from Step 8's option
                            list, not derived from the goal
   batch                    03 aside, 01→02 compose cleanly, no ordering issue
 ```

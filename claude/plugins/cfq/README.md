@@ -264,7 +264,7 @@ cfq only collects this data — it doesn't analyze it.
 
 ## Security
 
-`pfq` checks in Step 8, `ifq` checks again at the end of the batch. The forge
+`pfq` checks in Step 12, `ifq` checks again at the end of the batch. The forge
 is detected from the origin remote; both common CLIs are supported:
 
 | Forge | CLI | Source |

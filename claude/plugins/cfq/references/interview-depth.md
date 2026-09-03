@@ -7,7 +7,7 @@ Read `planningPolicy.planModels`/`.allowAnyModel` from the preflight result. `al
 system prompt) against `planModels`, like `ifq`'s gate — no match → warn naming the model and the
 list, and continue; this never blocks, unlike `ifq`.
 
-Read when weighing which `AskUserQuestion` option to recommend at Step 1 — the option text itself
+Read when weighing which `AskUserQuestion` option to recommend at Step 4 — the option text itself
 only needs one clause, the reasoning for *why* it's recommended lives here.
 
 ## Quick interview

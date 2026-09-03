@@ -1,6 +1,6 @@
 # Maintenance Run
 
-Only read when Step 11 finds `DUE <n>`.
+Only read when Step 16 finds `DUE <n>`.
 
 1. Run `"<plugin-root>/bin/cfq" lang "<repo-root>"` — always, no plugin dependency.
    Its `missing`, `stray`, and `unfiled` arrays become findings.
