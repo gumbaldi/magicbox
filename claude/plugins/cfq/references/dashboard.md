@@ -90,8 +90,9 @@ schema data.
 prohibition) — there is no exception left. A key whose `scope` is global-only (`scanRoots`,
 `securityTimeoutSeconds`, `securityFindingsCap`) rejects `--repo`; say so and fall back to a global
 `set`. `0` is a valid, deliberate value for `stopUsed` meaning "hand off after every phase"; `-1` is
-equally valid on `stopUsed`, `stopFiveHourPct` and `stopSevenDayPct`, meaning "never hand off for
-this reason" — none of these is a misconfiguration, don't flag any of them.
+equally valid on `stopUsed`, `stopFiveHourPct` and `stopSevenDayPct` — on `stopUsed` it means "never
+hand off for this reason", on the rate-limit pair it means "never emit a `WARN` for this reason" — none of
+these is a misconfiguration, don't flag any of them.
 
 Infer `--global` vs. `--repo` from the user's own phrasing where it's unambiguous ("for this repo",
 "just here" → `--repo`; "everywhere", "by default" → global) — only ask via `AskUserQuestion` when

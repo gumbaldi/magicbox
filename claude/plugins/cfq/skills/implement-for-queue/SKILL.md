@@ -27,6 +27,9 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 | IMPLEMENTATION | 4-5 | per phase: announcement, result, Commit |
 | POSTCHECKS | 6-7 | Context Check, Telemetry, Lock, Batch Done |
 
+Not strictly sequential: a `WARN` at Step 6 loops back to Step 4 for the next phase instead of
+opening `POSTCHECKS`. `POSTCHECKS` opens only on a `STOP`, a red phase, or a finished batch.
+
 ## Step 0 — Arguments
 
 Text passed with the invocation narrows batch selection in Steps 1-3a — it never replaces the briefing, the go-ahead, or the per-phase Go question.
@@ -83,9 +86,15 @@ and context is still free — different plans belong in separate context windows
 ## 3b. Batch Briefing and Go-Ahead
 
 Nothing is touched, no lock taken, until the user has seen what the batch contains — never read
-phase files in full here, that's Step 4's job. Present `batch.briefText` compactly (already the
-full per-phase listing — name/priority/phase count/`dependsOn`/one line per phase with size and
-context excerpt), then ask exactly one `AskUserQuestion`, "Start implementing this batch?":
+phase files in full here, that's Step 4's job. `contextGate.verdict` is `WARN` → print one warning
+line *above* the briefing, naming the reason in the user's language and the concrete numbers from
+`contextGate.note` (e.g. the five-hour budget is at 89% against a 70% threshold); state plainly
+that this is a budget warning, not a blocker, and that the phase runs normally if started — wording
+per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement and Go Gate**. Present
+`batch.briefText` compactly (already the full per-phase listing — name/priority/phase
+count/`dependsOn`/one line per phase with size and context excerpt), then ask exactly one
+`AskUserQuestion`, "Start implementing this batch?" — no extra question for the warning, it only
+adds a line above the existing one:
 - **Start** → acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
   **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
   `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
@@ -113,16 +122,29 @@ call time). **(4a) Earlier failed attempt:** `nextPhase.failedAttempt` — `.fou
 `.note`/`.at`, check whether the cause still holds before repeating, and mention it in the new
 entry ("second attempt after …"); `.found: false` → skip silently. Print `Failed Attempt` either
 way. **(4b) Size gate.** `contextGate` — deterministic projection, already computed by the
-preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`:
-`START` → (4c); `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead. Print the `Size Gate`
-status line as `USED=<contextGate.used|?> SIZE=<contextGate.size> LIMIT=<contextGate.limit>
-<contextGate.verdict> (<contextGate.note>)`; the note names which threshold fired — capacity or a
-rate limit — so a handoff report repeats that specific reason instead of describing every handoff
-as a full context window; this closes `PRECHECKS`.
+preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`, three
+branches:
+
+- `START` → (4c), as normal.
+- `WARN` → **(4b2), same as `START`** — the phase is not blocked. The warning carries into (4b2)'s
+  Go question as a third option; nothing is skipped and nothing ends here.
+- `HANDOFF` → no phase ran, hand off cleanly (Step 6) instead.
+
+Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGate.size>
+LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon
+`✅` for `START`, `⚠️` for `WARN`, `❌` for `HANDOFF` — `contextGate.reason` names which threshold
+fired structurally, the report repeats that token rather than a paraphrase of the note; this closes
+`PRECHECKS`.
 **(4b2) Announcement and Go Gate.** Print the phase announcement —
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --phase <NN>`, rendered as returned, no
-rewording — then one `AskUserQuestion`: **Go** (proceed to 4c) / **Cancel** (release the lock, end
-the session). Rendering example and option copy in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement
+rewording. `contextGate.verdict` was `WARN` → the announcement is followed by the same warning line
+as Step 3b, and the `AskUserQuestion` gains a third option: **Go** (proceed to 4c, description names
+the budget state, never claims the attempt will fail) / **Handoff** (end the session cleanly
+instead of implementing — Step 6's `STOP` sequence: telemetry sync, lock release, short handoff
+report) / **Cancel** (release the lock, end the session, nothing touched). Otherwise just **Go** /
+**Cancel** as before. The warning re-appears at every phase because (4b2) runs per phase — intended,
+not a repetition bug: nothing advances automatically while the budget is over threshold. Rendering
+example and option copy in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement
 and Go Gate**.
 **(4c) Implementation.** Read the lowest-numbered open `NN-*.md` in full — multi-file or
 unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
@@ -163,23 +185,35 @@ status line — branch and commits pushed.
 
 ## 6. Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`. `policy.onePhasePerSession` (Step 1-3a's
-preflight, no new call) `true` → treat exactly like `STOP` below, regardless of the context gate's
-own verdict; `false` → the context gate alone decides. `STOP` → print `POSTCHECKS` (this closes
-`IMPLEMENTATION`), sync telemetry and release the lock (`bin/cfq telemetry sync "<repo-root>"`,
-`bin/cfq lock release "<repo-root>"`),
-printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
-half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
-from Step 8. `OK` → next phase, same batch. `UNKNOWN` → treat like `STOP`. `stopUsed: 0` is
-deliberate, not a misconfiguration — `STOP` fires after every phase for the capacity reason, one
-context window each; a rate-limit stop still wins over that bypass. `stopUsed: -1` is equally
-deliberate — `STOP` never fires **for the capacity reason**; the rate-limit reason has its own
-switches. `stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — hands off
-nothing for that reason either; a payload without `rate_limits` (API-level billing) means the
-check simply doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default)
-is the finer of two gates: the batch-level Step 3b
-go-ahead is coarse, this and (4b2)'s per-phase Go question are fine — together nothing is ever
-implemented without an explicit confirmation naming what's about to change.
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, now returning `OK` / `WARN` / `STOP`.
+`policy.onePhasePerSession` (Step 1-3a's preflight, no new call) `true` → treat exactly like `STOP`
+below, regardless of the context gate's own verdict; `false` → the context gate alone decides.
+
+- `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
+  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing
+  `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a half-finished
+  batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format from Step 8.
+- `OK` → next phase, same batch.
+- `WARN` → **do not end, do not advance silently.** Go to Step 4 for the next phase (re-running the
+  preflight with `--select <batch>` as Step 4 already requires for any phase past the first), so
+  the announcement and the Go gate run. The gate there resolves `WARN` again and (4b2) carries the
+  warning and its three options. If there is no next open phase, Step 7 (Batch Done) runs
+  normally — a finished batch is not held back by a budget warning. An unresolvable context reading
+  arrives as `WARN REASON=unknown` and follows this same path — the user decides, rather than the
+  session ending on a missing measurement.
+
+`stopUsed: 0` is deliberate, not a misconfiguration — `STOP` fires after every phase for the
+capacity reason, one context window each. A rate limit produces a `WARN`, which never overrides a
+capacity `STOP` and never ends a session on its own — the old assumption that a rate-limit stop
+wins over the `stopUsed: 0` bypass no longer holds. `stopUsed: -1` is equally deliberate — `STOP`
+never fires **for the capacity reason**; the rate-limit reason has its own switches.
+`stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — warns for nothing for
+that reason either; a payload without `rate_limits` (API-level billing) means the check simply
+doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default) is the finer
+of two gates: the batch-level Step 3b go-ahead is coarse, this and (4b2)'s per-phase Go question
+are fine — together nothing is ever implemented without an explicit confirmation naming what's
+about to change; it outranks `WARN` — with one-phase-per-session on, the session ends after a phase
+either way, and the budget warning changes nothing.
 
 ## 7. Batch Done
 

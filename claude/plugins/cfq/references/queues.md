@@ -114,6 +114,31 @@ Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this pha
 `bin/cfq lock release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
 and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
 
+**`WARN` variant.** When `contextGate.verdict` is `WARN`, one warning line precedes the
+announcement, naming the reason and the concrete numbers from `contextGate.note` in the user's
+language — e.g.:
+
+```
+⚠️ Five-hour budget at 89% (threshold 70%) — this is a warning, not a blocker; the phase runs
+normally if you start it.
+
+PHASE 02 · ifq-per-phase-go-gate · Size L
+  Goal     <first two non-empty lines of ## Context>
+  Files    bin/cfq, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+  Check    <first command line from ## Verification>
+```
+
+The `AskUserQuestion` then carries a third option: **Go** — "proceed, implement this phase now",
+its description naming the budget state so the user sees what they are accepting — and **must
+not** claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
+reusing Step 6's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
+implement-for-queue` short report) — this is the option that used to be forced on the user; it is
+now the one they choose. **Cancel** stays as above. No option may be phrased as futile — the
+observed bug produced a choice between "start anyway, but it will hand off immediately without
+implementing" and "cancel"; every option offered here must actually do what it says. This same
+warning line is reused verbatim at Step 3b, above the batch briefing — one wording, two call
+sites, never two drifting variants.
+
 ## Phase Summary (Step 4, after 4c)
 
 Printed after (4c), before the `bin/cfq report append` call:

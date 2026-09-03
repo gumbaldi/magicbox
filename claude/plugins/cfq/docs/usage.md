@@ -74,9 +74,11 @@ green phase.
    changed beyond the plan's list, verification red or skipped, a planned change left out, an
    unnamed new dependency) — any of them stops the automatic advance and asks once whether to
    continue.
-5. Hands the session off once either stop reason fires — capacity (`stopUsed`) or a rate limit
-   (`stopFiveHourPct` / `stopSevenDayPct`), whichever crosses its threshold first — or finishes the
-   batch and moves it to `impl/done/`.
+5. Hands the session off once the capacity threshold (`stopUsed`) fires (`HANDOFF`/`STOP`), or
+   finishes the batch and moves it to `impl/done/`. Crossing a rate-limit threshold
+   (`stopFiveHourPct` / `stopSevenDayPct`), or failing to read context usage at all, only produces
+   a `WARN` — the next phase is still offered, with the warning attached to the go-ahead question,
+   and you choose whether to continue or hand off.
 
 Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
 `stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
