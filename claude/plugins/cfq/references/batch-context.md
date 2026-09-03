@@ -24,7 +24,8 @@ is referenced by path, not repeated>
 <only if one phase's output is another phase's documented input>
 
 ## Non-Goals
-<only if something was explicitly ruled out during the interview>
+<only if something was explicitly ruled out during the interview, or dropped at Step 7a's
+self-critique — either way, state the reason>
 ```
 
 `## Goal` is the only mandatory section, always at least one line of real content. Every other

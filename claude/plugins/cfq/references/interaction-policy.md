@@ -32,3 +32,7 @@ hardcoding a value vs. adding a configurable setting, choosing a data shape, pic
 Surface at least those in one batched `AskUserQuestion` before writing anything. Silently deciding
 them and only asking "anything else?" afterward does not satisfy Step 6 — this section exists
 specifically to prevent that.
+
+This section covers decisions the *planner* made autonomously. `plan-for-queue`'s Step 7a and
+`references/plan-self-critique.md` cover the mirror case — decisions the *user* made from the
+planner's own option lists, re-examined before any phase file is written.

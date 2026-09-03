@@ -117,16 +117,24 @@ commit messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — a
 output too: plan files, `## Decisions`, the batch directory name. A phase touching documentation →
 read `${CLAUDE_PLUGIN_ROOT}/references/language.md` and follow it. Print the `Language` status line once read. Propose a
 split — one phase = one self-testable, individually committable unit; three honest phases beat
-seven artificial ones — as a status update (phase list + S/M/L sizes) and proceed directly to
-writing the phase files; the user can still redirect at any point, same as any other proposal
-here, but no dedicated confirmation question gates the write. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
+seven artificial ones — as a status update (phase list + S/M/L sizes); the user can still redirect
+at any point, same as any other proposal here, but no dedicated confirmation question gates the
+write — that gate is Step 7a, not a user question. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 and follow it, always, before writing any phase's Changes and Verification text — it also steers
 the Size letter (rule 5 there). For each phase, estimate **Size** `S`/`M`/`L` (letter definitions in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`
 rule 5) and write it into that phase's file as a `## Size` heading (structural markers are always
 English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
 what `bin/cfq brief` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
 to `M`. Optionally add **Recommended skills** (half-sentence reason each, never from
-`implBlockedPlugins`; usually omitted). Print the `Phases` status line once written.
+`implBlockedPlugins`; usually omitted). Print the `Phases` status line once written — no phase file
+is written to disk yet, that's Step 9, after Step 7a.
+
+## Step 7a — Self-Critique of the Phase Cut
+
+Still `PLANNING`. Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` and follow it,
+unconditionally, every session, before any phase file is written. Print the `Self-Critique` status
+line: `✅` with the phase count judged when everything passes, `⚠️` naming what changed when a
+phase was dropped, narrowed, merged or reordered.
 
 ## Step 8 — Security Check
 
@@ -157,7 +165,8 @@ Entering this step closes `PLANNING` and opens `POSTCHECKS`.
   Never compute/pad the number by hand — the helper reserves it in the local changelog
   (`status: parked`) and the queue directory, returning the final `batch` name as
   `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing
-  parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending.
+  parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending against
+  the post-Step-7a cut — a phase Step 7a dropped leaves no gap in the numbering.
 - `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park "<repo-root>" "<batch-dir-name>" "<high|normal>"
   [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 5's dependency, if any; `.priority`
   only when Step 7's flag answer was high), ensures the git-exclude entry, registers the repo —
