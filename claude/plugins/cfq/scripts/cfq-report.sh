@@ -13,6 +13,7 @@ set -eu
 command -v jq >/dev/null 2>&1 || { echo "cfq-report.sh: jq is required" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cfq="$script_dir/../bin/cfq"
 
 # Shared by html's per-batch report and its collected index.html — one visual language, not two.
 report_style_css='body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
@@ -57,9 +58,9 @@ resolve_html_path() {
   local dir="${1%/}" repo_root report_dir
   repo_root="$(repo_root_of "$dir")"
   if [ -n "$repo_root" ]; then
-    report_dir=$("$script_dir/cfq-settings.sh" get --repo "$repo_root" reportDir 2>/dev/null || true)
+    report_dir=$("$cfq" settings get --repo "$repo_root" reportDir 2>/dev/null || true)
   else
-    report_dir=$("$script_dir/cfq-settings.sh" get reportDir 2>/dev/null || true)
+    report_dir=$("$cfq" settings get reportDir 2>/dev/null || true)
   fi
   case "$report_dir" in
     ''|null) printf '%s/report.html' "$dir" ;;
@@ -97,7 +98,7 @@ case "$cmd" in
     jq --argjson p "$phase" '.phases += [$p]' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
-    "$script_dir/cfq-telemetry.sh" record "$dir" phase "$phase_id" || true
+    "$cfq" telemetry record "$dir" phase "$phase_id" || true
     ;;
   security)
     dir="${2:?usage: cfq-report.sh security <batch-dir> <security-json>}"
@@ -161,9 +162,9 @@ case "$cmd" in
 
     repo_root="$(repo_root_of "$dir")"
     if [ -n "$repo_root" ]; then
-      report_dir=$("$script_dir/cfq-settings.sh" get --repo "$repo_root" reportDir 2>/dev/null || true)
+      report_dir=$("$cfq" settings get --repo "$repo_root" reportDir 2>/dev/null || true)
     else
-      report_dir=$("$script_dir/cfq-settings.sh" get reportDir 2>/dev/null || true)
+      report_dir=$("$cfq" settings get reportDir 2>/dev/null || true)
     fi
     out="$(resolve_html_path "$dir")"
     case "$report_dir" in
@@ -240,7 +241,7 @@ case "$cmd" in
 
     # Collected-tree mode also regenerates the directory-of-everything index.
     if [ -n "$report_dir" ] && [ "$report_dir" != null ]; then
-      idx_json=$("$script_dir/cfq-report.sh" index)
+      idx_json=$("$cfq" report index)
       rows="[]"
       while IFS= read -r row; do
         rb=$(basename "$(jq -r '.repo' <<<"$row")")
@@ -286,6 +287,9 @@ case "$cmd" in
         *) echo "cfq-report.sh: unknown argument: $1" >&2; exit 1 ;;
       esac
     done
+    # Direct sibling call, not "$cfq" scan: cfq-report.sh resolves the dispatcher relative to
+    # its own real location, which would bypass a test double that shadows cfq-scan.sh in a
+    # copy of this script's directory (see tests/test_report.py's index/scan-count test).
     scan_json="$("$script_dir/cfq-scan.sh")"
     # --any matches either the repo path or the batch name — the merge-and-dedupe an ambiguous
     # single argument used to need (two index calls, merged by the caller) collapses into one

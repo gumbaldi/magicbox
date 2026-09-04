@@ -43,6 +43,23 @@ session, so use a relative path (`claude/plugins/cfq/bin/cfq ...`) when testing 
 them that way on purpose — see Architecture) but no longer the documented interface; add a new
 script's noun to `bin/cfq`'s routing table, not a new call site naming the script.
 
+Scripts call each other through `bin/cfq <noun>`, never by filename — the same rule that applies
+to skills and references. `scripts/cfq-paths.sh` is the single exception: it is sourced, not
+executed, and has no noun. Two further exceptions stay direct filename calls, each commented at
+its call site:
+- **Inner-loop calls** (`cfq-batch-id.sh`'s per-pair rename and per-orphan reserve,
+  `cfq-scan.sh`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
+  `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.
+- **`cfq-report.sh`'s internal call to `cfq-scan.sh`** (used by the `index` verb): `bin/cfq`
+  resolves its `NOUN_SCRIPT` table relative to its own real location, so routing this call through
+  the dispatcher would always reach the real, unstubbed `cfq-scan.sh` — breaking the test double
+  `tests/test_report.py` shadows it with. Stays a direct `$script_dir` call for that reason.
+
+Any test double that copies `scripts/` to intercept a sibling call by filename (e.g.
+`tests/test_ifq_preflight.py`, `tests/test_pfq_preflight.py`) must copy `bin/` alongside it,
+preserving the real `bin/../scripts` layout — `bin/cfq` resolves its routing table relative to its
+own location, so the copy only routes to the shadowed sibling if both directories move together.
+
 ## Architecture
 
 **Four skills, four roles, one shared data model.** `plan-for-queue` (expensive model) writes phase

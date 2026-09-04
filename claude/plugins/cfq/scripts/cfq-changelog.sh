@@ -20,10 +20,11 @@ set -eu
 command -v jq >/dev/null 2>&1 || { echo "cfq-changelog.sh: jq is required" >&2; exit 1; }
 
 here="$(dirname "${BASH_SOURCE[0]}")"
+cfq="$here/../bin/cfq"
 
 changelog_file() {
   local repo="$1" rel
-  rel="$("$here/cfq-settings.sh" get changelogFile)"
+  rel="$("$cfq" settings get changelogFile)"
   [ -n "$rel" ] || return 1
   printf '%s/%s\n' "$repo" "$rel"
 }
