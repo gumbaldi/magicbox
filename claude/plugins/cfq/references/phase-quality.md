@@ -5,7 +5,7 @@ only for a phase that moves, extracts, or reuses existing logic verbatim, or int
 logic of its own (a branch, a loop, a parser, a multi-step resolution chain, an adapter). Rules 1-4
 name their own trigger condition inline; a phase outside that condition simply has nothing to apply
 for that rule. This file governs what a phase's text must contain once it exists;
-`references/plan-self-critique.md` (Step 11) governs whether the phase should exist at all — keep
+`<plugin-root>/references/plan-self-critique.md` (Step 11) governs whether the phase should exist at all — keep
 the two separate.
 
 This file exists because one `/ifq` phase burned far more tokens than the task itself required —

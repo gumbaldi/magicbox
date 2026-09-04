@@ -34,5 +34,5 @@ them and only asking "anything else?" afterward does not satisfy Step 9 — this
 specifically to prevent that.
 
 This section covers decisions the *planner* made autonomously. `plan-for-queue`'s Step 11 and
-`references/plan-self-critique.md` cover the mirror case — decisions the *user* made from the
+`<plugin-root>/references/plan-self-critique.md` cover the mirror case — decisions the *user* made from the
 planner's own option lists, re-examined before any phase file is written.

@@ -43,14 +43,11 @@ bash claude/plugins/cfq/tests/test-finish.sh
 bash claude/plugins/cfq/tests/test-ifq-preflight.sh
 bash claude/plugins/cfq/tests/test-layout.sh
 bash claude/plugins/cfq/tests/test-layout-migration.sh
-bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh
 bash claude/plugins/cfq/tests/test-pfq-preflight.sh
-bash claude/plugins/cfq/tests/test-reference-paths.sh
 bash claude/plugins/cfq/tests/test-render.sh
 bash claude/plugins/cfq/tests/test-report.sh
 bash claude/plugins/cfq/tests/test-runtime.sh
 bash claude/plugins/cfq/tests/test-scan.sh
-bash claude/plugins/cfq/tests/test-settings.sh
 bash claude/plugins/cfq/tests/test-telemetry.sh
 ```
 
