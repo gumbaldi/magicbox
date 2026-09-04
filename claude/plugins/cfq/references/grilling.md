@@ -1,6 +1,6 @@
 # Grilling: the Thorough Interview Path
 
-Only read when the user picked "Thorough grilling" or "Grilling with docs" in Step 1. Use Step 1's
+Only read when the user picked "Thorough grilling" or "Grilling with docs" in Step 4. Use Step 4's
 preflight result directly — `planningPolicy.grillMode`/`.useMattpocockGrilling` — no new
 `bin/cfq settings get` call:
 
@@ -52,12 +52,12 @@ The **decisions** are the user's. Put each to them and wait.
 
 Each answer reshapes the tree: settled decisions push the frontier outward. Recompute, ask the
 next round. The session ends when the frontier is empty — then run the closing question from
-step 6 of the skill before writing any plans.
+Step 9 of the skill before writing any plans.
 
 ## With-Docs Path
 
-Only on the third option from Step 1. The interview above runs unchanged; this adds the written
-paper trail. Reuses Step 1's `planningPolicy.useMattpocockGrilling` — no new call.
+Only on the third option from Step 4. The interview above runs unchanged; this adds the written
+paper trail. Reuses Step 4's `planningPolicy.useMattpocockGrilling` — no new call.
 
 `useMattpocockGrilling = true` **and** both `mattpocock-skills:grilling` and
 `mattpocock-skills:domain-modeling` available → call both and follow them. (`grill-with-docs` itself

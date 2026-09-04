@@ -1,6 +1,6 @@
 # Queue Check: Overlap with Open Batches
 
-Only read when Step 5 finds at least one open batch for the target repo.
+Only read when Step 8 finds at least one open batch for the target repo.
 
 ```bash
 "<plugin-root>/bin/cfq" overlap "<repo-root>"
@@ -17,4 +17,4 @@ Intersect each batch's `files` against the paths the new work will touch (e.g. `
   change the file) · fold into the existing batch instead of creating a new one.
 
 A batch waiting on another is rarely worth flagging high — say so when offering the flag in
-Step 7.
+Step 10.

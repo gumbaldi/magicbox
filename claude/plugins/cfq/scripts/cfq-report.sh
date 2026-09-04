@@ -83,13 +83,21 @@ case "$cmd" in
     dir="${2:?usage: cfq-report.sh append <batch-dir> <phase-json>}"
     phase="${3:?usage: cfq-report.sh append <batch-dir> <phase-json>}"
     [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
+    # The phase field is the plan file's slug (NN-slug) — the same value that later goes to
+    # set-commit, last-failure and `changelog commit-message`'s CFQ-Phase trailer. A bare number
+    # or an empty value breaks every one of those lookups without an error, so it is refused here,
+    # at the only point that sees the value before it is persisted.
+    phase_id="$(printf '%s' "$phase" | jq -r '.phase // ""')"
+    case "$phase_id" in
+      [0-9][0-9]-?*) ;;
+      *) echo "cfq-report.sh append: phase must be the full phase slug (NN-slug), got '$phase_id'" >&2; exit 1 ;;
+    esac
     f="$dir/report.json"
     ensure_report "$dir"
     jq --argjson p "$phase" '.phases += [$p]' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
-    "$script_dir/cfq-telemetry.sh" record "$dir" phase \
-      "$(printf '%s' "$phase" | jq -r '.phase // ""')" || true
+    "$script_dir/cfq-telemetry.sh" record "$dir" phase "$phase_id" || true
     ;;
   security)
     dir="${2:?usage: cfq-report.sh security <batch-dir> <security-json>}"
@@ -107,9 +115,11 @@ case "$cmd" in
     [ -d "$dir" ] || { echo "cfq-report.sh: no such batch directory: $dir" >&2; exit 1; }
     f="$dir/report.json"
     [ -f "$f" ] || { echo "cfq-report.sh: no report.json in $dir" >&2; exit 1; }
+    jq -e --arg p "$phase_slug" '[.phases[] | select(.phase == $p)] | length > 0' "$f" >/dev/null \
+      || { echo "cfq-report.sh set-commit: no phase entry '$phase_slug' in $f — the phase field carries the full phase slug (NN-slug), not the bare number" >&2; exit 1; }
     jq --arg p "$phase_slug" --arg c "$sha" '
       (.phases | to_entries | map(select(.value.phase == $p)) | last.key) as $i
-      | if $i == null then . else .phases[$i].commit = $c end
+      | .phases[$i].commit = $c
     ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
     ;;
   last-failure)

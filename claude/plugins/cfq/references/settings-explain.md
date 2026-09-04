@@ -8,9 +8,11 @@ nuance that doesn't reduce to schema data.
   `maintenanceEvery`.
 - `stopUsed` — absolute context-token ceiling; `0` hands off after every phase, `-1` disables this
   gate entirely. Normal global/repo setting like any other.
-- `stopFiveHourPct` / `stopSevenDayPct` — rate-limit ceilings, independent of `stopUsed`; checked
-  first since the context window resets on `/clear` but the rate-limit window does not. `-1`
-  disables either check on its own; capacity keeps working even with both disabled.
+- `stopFiveHourPct` / `stopSevenDayPct` — rate-limit warning thresholds, independent of `stopUsed`;
+  checked first since the context window resets on `/clear` but the rate-limit window does not.
+  Crossing one produces a `WARN` rather than ending the session — `ifq` still offers the next
+  phase, with the warning attached to the go-ahead question, and the user decides. `-1` disables
+  either check on its own; capacity keeps working even with both disabled.
 - `codeLanguage` / `docLanguages` / `docLevel` — global defaults, but a repo's own language can
   differ: override them per repo via `bin/cfq settings set --repo` or the legacy `env` block in
   `<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.), so the override travels with the repo

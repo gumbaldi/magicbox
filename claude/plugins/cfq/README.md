@@ -9,7 +9,7 @@ flowchart LR
   A["/pfq — expensive model<br/>interview, phase plans"] --> B["/clear<br/>/model sonnet"]
   B --> C["/ifq — cheap model<br/>one batch, phase by phase"]
   C --> D["/rfq — reports"]
-  C -->|"capacity or rate limit"| B
+  C -->|"capacity, or rate limit by choice"| B
 ```
 
 ## Guides
@@ -59,9 +59,10 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
 takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
-green phase immediately, and hands the session off when either stop reason fires — capacity
-(`stopUsed`) or a rate limit (`stopFiveHourPct` / `stopSevenDayPct`) — whichever crosses its
-threshold first.
+green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
+a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
+`stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
+is offered with the warning attached, and the user decides whether to continue or hand off.
 
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
@@ -263,7 +264,7 @@ cfq only collects this data — it doesn't analyze it.
 
 ## Security
 
-`pfq` checks in Step 8, `ifq` checks again at the end of the batch. The forge
+`pfq` checks in Step 12, `ifq` checks again at the end of the batch. The forge
 is detected from the origin remote; both common CLIs are supported:
 
 | Forge | CLI | Source |

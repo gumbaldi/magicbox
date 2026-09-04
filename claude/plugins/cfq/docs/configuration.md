@@ -71,8 +71,8 @@ interactively.
 | `implExploreModelComplex` | `CFQ_IMPL_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for ifq's Explore agents whose task is to judge rather than to locate |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `stopUsed` | `CFQ_STOP_USED` | `100000` | global, repo | absolute context tokens at which `ifq` hands off instead of starting another phase; `0` hands off after every phase, `-1` never hands off for this reason |
-| `stopFiveHourPct` | `CFQ_STOP_FIVE_HOUR_PCT` | `70` | global, repo | five-hour rate-limit usage in percent at which `ifq` hands off instead of starting another phase; `-1` disables the check |
-| `stopSevenDayPct` | `CFQ_STOP_SEVEN_DAY_PCT` | `95` | global, repo | seven-day rate-limit usage in percent at which `ifq` hands off instead of starting another phase; `-1` disables the check |
+| `stopFiveHourPct` | `CFQ_STOP_FIVE_HOUR_PCT` | `70` | global, repo | five-hour rate-limit usage in percent at which `ifq` emits a `WARN` before starting another phase, instead of continuing silently; `-1` disables the check |
+| `stopSevenDayPct` | `CFQ_STOP_SEVEN_DAY_PCT` | `95` | global, repo | seven-day rate-limit usage in percent at which `ifq` emits a `WARN` before starting another phase, instead of continuing silently; `-1` disables the check |
 | `sessionStaleSeconds` | `CFQ_SESSION_STALE_SECONDS` | `1800` | global, repo | seconds since a session transcript was last touched before it's considered stale (lock takeover, resume staleness) |
 | `ctxWindowLimits` | — | see `describe ctxWindowLimits` | global, repo | context-window size in tokens per model, keyed by whether the model gets the large window |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | global only | roots for automatic queue discovery |
@@ -92,7 +92,7 @@ interactively.
 | `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
 | `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 | `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 9a) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 13) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set
@@ -143,13 +143,17 @@ restate a field list inline — read the field here, then read it back from the 
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
   inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
-  | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {pct, size,
-  expected, projected, limit, verdict, note} | null}`. `status`: `OK`, `NO_REPO`,
+  | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
+  limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
 - **`bin/cfq scan [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
   batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
   Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
+- **`bin/cfq report append <batch-dir> <phase-json>`** — appends one phase entry to the batch's
+  `report.json`, creating the file if needed, and records phase telemetry alongside it. The JSON's
+  `phase` field must be the full phase slug (`NN-slug`, the plan file's name without `.md`); a bare
+  number, a missing or an empty value is rejected with a non-zero exit and nothing is written.
 - **`bin/cfq report index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
   deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
   `MIXED`.
@@ -157,8 +161,12 @@ restate a field list inline — read the field here, then read it back from the 
   cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
   commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no
   `report.json`.
+- **`bin/cfq report set-commit <batch-dir> <phase-slug> <sha>`** — backfills the `commit` field of
+  that phase's most recent entry. Exits non-zero when the batch has no entry for `<phase-slug>`; it
+  never reports success without writing.
 - **`bin/cfq report last-failure <batch-dir> <phase-slug>`** — `{found: false}` or `{found: true,
-  phase, note, at}` for that phase's most recent red attempt, if any.
+  phase, note, at}` for that phase's most recent red attempt, if any. `<phase-slug>` is the entry's
+  `phase` field, i.e. the full phase slug.
 - **`bin/cfq runtime plugins`** — `{status: "OK", plugins: [name, …]}`.
 - **`bin/cfq runtime plugin-installed <name>`** — `{installed: boolean}`.
 

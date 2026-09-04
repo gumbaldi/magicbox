@@ -20,25 +20,12 @@ every session.
 ## Commands
 
 ```bash
-bash claude/plugins/cfq/tests/test-settings.sh      # cfq-settings.sh merge/precedence, prints PASS
-bash claude/plugins/cfq/tests/test-scan.sh          # builds temp repos, asserts scan JSON, prints PASS
-bash claude/plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh append/summary/html, prints PASS
-bash claude/plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
-bash claude/plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
-bash claude/plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
-bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/finish, prints PASS
-bash claude/plugins/cfq/tests/test-brief-park.sh    # cfq-brief.sh + cfq-park.sh, prints PASS
-bash claude/plugins/cfq/tests/test-branch.sh        # cfq-branch.sh mode/version/base, prints PASS
-bash claude/plugins/cfq/tests/test-finish.sh        # cfq-finish.sh batch-done sequence, lock always released, prints PASS
-bash claude/plugins/cfq/tests/test-ctx-usage.sh     # ctx-usage.sh gate mode boundary matrix, prints PASS
-bash claude/plugins/cfq/tests/test-resume.sh        # cfq-resume.sh state reconstruction, prints PASS
-bash claude/plugins/cfq/tests/test-runtime.sh       # cfq-runtime.sh transcript-path/context adapter, prints PASS
-bash claude/plugins/cfq/tests/test-layout.sh        # cfq-paths.sh + cfq-layout.sh canonical layout/Git policy, prints PASS
-bash claude/plugins/cfq/tests/test-layout-migration.sh  # scripts/migrations/cfq-layout-v1.sh, prints PASS
-bash claude/plugins/cfq/tests/test-doctor.sh        # cfq-doctor.sh dependency checks, prints PASS
-bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh  # no script hardcodes a copy of a schema default, prints PASS
-bash claude/plugins/cfq/tests/test-queue-overlap.sh   # cfq-queue-overlap.sh Affected Files extraction, prints PASS
+python3 -m unittest discover -s claude/plugins/cfq/tests   # the whole suite
+python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one area
 ```
+
+Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
+if you have it, and gives better failure output — it is optional, never required.
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
@@ -90,7 +77,7 @@ inside any of the three subdirectories — `.lock` is held by the currently runn
 `implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
 index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
-`tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
+`tests/test_scan.py` together — and, for `report.json`, `tests/test_report.py` as well.
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
@@ -113,10 +100,14 @@ whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) curren
 the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
 is resolved by `ctx-usage.sh` through `cfq-settings.sh get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
-point. The gate has two independent stop reasons — capacity (`stopUsed`) and rate limit
-(`stopFiveHourPct`/`stopSevenDayPct`) — each resolved through the same precedence chain, with
-three independent `-1` off switches; a rate-limit stop is checked first and always wins over the
-`stopUsed: 0` bypass. `setupDone` is the
+point. The gate reports three verdicts and five reasons: capacity (`stopUsed`) always blocks
+(`HANDOFF`/`STOP`); a rate limit (`stopFiveHourPct`/`stopSevenDayPct`) or an unresolvable context
+reading only warns (`WARN`, advisory — the user decides whether to continue). All five reasons are
+resolved through the same precedence chain, with three independent `-1` off switches. The rate
+limit is still checked first, but capacity always wins the verdict when both fire — a full context
+window must never be downgraded to a warning just because a rate-limit reason happened to be
+evaluated first; the `stopUsed: 0` bypass suppresses only the capacity reason, never the
+rate-limit `WARN`. `setupDone` is the
 one exception that lives outside this schema entirely — it's runtime state, not policy, and goes
 through `cfq-settings.sh state get/set` against a separate schema-less store instead.
 
@@ -142,11 +133,11 @@ required command is missing — it never installs anything itself.
 **Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
 transcript (`cfq-runtime.sh`'s path resolution, reused rather than reinvented) — never from a model's
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
-`tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
+`tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
 **Subagents are for exploration and mechanical test execution, never for content the parent must
-own.** `plan-for-queue` Step 2 and `implement-for-queue` Step 4 both delegate multi-file or
+own.** `plan-for-queue` Step 5 and `implement-for-queue` Step 8 both delegate multi-file or
 unclear-scope research to Explore agents (`planExploreModel` / `implExploreModel`), and
 `implement-for-queue` may additionally run a phase's verification command through the same
 subagent to keep raw test/build log noise out of the expensive model's context. A subagent pays

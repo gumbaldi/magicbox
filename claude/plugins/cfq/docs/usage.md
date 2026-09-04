@@ -23,7 +23,10 @@ edits code.
    running on `planExploreModel` rather than reading everything in the main session.
 5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
    high-priority flag (optional — not flagging is the normal case).
-6. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`. If this ever
+6. Criticises its own phase cut against three categories before writing anything — purposeful,
+   fits the environment, serves the batch goal — dropping, narrowing, merging or reordering a
+   phase where a verdict fails.
+7. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`. If this ever
    reports `BATCH_LEDGER_MISMATCH` (a queue directory with no matching changelog entry),
    `bin/cfq batch reconcile <repo-root>` reports the gap and `--fix` closes it — it never deletes
    anything, and never touches a reserved number whose directory never got created.
@@ -58,7 +61,7 @@ green phase.
    PHASE 02 · ifq-per-phase-go-gate · Size L
      Goal     Deterministic phase announcement, extracted from the phase file itself.
      Files    bin/cfq, SKILL.md, queues.md
-     Check    bash tests/test-brief-park.sh
+     Check    python3 -m unittest discover -s tests -k brief_park
    ```
 
    Runs the phase's own verification, commits and pushes on every green phase immediately, then
@@ -67,16 +70,18 @@ green phase.
    ```
    PHASE 02 DONE
    ✅ Implemented     Added --phase to the brief noun, extended its test.
-   ✅ Verification    bash tests/test-brief-park.sh — PASS
+   ✅ Verification    python3 -m unittest discover -s tests -k brief_park — OK
    ```
 
    Before starting the next phase in the same session, it checks four fixed triggers (files
    changed beyond the plan's list, verification red or skipped, a planned change left out, an
    unnamed new dependency) — any of them stops the automatic advance and asks once whether to
    continue.
-5. Hands the session off once either stop reason fires — capacity (`stopUsed`) or a rate limit
-   (`stopFiveHourPct` / `stopSevenDayPct`), whichever crosses its threshold first — or finishes the
-   batch and moves it to `impl/done/`.
+5. Hands the session off once the capacity threshold (`stopUsed`) fires (`HANDOFF`/`STOP`), or
+   finishes the batch and moves it to `impl/done/`. Crossing a rate-limit threshold
+   (`stopFiveHourPct` / `stopSevenDayPct`), or failing to read context usage at all, only produces
+   a `WARN` — the next phase is still offered, with the warning attached to the go-ahead question,
+   and you choose whether to continue or hand off.
 
 Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
 `stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.

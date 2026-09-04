@@ -1,9 +1,9 @@
 # Batch Briefing and Queue Entry Formats
 
-## Batch Selection Rules (Step 1-3a)
+## Batch Selection Rules (Step 3)
 
 `bin/cfq preflight-impl`'s `selection` object carries `blocked`, `planning`, `inProgress`, and
-`multipleInProgress` — the filters and stop conditions Step 1-3a applies before any picker runs.
+`multipleInProgress` — the filters and stop conditions Step 3 applies before any picker runs.
 The preflight itself already excludes blocked/planning/other-in-progress batches from
 `selection.selectable`; this section only covers the wording each case needs.
 
@@ -26,7 +26,7 @@ this check by the blocked filter (it doesn't reach `selection.selectable`/`.inPr
 surfaces only through the wait-list path — auto-resuming it would restart work whose dependency
 reappeared after the batch was started, so it waits like any other blocked batch.
 
-## Batch Briefing (Step 3b)
+## Batch Briefing (Step 4)
 
 `batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
 batch — batch name, priority, phase count, `.dependsOn` if present, then one line per phase (number
@@ -35,7 +35,7 @@ repetition of the plan, no commentary on the phases. A phase file without `## Si
 one without `## Context` shows its title alone — an incomplete plan is worth showing, not worth
 aborting over.
 
-## Branch and Changelog on Go-Ahead (Step 3b)
+## Branch and Changelog on Go-Ahead (Step 4)
 
 The preflight's `branch` field (already computed pre-mutation — see **Resume Snapshot** above) is
 the same JSON `bin/cfq branch plan "<repo-root>" "<batch>"` itself returns: `batch`/`batchNumber`
@@ -78,7 +78,7 @@ step calls it directly — solely to reconfirm the branch now exists post-checko
 never call it again, the preflight's answer already stands. A dirty working tree at this point is
 an error, not something to work around: report it and end without touching anything.
 
-## Batch Allocation Errors (`cfq batch allocate` — pfq Step 9)
+## Batch Allocation Errors (`cfq batch allocate` — pfq Step 14)
 
 `BATCH_LEDGER_MISMATCH` means a numbered queue directory exists with no matching ledger entry.
 `allocate` cannot itself produce this state — it reserves the ledger entry before creating the
@@ -95,10 +95,10 @@ hardcoded:
 `reconcile` never deletes anything and never touches a ledger entry with no directory — a reserved
 number whose batch never got parked is a legitimate abandoned reservation, not a gap to close.
 
-## Phase Announcement and Go Gate (Step 4b2)
+## Phase Announcement and Go Gate (Step 7)
 
 Runs after the size gate, before any code is written, every phase — the fine-grained counterpart
-to Step 3b's one coarse per-batch go-ahead. The announcement is
+to Step 4's one coarse per-batch go-ahead. The announcement is
 `bin/cfq brief "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
 deterministic, extracted from the phase file, so it cannot drift in wording between phases:
 
@@ -112,11 +112,36 @@ PHASE 02 · ifq-per-phase-go-gate · Size L
 Then one `AskUserQuestion`, two options: **Go** — "proceed, implement this phase now" — and
 **Cancel** — "release the lock and end the session, nothing touched". `Cancel` runs
 `bin/cfq lock release "<repo-root>"`, reports "cancelled before implementation, nothing touched",
-and ends; it never leaves the lock held. `Go` proceeds straight to (4c).
+and ends; it never leaves the lock held. `Go` proceeds straight to Step 8.
 
-## Phase Summary (Step 4, after 4c)
+**`WARN` variant.** When `contextGate.verdict` is `WARN`, one warning line precedes the
+announcement, naming the reason and the concrete numbers from `contextGate.note` in the user's
+language — e.g.:
 
-Printed after (4c), before the `bin/cfq report append` call:
+```
+⚠️ Five-hour budget at 89% (threshold 70%) — this is a warning, not a blocker; the phase runs
+normally if you start it.
+
+PHASE 02 · ifq-per-phase-go-gate · Size L
+  Goal     <first two non-empty lines of ## Context>
+  Files    bin/cfq, implement-for-queue/SKILL.md, queues.md, test-settings.sh
+  Check    <first command line from ## Verification>
+```
+
+The `AskUserQuestion` then carries a third option: **Go** — "proceed, implement this phase now",
+its description naming the budget state so the user sees what they are accepting — and **must
+not** claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
+reusing Step 10's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
+implement-for-queue` short report) — this is the option that used to be forced on the user; it is
+now the one they choose. **Cancel** stays as above. No option may be phrased as futile — the
+observed bug produced a choice between "start anyway, but it will hand off immediately without
+implementing" and "cancel"; every option offered here must actually do what it says. This same
+warning line is reused verbatim at Step 4, above the batch briefing — one wording, two call
+sites, never two drifting variants.
+
+## Phase Summary (Step 8)
+
+Printed after Step 8, before the `bin/cfq report append` call:
 
 ```
 PHASE 02 DONE
@@ -130,7 +155,7 @@ happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
 deviations → the `Deviation` line is omitted entirely, not printed empty.
 
-## Stop Rule (Step 4, before the next phase)
+## Stop Rule (Step 8, before the next phase)
 
 A gate, not a status line — checked after a phase goes green, before auto-advancing to the next
 open phase in the same session. Exactly four triggers, nothing else:
@@ -146,7 +171,7 @@ Any of the four firing → do not auto-advance; state which trigger fired and as
 Everything that is not one of the four is a note in the report, never a stop — say so explicitly so
 a future reader does not add a fifth trigger by interpretation.
 
-## Phase Commit Trailers (Step 5)
+## Phase Commit Trailers (Step 9)
 
 Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file,
 then run it through:
@@ -155,14 +180,18 @@ then run it through:
 "<plugin-root>/bin/cfq" changelog commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
 ```
 
-Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 3b's
+Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 4's
 `Branch`/`Resume` data is non-null) this appends `CFQ-Batch-Number`, `CFQ-Batch`, `CFQ-Phase`,
 `CFQ-Phase-Status` to the existing trailer block via `git interpret-trailers`, leaving the
 human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
 unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
 `CFQ-*` trailer.
 
-## Batch-Done Report Fields (Step 7)
+`<phase-slug>` is the full phase slug — the same value the phase's `report.json` entry carries in
+its `phase` field and the same one Step 5 hands to `report set-commit` — one identifier per phase,
+in the trailer, the report and the lookup alike.
+
+## Batch-Done Report Fields (Step 11)
 
 `bin/cfq finish`'s one JSON object, rendered field by field:
 
@@ -185,7 +214,7 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 - `Telemetry` from `.telemetry`, `Lock` from `.lock`.
 - Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
 
-## Closing Report Fields (Step 8, full format)
+## Closing Report Fields (Step 12, full format)
 
 `RESULT · implement-for-queue` header, one label/value line per field:
 
@@ -198,9 +227,9 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
   `   └ ` line, printed not run; also a `todo/` entry per **Follow-Up** below without asking, so a
   forgotten merge is never lost.
-- `Report` — `file://` path, only when Step 7 rendered one, else the line is omitted.
+- `Report` — `file://` path, only when Step 11 rendered one, else the line is omitted.
 
-## Skills Recommended vs. Used (Step 8)
+## Skills Recommended vs. Used (Step 12)
 
 ```bash
 jq -c '{recommended: [.phases[].telemetry.skills_recommended // []] | flatten | unique,
@@ -226,7 +255,7 @@ Plus `## Origin`, same as above.
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`. The headings are always English; only the prose
 inside them follows `codeLanguage`.
 
-## Resume Snapshot (Step 1-3a preflight)
+## Resume Snapshot (Step 3 preflight)
 
 `bin/cfq preflight-impl`'s `resume` field carries what `bin/cfq resume` itself returns for the
 resolved batch, minus its own `branch` sub-object (redundant with the preflight's top-level
@@ -236,9 +265,9 @@ comment for the full, still-current field-by-field contract: `phasesOpen`/`phase
 deterministic — no summarization, only facts read from disk, `report.json`, and git. The script
 itself is unchanged; only who calls it and what's kept from its output moved.
 
-## Research and Verification Delegation (Step 4c)
+## Research and Verification Delegation (Step 8)
 
-Two, and only two, places in Step 4c may run on an Explore subagent instead of the implementing
+Two, and only two, places in Step 8 may run on an Explore subagent instead of the implementing
 session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
 a mood — cheap model to locate, expensive to judge; read
 `<plugin-root>/references/explore-escalation.md` and follow it. Both keys
@@ -248,7 +277,7 @@ a mood — cheap model to locate, expensive to judge; read
 - **Pre-implementation research.** Before writing any code, a phase that touches several files or
   whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate
   the relevant code, existing patterns, and callers, and return a distilled summary. This mirrors
-  `plan-for-queue` Step 2 exactly — same reasoning, same escalation rule. A narrow, single-file
+  `plan-for-queue` Step 5 exactly — same reasoning, same escalation rule. A narrow, single-file
   phase needs no subagent; reading the phase file is enough.
 - **Verification output filtering, green case only.** Running the phase's verification command
   (tests, build, lint) can itself be delegated to an `implExploreModel` subagent when the raw output
@@ -270,7 +299,7 @@ parent writing it directly. See the plugin `CLAUDE.md`'s "Subagents are for expl
 mechanical test execution" section for the full reasoning and the measurement anyone changing this
 should re-run first.
 
-## Reusing a Warm Explore Agent (Step 4c)
+## Reusing a Warm Explore Agent (Step 8)
 
 Only applies when a second phase runs in the same session, i.e. when `onePhasePerSession` is
 `false`. Under the default (`true`) this never applies and nothing below happens.
