@@ -31,15 +31,11 @@ Migration in progress (batch `013`): the following `test-*.sh` files are not yet
 `unittest` and still run as before, one file per `bash` invocation, each printing `PASS`:
 
 ```bash
-bash claude/plugins/cfq/tests/test-batch-id.sh
 bash claude/plugins/cfq/tests/test-branch.sh
-bash claude/plugins/cfq/tests/test-brief-park.sh
-bash claude/plugins/cfq/tests/test-changelog.sh
 bash claude/plugins/cfq/tests/test-checks.sh
 bash claude/plugins/cfq/tests/test-ctx-usage.sh
 bash claude/plugins/cfq/tests/test-dash.sh
 bash claude/plugins/cfq/tests/test-doctor.sh
-bash claude/plugins/cfq/tests/test-finish.sh
 bash claude/plugins/cfq/tests/test-ifq-preflight.sh
 bash claude/plugins/cfq/tests/test-layout.sh
 bash claude/plugins/cfq/tests/test-layout-migration.sh
