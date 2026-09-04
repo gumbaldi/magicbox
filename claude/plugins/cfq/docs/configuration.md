@@ -150,6 +150,10 @@ restate a field list inline — read the field here, then read it back from the 
   batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
   Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
+- **`bin/cfq report append <batch-dir> <phase-json>`** — appends one phase entry to the batch's
+  `report.json`, creating the file if needed, and records phase telemetry alongside it. The JSON's
+  `phase` field must be the full phase slug (`NN-slug`, the plan file's name without `.md`); a bare
+  number, a missing or an empty value is rejected with a non-zero exit and nothing is written.
 - **`bin/cfq report index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
   deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
   `MIXED`.
@@ -157,8 +161,12 @@ restate a field list inline — read the field here, then read it back from the 
   cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
   commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no
   `report.json`.
+- **`bin/cfq report set-commit <batch-dir> <phase-slug> <sha>`** — backfills the `commit` field of
+  that phase's most recent entry. Exits non-zero when the batch has no entry for `<phase-slug>`; it
+  never reports success without writing.
 - **`bin/cfq report last-failure <batch-dir> <phase-slug>`** — `{found: false}` or `{found: true,
-  phase, note, at}` for that phase's most recent red attempt, if any.
+  phase, note, at}` for that phase's most recent red attempt, if any. `<phase-slug>` is the entry's
+  `phase` field, i.e. the full phase slug.
 - **`bin/cfq runtime plugins`** — `{status: "OK", plugins: [name, …]}`.
 - **`bin/cfq runtime plugin-installed <name>`** — `{installed: boolean}`.
 

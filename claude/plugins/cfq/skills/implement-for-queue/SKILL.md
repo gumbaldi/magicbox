@@ -172,7 +172,10 @@ Summary** — its `Deviation` lines double as this call's `deviations` array, on
 renderings); red → **stop**, print `❌ red` with each trimmed error as `   └ ` lines, the file stays
 open, don't move on. Record the phase either way, before anything else, with
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report append "<batch-dir>" '<phase-json>'` — this captures
-telemetry automatically. `deviations` is not optional padding — name what the plan said, what was
+telemetry automatically. `phase` carries the full phase slug — the plan file's name without `.md`,
+e.g. `02-gate-rate-limits-and-cache-display`, never the bare number. It is the same value Step 5
+passes to `report set-commit` and to `changelog commit-message`, and `report append` rejects
+anything else. `deviations` is not optional padding — name what the plan said, what was
 built, and why; an honest empty array is fine, a glossed-over deviation is not. On red, `errors`
 carries the actual failure output, trimmed to what identifies it.
 

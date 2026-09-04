@@ -187,6 +187,10 @@ human-written subject/body untouched. A legacy (unnumbered) batch passes the mes
 unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
 `CFQ-*` trailer.
 
+`<phase-slug>` is the full phase slug — the same value the phase's `report.json` entry carries in
+its `phase` field and the same one Step 5 hands to `report set-commit` — one identifier per phase,
+in the trailer, the report and the lookup alike.
+
 ## Batch-Done Report Fields (Step 11)
 
 `bin/cfq finish`'s one JSON object, rendered field by field:
