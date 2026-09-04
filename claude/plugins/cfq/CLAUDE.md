@@ -32,16 +32,12 @@ Migration in progress (batch `013`): the following `test-*.sh` files are not yet
 
 ```bash
 bash claude/plugins/cfq/tests/test-branch.sh
-bash claude/plugins/cfq/tests/test-checks.sh
 bash claude/plugins/cfq/tests/test-ctx-usage.sh
-bash claude/plugins/cfq/tests/test-dash.sh
 bash claude/plugins/cfq/tests/test-doctor.sh
 bash claude/plugins/cfq/tests/test-ifq-preflight.sh
 bash claude/plugins/cfq/tests/test-layout.sh
 bash claude/plugins/cfq/tests/test-layout-migration.sh
 bash claude/plugins/cfq/tests/test-pfq-preflight.sh
-bash claude/plugins/cfq/tests/test-render.sh
-bash claude/plugins/cfq/tests/test-report.sh
 bash claude/plugins/cfq/tests/test-runtime.sh
 bash claude/plugins/cfq/tests/test-scan.sh
 bash claude/plugins/cfq/tests/test-telemetry.sh
@@ -99,7 +95,7 @@ inside any of the three subdirectories — `.lock` is held by the currently runn
 `implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
 index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
-`tests/test-scan.sh` together — and, for `report.json`, `tests/test-report.sh` as well.
+`tests/test-scan.sh` together — and, for `report.json`, `tests/test_report.py` as well.
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
