@@ -27,8 +27,8 @@ class BatchIdentityTest(CfqTestCase):
             msg="cfq-version.sh exists -- CFQ must not resolve application/plugin versions",
         )
         self.assertIsNone(
-            grep(r'"(versionSource|appVersion|cfqVersion|versionDrift|batchSeq)":', SCRIPTS_DIR / "cfq-settings.sh"),
-            msg="cfq-settings.sh schema defines a version-identity setting key",
+            grep(r'"(versionSource|appVersion|cfqVersion|versionDrift|batchSeq)":', SCRIPTS_DIR / "cfq_settings.py"),
+            msg="cfq_settings.py schema defines a version-identity setting key",
         )
 
     def test_changelog_never_carries_version_field(self):

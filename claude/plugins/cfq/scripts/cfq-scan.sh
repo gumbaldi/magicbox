@@ -76,7 +76,7 @@ while IFS= read -r repo; do
   qdir="$(cfq_repo_dir "$repo")"
   [ -d "$qdir" ] || continue
   # Direct sibling call: inside a per-repo loop, see CLAUDE.md's dispatcher-loop-exception note.
-  stale_s=$("$script_dir/cfq-settings.sh" get --repo "$repo" sessionStaleSeconds)
+  stale_s=$(python3 "$script_dir/cfq_settings.py" get --repo "$repo" sessionStaleSeconds)
 
   plan=$(find "$qdir/plan" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
   todo=$(find "$qdir/todo" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
