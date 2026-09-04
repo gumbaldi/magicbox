@@ -61,7 +61,7 @@ green phase.
    PHASE 02 · ifq-per-phase-go-gate · Size L
      Goal     Deterministic phase announcement, extracted from the phase file itself.
      Files    bin/cfq, SKILL.md, queues.md
-     Check    bash tests/test-brief-park.sh
+     Check    python3 -m unittest discover -s tests -k brief_park
    ```
 
    Runs the phase's own verification, commits and pushes on every green phase immediately, then
@@ -70,7 +70,7 @@ green phase.
    ```
    PHASE 02 DONE
    ✅ Implemented     Added --phase to the brief noun, extended its test.
-   ✅ Verification    bash tests/test-brief-park.sh — PASS
+   ✅ Verification    python3 -m unittest discover -s tests -k brief_park — OK
    ```
 
    Before starting the next phase in the same session, it checks four fixed triggers (files

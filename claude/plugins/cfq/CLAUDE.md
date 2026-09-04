@@ -27,21 +27,6 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
 
-Migration in progress (batch `013`): the following `test-*.sh` files are not yet ported to
-`unittest` and still run as before, one file per `bash` invocation, each printing `PASS`:
-
-```bash
-bash claude/plugins/cfq/tests/test-branch.sh
-bash claude/plugins/cfq/tests/test-ifq-preflight.sh
-bash claude/plugins/cfq/tests/test-layout.sh
-bash claude/plugins/cfq/tests/test-layout-migration.sh
-bash claude/plugins/cfq/tests/test-pfq-preflight.sh
-bash claude/plugins/cfq/tests/test-scan.sh
-bash claude/plugins/cfq/tests/test-telemetry.sh
-```
-
-This list shrinks with every later phase of batch `013`; the final phase removes it entirely.
-
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
 
@@ -92,7 +77,7 @@ inside any of the three subdirectories — `.lock` is held by the currently runn
 `implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
 index or bookkeeping file: `cfq-scan.sh` counts live from disk every time, and "phase finished" *is*
 the `mv` into `impl/done/`. Anything that changes the layout must change `cfq-scan.sh` and
-`tests/test-scan.sh` together — and, for `report.json`, `tests/test_report.py` as well.
+`tests/test_scan.py` together — and, for `report.json`, `tests/test_report.py` as well.
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
@@ -148,7 +133,7 @@ required command is missing — it never installs anything itself.
 **Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
 transcript (`cfq-runtime.sh`'s path resolution, reused rather than reinvented) — never from a model's
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
-`tests/test-telemetry.sh` asserts this structurally (every leaf field name against a whitelist) so
+`tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
 **Subagents are for exploration and mechanical test execution, never for content the parent must
