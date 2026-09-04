@@ -20,25 +20,41 @@ every session.
 ## Commands
 
 ```bash
-bash claude/plugins/cfq/tests/test-settings.sh      # cfq-settings.sh merge/precedence, prints PASS
-bash claude/plugins/cfq/tests/test-scan.sh          # builds temp repos, asserts scan JSON, prints PASS
-bash claude/plugins/cfq/tests/test-report.sh        # exercises cfq-report.sh append/summary/html, prints PASS
-bash claude/plugins/cfq/tests/test-telemetry.sh     # cfq-telemetry.sh record/sync, prompt-leak whitelist, prints PASS
-bash claude/plugins/cfq/tests/test-lock.sh          # cfq-lock.sh acquire/release/takeover, prints PASS
-bash claude/plugins/cfq/tests/test-checks.sh        # cfq-lint.sh + cfq-security.sh, prints PASS
-bash claude/plugins/cfq/tests/test-changelog.sh     # cfq-changelog.sh init/finish, prints PASS
-bash claude/plugins/cfq/tests/test-brief-park.sh    # cfq-brief.sh + cfq-park.sh, prints PASS
-bash claude/plugins/cfq/tests/test-branch.sh        # cfq-branch.sh mode/version/base, prints PASS
-bash claude/plugins/cfq/tests/test-finish.sh        # cfq-finish.sh batch-done sequence, lock always released, prints PASS
-bash claude/plugins/cfq/tests/test-ctx-usage.sh     # ctx-usage.sh gate mode boundary matrix, prints PASS
-bash claude/plugins/cfq/tests/test-resume.sh        # cfq-resume.sh state reconstruction, prints PASS
-bash claude/plugins/cfq/tests/test-runtime.sh       # cfq-runtime.sh transcript-path/context adapter, prints PASS
-bash claude/plugins/cfq/tests/test-layout.sh        # cfq-paths.sh + cfq-layout.sh canonical layout/Git policy, prints PASS
-bash claude/plugins/cfq/tests/test-layout-migration.sh  # scripts/migrations/cfq-layout-v1.sh, prints PASS
-bash claude/plugins/cfq/tests/test-doctor.sh        # cfq-doctor.sh dependency checks, prints PASS
-bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh  # no script hardcodes a copy of a schema default, prints PASS
-bash claude/plugins/cfq/tests/test-queue-overlap.sh   # cfq-queue-overlap.sh Affected Files extraction, prints PASS
+python3 -m unittest discover -s claude/plugins/cfq/tests   # the whole suite
+python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one area
 ```
+
+Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
+if you have it, and gives better failure output — it is optional, never required.
+
+Migration in progress (batch `013`): the following `test-*.sh` files are not yet ported to
+`unittest` and still run as before, one file per `bash` invocation, each printing `PASS`:
+
+```bash
+bash claude/plugins/cfq/tests/test-batch-id.sh
+bash claude/plugins/cfq/tests/test-branch.sh
+bash claude/plugins/cfq/tests/test-brief-park.sh
+bash claude/plugins/cfq/tests/test-changelog.sh
+bash claude/plugins/cfq/tests/test-checks.sh
+bash claude/plugins/cfq/tests/test-ctx-usage.sh
+bash claude/plugins/cfq/tests/test-dash.sh
+bash claude/plugins/cfq/tests/test-doctor.sh
+bash claude/plugins/cfq/tests/test-finish.sh
+bash claude/plugins/cfq/tests/test-ifq-preflight.sh
+bash claude/plugins/cfq/tests/test-layout.sh
+bash claude/plugins/cfq/tests/test-layout-migration.sh
+bash claude/plugins/cfq/tests/test-no-duplicate-defaults.sh
+bash claude/plugins/cfq/tests/test-pfq-preflight.sh
+bash claude/plugins/cfq/tests/test-reference-paths.sh
+bash claude/plugins/cfq/tests/test-render.sh
+bash claude/plugins/cfq/tests/test-report.sh
+bash claude/plugins/cfq/tests/test-runtime.sh
+bash claude/plugins/cfq/tests/test-scan.sh
+bash claude/plugins/cfq/tests/test-settings.sh
+bash claude/plugins/cfq/tests/test-telemetry.sh
+```
+
+This list shrinks with every later phase of batch `013`; the final phase removes it entirely.
 
 Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
