@@ -7,6 +7,7 @@ Not a test module itself — the name deliberately does not match ``test*.py`` s
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -73,6 +74,18 @@ class CfqTestCase(unittest.TestCase):
         subprocess.run(["git", "add", "README.md"], cwd=d, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d, check=True)
         return d
+
+    def minimal_path(self, *bins):
+        """Builds a throwaway PATH directory containing only the given commands (symlinked
+        in), so a missing dependency in a test is real, not accidental."""
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        dir_path = pathlib.Path(d.name)
+        for b in bins:
+            p = shutil.which(b)
+            if p:
+                (dir_path / b).symlink_to(p)
+        return str(dir_path)
 
 
 def sh_source(script, func, *args):

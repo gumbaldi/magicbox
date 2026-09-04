@@ -32,13 +32,10 @@ Migration in progress (batch `013`): the following `test-*.sh` files are not yet
 
 ```bash
 bash claude/plugins/cfq/tests/test-branch.sh
-bash claude/plugins/cfq/tests/test-ctx-usage.sh
-bash claude/plugins/cfq/tests/test-doctor.sh
 bash claude/plugins/cfq/tests/test-ifq-preflight.sh
 bash claude/plugins/cfq/tests/test-layout.sh
 bash claude/plugins/cfq/tests/test-layout-migration.sh
 bash claude/plugins/cfq/tests/test-pfq-preflight.sh
-bash claude/plugins/cfq/tests/test-runtime.sh
 bash claude/plugins/cfq/tests/test-scan.sh
 bash claude/plugins/cfq/tests/test-telemetry.sh
 ```
