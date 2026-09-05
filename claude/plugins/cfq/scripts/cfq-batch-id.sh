@@ -233,7 +233,7 @@ migrate_width() {
     if [ -n "$target" ] && [ -f "$target" ]; then
       # Direct sibling call: inside a per-pair loop, where a dispatcher exec per iteration
       # is the more expensive trade (see CLAUDE.md's dispatcher-loop-exception note).
-      "$here/cfq-changelog.sh" rename-batch "$repo" "$old_n" "$new_n"
+      python3 "$here/cfq_changelog.py" rename-batch "$repo" "$old_n" "$new_n"
     fi
   done
 
@@ -333,7 +333,7 @@ reconcile() {
     for dp in "${ordered[@]}"; do
       num="${dp%%:*}"; name="${dp#*:}"
       # Direct sibling call: inside a per-orphan loop, see CLAUDE.md's dispatcher-loop-exception note.
-      if ! reserve_out="$("$here/cfq-changelog.sh" reserve "$repo" "$num" "$name" 2>&1)"; then
+      if ! reserve_out="$(python3 "$here/cfq_changelog.py" reserve "$repo" "$num" "$name" 2>&1)"; then
         err BATCH_ID_CONFLICT "reconcile --fix: reserving $name failed: $reserve_out" "resolve manually, then retry reconcile"
         return 1
       fi
