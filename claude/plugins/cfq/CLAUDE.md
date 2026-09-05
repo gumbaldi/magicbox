@@ -60,10 +60,10 @@ Architecture). Two further exceptions stay direct filename calls, each commented
 - **Inner-loop calls** (`cfq-batch-id.sh`'s per-pair rename and per-orphan reserve,
   `cfq-scan.sh`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
   `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.
-- **`cfq-report.sh`'s internal call to `cfq-scan.sh`** (used by the `index` verb): `bin/cfq`
+- **`cfq_report.py`'s internal call to `cfq-scan.sh`** (used by the `index` verb): `bin/cfq`
   resolves its `NOUN_SCRIPT` table relative to its own real location, so routing this call through
   the dispatcher would always reach the real, unstubbed `cfq-scan.sh` — breaking the test double
-  `tests/test_report.py` shadows it with. Stays a direct `$script_dir` call for that reason.
+  `tests/test_report.py` shadows it with. Stays a direct `SCRIPT_DIR` call for that reason.
 
 Any test double that copies `scripts/` to intercept a sibling call by filename (e.g.
 `tests/test_ifq_preflight.py`, `tests/test_pfq_preflight.py`) must copy `bin/` alongside it,
@@ -227,7 +227,7 @@ execution should re-run that comparison first, not take this paragraph on faith.
 ## Status Vocabulary
 
 Every read-only aggregator (`cfq-pfq-preflight.sh`, `cfq-ifq-preflight.sh`, `cfq-scan.sh
---format=`, `cfq-report.sh index/detail`, `cfq-runtime.sh plugins`, and any future one) reports a
+--format=`, `cfq_report.py index/detail`, `cfq-runtime.sh plugins`, and any future one) reports a
 `status` field skills react to structurally, never by parsing prose. `status` is always exactly one
 of:
 

@@ -78,7 +78,7 @@ if sec_now=$("$cfq" security "$repo_root" 2>&1); then
           | if $d > 0 then . + {($k): $d} else . end)')
     fi
   else
-    add_error security "cfq-report.sh security failed"
+    add_error security "cfq_report.py security failed"
   fi
 else
   add_error security "$sec_now"
