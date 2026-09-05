@@ -5,12 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`) whose implementations
-live under `scripts/` — shell today, Python where a port has landed (batch `014` is porting the
-four scripts that are genuinely painful in shell; `bin/cfq` decides which interpreter to run by
-file extension, see Commands) — plus one isolated migration utility (`scripts/migrations/`), eight
-TOML command aliases (`commands/`). No build step, no package manager; every shell script
-hard-fails without `jq` except `cfq-doctor.sh` itself, which is jq-free on purpose — see
-Architecture.
+live under `scripts/` — four of them (`cfq_settings.py`, `cfq_changelog.py`, `cfq_report.py`,
+`cfq_doctor.py`) ported to stdlib Python as batch `014`, the 22 genuinely-shell-shaped scripts stay
+shell; `bin/cfq` decides which interpreter to run by file extension, see Commands — plus one
+isolated migration utility (`scripts/migrations/`), eight TOML command aliases (`commands/`). No
+build step, no package manager; every shell script hard-fails without `jq` except `cfq_doctor.py`
+itself, which is jq-free on purpose — see Architecture.
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
@@ -151,11 +151,13 @@ Claude Code runtime/statusline/plugin-cache representation change should only ev
 `cfq-runtime.sh` (+ its tests/fixtures). If a change to any other aggregator is ever needed for
 such a change, that is itself a regression to fix, not an accepted cost.
 
-**`cfq-doctor.sh` is the host dependency doctor**, deliberately jq-free (it's the one check every
+**`cfq_doctor.py` is the host dependency doctor**, deliberately jq-free (it's the one check every
 other script cannot perform on its own behalf) and reading a plain-text inventory
-(`config/dependencies.txt`: required / alternative / optional). The bundled `SessionStart` hook
-(`cfq-doctor.sh hook`) is silent on a healthy host and warns both user and Claude only when a
-required command is missing — it never installs anything itself.
+(`config/dependencies.txt`: required / alternative / optional) — a missing `python3` itself is
+caught one layer down, by `bin/cfq`'s own `require_python` guard, since the doctor cannot report an
+interpreter it needs to run. The bundled `SessionStart` hook (`bin/cfq doctor hook`) is silent on a
+healthy host and warns both user and Claude only when a required command is missing — it never
+installs anything itself.
 
 **Telemetry is metadata only.** `cfq-telemetry.sh` derives everything from the running session's own
 transcript (`cfq-runtime.sh`'s path resolution, reused rather than reinvented) — never from a model's

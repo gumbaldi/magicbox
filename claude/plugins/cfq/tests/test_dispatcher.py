@@ -37,7 +37,7 @@ class DispatcherTest(CfqTestCase):
         home2.mkdir()
         doctor_env = {"HOME": str(home2)}
         a = self.run_clean(str(CFQ_BIN), "doctor", "check", env=doctor_env)
-        b = self.run_clean("bash", str(SCRIPTS_DIR / "cfq-doctor.sh"), "check", env=doctor_env)
+        b = self.run_clean("python3", str(SCRIPTS_DIR / "cfq_doctor.py"), "check", env=doctor_env)
         self.assertEqual(a.stdout, b.stdout, msg="doctor check differs between dispatcher and direct call")
 
     def test_02_argument_passthrough(self):
