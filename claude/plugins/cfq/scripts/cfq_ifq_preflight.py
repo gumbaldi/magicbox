@@ -109,13 +109,13 @@ def cmd_preflight(args):
     if inprogress_count == 1:
         inprogress_name = inprogress_names[0]
         selectable = [
-            project(b, ["name", "priority", "open", "done"])
+            project(b, ["name", "priority", "open", "done", "consistency"])
             for b in eligible if b["name"] != inprogress_name
         ]
     else:
         inprogress_name = ""
         selectable = sorted(
-            (project(b, ["name", "priority", "open", "done"]) for b in eligible),
+            (project(b, ["name", "priority", "open", "done", "consistency"]) for b in eligible),
             key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
         )
 
@@ -186,6 +186,7 @@ def cmd_preflight(args):
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],
             "dependsOn": cand["dependsOn"], "briefText": brief_text,
+            "consistency": cand.get("consistency"),
         },
         "nextPhase": next_phase_json,
         "branch": branch_json,

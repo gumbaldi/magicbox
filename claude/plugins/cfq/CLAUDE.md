@@ -16,7 +16,8 @@ as batch `017` phase 05; `cfq_batch_id.py` ported as batch `017` phase 06; `cfq_
 ported as batch `017` phase 10; `cfq_pfq_preflight.py`, `cfq_ifq_preflight.py` ported as batch
 `017` phase 11; `cfq_dash.py` ported as batch `017` phase 12; `cfq_trash.py` (plus the
 CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added as batch `019`
-phase 02) — `bin/cfq` itself stays shell by
+phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
+added as batch `019` phase 03) — `bin/cfq` itself stays shell by
 design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
 shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`
@@ -98,7 +99,13 @@ with the file's move into `done/` by the single transactional call `cfq phase re
 <phase-json-file>` — green moves the `.md` file and appends the entry or does neither; `cfq phase
 reopen <batch-dir> <phase-slug>` is the inverse, moving a phase back out of `done/` and marking the
 ledger entry `reopened` without touching `status`/`commit`; `report append` remains a public verb
-for other tooling and its own tests but is no longer called from any skill text), `.planning`
+for other tooling and its own tests but is no longer called from any skill text). `done/` stays the
+one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
+batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
+exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
+`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and `cfq.changelog.yml` — honest about what
+`done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
+only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
 (written by
 `cfq_park.py` when the batch directory is created, refreshed on every re-park during the same
 `plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch

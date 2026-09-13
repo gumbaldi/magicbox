@@ -3,6 +3,8 @@
 #        cfq_batch_id.py allocate      <repo-root> <YYYY-MM-DD> <slug>
 #        cfq_batch_id.py migrate-width <repo-root>
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
+#        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
+#        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -10,6 +12,9 @@
 # useful for recovery/testing; it is a no-op (`status: OK`) when no migration is currently needed.
 # `reconcile` compares queue directories against the ledger's numbered entries and reports/repairs
 # the gap BATCH_LEDGER_MISMATCH refuses to allocate through -- see reconcile() below.
+# `verify`/`recover` compare a batch's completion state across the filesystem, report.json,
+# Git commit trailers and the changelog -- see cfq_lib/consistency.py, which holds all the logic;
+# these two verbs are argument handling and printing only.
 """Repository-local CFQ batch-number allocation: a stable, version-free identity assigned once at
 PFQ park time. Never derives a number from a Git branch name or an application/package version;
 the only Git-history fallback is cfq_changelog.py's one-time trailer bootstrap inside `ensure`, for
@@ -30,8 +35,10 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
+from cfq_lib import queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_batch_id.py"
 
@@ -535,6 +542,49 @@ def cmd_reconcile(args):
     sys.exit(0 if ok else 1)
 
 
+# ---- verify / recover -----------------------------------------------------------------------
+
+def _finding_line(batch, finding):
+    return f"{batch} {finding['code']} {finding['phase'] or '-'} {finding['detail']}"
+
+
+def cmd_verify(args):
+    repo = args.repo
+    if args.batch:
+        batch_dirs = [pathlib.Path(paths.impl_dir(repo)) / args.batch]
+        if not batch_dirs[0].is_dir():
+            errors.die(f"{PROG} verify: no such batch directory: {batch_dirs[0]}")
+    else:
+        batch_dirs = cfq_queue.list_batch_dirs(pathlib.Path(paths.impl_dir(repo)))
+
+    all_findings = []
+    for batch_dir in batch_dirs:
+        batch = batch_dir.name
+        for finding in consistency.findings(batch_dir, repo, batch):
+            all_findings.append({"batch": batch, **finding})
+
+    if args.json_flag:
+        print(render.dump_json({"findings": all_findings}))
+    else:
+        for f in all_findings:
+            print(_finding_line(f["batch"], f))
+    sys.exit(0 if not all_findings else 1)
+
+
+def cmd_recover(args):
+    repo, batch = args.repo, args.batch
+    batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch
+    if not batch_dir.is_dir():
+        errors.die(f"{PROG} recover: no such batch directory: {batch_dir}")
+
+    result, ok = consistency.recover(batch_dir, repo, batch, dry_run=args.dry_run)
+    for r in result["repairs"]:
+        print(f"{batch} {r['code']} {r['phase'] or '-'} {r['action']}")
+    for f in result["findings"]:
+        print(f"{batch} REMAINING {f['code']} {f['phase'] or '-'} {f['detail']}")
+    sys.exit(0 if ok else 1)
+
+
 # ---- argument parsing ---------------------------------------------------------------------
 
 def build_parser():
@@ -562,6 +612,18 @@ def build_parser():
     p.add_argument("--fix", dest="fix_flag", action="store_const", const="--fix", default="")
     p.set_defaults(func=cmd_reconcile)
 
+    p = sub.add_parser("verify")
+    p.add_argument("repo")
+    p.add_argument("--batch", default="")
+    p.add_argument("--json", dest="json_flag", action="store_true")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("recover")
+    p.add_argument("repo")
+    p.add_argument("--batch", required=True)
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p.set_defaults(func=cmd_recover)
+
     return parser
 
 
@@ -573,7 +635,9 @@ def main(argv):
         errors.die(
             f"usage: {PROG} next <repo-root> <YYYY-MM-DD> <slug> | "
             "allocate <repo-root> <YYYY-MM-DD> <slug> | "
-            "migrate-width <repo-root> | reconcile <repo-root> [--fix]"
+            "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
+            "verify <repo-root> [--batch <name>] [--json] | "
+            "recover <repo-root> --batch <name> [--dry-run]"
         )
     func(args)
 

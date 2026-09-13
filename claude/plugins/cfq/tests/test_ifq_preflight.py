@@ -206,6 +206,22 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["batch"]["name"], "2026-01-01-inprog", msg=f"auto-selected batch = {out}"
         )
 
+    def test_consistency_field_carried_through(self):
+        repo = self._setup_repo("consistency-carry")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+        (batch / "02-b.md").touch()
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "x", "batch": "2026-01-01-solo", "started": "t",
+            "phases": [{"phase": "99-gone", "status": "green", "commit": "abc"}],
+        }))
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["batch"]["consistency"], "divergent",
+            msg=f"a green ledger entry with no done/ file should carry through as divergent: {out}",
+        )
+
     def test_failed_attempt(self):
         repo8 = self._setup_repo("failed-attempt")
         batch = repo8 / ".claude" / "cfq" / "impl" / "2026-01-01-solo"

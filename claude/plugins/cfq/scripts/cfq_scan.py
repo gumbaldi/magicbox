@@ -29,6 +29,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import consistency as cfq_lib_consistency  # noqa: E402
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
@@ -159,6 +160,7 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
         "unknownDeps": unknown,
         "inProgress": open_n > 0 and done_n > 0,
         "planning": planning,
+        "consistency": cfq_lib_consistency.scan_consistency(batch_dir),
     }
 
 

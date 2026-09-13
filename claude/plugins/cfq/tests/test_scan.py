@@ -40,9 +40,14 @@ class ScanTest(CfqTestCase):
         # repo-c: no .claude/cfq/impl/ at all — must not show up
         (tmp / "repo-c").mkdir(parents=True)
 
-        # repo-a has a report.json — must not affect phase counts, only the report flag
+        # repo-a has a report.json — must not affect phase counts, only the report flag. The
+        # ledger entry matches the one file already in done/ (00-x) so consistency reads "ok" --
+        # divergence itself gets its own dedicated fixture below.
         (demo / "report.json").write_text(
-            json.dumps({"repo": "x", "batch": "2026-01-01-demo", "started": "t", "phases": []})
+            json.dumps({
+                "repo": "x", "batch": "2026-01-01-demo", "started": "t",
+                "phases": [{"phase": "00-x", "status": "green", "commit": "abc"}],
+            })
         )
 
         # repo-e: dependsOn fixtures — target-open (still open) and target-done (archived) are
@@ -130,6 +135,7 @@ class ScanTest(CfqTestCase):
                     "unknownDeps": [],
                     "inProgress": True,
                     "planning": False,
+                    "consistency": "ok",
                 }
             ],
             msg=f"repo-a batches = {a_batches}",
@@ -276,6 +282,43 @@ class ScanTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "unknown --format value should exit non-zero")
         self.assertIn(
             "unknown --format value", proc.stderr, "unknown --format value should print a clear error"
+        )
+
+    def test_consistency_field(self):
+        tmp = self.tmp
+
+        # healthy: a green ledger entry with its file actually in done/ -- "ok".
+        healthy = tmp / "repo-consistency" / ".claude" / "cfq" / "impl" / "2026-03-01-healthy"
+        (healthy / "done").mkdir(parents=True)
+        (healthy / "done" / "01-a.md").touch()
+        (healthy / "02-b.md").touch()
+        (healthy / "report.json").write_text(json.dumps({
+            "repo": "x", "batch": "2026-03-01-healthy", "started": "t",
+            "phases": [{"phase": "01-a", "status": "green", "commit": "abc"}],
+        }))
+
+        # the 014 shape: a green ledger entry but done/ is empty -- "divergent".
+        divergent = tmp / "repo-consistency" / ".claude" / "cfq" / "impl" / "2026-03-02-divergent"
+        divergent.mkdir(parents=True)
+        (divergent / "report.json").write_text(json.dumps({
+            "repo": "x", "batch": "2026-03-02-divergent", "started": "t",
+            "phases": [{"phase": "01-a", "status": "green", "commit": "abc"}],
+        }))
+
+        out = self._scan()
+        data = json.loads(out)
+        batches = {
+            b["name"]: b
+            for r in data["repos"] if r["path"] == str(tmp / "repo-consistency")
+            for b in r["batches"]
+        }
+        self.assertEqual(
+            batches["2026-03-01-healthy"]["consistency"], "ok",
+            msg=f"healthy batch consistency = {batches['2026-03-01-healthy']}",
+        )
+        self.assertEqual(
+            batches["2026-03-02-divergent"]["consistency"], "divergent",
+            msg=f"divergent batch consistency = {batches['2026-03-02-divergent']}",
         )
 
     def test_registry_entry_with_missing_repo_path_does_not_crash(self):
