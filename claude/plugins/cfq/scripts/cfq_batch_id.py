@@ -5,6 +5,10 @@
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
 #        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
+#        cfq_batch_id.py ready         <batch-dir>
+#
+# `ready` removes the `.planning` heartbeat marker a batch directory carries while `plan-for-queue`
+# is still writing it -- hard delete, no trash, since the marker carries no content. Idempotent.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -542,6 +546,17 @@ def cmd_reconcile(args):
     sys.exit(0 if ok else 1)
 
 
+# ---- ready ----------------------------------------------------------------------------------
+
+def cmd_ready(args):
+    marker = pathlib.Path(args.batch_dir) / ".planning"
+    if not marker.exists():
+        print("already ready")
+        return
+    marker.unlink()
+    print(f"removed {marker}")
+
+
 # ---- verify / recover -----------------------------------------------------------------------
 
 def _finding_line(batch, finding):
@@ -624,6 +639,10 @@ def build_parser():
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
     p.set_defaults(func=cmd_recover)
 
+    p = sub.add_parser("ready")
+    p.add_argument("batch_dir")
+    p.set_defaults(func=cmd_ready)
+
     return parser
 
 
@@ -637,7 +656,8 @@ def main(argv):
             "allocate <repo-root> <YYYY-MM-DD> <slug> | "
             "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
             "verify <repo-root> [--batch <name>] [--json] | "
-            "recover <repo-root> --batch <name> [--dry-run]"
+            "recover <repo-root> --batch <name> [--dry-run] | "
+            "ready <batch-dir>"
         )
     func(args)
 

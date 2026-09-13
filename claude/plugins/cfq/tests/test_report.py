@@ -343,6 +343,54 @@ M
             (batch_x / "report.html").exists(), "fell back to writing batch-dir report.html on reportDir failure",
         )
 
+    # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
+    # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
+
+    def test_skills_overlapping_recommendations_deduplicated_and_sorted(self):
+        batch = self._batch("2026-01-05-skills")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-05-skills", "started": "2026-01-05T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green",
+                    "telemetry": {
+                        "skills_recommended": ["tdd", "code-review"],
+                        "by_skill": {"tdd": 5, "-": 2},
+                    },
+                },
+                {
+                    "phase": "02-b", "status": "green",
+                    "telemetry": {
+                        "skills_recommended": ["code-review", "dataviz"],
+                        "by_skill": {"-": 3},
+                    },
+                },
+            ],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], ["code-review", "dataviz", "tdd"])
+        self.assertEqual(out["used"], ["tdd"])
+
+    def test_skills_phase_without_telemetry_is_skipped_not_a_crash(self):
+        batch = self._batch("2026-01-06-no-telemetry")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-06-no-telemetry", "started": "2026-01-06T10:00:00+01:00",
+            "phases": [{"phase": "01-a", "status": "green"}],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], [])
+        self.assertEqual(out["used"], [])
+
+    def test_skills_empty_phases_array_both_lists_empty(self):
+        batch = self._batch("2026-01-07-empty")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-07-empty", "started": "2026-01-07T10:00:00+01:00",
+            "phases": [],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], [])
+        self.assertEqual(out["used"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

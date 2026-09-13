@@ -29,6 +29,7 @@ declare -A NOUN_SCRIPT=(
   [lint]=cfq_lint.py
   [lock]=cfq_lock.py
   [maintenance]=cfq_maintenance.py
+  [note]=cfq_note.py
   [overlap]=cfq_queue_overlap.py
   [park]=cfq_park.py
   [phase]=cfq_phase.py

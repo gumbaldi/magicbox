@@ -2,6 +2,7 @@
 # Usage: cfq_layout.py ensure <repo-root>
 #        cfq_layout.py status <repo-root>
 #        cfq_layout.py sync-git-policy <repo-root>
+#        cfq_layout.py probe-cleanup <repo-root> [--docs]
 """Owns the canonical `<repo>/.claude/cfq/` layout and its local Git-state policy. Knows nothing
 about the old `.claude/code-for-queue` layout -- that is the isolated migration utility's job
 (scripts/migrations/cfq-layout-v1.sh). No `migrate` subcommand here on purpose.
@@ -139,6 +140,26 @@ def cmd_sync_git_policy(args):
     print("OK")
 
 
+def cmd_probe_cleanup(args):
+    repo = args.repo
+    pathlib.Path(f"{repo}/.claude/cfq/.writeprobe").unlink(missing_ok=True)
+    if not args.docs:
+        print("OK")
+        return
+
+    pathlib.Path(f"{repo}/docs/adr/.writeprobe").unlink(missing_ok=True)
+
+    context_md = pathlib.Path(f"{repo}/CONTEXT.md")
+    if context_md.is_file() and context_md.read_text() == "probe\n":
+        context_md.unlink()
+
+    try:
+        os.rmdir(f"{repo}/docs/adr")
+    except OSError:
+        pass
+    print("OK")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
@@ -155,6 +176,11 @@ def build_parser():
     p.add_argument("repo")
     p.set_defaults(func=cmd_sync_git_policy)
 
+    p = sub.add_parser("probe-cleanup")
+    p.add_argument("repo")
+    p.add_argument("--docs", action="store_true")
+    p.set_defaults(func=cmd_probe_cleanup)
+
     return parser
 
 
@@ -163,7 +189,7 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        errors.die(f"usage: {PROG} ensure|status|sync-git-policy <repo-root>")
+        errors.die(f"usage: {PROG} ensure|status|sync-git-policy <repo-root> | probe-cleanup <repo-root> [--docs]")
     func(args)
 
 

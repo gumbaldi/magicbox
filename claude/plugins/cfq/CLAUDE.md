@@ -17,7 +17,9 @@ ported as batch `017` phase 10; `cfq_pfq_preflight.py`, `cfq_ifq_preflight.py` p
 `017` phase 11; `cfq_dash.py` ported as batch `017` phase 12; `cfq_trash.py` (plus the
 CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added as batch `019`
 phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
-added as batch `019` phase 03) — `bin/cfq` itself stays shell by
+added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
+`cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
+phase 04) — `bin/cfq` itself stays shell by
 design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
 shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`

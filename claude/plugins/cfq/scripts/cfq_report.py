@@ -2,6 +2,7 @@
 # Usage: cfq_report.py append <batch-dir> <phase-json>
 #        cfq_report.py security <batch-dir> <security-json>
 #        cfq_report.py set-commit <batch-dir> <phase-slug> <sha>
+#        cfq_report.py skills <batch-dir>
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
 #        cfq_report.py summary <batch-dir>
 #        cfq_report.py html <batch-dir>
@@ -249,6 +250,30 @@ def cmd_set_commit(args):
         )
     phases[matches[-1]]["commit"] = sha
     write_json(f, data)
+
+
+def cmd_skills(args):
+    """Replaces the retired `jq -c '{recommended: ..., used: ...}'` filter over
+    report.json's telemetry.skills_recommended / telemetry.by_skill (references/queues.md's
+    Skills Recommended vs. Used)."""
+    dir_ = args.dir
+    f = os.path.join(dir_, "report.json")
+    data = json.loads(pathlib.Path(f).read_text()) if os.path.isfile(f) else {}
+    phases = data.get("phases", []) if isinstance(data, dict) else []
+
+    recommended, used = set(), set()
+    for p in phases:
+        tel = p.get("telemetry") if isinstance(p, dict) else None
+        if not isinstance(tel, dict):
+            continue
+        rec = jq_alt(tel.get("skills_recommended"), [])
+        if isinstance(rec, list):
+            recommended.update(rec)
+        by_skill = jq_alt(tel.get("by_skill"), {})
+        if isinstance(by_skill, dict):
+            used.update(k for k in by_skill.keys() if k != "-")
+
+    print(render.dump_json({"recommended": sorted(recommended), "used": sorted(used)}))
 
 
 def cmd_last_failure(args):
@@ -748,6 +773,10 @@ def build_parser():
     p.add_argument("sha")
     p.set_defaults(func=cmd_set_commit)
 
+    p = sub.add_parser("skills")
+    p.add_argument("dir")
+    p.set_defaults(func=cmd_skills)
+
     p = sub.add_parser("last-failure")
     p.add_argument("dir")
     p.add_argument("phase_slug")
@@ -784,6 +813,7 @@ def main(argv):
             f"usage: {PROG} append <batch-dir> <phase-json> | "
             f"security <batch-dir> <security-json> | "
             f"set-commit <batch-dir> <phase-slug> <sha> | "
+            f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "
             f"summary <batch-dir> | html <batch-dir> | "
             f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text] | "
