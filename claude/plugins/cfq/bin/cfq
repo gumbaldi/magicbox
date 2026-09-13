@@ -41,6 +41,7 @@ declare -A NOUN_SCRIPT=(
   [security]=cfq_security.py
   [settings]=cfq_settings.py
   [telemetry]=cfq_telemetry.py
+  [trash]=cfq_trash.py
   [ctx]=ctx_usage.py
 )
 

@@ -637,7 +637,11 @@
   status: parked
 - batchNumber: 19
   batch: 019-2026-09-09-deterministic-queue-mutations
-  status: parked
+  branch: cfq/019-2026-09-09-deterministic-queue-mutations
+  base: cfq/017-2026-09-07-port-remaining-scripts-to-python
+  started: 2026-09-13
+  status: in-progress
+  legacy: false
 - batchNumber: 20
   batch: 020-2026-09-10-ifq-orchestrator-mode
   status: parked
