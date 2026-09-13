@@ -64,8 +64,9 @@ green phase.
      Check    python3 -m unittest discover -s tests -k brief_park
    ```
 
-   Runs the phase's own verification, commits and pushes on every green phase immediately, then
-   prints what actually happened:
+   Runs the phase's own verification, records the outcome (`bin/cfq phase record` moves the plan
+   file into `done/` and appends the ledger entry as one transaction on green), commits and pushes
+   immediately, then prints what actually happened:
 
    ```
    PHASE 02 DONE

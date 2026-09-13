@@ -235,6 +235,10 @@ execution should re-run that comparison first, not take this paragraph on faith.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
+- **No skill or reference file instructs a shell mutation of anything under `.claude/cfq/`** —
+  every such operation (`phase record`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
+  `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a raw `rm`/`mv`/`mkdir`/`jq` written
+  into the text. `tests/test_reference_paths.py` greps for this structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Bash style throughout: `set -eu`, jq for all JSON, write-to-`.tmp`-then-`mv`, `mktemp` + `trap` cleanup.

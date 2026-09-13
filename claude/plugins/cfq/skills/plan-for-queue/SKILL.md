@@ -143,17 +143,16 @@ phase was dropped, narrowed, merged or reordered.
 a local `npm audit`, so this step always runs:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" security "<repo-root>" > /tmp/cfq-sec.json
-jq -c '{available, sources, counts, fixable}' /tmp/cfq-sec.json
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" security "<repo-root>"
 ```
 
-`available == false` → print the `hint` once. Findings present → state the count per severity.
-Only when `fixable.critical`/`fixable.high` > 0: one `AskUserQuestion` on joining a security phase
-to the batch (suggested first, it's independent) — anything below stays a warning line, no
-planning. Store the snapshot with `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security
-"<batch-dir>" "$(cat /tmp/cfq-sec.json)"` so `ifq` can diff it later. Print `Security`: `⚠️` with
-the hint as detail when `available == false`, `⚠️` with the count per severity when findings are
-present, or `➖ no findings` when the scan ran clean.
+Read its JSON fields directly (no `jq`, no `/tmp` file); `available == false` → print the `hint`
+once; findings present → state the count per severity. Only when `fixable.critical`/`fixable.high`
+> 0: one `AskUserQuestion` on joining a security phase to the batch (suggested first, it's
+independent) — anything below stays a warning line, no planning. Store the snapshot with
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"` so `ifq` can
+diff it later. Print `Security`: `⚠️` with the hint as detail when `available == false`, `⚠️` with
+the count per severity when findings are present, or `➖ no findings` when the scan ran clean.
 
 ## Step 13 — New Repo: Config Overview
 
@@ -165,14 +164,13 @@ and follow it, then print `Config`.
 ## Step 14 — Park
 
 - Repo root: Step 4's preflight `repo.root` (no repeat `git rev-parse`).
-- Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today's date
-  (`YYYY-MM-DD`) go to one allocation call:
-  `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`.
-  Never compute/pad the number by hand — the helper reserves it in the local changelog
-  (`status: parked`) and the queue directory, returning the final `batch` name as
-  `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing
-  parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending against
-  the post-Step-11 cut — a phase Step 11 dropped leaves no gap in the numbering.
+- Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today's date (`YYYY-MM-DD`) go to one
+  allocation call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`. Never
+  compute/pad the number by hand — the helper reserves it in the local changelog (`status: parked`) and the queue
+  directory, returning the final `batch` name as `<batch-dir-name>` below. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface
+  `action` and stop, nothing parked. Write `NN-<slug>.md` per phase into the returned directory, numbered ascending
+  against the post-Step-11 cut — a phase Step 11 dropped leaves no gap in the numbering. Phase files alone use the
+  `Write` tool; everything else here goes through `bin/cfq`.
 - `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park "<repo-root>" "<batch-dir-name>" "<high|normal>"
   [<dependsOn-entry>...]` writes `.priority`/`.dependsOn` (Step 8's dependency, if any; `.priority`
   only when Step 10's flag answer was high), ensures the git-exclude entry, registers the repo —
@@ -187,8 +185,8 @@ Print four status lines: `Park` (file count and batch dir, also covers the Step 
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"`. Findings are fixed **immediately**
 and the lint re-run until clean — a batch never hands off with open lint findings. `warn:` lines
-(an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `rm -f
-"<batch-dir>/.planning"` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
+(an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `bin/cfq batch ready
+"<batch-dir>"` removes `.planning` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
 
 ## Step 16 — Maintenance
 

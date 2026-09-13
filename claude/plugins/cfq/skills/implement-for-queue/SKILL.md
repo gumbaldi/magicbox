@@ -77,7 +77,8 @@ selectable batch (e.g. `2026-08-18-example · only open batch · 3 phases`), str
 one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
 through them in order** (show `selection.selectable`, already sorted flagged-first-then-name) or
 **Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
-description = open phase count + date, prefixed with `high · ` only when flagged). Set the chosen
+description = open phase count + date, prefixed `high · ` when flagged, suffixed `⚠️ divergent`
+when `consistency` is `"divergent"`). Set the chosen
 batch (or the first, for "in order"), re-run the preflight call with `--select <chosen>` to resolve
 its fields — **do not acquire the lock yet**. Print the `Batch` status line once chosen; both
 questions stay prose. **Never two batches in the same session**, not even once the first finishes
@@ -90,9 +91,11 @@ phase files in full here, that's Step 8's job. `contextGate.verdict` is `WARN` �
 line *above* the briefing, naming the reason in the user's language and the concrete numbers from
 `contextGate.note` (e.g. the five-hour budget is at 89% against a 70% threshold); state plainly
 that this is a budget warning, not a blocker, and that the phase runs normally if started — wording
-per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement**. Present
-`batch.briefText` compactly (already the full per-phase listing — name/priority/phase
-count/`dependsOn`/done phases ticked, open phases with size and context excerpt), then ask exactly one
+per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement**; `batch.consistency ==
+"divergent"` adds one more such line naming the repair command (`bin/cfq batch verify
+"<repo-root>"`), never blocking. Present `batch.briefText` compactly (already the full per-phase
+listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size and
+context excerpt), then ask exactly one
 `AskUserQuestion`, "Start implementing this batch?" — no extra question for the warning, it only
 adds a line above the existing one:
 - **Start** → acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
@@ -156,28 +159,32 @@ threshold. Rendering example and option copy in `${CLAUDE_PLUGIN_ROOT}/reference
 
 ## Step 8 — Implementation
 
-Read the lowest-numbered open `NN-*.md` in full — multi-file or
-unclear-scope phases may delegate that research to an `implExploreModel` subagent first;
-implementation itself never runs on one. Implement it completely, run the plan's verification with
-output filtered — a green run may delegate the filtering to the same subagent, a red run never does
-(full unfiltered failure back either way), per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Research and Verification
-Delegation**. A phase touching `docs/<codeLanguage>/…` →
-write the counterparts in every `docLanguages` entry before it goes green, per
-`${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or `<repo>/docs/STYLE.md` if present. Work found
-beyond this phase's scope → one `AskUserQuestion` on parking it: yes writes
-`plan/<YYYY-MM-DD>-<slug>.md` per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`, no stays a sentence in the report, no
-second attempt. Green → move the file to `<batch>/done/` (`mkdir -p` first), register the repo
-(`bin/cfq registry add "<repo-root>"`), print the **Summary** (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase
-Summary** — its `Deviation` lines double as this call's `deviations` array, one source, two
-renderings); red → **stop**, print `❌ red` with each trimmed error as `   └ ` lines, the file stays
-open, don't move on. Record the phase either way, before anything else, with
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report append "<batch-dir>" '<phase-json>'` — this captures
-telemetry automatically. `phase` carries the full phase slug — the plan file's name without `.md`,
-e.g. `02-gate-rate-limits-and-cache-display`, never the bare number. It is the same value Step 5
-passes to `report set-commit` and to `changelog commit-message`, and `report append` rejects
-anything else. `deviations` is not optional padding — name what the plan said, what was
-built, and why; an honest empty array is fine, a glossed-over deviation is not. On red, `errors`
-carries the actual failure output, trimmed to what identifies it.
+Read the lowest-numbered open `NN-*.md` in full — multi-file or unclear-scope phases may delegate
+that research to an `implExploreModel` subagent first; implementation itself never runs on one.
+Implement it completely, run the plan's verification with output filtered — a green run may
+delegate the filtering to the same subagent, a red run never does (full unfiltered failure back
+either way), per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Research and Verification
+Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
+`docLanguages` entry before it goes green, per `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or
+`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope → one `AskUserQuestion` on
+parking it: yes writes a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`,
+no stays a sentence in the report, no second attempt.
+
+Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file and record
+it, green or red, before anything else: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase record "<batch-dir>"
+"<phase-json-file>"` — on `green` this appends the ledger entry and moves the plan file into
+`done/` in one transaction, both or neither; on `red` it only appends the entry, the file stays
+open; this captures telemetry automatically. `phase` is the full slug (e.g.
+`02-gate-rate-limits-and-cache-display`, never the bare number) — the same value Step 5 passes to
+`report set-commit` and to `changelog commit-message`, and `phase record` rejects anything else.
+`deviations` is not optional padding — name what the plan said, what was built, and why; an honest
+empty array is fine, a glossed-over deviation is not; `errors` carries the actual failure output,
+trimmed to what identifies it.
+
+Green → register the repo (`bin/cfq registry add "<repo-root>"`), print the **Summary**
+(`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Summary** — its `Deviation` lines double as
+the recorded `deviations` array); red → **stop**, print `❌ red` with each trimmed error as `   └ `
+lines, don't move on.
 
 **Stop rule**, before the next phase in the same session: (a) files beyond `## Affected Files`, (b)
 verification red or skipped, (c) a planned change omitted, (d) an unnamed new dependency/script —
@@ -186,7 +193,7 @@ mechanics in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Stop Rule**. Any f
 
 ## Step 9 — Commit & Push (on green, every phase)
 
-Automatically, right after moving the file to `done/`, even if more phases follow — never
+Automatically, right after `phase record`, even if more phases follow — never
 collected until batch end or a `/clear`. The branch already exists (Step 4 created it or checked
 an existing one out) — commit, message in `codeLanguage`, composed via `bin/cfq changelog
 commit-message` (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
@@ -215,17 +222,9 @@ below, regardless of the context gate's own verdict; `false` → the context gat
   arrives as `WARN REASON=unknown` and follows this same path — the user decides, rather than the
   session ending on a missing measurement.
 
-`stopUsed: 0` is deliberate, not a misconfiguration — `STOP` fires after every phase for the
-capacity reason, one context window each. A rate limit produces a `WARN`, which never overrides a
-capacity `STOP` and never ends a session on its own — the old assumption that a rate-limit stop
-wins over the `stopUsed: 0` bypass no longer holds. `stopUsed: -1` is equally deliberate — `STOP`
-never fires **for the capacity reason**; the rate-limit reason has its own switches.
-`stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — warns for nothing for
-that reason either; a payload without `rate_limits` (API-level billing) means the check simply
-doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default) means every
-session implements exactly one phase after the single per-batch confirmation from Step 4 — it
-outranks `WARN`: with one-phase-per-session on, the session ends after a phase either way, and the
-budget warning changes nothing.
+The `stopUsed`/`stopFiveHourPct`/`stopSevenDayPct`/`onePhasePerSession` values above are each
+deliberate, not misconfiguration — semantics in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s
+**Context Gate Reason Semantics**.
 
 ## Step 11 — Batch Done
 

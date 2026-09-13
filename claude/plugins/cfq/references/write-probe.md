@@ -3,7 +3,7 @@
 Read at the end of Step 4, once the interview-depth answer is in and before Step 5 starts.
 
 A `PreToolUse` hook on `Write`/`Edit` can deny exactly the calls Step 15 depends on. Finding that
-out in Step 15 costs the whole interview. Probing costs one `Write` and one `rm`.
+out in Step 15 costs the whole interview. Probing costs one `Write` and one cleanup call.
 
 ## Procedure
 
@@ -17,8 +17,9 @@ out in Step 15 costs the whole interview. Probing costs one `Write` and one `rm`
    `⚠️ CONTEXT.md exists, not probed` on the sub-line — there is no non-destructive way to test a
    basename-driven rule against an existing file, and clobbering a glossary to test a hook is not a
    trade worth making.
-3. **Clean up** with one `Bash` call: `rm -f` over whichever probe paths were written, plus
-   `rmdir --ignore-fail-on-non-empty` for a `docs/adr/` this step created.
+3. **Clean up** with `bin/cfq layout probe-cleanup "<repo-root>" [--docs]` — `--docs` only when
+   step 2 ran; it removes both `.writeprobe` files, the `CONTEXT.md` this step wrote (never one
+   that already existed), and the `docs/adr/` directory if this step created it.
 
 ## On denial
 

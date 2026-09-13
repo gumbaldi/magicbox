@@ -163,9 +163,23 @@ implementing" and "cancel"; every option offered here must actually do what it s
 warning line is reused verbatim at Step 4, above the batch briefing — one wording, two call
 sites, never two drifting variants.
 
+## Context Gate Reason Semantics (Step 10)
+
+`stopUsed: 0` is deliberate, not a misconfiguration — `STOP` fires after every phase for the
+capacity reason, one context window each. A rate limit produces a `WARN`, which never overrides a
+capacity `STOP` and never ends a session on its own — the old assumption that a rate-limit stop
+wins over the `stopUsed: 0` bypass no longer holds. `stopUsed: -1` is equally deliberate — `STOP`
+never fires **for the capacity reason**; the rate-limit reason has its own switches.
+`stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — warns for nothing for
+that reason either; a payload without `rate_limits` (API-level billing) means the check simply
+doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default) means every
+session implements exactly one phase after the single per-batch confirmation from Step 4 — it
+outranks `WARN`: with one-phase-per-session on, the session ends after a phase either way, and the
+budget warning changes nothing.
+
 ## Phase Summary (Step 8)
 
-Printed after Step 8, before the `bin/cfq report append` call:
+Printed after Step 8, before the `bin/cfq phase record` call:
 
 ```
 PHASE 02 DONE
@@ -249,21 +263,21 @@ in the trailer, the report and the lookup alike.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
-  `   └ ` line, printed not run; also a `todo/` entry per **Follow-Up** below without asking, so a
-  forgotten merge is never lost.
+  `   └ ` line, printed not run; also a `todo/` entry (`bin/cfq note todo`, per **Follow-Up**
+  below) without asking, so a forgotten merge is never lost.
 - `Report` — `file://` path, only when Step 11 rendered one, else the line is omitted.
 
 ## Skills Recommended vs. Used (Step 12)
 
 ```bash
-jq -c '{recommended: [.phases[].telemetry.skills_recommended // []] | flatten | unique,
-        used:        [.phases[].telemetry.by_skill // {} | keys[]] | unique | map(select(. != "-"))}' \
-  "<batch-dir>/report.json"
+"<plugin-root>/bin/cfq" report skills "<batch-dir>"
 ```
 
 ## Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
 
-H1 title, then:
+Write the body (H1 title, then the sections below) to a temp file, then
+`"<plugin-root>/bin/cfq" note plan "<repo-root>" "<slug>" "<body-file>"` — it owns the date and the
+target path, never an agent-composed filename:
 
 - `## Finding` — what was noticed
 - `## Location` — files and locations, absolute paths
@@ -272,12 +286,12 @@ H1 title, then:
 
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
-H1 title, one or two sentences describing what to do, optionally a `check: <shell-command>` line
-(exit `0` means done). For the merge case: `check: git branch --merged main | grep -q <branch>`.
-Plus `## Origin`, same as above.
+Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:
+<shell-command>` line (exit `0` means done). For the merge case: `check: git branch --merged main
+| grep -q <branch>`. Plus `## Origin`, same as above.
 
-Both formats: filename `<YYYY-MM-DD>-<slug>.md`. The headings are always English; only the prose
-inside them follows `codeLanguage`.
+Both formats: filename `<YYYY-MM-DD>-<slug>.md`, `<slug>` normalised by `note` itself. The headings
+are always English; only the prose inside them follows `codeLanguage`.
 
 ## Resume Snapshot (Step 3 preflight)
 

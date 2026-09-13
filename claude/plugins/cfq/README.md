@@ -172,6 +172,44 @@ flowchart TB
 name that resolves to neither an open nor a finished batch is deliberately never blocking —
 it's flagged in the dashboard instead.
 
+## Command reference
+
+`bin/cfq <noun> <verb> [args...]` is the one entrypoint every skill calls — no skill or reference
+file ever mutates `.claude/cfq/` by hand (`rm`, `mv`, `mkdir`, `jq`, …), only through one of these.
+Most of them run only from inside a skill; `dash`, `settings`, `doctor` and `security` are also
+useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
+
+| Noun | Purpose |
+|---|---|
+| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning`. |
+| `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
+| `changelog` | Reads and writes `cfq.changelog.yml` (`init`, `commit-message`, status lookups). |
+| `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
+| `dash` | Cross-repo dashboard: queues, phases, config. |
+| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
+| `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
+| `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
+| `layout` | Owns the `.claude/cfq/` layout, the git-exclude policy, and write-probe cleanup. |
+| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
+| `lock` | The repo lock held by the currently running `/ifq` session. |
+| `maintenance` | Whether the periodic maintenance run is due. |
+| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path. |
+| `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
+| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
+| `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
+| `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
+| `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
+| `registry` | The cross-repo repo list in `~/.claude/code-for-queue/repos.json`. |
+| `report` | The per-phase telemetry ledger (`report.json`) — `append`, `set-commit`, `skills`, `summary`. |
+| `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
+| `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
+| `scan` | Every registered/discovered repo's queues, counted live from disk. |
+| `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
+| `settings` | The global/repo/env settings tiers. |
+| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase. |
+| `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
+
 ## Hook contract
 
 `PreToolUse` on `Write`/`Edit` is the only hook class that can structurally break a `pfq` session.
