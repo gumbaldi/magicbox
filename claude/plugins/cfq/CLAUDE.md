@@ -19,7 +19,7 @@ CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added
 phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
 added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
 `cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
-phase 04) — `bin/cfq` itself stays shell by
+phase 04; `cfq_guard.py` (new) added as batch `019` phase 06) — `bin/cfq` itself stays shell by
 design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
 shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`
@@ -179,6 +179,18 @@ caught one layer down, by `bin/cfq`'s own `require_python` guard, since the doct
 interpreter it needs to run. The bundled `SessionStart` hook (`bin/cfq doctor hook`) is silent on a
 healthy host and warns both user and Claude only when a required command is missing — it never
 installs anything itself.
+
+**`cfq_guard.py` is the only script the runtime invokes rather than a skill.** Every other script
+is called from `SKILL.md`/reference prose through `bin/cfq`; `cfq_guard.py pretooluse` is wired
+directly into `hooks/hooks.json`'s `PreToolUse` entries and runs on every `Bash`/`Write`/`Edit`
+call in the session, whether or not a cfq skill is active. It denies a raw shell mutation
+(`rm`/`mv`/`cp`/`truncate`/`shred`/`dd`/`ln`/`install`/`sed -i`, a `>`/`>>` redirect, or
+`find … -delete`) whose argument resolves — against the tool call's own `cwd`, not a literal-string
+match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`. Its
+fail-open behaviour (an internal exception allows the call and logs to stderr instead of denying)
+is intentional, not an oversight: a guard that crashes closed would fail every `Bash` call in every
+session, which is worse than the incident it exists to prevent now that phases 01-05 give every
+legitimate mutation a deterministic `bin/cfq` subcommand to point to instead.
 
 **Telemetry is metadata only.** `cfq_telemetry.py` derives everything from the running session's own
 transcript (`cfq_runtime.py`'s path resolution, reused rather than reinvented) — never from a model's

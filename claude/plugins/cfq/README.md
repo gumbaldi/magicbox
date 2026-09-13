@@ -236,6 +236,18 @@ Renaming the queue layout means updating every external guard hook too. That cou
 from inside this repository, which is how it broke once: a hook still allowed the pre-migration
 `.claude/code-for-queue/` path long after the queues had moved to `.claude/cfq/`.
 
+**The plugin ships its own `PreToolUse` guard** (`bin/cfq guard pretooluse`, wired in
+`hooks/hooks.json`), separate from the external-hook concern above. It denies `Bash` commands
+(`rm`, `mv`, `cp`, `truncate`, `shred`, `dd`, `ln`, `install`, `sed -i`, a `>`/`>>` redirect, or
+`find … -delete`/`-exec rm`) whose resolved target has `.claude/cfq` as a path component, and
+denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<batch>/**` directly.
+It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
+sanctioned commands the guard's own deny messages point to. Paths are resolved against the
+payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
+same as a fully-qualified path. There is no setting to turn it off — disabling it means disabling
+the plugin. It fails open on an internal error: a crash allows the call rather than blocking every
+`Bash` call in the session.
+
 ## Batch lifecycle
 
 ```mermaid

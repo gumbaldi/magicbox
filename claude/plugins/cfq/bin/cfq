@@ -24,6 +24,7 @@ declare -A NOUN_SCRIPT=(
   [dash]=cfq_dash.py
   [doctor]=cfq_doctor.py
   [finish]=cfq_finish.py
+  [guard]=cfq_guard.py
   [lang]=cfq_lang.py
   [layout]=cfq_layout.py
   [lint]=cfq_lint.py
