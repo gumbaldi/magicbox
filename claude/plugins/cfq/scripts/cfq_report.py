@@ -171,8 +171,12 @@ def bound_lines(value, n=5):
 
 # ---- verbs: append / security / set-commit / last-failure / summary ------------------------
 
-def cmd_append(args):
-    dir_ = args.dir
+def append_phase(dir_, phase_json, record_telemetry=True):
+    """Validates and appends one phase entry to report.json -- the append half of `cmd_append`,
+    factored out so `cfq_phase.py record` can call it as its single ledger-write step instead of
+    reimplementing it (`report append` stays the one place this logic lives). Returns the
+    validated phase_id. `record_telemetry=False` lets a caller that runs its own accounting (e.g.
+    `cfq_phase.py record`'s `--no-telemetry`) skip the subprocess call."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
 
@@ -181,7 +185,7 @@ def cmd_append(args):
     # or an empty value breaks every one of those lookups without an error, so it is refused
     # here, at the only point that sees the value before it is persisted.
     try:
-        phase_obj = json.loads(args.phase)
+        phase_obj = json.loads(phase_json)
     except json.JSONDecodeError:
         phase_obj = None
     phase_id = ""
@@ -199,7 +203,13 @@ def cmd_append(args):
     write_json(f, data)
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
-    subprocess.run([str(CFQ_BIN), "telemetry", "record", dir_, "phase", phase_id])
+    if record_telemetry:
+        subprocess.run([str(CFQ_BIN), "telemetry", "record", dir_, "phase", phase_id])
+    return phase_id
+
+
+def cmd_append(args):
+    append_phase(args.dir, args.phase)
 
 
 def cmd_security(args):

@@ -31,6 +31,7 @@ declare -A NOUN_SCRIPT=(
   [maintenance]=cfq_maintenance.py
   [overlap]=cfq_queue_overlap.py
   [park]=cfq_park.py
+  [phase]=cfq_phase.py
   [preflight-plan]=cfq_pfq_preflight.py
   [preflight-impl]=cfq_ifq_preflight.py
   [registry]=cfq_registry.py

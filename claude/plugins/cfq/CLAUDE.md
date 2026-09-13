@@ -15,7 +15,8 @@ as batch `017` phase 05; `cfq_batch_id.py` ported as batch `017` phase 06; `cfq_
 `017` phase 08; `cfq_branch.py` ported as batch `017` phase 09; `cfq_resume.py`, `cfq_finish.py`
 ported as batch `017` phase 10; `cfq_pfq_preflight.py`, `cfq_ifq_preflight.py` ported as batch
 `017` phase 11; `cfq_dash.py` ported as batch `017` phase 12; `cfq_trash.py` (plus the
-CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01) — `bin/cfq` itself stays shell by
+CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added as batch `019`
+phase 02) — `bin/cfq` itself stays shell by
 design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
 shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`
@@ -92,8 +93,13 @@ understood only by the isolated `scripts/migrations/cfq-layout-v1.sh` upgrade ut
 (optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
 (optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
-`report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
-after every phase and travelling with the batch into `impl/done/`), `.planning` (written by
+`report.json` (per-phase implementation report plus telemetry, closed onto the ledger together
+with the file's move into `done/` by the single transactional call `cfq phase record <batch-dir>
+<phase-json-file>` — green moves the `.md` file and appends the entry or does neither; `cfq phase
+reopen <batch-dir> <phase-slug>` is the inverse, moving a phase back out of `done/` and marking the
+ledger entry `reopened` without touching `status`/`commit`; `report append` remains a public verb
+for other tooling and its own tests but is no longer called from any skill text), `.planning`
+(written by
 `cfq_park.py` when the batch directory is created, refreshed on every re-park during the same
 `plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch
 younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
