@@ -543,8 +543,25 @@
   branch: cfq/014-2026-09-03-port-core-scripts-to-python
   base: cfq/013-2026-09-03-migrate-test-suite-to-python-unittest
   started: 2026-09-05
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-13
+  phases:
+    - phase: "01-route-internal-calls-through-dispatcher"
+      status: "green"
+      summary: "Routed all 77 internal sibling calls (19 scripts) through bin/cfq nouns instead of filenames; documented 5 exceptions (loop calls, one test-double-sensitive call) directly at their call sites and in CLAUDE.md."
+    - phase: "02-port-settings-and-establish-cfq-lib"
+      status: "green"
+      summary: "Ported cfq-settings.sh (375 lines of chained jq, three-tier resolution) to cfq_settings.py; established cfq_lib (paths.py, errors.py, render.py) as the shared foundation for phases 03-05; taught bin/cfq to run Python implementations (require_python guard, extension-based dispatch for both exec and --help)."
+    - phase: "03-port-changelog"
+      status: "green"
+      summary: "Ported cfq-changelog.sh (341 lines of hand-rolled YAML I/O) to cfq_changelog.py: all 9 verbs (init/finish/reserve/rename-batch/branch-for/commit-message/ensure/migrate/max-batch-number), line-oriented block parsing kept private to the module (no yamlish.py -- nothing else needs it this batch), routed via bin/cfq's [changelog] noun; cfq-changelog.sh deleted."
+    - phase: "04-port-report"
+      status: "green"
+      summary: "Ported cfq-report.sh's 8 verbs (append/security/set-commit/last-failure/summary/html/index/detail) to cfq_report.py, verified byte-identical against the shell version on real report data, and deleted the shell script."
+    - phase: "05-port-doctor-and-declare-python-dependency"
+      status: "green"
+      summary: "Ported cfq-doctor.sh's check/check --json/hook verbs to cfq_doctor.py (dependency scan, ponytail advisory, install hints), added python3 as a required host dependency, pointed the SessionStart hook and bin/cfq's routing table at the dispatcher/new script, and deleted the shell script."
 - batchNumber: 15
   batch: 015-2026-09-06-ifq-remote-base-and-go-gate
   branch: cfq/015-2026-09-06-ifq-remote-base-and-go-gate
