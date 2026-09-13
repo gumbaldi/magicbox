@@ -635,3 +635,9 @@
 - batchNumber: 18
   batch: 018-2026-09-07-plan-critique-and-scope-guard
   status: parked
+- batchNumber: 19
+  batch: 019-2026-09-09-deterministic-queue-mutations
+  status: parked
+- batchNumber: 20
+  batch: 020-2026-09-10-ifq-orchestrator-mode
+  status: parked
