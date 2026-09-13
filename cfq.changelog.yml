@@ -657,8 +657,28 @@
   branch: cfq/019-2026-09-09-deterministic-queue-mutations
   base: cfq/017-2026-09-07-port-remaining-scripts-to-python
   started: 2026-09-13
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-trash-as-the-only-delete"
+      status: "green"
+      summary: ""
+    - phase: "02-phase-record-and-reopen"
+      status: "green"
+      summary: "cfq_phase.py record/reopen: closing (or reopening) a phase is now one transactional bin/cfq call instead of an agent-issued mv plus a separate report append."
+    - phase: "03-verify-and-recover-batch-state"
+      status: "green"
+      summary: "Added cfq_lib/consistency.py (filesystem_state/ledger_state/git_state/changelog_state/findings/scan_consistency/recover) plus `cfq batch verify`/`cfq batch recover` on cfq_batch_id.py, wired the cheap filesystem-vs-ledger `consistency` field through cfq_scan.py and cfq_ifq_preflight.py, and repaired the two damaged batches in this repo (014 archived via the printed `finish` command, 018's stale `.planning` marker removed) -- `batch verify` now exits 0 with no findings for both."
+    - phase: "04-note-ready-probe-and-skills"
+      status: "green"
+      summary: "Added cfq_note.py (plan|todo), cfq_batch_id.py's ready verb, cfq_layout.py's probe-cleanup verb, and cfq_report.py's skills verb -- the four remaining raw operations the agent performed by hand."
+    - phase: "05-rewire-skills-to-the-commands"
+      status: "green"
+      summary: "Rewired every raw shell mutation in the skill/reference text onto the bin/cfq commands phases 01-04 built: implement-for-queue's Step 8 now writes the phase object once and calls `phase record` (ledger append + done/ move as one transaction, mkdir -p mention deleted) instead of a separate move-then-append-with-report-append sequence; its scope-parking branch and plan-for-queue's Step 15 route through `note plan` and `batch ready`; plan-for-queue's Step 12 drops the /tmp+jq detour for a direct `security` call; write-probe.md's cleanup step and queue-check.md's overlap example drop their raw rm/rmdir/jq for `layout probe-cleanup` and a plain JSON read; queues.md's Phase Summary, Plan Entry/Follow-Up and Skills Recommended vs. Used sections follow the same commands. Added test_reference_paths.py's 5th structural check (greps skills/*/SKILL.md and references/*.md for rm/mv/mkdir/rmdir/jq in command position) so the rule cannot decay silently. Both SKILL.md files shrank (255->254, 214->212) as required."
+    - phase: "06-pretooluse-queue-guard"
+      status: "green"
+      summary: "Added the PreToolUse guard: cfq_guard.py (new, wired into hooks/hooks.json's Bash and Write|Edit matchers as `bin/cfq guard pretooluse`) resolves every Bash argument and every Write/Edit file_path against the tool call's own cwd -- not a literal-string match -- and denies rm/rmdir/mv/cp/truncate/shred/dd/ln/install/sed -i, a >/>> redirect, or find -delete/-exec rm whose resolved target has .claude/cfq as a path component, plus a direct Write/Edit into impl/<batch>/done/** or impl/done/<batch>/**. Reads and every bin/cfq call are allowed by construction (their argv[0] basenames are never in the destructive set). Confirmed the current PreToolUse contract (stdin fields, hookSpecificOutput.permissionDecision deny shape, exit-0-with-JSON honored) against the live Claude Code docs (code.claude.com/docs/en/hooks) rather than from memory before writing any code, as the phase required. Fail-open on any internal error (bare except around both JSON-parse and decision logic, prints one stderr diagnostic, denies nothing). Reused cfq_lib/paths.py for the queue-directory constant rather than a second copy of the literal (see deviations)."
 - batchNumber: 20
   batch: 020-2026-09-10-ifq-orchestrator-mode
   status: parked
