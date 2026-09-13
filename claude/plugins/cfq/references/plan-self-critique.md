@@ -6,11 +6,11 @@ actually serve the batch goal. This was observed in batch `009`: six phases were
 "write the plans", and only afterwards, asked unprompted, did re-examining the cut within one turn
 produce a differentiated answer — three phases clearly justified, one only a precondition, one
 delivering a different benefit than assumed, one weak enough to drop. The batch went from six phases
-to five.
+to five. Under the rule below, the drop would still have prompted one question; the two narrowings
+would have been made silently and reported.
 
 The specific failure mode this catches: a phase enters the batch because the user picked it from an
-`AskUserQuestion` option list the planner itself wrote, and the planner then treats the answer as
-settled. A step that only asks the user to review the plan cannot catch that — the user is reviewing
+option list the planner itself wrote, and the planner then treats the answer as settled. A step that only asks the user to review the plan cannot catch that — the user is reviewing
 a proposal built from their own earlier answer. This is the mirror image of
 `interaction-policy.md`'s **Active Interview Duty**, which covers decisions the *planner* made
 autonomously; this file covers decisions the *user* made from the planner's own option lists.
@@ -34,8 +34,10 @@ Judge every open phase against all three:
    (debugging stays out of the main context), 4 (smoke tests are bundled, not serialized) and 5
    (size reflects verify-the-reuse work) — three specific rules can actually be checked.
 2. **Fits the existing environment** — no logic errors, no hand-off problems between phases, no
-   dead code left behind, no feature cut off half-finished by a later phase. This category requires
-   reading the phase files against one another, not each in isolation.
+   dead code left behind, no feature cut off half-finished by a later phase. At this step the
+   category judges the *proposed cut* — phase boundaries, ordering, hand-off points as described in
+   the proposal — because no phase file exists on disk yet; the check against the written text is
+   the post-write audit's job.
 3. **Serves the batch goal** — the phase advances the goal named in `.batch-context.md`'s `##
    Goal`. This is the category that catches the option-list failure above: a phase that is in the
    batch only because it was picked from a list the planner wrote fails here.
@@ -55,10 +57,21 @@ are statements about individual phases that per-phase judging alone cannot make 
 
 ## On a Fail
 
-Every failing category becomes one `AskUserQuestion` with a named recommendation and its reasoning.
-Options drawn from: drop the phase · narrow its scope · merge it with another phase · reorder ·
-leave as is. Batch several fails into one call rather than asking serially. Nothing is written
-until the user has answered — the planner does not silently re-cut.
+A failing category is **corrected, not asked about**. Re-cutting, merging, reordering, and
+narrowing a phase to remove duplication are corrections the planner makes on its own and reports.
+
+Exactly two things still trigger one `AskUserQuestion`: **dropping a phase entirely**, and
+**removing a capability the user asked for by name during the interview**. Both change *what* the
+batch delivers; everything else only changes *how* it is split, which is the planner's call.
+
+Batch several question-worthy findings into one call rather than asking serially.
+
+Every correction made without asking is named in the Step 11 status line — what was changed and
+why — so a silent fix is still a visible fix. A correction that cannot be stated in one clause is a
+sign the finding is a drop in disguise and belongs in the question instead.
+
+A question whose only sensible answer is "yes, fix it" is not a decision, it is a confirmation
+prompt, and it costs the user a turn for nothing — that is why this section changed.
 
 ## Recording
 
@@ -74,8 +87,11 @@ Self-Critique
   03 audit-log-dashboard   fail (serves the batch goal) — this batch's goal is "make writes
                            auditable", not "visualize them"; 03 was picked from Step 8's option
                            list, not derived from the goal
-  batch                    03 aside, 01→02 compose cleanly, no ordering issue
+  04 audit-log-alerting    fixed (fits the existing environment) — depended on 02's writer being
+                           in place; reordered after it, no capability changed — reported, not
+                           asked
+  batch                    03 aside, 01→02→04 compose cleanly, no ordering issue left
 ```
 
-→ one `AskUserQuestion`: "Phase 03 doesn't serve this batch's goal (see above) — drop it, narrow it
-to just the audit-log table view, or leave it as is?"
+→ one question: "Phase 03 doesn't serve this batch's goal (see above) — drop it, narrow it to just
+the audit-log table view, or leave it as is?"

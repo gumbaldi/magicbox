@@ -133,8 +133,9 @@ is written to disk yet, that's Step 14, after Step 11.
 
 Still `PLANNING`. Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` and follow it,
 unconditionally, every session, before any phase file is written. Print the `Self-Critique` status
-line: `✅` with the phase count judged when everything passes, `⚠️` naming what changed when a
-phase was dropped, narrowed, merged or reordered.
+line: `✅` with the phase count when everything passes with no corrections; `⚠️` when corrections
+were made, naming each one on its own `   └ ` sub-line (what changed, on which phase, why) — this is
+now the primary channel for corrections, since they are no longer surfaced as questions.
 
 ## Step 12 — Security Check
 
