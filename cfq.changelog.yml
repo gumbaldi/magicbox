@@ -702,5 +702,31 @@
   branch: cfq/020-2026-09-10-ifq-orchestrator-mode
   base: cfq/018-2026-09-07-plan-critique-and-scope-guard
   started: 2026-09-14
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-orchestrator-settings"
+      status: "green"
+      summary: ""
+    - phase: "02-worker-brief-and-verdict"
+      status: "green"
+      summary: ""
+    - phase: "03-worker-agent-and-orchestrator-loop"
+      status: "green"
+      summary: ""
+    - phase: "04-skill-wiring-and-autopark"
+      status: "green"
+      summary: ""
+    - phase: "05-orchestrator-worker-cost-split"
+      status: "green"
+      summary: "report summary surfaces the orchestrator/worker token split from cfq_telemetry.py's existing subagent sums."
+    - phase: "06-docs-claude-md-and-default-flip"
+      status: "green"
+      summary: "Rewrote CLAUDE.md's subagent paragraph to add the ownership case, documented orchestrator mode in README.md/docs/usage.md, corrected docs/configuration.md's default row, flipped orchestratorMode's schema default to true, and bumped plugin.json to 0.10.1."
+- batchNumber: 21
+  batch: 021-2026-09-14-ponytail-review-and-batch-goal
+  status: parked
+- batchNumber: 22
+  batch: 022-2026-09-14-dedupe-script-helpers
+  status: parked
