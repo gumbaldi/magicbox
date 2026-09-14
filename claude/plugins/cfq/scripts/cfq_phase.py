@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import cfq_report  # noqa: E402
-from cfq_lib import errors  # noqa: E402
+from cfq_lib import errors, render  # noqa: E402
 
 PROG = "cfq_phase.py"
 
@@ -105,7 +105,7 @@ def cmd_reopen(args):
     try:
         at = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
         phases[matches[-1]]["reopened"] = at
-        cfq_report.write_json(str(f), data)
+        render.write_json(str(f), data)
     except OSError:
         shutil.move(str(root_path), str(done_path))
         raise

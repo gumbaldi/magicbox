@@ -14,6 +14,7 @@ import shutil
 from datetime import datetime, timezone
 
 from . import paths as cfq_lib_paths
+from . import render
 
 
 class TrashError(Exception):
@@ -66,7 +67,7 @@ def put(repo, path, reason=""):
     shutil.move(str(resolved), str(entry_dir / resolved.name))
     entry = {
         "originalPath": str(resolved),
-        "movedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "movedAt": render.now_iso(),
         "reason": reason,
         "kind": kind,
     }

@@ -7,9 +7,14 @@ the index/detail surface.
 import json
 import shutil
 import subprocess
+import sys
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_report  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -20,6 +25,38 @@ class TestReport(CfqTestCase):
 
     def _report_json(self, batch):
         return json.loads((batch / "report.json").read_text())
+
+    def test_extract_goal_matches_parse_phase_body_equivalent(self):
+        # Pins extract_goal's current output (first two non-empty lines after `## Context`, each
+        # followed by one space, cut to 220 chars) as a literal before refactoring it to reuse
+        # cfq_brief.parse_phase_body -- both must keep producing this exact string.
+        planfile = self._repos_dir / "phase-for-extract-goal.md"
+        planfile.write_text(
+            "# Phase 01 — Something\n\n"
+            "## Size\n\nM\n\n"
+            "## Context\n\n"
+            "This is the first context line and it is reasonably long to help push us toward "
+            "the two hundred and twenty character truncation boundary for testing purposes "
+            "here now.\n"
+            "This is the second context line, also fairly long, to make sure the combined "
+            "length of both lines together comfortably exceeds two hundred twenty characters "
+            "total.\n"
+            "This third line should never be collected because extraction stops after two "
+            "non-empty lines are gathered.\n\n"
+            "## Affected Files\n\n"
+            "- `/tmp/foo.py`\n"
+        )
+        expected = (
+            "This is the first context line and it is reasonably long to help push us toward "
+            "the two hundred and twenty character truncation boundary for testing purposes "
+            "here now. This is the second context line, also fairly long, t"
+        )
+        self.assertEqual(len(expected), 220)
+        self.assertEqual(cfq_report.extract_goal(str(planfile)), expected)
+
+    def test_extract_goal_missing_file_returns_empty_string(self):
+        missing = self._repos_dir / "does-not-exist.md"
+        self.assertEqual(cfq_report.extract_goal(str(missing)), "")
 
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
@@ -175,6 +212,7 @@ class TestReport(CfqTestCase):
         stub_dir.mkdir()
         scripts_dir = PLUGIN_ROOT / "scripts"
         (stub_dir / "cfq_report.py").write_bytes((scripts_dir / "cfq_report.py").read_bytes())
+        (stub_dir / "cfq_brief.py").write_bytes((scripts_dir / "cfq_brief.py").read_bytes())
         shutil.copytree(scripts_dir / "cfq_lib", stub_dir / "cfq_lib")
         scan_calls.write_text("")
         stub_scan = stub_dir / "cfq_scan.py"

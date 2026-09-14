@@ -41,17 +41,6 @@ def git_toplevel(cwd):
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def now_iso():
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
-
-
 def jqor(value, default):
     """Mirrors jq's `//`: only null (None) and false trigger the fallback, "" stays "" ."""
     return default if value is None or value is False else value
@@ -229,7 +218,7 @@ def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
         "skill": skill,
         "call_count": int(call_count_s),
         "duration_ms": int(duration_ms_s),
-        "timestamp": now_iso(),
+        "timestamp": render.now_iso(),
     }
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -261,13 +250,13 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     report_path = os.path.join(dir_, "report.json")
     if not os.path.isfile(report_path):
-        write_json(report_path, {"repo": repo, "batch": batch, "started": now_iso(), "phases": []})
+        render.write_json(report_path, {"repo": repo, "batch": batch, "started": render.now_iso(), "phases": []})
     data = json.loads(pathlib.Path(report_path).read_text())
     if kind == "planning":
         data["planning"] = rec
     elif data.get("phases"):
         data["phases"][-1]["telemetry"] = rec
-    write_json(report_path, data)
+    render.write_json(report_path, data)
 
     totals = rec["totals"]
     print(

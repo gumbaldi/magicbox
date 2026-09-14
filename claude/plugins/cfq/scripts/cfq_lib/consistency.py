@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import cfq_changelog  # noqa: E402
-import cfq_report  # noqa: E402
+from . import render  # noqa: E402
 from . import trash  # noqa: E402
 from .proc import CFQ_BIN  # noqa: E402
 
@@ -296,7 +296,7 @@ def _mark_text_unrecoverable(batch_dir, slug):
     matches = [i for i, p in enumerate(phases) if isinstance(p, dict) and p.get("phase") == slug]
     if matches:
         phases[matches[-1]]["textUnrecoverable"] = True
-        cfq_report.write_json(str(f), data)
+        render.write_json(str(f), data)
 
 
 def recover(batch_dir, repo, batch, dry_run=False):
@@ -329,7 +329,7 @@ def recover(batch_dir, repo, batch, dry_run=False):
                 report_file = batch_dir / "report.json"
                 data = json.loads(report_file.read_text()) if report_file.is_file() else {"phases": []}
                 data.setdefault("phases", []).append(entry)
-                cfq_report.write_json(str(report_file), data)
+                render.write_json(str(report_file), data)
                 changed = True
             repairs.append({
                 "code": code, "phase": slug,

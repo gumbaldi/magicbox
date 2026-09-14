@@ -15,12 +15,12 @@ import os
 import pathlib
 import sys
 import time
-from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_lock.py"
@@ -77,7 +77,7 @@ def cmd_acquire(args):
         "session_id": sid,
         "batch": batch,
         "transcript": tpath,
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "at": render.now_iso(),
         "epoch": int(time.time()),
     }
     tmp = f"{f}.tmp"

@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib.proc import CFQ_BIN  # noqa: E402
 
@@ -128,13 +129,6 @@ def resolve_html_path(dir_):
     return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
 
 
-def write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
-
-
 def ensure_report(dir_):
     """report.json is created by whoever writes to it first -- planning-time security snapshot
     or the first phase. Same shape in both cases."""
@@ -145,7 +139,7 @@ def ensure_report(dir_):
         ["git", "-C", dir_, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
     ).stdout.strip()
     started = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
-    write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
+    render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
 
 def outcome(phases):
@@ -203,7 +197,7 @@ def append_phase(dir_, phase_json, record_telemetry=True):
     ensure_report(dir_)
     data = json.loads(pathlib.Path(f).read_text())
     data.setdefault("phases", []).append(phase_obj)
-    write_json(f, data)
+    render.write_json(f, data)
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
     if record_telemetry:
@@ -232,7 +226,7 @@ def cmd_security(args):
     if isinstance(entry, dict):
         entry["at"] = at
     data["security"] = jq_alt(data.get("security"), []) + [entry]
-    write_json(f, data)
+    render.write_json(f, data)
 
 
 def cmd_set_commit(args):
@@ -251,7 +245,7 @@ def cmd_set_commit(args):
             "the full phase slug (NN-slug), not the bare number"
         )
     phases[matches[-1]]["commit"] = sha
-    write_json(f, data)
+    render.write_json(f, data)
 
 
 def cmd_skills(args):
@@ -384,24 +378,12 @@ def _tsv_field(v):
 
 def extract_goal(planfile):
     """First two non-empty lines after a `## Context` heading, truncated to 220 chars -- same
-    extraction as cfq_brief.py's k/ctx/n logic, carried over verbatim."""
+    extraction as cfq_brief.py's `parse_phase_body`."""
     try:
-        lines = pathlib.Path(planfile).read_text().splitlines()
+        text = pathlib.Path(planfile).read_text()
     except OSError:
         return ""
-    ctx = ""
-    collecting = False
-    count = 0
-    for line in lines:
-        if line.startswith("## Context"):
-            collecting = True
-            continue
-        if collecting and line.strip() != "":
-            ctx += line + " "
-            count += 1
-            if count >= 2:
-                collecting = False
-    return ctx[:220]
+    return parse_phase_body(text)["context"][:220]
 
 
 def extract_goals(dir_, data):

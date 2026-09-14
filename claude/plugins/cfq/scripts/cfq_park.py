@@ -9,16 +9,15 @@ output, exit codes) is the invariant this file preserves.
 """
 
 import argparse
-import os
 import pathlib
 import subprocess
 import sys
-from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import render  # noqa: E402
 
 PROG = "cfq_park.py"
 
@@ -38,7 +37,7 @@ def cmd_park(args):
     # refreshes the timestamp as a heartbeat), and removed by plan-for-queue's lint step once
     # the batch is complete -- this is what keeps ifq from picking up a batch pfq is still
     # writing.
-    (d / ".planning").write_text(datetime.now().astimezone().isoformat(timespec="seconds") + "\n")
+    (d / ".planning").write_text(render.now_iso() + "\n")
 
     priority_file = d / ".priority"
     if args.priority == "high":
