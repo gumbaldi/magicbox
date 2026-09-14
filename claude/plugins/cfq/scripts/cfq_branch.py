@@ -108,6 +108,31 @@ def parse_batch_number(name):
     return int(m.group(1)) if m else None
 
 
+def compute_dirty(repo):
+    """(dirty, changelogDirty) from `git status --porcelain`: the changelogFile path (if set) and
+    anything under `.claude/cfq/` never count as `dirty` -- the queue's own untracked/reservation
+    state is expected, not something that should block a checkout. `changelogDirty` is true only
+    when the changelog path itself is the (or a) modified entry. `--no-optional-locks` keeps this
+    call from refreshing/rewriting `.git/index` as a side effect -- `branch plan` is read-only and
+    `cfq_ifq_preflight.py`'s determinism test asserts nothing under the repo is ever touched."""
+    changelog_rel = cfq_run("settings", "get", "changelogFile").stdout.strip()
+    dirty = False
+    changelog_dirty = False
+    for line in git(repo, "--no-optional-locks", "status", "--porcelain").stdout.splitlines():
+        if not line:
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if changelog_rel and path == changelog_rel:
+            changelog_dirty = True
+            continue
+        if path.startswith(".claude/cfq/"):
+            continue
+        dirty = True
+    return dirty, changelog_dirty
+
+
 def find_suffix_match(repo, slug):
     """Highest-priority (alphabetically first) local-or-remote branch whose name ends in
     `-<slug>` -- the fallback used when the changelog doesn't (yet, or any more) know a branch for
@@ -191,8 +216,11 @@ def cmd_plan(args):
         print(render.dump_json({
             "mode": "off", "batch": batch_name, "batchNumber": number, "branch": None,
             "base": None, "candidates": [], "remoteChecked": False, "remoteWarning": None,
+            "dirty": False, "changelogDirty": False,
         }))
         return
+
+    dirty, changelog_dirty = compute_dirty(repo)
 
     # Prefer the branch already persisted in the CFQ changelog for this exact batch --
     # authoritative, since it is the branch that was actually checked out at init time -- but only
@@ -206,13 +234,13 @@ def cmd_plan(args):
         existing = find_suffix_match(repo, slug)
 
     if existing:
-        _emit_continue(repo, batch_name, number, existing, rchecked)
+        _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelog_dirty)
         return
 
-    _emit_new(repo, batch_name, number, rchecked)
+    _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty)
 
 
-def _emit_continue(repo, batch_name, number, existing, rchecked):
+def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelog_dirty):
     continue_warning = None
     remote_state = "unknown"
     pushable = False
@@ -255,6 +283,7 @@ def _emit_continue(repo, batch_name, number, existing, rchecked):
         "base": None, "candidates": [],
         "remoteChecked": rchecked, "remoteWarning": continue_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
+        "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
 
 
@@ -360,7 +389,7 @@ def _dependency_base(repo, batch_name, rchecked, main_ref):
     return None, None, None, "ambiguous"
 
 
-def _emit_new(repo, batch_name, number, rchecked):
+def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     branch = f"cfq/{batch_name}"
 
     candidate_names, cand_ref, cand_local_only, main_ref = _collect_candidates(repo, rchecked)
@@ -459,6 +488,7 @@ def _emit_new(repo, batch_name, number, rchecked):
         "base": base_name, "baseRef": base_ref, "baseSource": base_source, "candidates": cand_objs,
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
+        "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
 
 

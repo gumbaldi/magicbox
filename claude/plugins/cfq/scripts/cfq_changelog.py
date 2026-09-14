@@ -5,6 +5,7 @@
 #        cfq_changelog.py rename-batch    <repo-root> <old-batch> <new-batch>
 #        cfq_changelog.py branch-for      <repo-root> <batch>
 #        cfq_changelog.py commit-message  <repo-root> <batch> <phase> <status> <message-file>
+#        cfq_changelog.py commit          <repo-root> <message>
 #        cfq_changelog.py ensure          <repo-root>
 #        cfq_changelog.py migrate         <repo-root>
 #        cfq_changelog.py max-batch-number <repo-root>
@@ -368,6 +369,39 @@ def cmd_commit_message(args):
             shutil.copyfileobj(f, sys.stdout.buffer)
 
 
+def cmd_commit(args):
+    """Commits only the changelog file, scoped by pathspec so an unrelated staged file is never
+    swept in -- `git commit -- <file>` leaves everything else staged exactly as it was. Mirrors
+    cfq_finish.py's own changelog-commit sequence (status --porcelain -> add -> commit), minus the
+    push -- the caller's own next `git push` carries it."""
+    repo, message = args.repo, args.message
+    target = changelog_file(repo)
+    if target is None:
+        print("off")
+        return
+    rel = os.path.relpath(target, repo)
+    if subprocess.run(
+        ["git", "-C", repo, "check-ignore", "-q", "--", rel], capture_output=True, text=True,
+    ).returncode == 0:
+        print("ignored")
+        return
+    status = subprocess.run(
+        ["git", "-C", repo, "status", "--porcelain", "--", rel], capture_output=True, text=True,
+    ).stdout
+    if not status.strip():
+        print("clean")
+        return
+    add = subprocess.run(["git", "-C", repo, "add", "--", rel], capture_output=True, text=True)
+    if add.returncode != 0:
+        errors.die(add.stderr, add.returncode or 1)
+    commit = subprocess.run(
+        ["git", "-C", repo, "commit", "-q", "-m", message, "--", rel], capture_output=True, text=True,
+    )
+    if commit.returncode != 0:
+        errors.die(commit.stderr, commit.returncode or 1)
+    print("committed")
+
+
 def cmd_ensure(args):
     repo = args.repo
     target = changelog_file(repo)
@@ -515,6 +549,11 @@ def build_parser():
     p.add_argument("message_file")
     p.set_defaults(func=cmd_commit_message)
 
+    p = sub.add_parser("commit")
+    p.add_argument("repo")
+    p.add_argument("message")
+    p.set_defaults(func=cmd_commit)
+
     p = sub.add_parser("ensure")
     p.add_argument("repo")
     p.set_defaults(func=cmd_ensure)
@@ -542,6 +581,7 @@ def main(argv):
             f"rename-batch <repo-root> <old-batch> <new-batch> | "
             f"branch-for <repo-root> <batch> | "
             f"commit-message <repo-root> <batch> <phase> <status> <message-file> | "
+            f"commit <repo-root> <message> | "
             f"ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>"
         )
     func(args)

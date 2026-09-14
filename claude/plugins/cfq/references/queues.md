@@ -79,9 +79,18 @@ comparison was possible), `pushable` (bool, true only for `remoteState: "ahead"`
 on `mode` to read any of the three.
 
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
-- **`continue`** (a branch for this batch already exists) → resolve `remoteState` before touching
-  anything. **`behind`**: not checked out → `update-ref` fast-forwards the local ref as before,
-  then `git checkout "<branch>"`. Checked out with a clean tree → `git merge --ff-only
+- **`continue`** (a branch for this batch already exists) → before resolving `remoteState`, its
+  `dirty`/`changelogDirty` fields decide what happens to the changelog: `dirty: true` → the same
+  error as `new`: report and end, nothing touched. `changelogDirty` alone (pfq's parked
+  reservations, or a stray leftover from a previous session) → `git stash push -q --
+  "<changelogFile>"` first, then resolve `remoteState` and run the checkout exactly as described
+  below, `git stash pop -q` immediately after the checkout; a failing pop → report the conflict and
+  name the kept stash, end without further action; a clean pop → `"<plugin-root>/bin/cfq" changelog
+  commit "<repo-root>" "Record parked batch reservations in the changelog"`. On **Cancel** below
+  (the `ahead`/`diverged` question), pop the stash back before ending so nothing is left changed.
+  Neither flag set → resolve `remoteState` and checkout directly, no stash, no commit call.
+  **`behind`**: not checked out → `update-ref` fast-forwards the local ref as before, then `git
+  checkout "<branch>"`. Checked out with a clean tree → `git merge --ff-only
   "refs/remotes/origin/<branch>"` instead (the ref of the currently-checked-out branch can't move
   under `update-ref`). Checked out and dirty → nothing moves; `remoteWarning` names the dirty tree,
   and the `Branch` status line surfaces it as a `⚠️` note — `git checkout "<branch>"` still runs,
@@ -92,7 +101,10 @@ on `mode` to read any of the three.
   releases the lock and ends the session, nothing touched. **`diverged`** → the same three-option
   question minus the push option — `remoteWarning` explains why a push would be rejected.
   **`synced`**/**`unknown`** → plain `git checkout "<branch>"`, no question. Either way, don't write
-  a changelog entry — the batch is already recorded.
+  a new changelog entry — the batch is already recorded; only the stash/commit sequence above may
+  touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
+  changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
+  the `new` path.
 - **`new`** → `baseSource: "main"` or `"dependsOn"` resolves silently to the already-derived
   `base`/`baseRef`, no question — name `baseSource` in the `Branch` status line. `baseSource:
   "ambiguous"` (no single dependency branch contains every other unmerged one — the exceptional
@@ -111,16 +123,26 @@ on `mode` to read any of the three.
 ```bash
 git checkout -b "<branch>" "<baseRef>"
 "<plugin-root>/bin/cfq" changelog init "<repo-root>" "<branch>" "<base>" "<batch>"
+"<plugin-root>/bin/cfq" changelog commit "<repo-root>" "Start <branch> batch in the changelog"
 "<plugin-root>/bin/cfq" branch plan "<repo-root>" "<batch>"
 ```
 
 `changelog init` keeps receiving `<base>` (the plain branch name), not `<baseRef>` — the changelog
-records which branch the work builds on, not which ref was used to cut it.
+records which branch the work builds on, not which ref was used to cut it. `changelog commit` is a
+script verb, never model discretion — it stages and commits only the changelog file (never a bare
+`git commit`), so a pfq reservation left dirty on the base branch rides along with the `checkout -b`
+and lands in this one immediate commit together with the `init` block; no push here, Step 9's first
+phase push carries it.
 
 The `new`-mode `bin/cfq branch plan` re-run above is the one and only place this batch's mutation
 step calls it directly — solely to reconfirm the branch now exists post-checkout; `continue`/`off`
-never call it again, the preflight's answer already stands. A dirty working tree at this point is
-an error, not something to work around: report it and end without touching anything.
+never call it again, the preflight's answer already stands. Its `dirty`/`changelogDirty` fields gate
+this whole path: `dirty: true` (uncommitted changes other than the changelog file) → error, report
+and end without touching anything; `changelogDirty` alone is expected here — it is exactly the pfq
+reservation this section's `changelog commit` call above just cleared, so a second re-run reports
+`changelogDirty: false` too. The commit result (`committed`/`clean`/`ignored`/`off`) is rendered as
+an indented `   └ ` sub-line under the `Branch` status line, per Output Format's sub-information
+rule.
 
 ## Batch Allocation Errors (`cfq batch allocate` — pfq Step 14)
 

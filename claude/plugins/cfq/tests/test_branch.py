@@ -121,6 +121,8 @@ class BranchTest(CfqTestCase):
         out = self.json_out(self._plan("2026-01-01-mytopic"))
         self.assertEqual(out["mode"], "off", msg=f"off mode -> {out}")
         self.assertIsNone(out["branch"], msg=f"off branch should be null -> {out}")
+        self.assertFalse(out["dirty"], msg=f"off dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"off changelogDirty -> {out}")
 
     def test_ahead_branch_appears_in_candidates(self):
         # A branch ahead of main appears in candidates (as an object) but no longer becomes the
@@ -396,6 +398,58 @@ class BranchTest(CfqTestCase):
         self.assertEqual(out["baseSource"], "main", msg=f"offline baseSource -> {out}")
         cand = out["candidates"][0]
         self.assertTrue(cand["localOnly"], msg=f"offline localOnly -> {cand}")
+
+    def test_changelog_only_modification_is_changelog_dirty_not_dirty(self):
+        # A tracked changelog file that only carries the queue's own reservations/updates ->
+        # changelogDirty, but not dirty -- expected dirt, not a blocker.
+        self.run_cfq("layout", "ensure", str(self.repo), check=True)
+        self.run_cfq(
+            "changelog", "init", str(self.repo), "cfq/2026-05-01-seed", "main",
+            "2026-05-01-seed", check=True,
+        )
+        changelog_path = self.repo / ".claude" / "cfq" / "changelog.yml"
+        self.run_clean("git", "add", "-f", str(changelog_path), cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "-q", "-m", "seed changelog", cwd=self.repo,
+        )
+        self.run_cfq(
+            "changelog", "reserve", str(self.repo), "5", "005-2026-05-02-other", check=True,
+        )
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertFalse(out["dirty"], msg=f"changelog-only dirty -> {out}")
+        self.assertTrue(out["changelogDirty"], msg=f"changelog-only changelogDirty -> {out}")
+
+    def test_other_tracked_dirt_sets_dirty(self):
+        (self.repo / "scratch.txt").write_text("uncommitted\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertTrue(out["dirty"], msg=f"other-file dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"other-file changelogDirty -> {out}")
+
+    def test_untracked_queue_state_never_counts_as_dirty(self):
+        # A tracked sibling under .claude/ keeps git from collapsing the untracked report up to
+        # ".claude/" itself, so the ".claude/cfq/" line this asserts against is the one git
+        # actually prints.
+        (self.repo / ".claude").mkdir()
+        (self.repo / ".claude" / "keep.txt").write_text("tracked\n")
+        self.run_clean("git", "add", ".claude/keep.txt", cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "-q", "-m", "track .claude/keep.txt", cwd=self.repo,
+        )
+        queue_dir = self.repo / ".claude" / "cfq"
+        queue_dir.mkdir()
+        (queue_dir / ".lock").write_text("someone\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertFalse(out["dirty"], msg=f"queue-state dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"queue-state changelogDirty -> {out}")
+
+    def test_continue_mode_also_reports_dirty(self):
+        self.run_clean("git", "branch", "v0.3-mytopic", cwd=self.repo)
+        (self.repo / "scratch.txt").write_text("uncommitted\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertEqual(out["mode"], "continue", msg=f"continue mode -> {out}")
+        self.assertTrue(out["dirty"], msg=f"continue dirty -> {out}")
 
 
 class BranchPlanRemoteCandidatesTest(CfqTestCase):

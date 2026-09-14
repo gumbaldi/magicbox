@@ -433,6 +433,147 @@ class ChangelogTest(CfqTestCase):
             "", "branch-for should be empty when the changelog file doesn't exist",
         )
 
+    def test_commit_batches_reservation_and_init_in_one_commit(self):
+        # routine: reserve another batch (dirty file) -> init this batch -> commit -> committed,
+        # working tree clean, the single new commit carries both blocks.
+        repo = self.make_repo("commit-repo")
+        self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
+        try:
+            self.run_cfq(
+                "changelog", "reserve", str(repo), "9", "009-2026-04-01-other", check=True,
+            )
+            self.run_cfq(
+                "changelog", "init", str(repo), "cfq/010-2026-04-02-mine", "main",
+                "010-2026-04-02-mine", check=True,
+            )
+            status_before = subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertNotEqual(status_before.strip(), "", "changelog should be dirty before commit")
+            before_n = subprocess.run(
+                ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+
+            out = self.run_cfq(
+                "changelog", "commit", str(repo), "Start cfq/010 batch in the changelog", check=True,
+            ).stdout.strip()
+            self.assertEqual(out, "committed", f"commit result, want committed, got {out}")
+
+            status_after = subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertEqual(status_after, "", "working tree should be clean after commit")
+            after_n = subprocess.run(
+                ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(
+                int(after_n), int(before_n) + 1, "commit should create exactly one new commit",
+            )
+
+            diff = subprocess.run(
+                ["git", "-C", str(repo), "show", "--format=", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertIn(
+                "009-2026-04-01-other", diff, "commit missed the parked reservation block",
+            )
+            self.assertIn(
+                "010-2026-04-02-mine", diff, "commit missed the in-progress init block",
+            )
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
+    def test_commit_clean_tree_is_a_noop(self):
+        repo = self.make_repo("commit-clean-repo")
+        self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
+        try:
+            self.run_cfq(
+                "changelog", "init", str(repo), "cfq/example", "main", "2026-04-03-clean", check=True,
+            )
+            subprocess.run(["git", "-C", str(repo), "add", "tracked-changelog.yml"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-q", "-m", "seed"], check=True,
+            )
+            before = subprocess.run(
+                ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+
+            out = self.run_cfq("changelog", "commit", str(repo), "no-op", check=True).stdout.strip()
+            self.assertEqual(out, "clean", f"commit on a clean tree, want clean, got {out}")
+
+            after = subprocess.run(
+                ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            self.assertEqual(after, before, "commit on a clean tree created a commit")
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
+    def test_commit_ignored_changelog_reports_ignored(self):
+        # Default changelogFile under a git-excluded .claude/cfq/ (via `layout ensure`) -> ignored,
+        # no commit, exit 0.
+        repo = self.make_repo("commit-ignored-repo")
+        self.run_cfq("layout", "ensure", str(repo), check=True)
+        self.run_cfq(
+            "changelog", "init", str(repo), "cfq/example", "main", "2026-04-04-ignored", check=True,
+        )
+        proc = self.run_cfq("changelog", "commit", str(repo), "no-op")
+        self.assertEqual(proc.returncode, 0, "commit on an ignored changelog should exit 0")
+        self.assertEqual(
+            proc.stdout.strip(), "ignored", f"commit result, want ignored, got {proc.stdout.strip()}",
+        )
+
+    def test_commit_disabled_changelog_file_reports_off(self):
+        repo = self._plain_repo("commit-off-repo")
+        self.run_cfq("settings", "set", "changelogFile", "", check=True)
+        try:
+            proc = self.run_cfq("changelog", "commit", str(repo), "no-op")
+            self.assertEqual(proc.returncode, 0, "commit with disabled changelogFile should exit 0")
+            self.assertEqual(
+                proc.stdout.strip(), "off", f"commit result, want off, got {proc.stdout.strip()}",
+            )
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
+    def test_commit_only_touches_the_changelog_file(self):
+        # A second, unrelated staged file must not be swept into the changelog-only commit and
+        # must stay staged afterwards.
+        repo = self.make_repo("commit-partial-repo")
+        self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
+        try:
+            self.run_cfq(
+                "changelog", "init", str(repo), "cfq/example", "main", "2026-04-05-partial", check=True,
+            )
+            (repo / "other.txt").write_text("staged content\n")
+            subprocess.run(["git", "-C", str(repo), "add", "other.txt"], check=True)
+
+            out = self.run_cfq(
+                "changelog", "commit", str(repo), "changelog only", check=True,
+            ).stdout.strip()
+            self.assertEqual(out, "committed", f"commit result, want committed, got {out}")
+
+            diff = subprocess.run(
+                ["git", "-C", str(repo), "show", "--stat", "--format=", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertIn("tracked-changelog.yml", diff, "commit missed the changelog file")
+            self.assertNotIn("other.txt", diff, "commit swept in the unrelated staged file")
+
+            status = subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertIn(
+                "A  other.txt", status, "other.txt should remain staged after the changelog-only commit",
+            )
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
     def test_git_state_policy_exclusion(self):
         policy_repo = self._plain_repo("policy-repo")
         subprocess.run(["git", "-C", str(policy_repo), "init", "-q"], check=True)

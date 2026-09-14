@@ -99,8 +99,8 @@ Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠
 **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
 `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
 (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
-base-branch question, checkout, changelog init, post-checkout reconfirm) — based on `origin`'s
-current state — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+base-branch question, checkout, changelog init, changelog commit, post-checkout reconfirm) — based
+on `origin`'s current state — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
 happened. `resume` (same preflight
 result) already carries done/open phases, last commit, deviations, red-phase history,
 `.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
@@ -194,7 +194,8 @@ commit-message` (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Commit T
 <branch>` on this session's first push, a plain `git push` after that. Then backfill the commit
 hash via
 `git rev-parse HEAD` and `bin/cfq report set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
-it, `bin/cfq resume`'s commit fields stay empty for every phase from here on. Print the `Commit`
+it, `bin/cfq resume`'s commit fields stay empty for every phase from here on. The changelog is
+already committed by Step 4 — never stage it by hand here. Print the `Commit`
 status line — branch and commits pushed.
 
 ## Step 10 — Context Check After Every Phase
