@@ -10,9 +10,10 @@ Only read when Step 17 finds `DUE <n>`.
    ponytail uses — the other is `/ifq`'s batch-end review (`queues.md`'s **Ponytail Review (Step
    11)**), both gated by `usePonytailAudit`. Outside those two, cfq expects ponytail dormant
    (`defaultMode: off`).
-3. Findings from both tasks go into **one** combined list and **one** `AskUserQuestion`
-   (multi-select) about what gets parked as a cleanup batch — one line per finding, each with an
-   explicit recommendation (`queue it` / `fold into the current batch` / `ignore`) and a one-line
-   reason. No selection is a valid answer: no batch, no second attempt.
+3. Findings from both tasks go into **one** combined list. Zero findings → no entry, move to step
+   4. One or more → write **one** `plan/` entry via `"<plugin-root>/bin/cfq" note plan
+   "<repo-root>" "maintenance-findings" "<body-file>"` — one line per finding, each with an
+   explicit recommendation (`queue it` / `ignore`) and a one-line reason. No question, no batch
+   parked here.
 4. Then run `"<plugin-root>/bin/cfq" maintenance stamp "<repo-root>"` — even when
-   nothing was selected. The run happened either way.
+   nothing was found. The run happened either way.

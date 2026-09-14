@@ -12,17 +12,20 @@ edits code.
 /pfq
 ```
 
-1. If `.claude/cfq/plan/` has requests waiting (dropped there by a previous `/ifq`
-   session), pfq offers to start with the oldest one, choose a different one, or skip and plan
-   something else instead.
+1. If invoked without arguments and `.claude/cfq/plan/` has requests waiting (dropped there by a
+   previous `/ifq` session), pfq offers to start with the oldest one, choose a different one, or
+   skip and plan something else instead. Invoked with a briefing, the inbox is left untouched.
 2. Checks the running model against `planModels` — a mismatch only warns, it never blocks.
-3. Asks for an interview depth: quick targeted questions, thorough grilling (a design-tree
-   interview, round by round), or grilling with a written paper trail (a `CONTEXT.md` glossary and
-   ADRs for hard-to-reverse decisions).
+3. Asks everything it needs before any research starts, in one start block: an interview depth
+   (quick targeted questions, thorough grilling — a design-tree interview, round by round — or
+   grilling with a written paper trail, a `CONTEXT.md` glossary and ADRs for hard-to-reverse
+   decisions), a high-priority flag (optional — not flagging is the normal case), and — for a repo
+   pfq hasn't seen before — whether to keep or adjust the current config.
 4. Reads the code — for anything spanning multiple files, it delegates to Explore subagents
    running on `planExploreModel` rather than reading everything in the main session.
-5. Clarifies open points, proposes a phase split, checks for security findings, and offers a
-   high-priority flag (optional — not flagging is the normal case).
+5. Clarifies open points and proposes a phase split. Overlap with another open batch sets
+   `.dependsOn` on it automatically, no question. Fixable security findings and maintenance
+   findings each become one `plan/` entry for a later session, never a question.
 6. Criticises its own phase cut against three categories before writing anything — purposeful,
    fits the environment, serves the batch goal — dropping, narrowing, merging or reordering a
    phase where a verdict fails.

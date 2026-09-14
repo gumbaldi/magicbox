@@ -17,10 +17,14 @@ attempt, not as a discovered tool failure.
 Never `AskUserQuestion` (or a prose equivalent) about whether to keep waiting on a subagent or
 background task that's still running (Explore delegation, verification delegation). That is not a
 user decision — print a status line, then continue automatically once the result lands.
-`AskUserQuestion` is reserved for points where the answer changes what gets built or parked; every
-existing question site in both skills already qualifies (batch selection, scope-creep parking,
-branch base, interview depth, security phase, grilling rounds, closing question) — this section
-adds a rule, not new question sites.
+`AskUserQuestion` is reserved for points where the answer changes what gets built or parked. The
+rule behind `pfq`'s site list: it asks everything it needs before planning work starts — after
+that, only exceptional cases still ask; everything routine gets decided and reported, or parked as
+a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
+only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
+drop-a-phase/remove-a-named-capability question; `ifq`: batch selection, scope-creep parking,
+branch base (this phase leaves `ifq`'s sites unchanged) — this section adds a rule, not new
+question sites.
 
 ## Active Interview Duty
 

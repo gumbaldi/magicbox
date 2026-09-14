@@ -756,7 +756,11 @@
       summary: "write_json/now_iso deduped into cfq_lib/render.py; cfq_report.py's extract_goal reuses cfq_brief.parse_phase_body instead of re-implementing the ## Context extraction; unused datetime/os imports dropped where they became dead."
 - batchNumber: 23
   batch: 023-2026-09-14-fewer-mid-flow-questions
-  status: parked
+  branch: cfq/023-2026-09-14-fewer-mid-flow-questions
+  base: cfq/022-2026-09-14-dedupe-script-helpers
+  started: 2026-09-14
+  status: in-progress
+  legacy: false
 - batchNumber: 24
   batch: 024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
   status: parked
