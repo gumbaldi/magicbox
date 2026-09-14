@@ -3,51 +3,94 @@
 # implementation script for <noun>, passing everything after the noun through untouched.
 # Deliberately logic-free: the noun-to-script map is the entire contract. Implementations may be
 # reimplemented in any language without any caller noticing, which is the point.
+#
+# Bash 3.2 compatible on purpose (macOS ships 3.2 as /bin/bash) -- avoids every Bash 4+ feature:
+# associative arrays, array-key expansion, bulk-read-into-array builtins, case fallthrough,
+# case-conversion expansion.
 set -eu
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 
+# noun -> script, one script per noun, named for what it operates on rather than for the file.
+# A function instead of an associative array (Bash 4+ only) -- see the compat note above.
+noun_script() {
+  case "$1" in
+    batch) echo cfq_batch_id.py ;;
+    branch) echo cfq_branch.py ;;
+    brief) echo cfq_brief.py ;;
+    changelog) echo cfq_changelog.py ;;
+    dash) echo cfq_dash.py ;;
+    doctor) echo cfq_doctor.py ;;
+    finish) echo cfq_finish.py ;;
+    guard) echo cfq_guard.py ;;
+    lang) echo cfq_lang.py ;;
+    layout) echo cfq_layout.py ;;
+    lint) echo cfq_lint.py ;;
+    lock) echo cfq_lock.py ;;
+    maintenance) echo cfq_maintenance.py ;;
+    note) echo cfq_note.py ;;
+    overlap) echo cfq_queue_overlap.py ;;
+    park) echo cfq_park.py ;;
+    phase) echo cfq_phase.py ;;
+    preflight-plan) echo cfq_pfq_preflight.py ;;
+    preflight-impl) echo cfq_ifq_preflight.py ;;
+    registry) echo cfq_registry.py ;;
+    report) echo cfq_report.py ;;
+    resume) echo cfq_resume.py ;;
+    runtime) echo cfq_runtime.py ;;
+    scan) echo cfq_scan.py ;;
+    security) echo cfq_security.py ;;
+    settings) echo cfq_settings.py ;;
+    telemetry) echo cfq_telemetry.py ;;
+    trash) echo cfq_trash.py ;;
+    worker) echo cfq_worker.py ;;
+    ctx) echo ctx_usage.py ;;
+    *) echo "" ;;
+  esac
+}
+
+NOUNS="batch branch brief changelog dash doctor finish guard lang layout lint lock maintenance note overlap park phase preflight-plan preflight-impl registry report resume runtime scan security settings telemetry trash worker ctx"
+
+# Python interpreter discovery: first of python3, python, py (with -3) whose version is >= 3.8.
+# Sets PY_CMD (and PY_ARG, only non-empty for the `py -3` case) -- a string pair rather than an
+# array, since arrays aren't available in Bash 3.2 either.
+PY_CMD=""
+PY_ARG=""
+
+find_python() {
+  local candidate
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 \
+      && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+      PY_CMD="$candidate"
+      PY_ARG=""
+      return 0
+    fi
+  done
+  if command -v py >/dev/null 2>&1 \
+    && py -3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+    PY_CMD="py"
+    PY_ARG="-3"
+    return 0
+  fi
+  return 1
+}
+
 require_python() {
-  command -v python3 >/dev/null 2>&1 || {
-    echo "cfq: python3 is required for '$noun' but was not found on PATH." >&2
-    echo "     Install python3 (3.8 or newer), or run 'cfq doctor' for the full dependency list." >&2
+  find_python || {
+    echo "cfq: Python 3 is required for '$noun' but was not found on PATH." >&2
+    echo "     Install Python 3 (3.8 or newer), or run 'cfq doctor' for the full dependency list." >&2
     exit 127
   }
 }
 
-# noun -> script, one script per noun, named for what it operates on rather than for the file.
-declare -A NOUN_SCRIPT=(
-  [batch]=cfq_batch_id.py
-  [branch]=cfq_branch.py
-  [brief]=cfq_brief.py
-  [changelog]=cfq_changelog.py
-  [dash]=cfq_dash.py
-  [doctor]=cfq_doctor.py
-  [finish]=cfq_finish.py
-  [guard]=cfq_guard.py
-  [lang]=cfq_lang.py
-  [layout]=cfq_layout.py
-  [lint]=cfq_lint.py
-  [lock]=cfq_lock.py
-  [maintenance]=cfq_maintenance.py
-  [note]=cfq_note.py
-  [overlap]=cfq_queue_overlap.py
-  [park]=cfq_park.py
-  [phase]=cfq_phase.py
-  [preflight-plan]=cfq_pfq_preflight.py
-  [preflight-impl]=cfq_ifq_preflight.py
-  [registry]=cfq_registry.py
-  [report]=cfq_report.py
-  [resume]=cfq_resume.py
-  [runtime]=cfq_runtime.py
-  [scan]=cfq_scan.py
-  [security]=cfq_security.py
-  [settings]=cfq_settings.py
-  [telemetry]=cfq_telemetry.py
-  [trash]=cfq_trash.py
-  [worker]=cfq_worker.py
-  [ctx]=ctx_usage.py
-)
+run_python() {
+  if [ -n "$PY_ARG" ]; then
+    "$PY_CMD" "$PY_ARG" "$@"
+  else
+    "$PY_CMD" "$@"
+  fi
+}
 
 # First "# Usage: ..." comment in a script, or its first description comment line if none.
 script_one_liner() {
@@ -64,8 +107,8 @@ list_nouns() {
     echo "       cfq <noun> --help"
     echo
     echo "nouns:"
-    for n in $(printf '%s\n' "${!NOUN_SCRIPT[@]}" | sort); do
-      printf '  %-16s %s\n' "$n" "$(script_one_liner "${NOUN_SCRIPT[$n]}")"
+    for n in $(printf '%s\n' $NOUNS | sort); do
+      printf '  %-16s %s\n' "$n" "$(script_one_liner "$(noun_script "$n")")"
     done
   } >&2
 }
@@ -79,7 +122,7 @@ fi
 noun="$1"
 shift
 
-script="${NOUN_SCRIPT[$noun]:-}"
+script="$(noun_script "$noun")"
 if [ -z "$script" ]; then
   echo "cfq: unknown noun '$noun'" >&2
   list_nouns
@@ -88,7 +131,7 @@ fi
 
 if [ "${1:-}" = "--help" ]; then
   case "$script" in
-    *.py) out="$(python3 "$script_dir/$script" --help 2>&1)" && help_ok=1 || help_ok=0 ;;
+    *.py) require_python; out="$(run_python "$script_dir/$script" --help 2>&1)" && help_ok=1 || help_ok=0 ;;
     *)    out="$("$script_dir/$script" --help 2>&1)" && help_ok=1 || help_ok=0 ;;
   esac
   if [ "$help_ok" = "1" ]; then
@@ -101,6 +144,6 @@ if [ "${1:-}" = "--help" ]; then
 fi
 
 case "$script" in
-  *.py) require_python; exec python3 "$script_dir/$script" "$@" ;;
+  *.py) require_python; exec "$PY_CMD" ${PY_ARG:+"$PY_ARG"} "$script_dir/$script" "$@" ;;
   *)    exec "$script_dir/$script" "$@" ;;
 esac

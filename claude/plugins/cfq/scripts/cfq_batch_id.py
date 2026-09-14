@@ -286,7 +286,7 @@ def migrate_width(repo):
         if target and os.path.isfile(target):
             # Direct sibling call: inside a per-pair loop, where a dispatcher exec per iteration
             # is the more expensive trade (see CLAUDE.md's dispatcher-loop-exception note).
-            subprocess.run(["python3", str(CHANGELOG_PY), "rename-batch", repo, old_n, new_n])
+            subprocess.run([sys.executable, str(CHANGELOG_PY), "rename-batch", repo, old_n, new_n])
 
     return {"status": "OK", "width": to, "migrated": len(pairs)}, True
 
@@ -349,7 +349,7 @@ def reconcile(repo, fix):
     if fix and orphan_dirs:
         for num, name in sorted(orphan_dirs):
             proc = subprocess.run(
-                ["python3", str(CHANGELOG_PY), "reserve", repo, str(num), name],
+                [sys.executable, str(CHANGELOG_PY), "reserve", repo, str(num), name],
                 capture_output=True, text=True,
             )
             if proc.returncode != 0:

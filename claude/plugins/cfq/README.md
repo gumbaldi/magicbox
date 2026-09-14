@@ -145,11 +145,9 @@ still be committed and shared. Set `gitStatePolicy: trackable` to remove cfq's m
 normal repository `.gitignore`/tracking apply instead; cfq never edits `.gitignore` itself.
 
 Upgrading from a pre-`.claude/cfq/` install: a repo still on the old repo-local
-`.claude/code-for-queue/` layout is not migrated automatically. Run the isolated upgrade utility
-once — `scripts/migrations/cfq-layout-v1.sh plan --all-known` to preview across every known repo,
-then `apply --all-known` to perform it; nothing under the old root is discarded, and a genuine
-conflict (a file that differs from its new-layout counterpart) blocks removal of the old root
-instead of silently overwriting it.
+`.claude/code-for-queue/` layout is not migrated automatically by this version — the one-time
+upgrade utility for that was removed once every known repo had moved to the new layout. A repo
+still on the old layout needs an older plugin version to run the migration first.
 
 - `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
@@ -373,6 +371,13 @@ reports what's missing and, for a required gap, a platform-appropriate install h
 warning (user and Claude both) when a required command is absent. Optional, each degrading only the
 one feature it powers rather than blocking the plugin: `gh` or `tea` for the security check
 (whichever matches the repo's forge), `npm` for `npm audit` on repos with a `package.json`.
+
+## Platforms
+
+Linux and macOS are fully supported — `bin/cfq` only needs stock Bash 3.2, which is what macOS
+ships as `/bin/bash`. Windows is best effort through Git Bash, which is what Claude Code itself
+runs hooks and `Bash` tool calls through on Windows; it needs Python 3.8+ on `PATH` as `python3`,
+`python` or `py`.
 
 ## Optional dependencies
 

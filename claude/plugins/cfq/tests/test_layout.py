@@ -9,7 +9,6 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT
 # Files allowed to still mention the retired repo-local `.claude/code-for-queue` layout, per
 # check 8 below.
 ALLOWED_LAYOUT_FILES = {
-    "scripts/migrations/cfq-layout-v1.sh",
     "tests/test-layout-migration.sh",
     "tests/test-layout.sh",
     "README.md",
@@ -119,10 +118,11 @@ class LayoutTest(CfqTestCase):
 
     def test_no_repo_local_layout_leftovers(self):
         # 8. Repo-local `.claude/code-for-queue` literal must not reappear in normal scripts
-        # or SKILL.md files — permitted only in the isolated migration utility, its focused
-        # test fixture, and README.md's historical migration note that explicitly document the
-        # retired layout rather than using it. The global `$HOME/.claude/code-for-queue/` store
-        # is a different, still-current path — any line naming HOME/home/~ is that, not this.
+        # or SKILL.md files — permitted only in the retired shell test fixtures (pre-Python-port
+        # names, kept in ALLOWED_LAYOUT_FILES above though the files themselves are long gone) and
+        # README.md's historical migration note, which explicitly documents the retired layout
+        # rather than using it. The global `$HOME/.claude/code-for-queue/` store is a different,
+        # still-current path — any line naming HOME/home/~ is that, not this.
         proc = subprocess.run(
             [
                 "grep", "-rnE", r"\.claude/code-for-queue", str(PLUGIN_ROOT),

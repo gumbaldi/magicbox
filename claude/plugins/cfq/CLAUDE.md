@@ -20,10 +20,9 @@ phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_l
 added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
 `cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
 phase 04; `cfq_guard.py` (new) added as batch `019` phase 06) — `bin/cfq` itself stays shell by
-design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
-shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
-manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`
-required) — see Architecture.
+design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
+manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
+a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
@@ -92,8 +91,7 @@ Behaviour lives in the SKILL.md prose — the scripts only supply numbers and st
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/cfq/` (canonical
 path/layout helpers: `cfq_lib/paths.py` — pure path functions, no I/O — and `cfq_layout.py`, which
-owns directory creation and the Git-state policy below; the previous repo-local layout is
-understood only by the isolated `scripts/migrations/cfq-layout-v1.sh` upgrade utility):
+owns directory creation and the Git-state policy below):
 `impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
 (optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
 (optional, one batch directory name per line — blocks this batch

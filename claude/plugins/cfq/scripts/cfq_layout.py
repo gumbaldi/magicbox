@@ -4,8 +4,9 @@
 #        cfq_layout.py sync-git-policy <repo-root>
 #        cfq_layout.py probe-cleanup <repo-root> [--docs]
 """Owns the canonical `<repo>/.claude/cfq/` layout and its local Git-state policy. Knows nothing
-about the old `.claude/code-for-queue` layout -- that is the isolated migration utility's job
-(scripts/migrations/cfq-layout-v1.sh). No `migrate` subcommand here on purpose.
+about the old repo-local `.claude/code-for-queue` layout -- the migration utility for that was
+removed once every known repo had moved to this layout; a repo still on the old layout needs an
+older plugin version to upgrade. No `migrate` subcommand here on purpose.
 
 Ported from cfq-layout.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 text output, exit codes) is the invariant this file preserves.

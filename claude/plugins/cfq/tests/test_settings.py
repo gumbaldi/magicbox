@@ -9,6 +9,7 @@ import contextlib
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
@@ -873,6 +874,19 @@ class SettingsTest(CfqTestCase):
         )
         self.assertEqual(
             out["stopSevenDayPct"], 95, msg=f"list stopSevenDayPct = '{out['stopSevenDayPct']}', want 95"
+        )
+
+    # 17. HOME unset in the environment (Windows Git Bash sometimes doesn't set it): falls back
+    # to pathlib.Path.home() instead of raising KeyError.
+    def test_17_home_removed_from_env(self):
+        env = {k: v for k, v in os.environ.items() if k != "HOME" and not k.startswith("CFQ_")}
+        proc = subprocess.run(
+            [str(CFQ_BIN), "settings", "get", "docLevel"], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(proc.returncode, 0, msg=f"settings get docLevel without HOME: {proc.stderr}")
+        self.assertIn(
+            proc.stdout.strip(), ("minimal", "standard"),
+            msg=f"unexpected docLevel without HOME: {proc.stdout!r}",
         )
 
 

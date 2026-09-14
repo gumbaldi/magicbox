@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, paths, render  # noqa: E402
+from cfq_lib.env import home_dir  # noqa: E402
 
 # Single source of truth for every key: type, default, scope, env mapping, description, plus
 # type-specific validation data (min/max for int, values for enum, pattern for string, shape
@@ -67,8 +68,7 @@ SCHEMA = {
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
 
-HOME = os.environ["HOME"]
-GLOBAL_DIR = f"{HOME}/.claude/code-for-queue"
+GLOBAL_DIR = f"{home_dir()}/.claude/code-for-queue"
 GLOBAL_SETTINGS_FILE = f"{GLOBAL_DIR}/settings.json"
 STATE_FILE = f"{GLOBAL_DIR}/state.json"
 

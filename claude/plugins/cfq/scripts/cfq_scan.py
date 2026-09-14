@@ -34,6 +34,7 @@ from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.env import home_dir  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_scan.py"
@@ -92,7 +93,7 @@ def gather_candidates():
     scan_roots = cfq_run("settings", "get", "scanRoots").stdout.strip()
     for root in filter(None, scan_roots.split(",")):
         if root.startswith("~"):
-            root = str(pathlib.Path(os.environ["HOME"])) + root[1:]
+            root = str(home_dir()) + root[1:]
         root_path = pathlib.Path(root)
         if not root_path.is_dir():
             continue
@@ -104,7 +105,7 @@ def gather_candidates():
         # direct sibling call is the cheaper trade here -- see CLAUDE.md's dispatcher-loop
         # exception.
         subprocess.run(
-            ["python3", str(SCRIPT_DIR / "cfq_registry.py"), "add", repo],
+            [sys.executable, str(SCRIPT_DIR / "cfq_registry.py"), "add", repo],
             stdout=subprocess.DEVNULL,
         )
 
@@ -182,7 +183,7 @@ def scan_repo(repo):
         return None
 
     stale_s_raw = subprocess.run(
-        ["python3", str(SCRIPT_DIR / "cfq_settings.py"), "get", "--repo", repo, "sessionStaleSeconds"],
+        [sys.executable, str(SCRIPT_DIR / "cfq_settings.py"), "get", "--repo", repo, "sessionStaleSeconds"],
         capture_output=True, text=True,
     ).stdout.strip()
     try:

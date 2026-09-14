@@ -75,9 +75,11 @@ class CfqTestCase(unittest.TestCase):
         subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d, check=True)
         return d
 
-    def minimal_path(self, *bins):
+    def minimal_path(self, *bins, rename=None):
         """Builds a throwaway PATH directory containing only the given commands (symlinked
-        in), so a missing dependency in a test is real, not accidental."""
+        in), so a missing dependency in a test is real, not accidental. `rename` maps a name to
+        create in the directory to the real command it should resolve to (e.g.
+        {"python": "python3"}, to simulate a host that only has `python` on PATH)."""
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         dir_path = pathlib.Path(d.name)
@@ -85,4 +87,8 @@ class CfqTestCase(unittest.TestCase):
             p = shutil.which(b)
             if p:
                 (dir_path / b).symlink_to(p)
+        for name, real in (rename or {}).items():
+            p = shutil.which(real)
+            if p:
+                (dir_path / name).symlink_to(p)
         return str(dir_path)

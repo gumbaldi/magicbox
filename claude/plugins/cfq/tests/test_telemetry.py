@@ -1,6 +1,7 @@
 """Migrated from test-telemetry.sh (bin/cfq telemetry — record/sync)."""
 
 import json
+import re
 import unittest
 
 from cfq_testlib import CfqTestCase
@@ -27,7 +28,9 @@ class TelemetryTest(CfqTestCase):
         self.batch = self.repo / ".claude" / "cfq" / "2026-01-01-demo"
         self.batch.mkdir(parents=True)
 
-        slug = str(self.repo).replace("/", "-")
+        # Mirrors cfq_runtime.py's slug_for exactly -- a tempfile-generated path can contain "_",
+        # which the old `.replace("/", "-")` left untouched while slug_for now maps it to "-".
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo))
         tdir = self.home / ".claude" / "projects" / slug
         tdir.mkdir(parents=True)
         self.transcript = tdir / "testsid.jsonl"
