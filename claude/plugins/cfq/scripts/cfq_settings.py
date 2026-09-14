@@ -32,6 +32,8 @@ SCHEMA = {
     "grillMode": {"type": "enum", "default": "stepwise", "values": ["stepwise", "classic"], "scope": ["global", "repo"], "env": "CFQ_GRILL_MODE", "description": "Interview style for /pfq: stepwise (one question at a time) or classic."},
     "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "description": "Models /pfq is allowed to run under."},
     "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "description": "Models /ifq is allowed to run under."},
+    "orchestratorMode": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
+    "orchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
     "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "description": "Model used for /pfq exploratory sub-agent research."},
     "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
     "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "description": "Skip the implModels/planModels gate entirely."},

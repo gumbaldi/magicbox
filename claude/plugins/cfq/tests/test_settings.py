@@ -191,6 +191,8 @@ class SettingsTest(CfqTestCase):
             "grillMode": "stepwise",
             "planModels": "opus,fable",
             "implModels": "sonnet",
+            "orchestratorMode": "false",
+            "orchestratorModels": "",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
             "allowAnyModel": "false",
@@ -216,6 +218,85 @@ class SettingsTest(CfqTestCase):
                 self.assertEqual(
                     got, expected, msg=f"regression default {key} = '{got}', want '{expected}'"
                 )
+
+    # 5g. orchestratorMode: default, round-trip through global and repo, env, set rejects
+    def test_05g_orchestrator_mode(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "orchestratorMode"
+        ).stdout.strip()
+        self.assertEqual(got, "false", msg=f"default orchestratorMode = '{got}', want false")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+
+            self.run_cfq("settings", "set", "orchestratorMode", "true", home=self.home, check=True)
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "true", msg=f"global set orchestratorMode -> got '{got}'")
+
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "orchestratorMode", "false",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "orchestratorMode", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "false", msg=f"repo set orchestratorMode -> got '{got}'")
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODE": "1"},
+            ).stdout.strip()
+            self.assertEqual(got, "true", msg=f"CFQ_ORCHESTRATOR_MODE=1 -> got '{got}', want true")
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODE": "yes"},
+            ).stdout.strip()
+            self.assertEqual(
+                got, "false", msg=f"CFQ_ORCHESTRATOR_MODE=yes -> got '{got}', want false"
+            )
+
+        proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
+
+    # 5h. orchestratorModels: default, round-trip, env comma split, repo overrides global
+    def test_05h_orchestrator_models(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "orchestratorModels"
+        ).stdout.strip()
+        self.assertEqual(got, "", msg=f"default orchestratorModels = '{got}', want empty")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorModels", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODELS": "sonnet,opus"},
+            ).stdout.strip()
+            self.assertEqual(
+                got, "sonnet,opus", msg=f"CFQ_ORCHESTRATOR_MODELS env split -> got '{got}'"
+            )
+
+            self.run_cfq(
+                "settings", "set", "orchestratorModels", "opus", home=self.home, check=True
+            )
+            got = self.run_cfq(
+                "settings", "get", "orchestratorModels", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "opus", msg=f"global set orchestratorModels -> got '{got}'")
+
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "orchestratorModels", "sonnet",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "orchestratorModels", home=self.home
+            ).stdout.strip()
+            self.assertEqual(
+                got, "sonnet", msg=f"repo overrides global orchestratorModels -> got '{got}'"
+            )
 
     # 6. maintenanceEvery: default, set 0, invalid, env override
     def test_06_maintenance_every(self):

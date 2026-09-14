@@ -699,4 +699,8 @@
       summary: "Added the PreToolUse guard: cfq_guard.py (new, wired into hooks/hooks.json's Bash and Write|Edit matchers as `bin/cfq guard pretooluse`) resolves every Bash argument and every Write/Edit file_path against the tool call's own cwd -- not a literal-string match -- and denies rm/rmdir/mv/cp/truncate/shred/dd/ln/install/sed -i, a >/>> redirect, or find -delete/-exec rm whose resolved target has .claude/cfq as a path component, plus a direct Write/Edit into impl/<batch>/done/** or impl/done/<batch>/**. Reads and every bin/cfq call are allowed by construction (their argv[0] basenames are never in the destructive set). Confirmed the current PreToolUse contract (stdin fields, hookSpecificOutput.permissionDecision deny shape, exit-0-with-JSON honored) against the live Claude Code docs (code.claude.com/docs/en/hooks) rather than from memory before writing any code, as the phase required. Fail-open on any internal error (bare except around both JSON-parse and decision logic, prints one stderr diagnostic, denies nothing). Reused cfq_lib/paths.py for the queue-directory constant rather than a second copy of the literal (see deviations)."
 - batchNumber: 20
   batch: 020-2026-09-10-ifq-orchestrator-mode
-  status: parked
+  branch: cfq/020-2026-09-10-ifq-orchestrator-mode
+  base: cfq/018-2026-09-07-plan-critique-and-scope-guard
+  started: 2026-09-14
+  status: in-progress
+  legacy: false

@@ -41,11 +41,11 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         stub.chmod(0o755)
         self.pf = self.scripts_copy / "cfq_ifq_preflight.py"
 
-    def _run_pf(self, *args, home=None):
-        return self.run_clean(
-            "python3", str(self.pf), *args,
-            env={"HOME": str(home if home is not None else self.home)},
-        )
+    def _run_pf(self, *args, home=None, env=None):
+        run_env = {"HOME": str(home if home is not None else self.home)}
+        if env:
+            run_env.update(env)
+        return self.run_clean("python3", str(self.pf), *args, env=run_env)
 
     def _calls(self):
         return len(self.count_log.read_text().splitlines())
@@ -85,6 +85,57 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertTrue(
             "reportDir" in out["reporting"] and "htmlReport" in out["reporting"],
             msg=f"missing reporting object: {out}",
+        )
+
+    def test_orchestrator_policy_present_and_false_by_default(self):
+        repo = self._setup_repo("orch-default")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorMode"], False, msg=f"orchestratorMode default = {out['policy']}"
+        )
+
+    def test_orchestrator_models_falls_back_to_impl_models(self):
+        repo = self._setup_repo("orch-fallback")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["sonnet"],
+            msg=f"orchestratorModels should fall back to implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_override_leaves_impl_models_untouched(self):
+        repo = self._setup_repo("orch-override")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_ORCHESTRATOR_MODELS": "opus"}))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["opus"], msg=f"override = {out['policy']}"
+        )
+        self.assertEqual(
+            out["policy"]["implModels"], ["sonnet"],
+            msg=f"fallback substitution must not overwrite implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_empty_is_a_legitimate_answer(self):
+        repo = self._setup_repo("orch-both-empty")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": []}))
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], [],
+            msg=f"both empty should stay empty, not error: {out['policy']}",
         )
 
     def test_new_mode_calls_branch_twice_across_sequence(self):

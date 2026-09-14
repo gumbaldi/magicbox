@@ -63,8 +63,10 @@ def cmd_preflight(args):
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
     policy = project(settings, [
         "implModels", "allowAnyModel", "implBlockedPlugins", "onePhasePerSession",
-        "implExploreModel", "implExploreModelComplex",
+        "implExploreModel", "implExploreModelComplex", "orchestratorMode", "orchestratorModels",
     ])
+    if not policy["orchestratorModels"]:
+        policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
 
     scan_data = json.loads(cfq_run("scan").stdout)
