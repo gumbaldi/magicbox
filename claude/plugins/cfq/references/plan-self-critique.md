@@ -95,3 +95,40 @@ Self-Critique
 
 → one question: "Phase 03 doesn't serve this batch's goal (see above) — drop it, narrow it to just
 the audit-log table view, or leave it as is?"
+
+## The Post-Write Audit
+
+This section's verdicts above judge the *proposed cut* — phase boundaries, ordering, hand-off
+points as described before any file exists on disk. Once Step 14 (Park) has written every phase
+file and `.batch-context.md`, the written text can drift from that proposal in ways the cut review
+never sees: a phase whose `Verification` depends on a file only a later phase creates, a
+`Dependencies` section pointing forward or at nothing. This section is that check against reality.
+
+- **When.** After Step 14 has written every phase file and `.batch-context.md`, before Step 16's
+  lint. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
+  still gets its `Dependencies` and `Verification` checked against reality.
+- **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from Step 4's
+  preflight result — no new `bin/cfq settings get` call), per `references/explore-escalation.md`'s
+  judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the
+  failure mode this step exists for is the author reading their own intent instead of the text.
+- **What the agent is given.** The absolute batch directory path and the batch goal from
+  `.batch-context.md`'s `## Goal`. Nothing else — it reads the files itself, unprimed.
+- **What the agent checks**, as four named questions:
+  1. Does any phase's `## Verification` depend on a file, command, or behaviour that only a
+     later-numbered phase creates?
+  2. Does any phase's `## Dependencies` section name a phase that comes after it, or a phase that
+     does not exist in the batch?
+  3. Does any phase's `## Changes` assume a state that no earlier phase establishes and that the
+     repo does not already have?
+  4. Do two phases specify conflicting edits to the same file — the second silently undoing or
+     contradicting the first?
+- **What the agent returns.** A finding list, each entry naming the phase number, the question it
+  fails, and the quoted line that fails it. No prose report, no recommendation, no file edits — the
+  agent is read-only. An empty list is the normal outcome and is returned as such, not padded.
+- **How findings are handled.** The same fix-first rule as above, in `## On a Fail`: the planner
+  corrects the phase files and names each correction in the status line. Only a correction that
+  would drop a phase or remove a capability the user named in the interview goes to one
+  `AskUserQuestion`.
+- **Renumbering after a correction.** A correction that reorders phases renames the files so the
+  numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
+  phase. This happens before the lint, which is why the step sits where it does.

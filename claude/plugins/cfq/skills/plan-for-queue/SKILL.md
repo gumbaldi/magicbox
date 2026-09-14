@@ -48,7 +48,7 @@ Print the `INTERVIEW` header on entering, then run the preflight once for the wh
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-plan "$(pwd)"
 ```
 `status: "NO_REPO"` → report and end. Otherwise this result covers every later step too (Steps 6,
-8, 10, 13, 16) — never re-derive `repo.root` or re-run
+8, 10, 13, 17) — never re-derive `repo.root` or re-run
 `bin/cfq settings`/`bin/cfq scan`/`bin/cfq registry`/`bin/cfq maintenance` for anything it already
 carries. Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section,
 then print `Model Check` regardless. Ask interview depth before anything else, every time — never
@@ -182,32 +182,38 @@ and follow it, then print `Config`.
 Print four status lines: `Park` (file count and batch dir, also covers the Step 12 snapshot),
 `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
-## Step 15 — Plan Lint
+## Step 15 — Post-Write Audit
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s **The Post-Write Audit** and
+follow it. Print the `Phase Audit` status line: `✅` with the phase count audited and `no
+findings`, or `⚠️` with each correction on its own `   └ ` sub-line.
+
+## Step 16 — Plan Lint
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"`. Findings are fixed **immediately**
 and the lint re-run until clean — a batch never hands off with open lint findings. `warn:` lines
 (an unresolvable `.dependsOn` edge) are mentioned but don't block. Once clean, `bin/cfq batch ready
 "<batch-dir>"` removes `.planning` so `/ifq` may pick it up. Print `Lint` — clean pass, or the fixed finding.
 
-## Step 16 — Maintenance
+## Step 17 — Maintenance
 
 Read `maintenance.status`/`.n` from Step 4's preflight result (no new call) — reflects commit
 counts as of Step 4, same staleness accepted for every other field there. `OFF`/`NOT_DUE` → print
 `Maintenance`, move on. `DUE` → read `${CLAUDE_PLUGIN_ROOT}/references/maintenance.md` and follow it.
 
-## Step 17 — Telemetry and Sync
+## Step 18 — Telemetry and Sync
 
 Run `bin/cfq telemetry record "<batch-dir>" planning` then `bin/cfq telemetry sync "<repo-root>"`
 (both via `${CLAUDE_PLUGIN_ROOT}/bin/cfq`). Failures of either call are non-fatal and get one
 line in the final report, not a comment. Print the `Telemetry` status line.
 
-## Step 18 — Final Report
+## Step 19 — Final Report
 
 A `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding
 rule: `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when
 Step 10's flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
 (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>`
-→ `/ifq`). A cleanup batch from Step 16 gets a second `RESULT · plan-for-queue` block the same
+→ `/ifq`). A cleanup batch from Step 17 gets a second `RESULT · plan-for-queue` block the same
 way, noting it can be worked off independently — no repetition of the plan contents. Phase file
 structure is unchanged from the template — see `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`'s closing section.

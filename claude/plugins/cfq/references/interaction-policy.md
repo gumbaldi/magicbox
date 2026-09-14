@@ -9,7 +9,7 @@ If a "Plan mode is active" system-reminder is present in context, call `ExitPlan
 immediately — before `pfq`'s Step 4 / before `ifq`'s Step 3 preflight call — naming what this
 session is about to write (`pfq`: "interview and park plan files for `<repo>`"; `ifq`: "implement
 the next open phase of `<batch>`"). Neither skill can function under Plan Mode (`pfq` writes
-batch/phase files in Step 15, `ifq` writes code in Step 8) — resolve this before the first write
+batch/phase files in Step 14, `ifq` writes code in Step 8) — resolve this before the first write
 attempt, not as a discovered tool failure.
 
 ## No Waiting Questions

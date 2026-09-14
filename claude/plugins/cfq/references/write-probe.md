@@ -2,8 +2,8 @@
 
 Read at the end of Step 4, once the interview-depth answer is in and before Step 5 starts.
 
-A `PreToolUse` hook on `Write`/`Edit` can deny exactly the calls Step 15 depends on. Finding that
-out in Step 15 costs the whole interview. Probing costs one `Write` and one cleanup call.
+A `PreToolUse` hook on `Write`/`Edit` can deny exactly the calls Step 14 depends on. Finding that
+out in Step 14 costs the whole interview. Probing costs one `Write` and one cleanup call.
 
 ## Procedure
 
