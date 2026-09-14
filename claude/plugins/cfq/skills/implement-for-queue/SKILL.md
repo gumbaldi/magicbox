@@ -51,10 +51,12 @@ further calls needed for those three steps.
 
 **Model Gate.** The running model's name is in your system prompt's environment block;
 `policy.allowAnyModel: true` → skip this check, otherwise it must match one of
-`policy.implModels` (substring match: `sonnet` matches `claude-sonnet-5`). No match → **stop
+`policy.implModels` (substring match: `sonnet` matches `claude-sonnet-5`) — or, when
+`policy.orchestratorMode` is `true`, `policy.orchestratorModels` instead (already carries the
+fallback to `implModels` when empty, no extra logic here). No match → **stop
 immediately**, touch nothing, report the allowed models, that `/model <x>` then `/ifq` is the way
 forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list. Print the `Model Gate` status line
-either way.
+either way, naming which list was matched.
 
 **Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
@@ -73,16 +75,9 @@ straight to Step 4. `selection.inProgress` null and `selection.selectable` has *
 entry → same pre-resolved fields, no question either — print `Batch` noting it was the only
 selectable batch (e.g. `2026-08-18-example · only open batch · 3 phases`), straight to Step 4.
 `selection.selectable` has **zero** entries and `status` isn't `NO_BATCH`/`BLOCKED` → treat as
-`NO_BATCH`. **More than one** → `batch`/`nextPhase`/`branch`/`resume`/`contextGate` are `null`; ask
-one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?": **Work
-through them in order** (show `selection.selectable`, already sorted flagged-first-then-name) or
-**Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
-description = open phase count + date, prefixed `high · ` when flagged, suffixed `⚠️ divergent`
-when `consistency` is `"divergent"`). Set the chosen
-batch (or the first, for "in order"), re-run the preflight call with `--select <chosen>` to resolve
-its fields — **do not acquire the lock yet**. Print the `Batch` status line once chosen; both
-questions stay prose. **Never two batches in the same session**, not even once the first finishes
-and context is still free — different plans belong in separate context windows.
+`NO_BATCH`. **More than one** → ask, choose, resolve; mechanics (the two-question flow, `--select`,
+**Never two batches in the same session**) in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s
+**Batch Selection Rules**.
 
 ## Step 4 — Batch Briefing and Go-Ahead
 
@@ -114,6 +109,9 @@ adds a line above the existing one:
   restart a different batch mid-work; the go-ahead then has only **Start** / **Cancel**.
 - **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.
 
+`policy.orchestratorMode` is `true` → read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` and
+follow it for Steps 5 through 11 instead of what follows; `false` → continue exactly as below.
+
 ## Step 5 — Earlier Failed Attempt
 
 Entering this step closes `PRECHECKS` and opens `IMPLEMENTATION`. Before reading the phase file,
@@ -141,21 +139,17 @@ Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGat
 LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon
 `✅` for `START`, `⚠️` for `WARN`, `❌` for `HANDOFF` — `contextGate.reason` names which threshold
 fired structurally, the report repeats that token rather than a paraphrase of the note; this closes
-`PRECHECKS`.
+`PRECHECKS`. In orchestrator mode this step does not run — every worker starts at zero context, so
+there is nothing the gate would protect against.
 
 ## Step 7 — Phase Announcement
 
 Print the phase announcement —
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --phase <NN>`, rendered as returned, no
-rewording — then go straight to Step 8. `contextGate.verdict` was `WARN` is the one exception: the
-announcement is followed by the same warning line as Step 4, and one `AskUserQuestion` with three
-options: **Go** (proceed to Step 8, description names the budget state, never claims the attempt
-will fail) / **Handoff** (end the session cleanly instead of implementing — Step 10's `STOP`
-sequence: telemetry sync, lock release, short handoff report) / **Cancel** (release the lock, end
-the session, nothing touched). The warning re-appears at every phase because Step 7 runs per phase
-— intended, not a repetition bug: nothing advances automatically while the budget is over
-threshold. Rendering example and option copy in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s
-**Phase Announcement**.
+rewording — then go straight to Step 8. `contextGate.verdict` was `WARN` is the one exception —
+reappears every phase by design, never a repetition bug — one `AskUserQuestion` with **Go**/
+**Handoff**/**Cancel**; full option copy and the rendering example are in
+`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement**.
 
 ## Step 8 — Implementation
 
@@ -166,9 +160,10 @@ delegate the filtering to the same subagent, a red run never does (full unfilter
 either way), per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Research and Verification
 Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
 `docLanguages` entry before it goes green, per `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or
-`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope → one `AskUserQuestion` on
-parking it: yes writes a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`,
-no stays a sentence in the report, no second attempt.
+`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked, never
+asked about: write a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`,
+noting plainly that a decision is still open on it, and name it in the phase summary — applies in
+both modes, no `AskUserQuestion`, no second attempt.
 
 Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file and record
 it, green or red, before anything else: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase record "<batch-dir>"
@@ -209,7 +204,9 @@ status line — branch and commits pushed.
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, now returning `OK` / `WARN` / `STOP`.
 `policy.onePhasePerSession` (Step 3's preflight, no new call) `true` → treat exactly like `STOP`
-below, regardless of the context gate's own verdict; `false` → the context gate alone decides.
+below, regardless of the context gate's own verdict; `false` → the context gate alone decides. In
+orchestrator mode this step never runs and `onePhasePerSession` has no effect — every phase already
+gets its own worker context window; see `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
   (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing

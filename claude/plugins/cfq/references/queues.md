@@ -26,6 +26,18 @@ this check by the blocked filter (it doesn't reach `selection.selectable`/`.inPr
 surfaces only through the wait-list path — auto-resuming it would restart work whose dependency
 reappeared after the batch was started, so it waits like any other blocked batch.
 
+**Multiple selectable batches.** When `selection.inProgress` is `null` and `selection.selectable`
+has more than one entry, `batch`/`nextPhase`/`branch`/`resume`/`contextGate` all come back `null` —
+ask one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?":
+**Work through them in order** (show `selection.selectable`, already sorted flagged-first-then-name)
+or **Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
+description = open phase count + date, prefixed `high · ` when flagged, suffixed `⚠️ divergent`
+when `consistency` is `"divergent"`). Set the chosen batch (or the first, for "in order"), re-run
+the preflight call with `--select <chosen>` to resolve its fields — **do not acquire the lock yet**.
+Print the `Batch` status line once chosen; both questions stay prose. **Never two batches in the
+same session**, not even once the first finishes and context is still free — different plans belong
+in separate context windows.
+
 ## Batch Briefing (Step 4)
 
 `batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
@@ -309,11 +321,12 @@ in the trailer, the report and the lookup alike.
 
 Write the body (H1 title, then the sections below) to a temp file, then
 `"<plugin-root>/bin/cfq" note plan "<repo-root>" "<slug>" "<body-file>"` — it owns the date and the
-target path, never an agent-composed filename:
+target path, never an agent-composed filename. Step 8 writes this entry without asking, in both
+modes, so `## Why Not Here` must always state plainly that a decision on the finding is still open:
 
 - `## Finding` — what was noticed
 - `## Location` — files and locations, absolute paths
-- `## Why Not Here` — why it's out of scope for the current phase
+- `## Why Not Here` — why it's out of scope for the current phase, and that a decision is still open
 - `## Origin` — batch and phase it came from
 
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
@@ -336,6 +349,9 @@ deterministic — no summarization, only facts read from disk, `report.json`, an
 itself is unchanged; only who calls it and what's kept from its output moved.
 
 ## Research and Verification Delegation (Step 8)
+
+In orchestrator mode both delegations below happen inside the spawned `cfq-phase-worker`, on the
+same rules — not dropped, just relocated; see `<plugin-root>/agents/cfq-phase-worker.md`.
 
 Two, and only two, places in Step 8 may run on an Explore subagent instead of the implementing
 session's own model — never a blanket "delegate whatever seems slow". Model choice is a rule, not
