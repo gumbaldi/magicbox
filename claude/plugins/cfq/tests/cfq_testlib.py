@@ -86,13 +86,3 @@ class CfqTestCase(unittest.TestCase):
             if p:
                 (dir_path / b).symlink_to(p)
         return str(dir_path)
-
-
-def sh_source(script, func, *args):
-    proc = subprocess.run(
-        ["bash", "-c", '. "$1"; shift; "$@"', "_", str(script), func, *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return proc.stdout

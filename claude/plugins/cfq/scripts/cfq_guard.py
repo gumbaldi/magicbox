@@ -40,6 +40,16 @@ QUEUE_COMPONENTS = cfq_lib_paths.QUEUE_DIR_COMPONENTS
 # `-i` (in place); a plain `sed` read never mutates anything.
 DESTRUCTIVE_BASENAMES = {"rm", "rmdir", "mv", "cp", "truncate", "shred", "dd", "ln", "install"}
 
+# Process wrappers whose own argv[0] is never the command actually run -- `check_destructive_call`/
+# `check_find` must see the wrapped command, not the wrapper, or `env rm -rf .claude/cfq` slips
+# past unchecked.
+WRAPPER_BASENAMES = {"env", "sudo", "nice", "nohup", "timeout", "command", "exec", "xargs", "time"}
+SHELL_BASENAMES = {"bash", "sh", "zsh", "dash"}
+MAX_WRAPPER_RECURSION = 3
+
+NUMERIC_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
 DESTRUCTIVE_VERB_RE = re.compile(
     r"\b(?:rm|rmdir|mv|cp|truncate|shred|dd|ln|install|sed)\b"
 )
@@ -211,7 +221,26 @@ def substring_fallback(command):
     return None
 
 
-def check_bash(command, cwd):
+def unwrap_process_wrappers(argv):
+    """Strips a chain of `env`/`sudo`/`nice`/`nohup`/`timeout`/`command`/`exec`/`xargs`/`time` off
+    the front of argv, so the guard inspects the command actually run rather than the wrapper
+    launching it -- `env rm -rf .claude/cfq` and `sudo rm -r .claude/cfq` must be denied exactly
+    like a bare `rm`."""
+    argv = list(argv)
+    while argv and os.path.basename(argv[0]) in WRAPPER_BASENAMES:
+        base = os.path.basename(argv[0])
+        argv = argv[1:]
+        while argv and argv[0].startswith("-"):
+            argv = argv[1:]
+        if base == "env":
+            while argv and ENV_ASSIGN_RE.match(argv[0]):
+                argv = argv[1:]
+        if base in ("timeout", "nice") and argv and NUMERIC_RE.match(argv[0]):
+            argv = argv[1:]
+    return argv
+
+
+def check_bash(command, cwd, depth=0):
     try:
         simple_commands = split_simple_commands(command)
     except ValueError:
@@ -237,6 +266,19 @@ def check_bash(command, cwd):
         if os.path.basename(argv[0]) == "cd" and len(argv) > 1:
             effective_cwd = resolve(effective_cwd, argv[1])
             continue
+
+        argv = unwrap_process_wrappers(argv)
+        if not argv:
+            continue
+
+        if os.path.basename(argv[0]) in SHELL_BASENAMES and "-c" in argv \
+                and depth < MAX_WRAPPER_RECURSION:
+            idx = argv.index("-c")
+            if idx + 1 < len(argv):
+                inner_hit = check_bash(argv[idx + 1], effective_cwd, depth=depth + 1)
+                if inner_hit:
+                    return inner_hit
+                continue
 
         find_hit = check_find(argv, effective_cwd)
         if find_hit:

@@ -790,3 +790,10 @@
     - phase: "02-drop-batch-end-ponytail-review"
       status: "green"
       summary: ""
+- batchNumber: 25
+  batch: 025-2026-09-14-framework-review-fixes-and-cross-platform
+  branch: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
+  base: cfq/024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
+  started: 2026-09-14
+  status: in-progress
+  legacy: false

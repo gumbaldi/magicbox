@@ -114,11 +114,16 @@ def compute_dirty(repo):
     state is expected, not something that should block a checkout. `changelogDirty` is true only
     when the changelog path itself is the (or a) modified entry. `--no-optional-locks` keeps this
     call from refreshing/rewriting `.git/index` as a side effect -- `branch plan` is read-only and
-    `cfq_ifq_preflight.py`'s determinism test asserts nothing under the repo is ever touched."""
+    `cfq_ifq_preflight.py`'s determinism test asserts nothing under the repo is ever touched.
+    `--untracked-files=all` keeps git from collapsing an entirely-untracked `.claude/` subtree to
+    one `?? .claude/` line, which would not match the `.claude/cfq/` prefix check below and would
+    misreport a fresh queue as `dirty`."""
     changelog_rel = cfq_run("settings", "get", "changelogFile").stdout.strip()
     dirty = False
     changelog_dirty = False
-    for line in git(repo, "--no-optional-locks", "status", "--porcelain").stdout.splitlines():
+    for line in git(
+        repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"
+    ).stdout.splitlines():
         if not line:
             continue
         path = line[3:]
@@ -205,6 +210,11 @@ def cmd_check(args):
 def cmd_plan(args):
     repo = args.repo
     batch_name = args.batch
+
+    if git(repo, "rev-parse", "--show-toplevel", check=False).returncode != 0:
+        print(render.dump_json({"status": "NO_REPO", "repo": {"root": repo}}))
+        return
+
     rchecked = is_remote_checked(repo)
 
     number = parse_batch_number(batch_name)

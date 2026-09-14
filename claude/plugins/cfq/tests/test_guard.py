@@ -83,6 +83,47 @@ class GuardTest(CfqTestCase):
         proc = self._bash("find /repo/.claude/cfq -name '*.md' -delete", cwd="/repo")
         self.assertDenied(proc)
 
+    # -- deny: destructive commands wrapped in another process -------------------------------
+
+    def test_deny_rm_wrapped_in_bash_c(self):
+        proc = self._bash("bash -c 'rm -rf .claude/cfq/impl/x/done'", cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_mv_wrapped_in_sh_c(self):
+        proc = self._bash('sh -c "mv .claude/cfq/impl/x/01-a.md /tmp"', cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_rm_wrapped_in_env_with_assignment(self):
+        proc = self._bash("env FOO=1 rm -rf .claude/cfq", cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_rm_wrapped_in_xargs(self):
+        proc = self._bash("xargs rm -rf .claude/cfq/impl", cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_rm_wrapped_in_sudo(self):
+        proc = self._bash("sudo rm -r .claude/cfq", cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_rm_wrapped_in_nice(self):
+        proc = self._bash("nice -n 5 rm .claude/cfq/impl/x/01-a.md", cwd="/repo")
+        self.assertDenied(proc)
+
+    def test_deny_rm_wrapped_in_timeout(self):
+        proc = self._bash("timeout 5 rm -rf .claude/cfq", cwd="/repo")
+        self.assertDenied(proc)
+
+    # -- allow: wrappers around a non-destructive or unrelated command -----------------------
+
+    def test_allow_read_wrapped_in_bash_c(self):
+        self.assertAllowed(self._bash("bash -c 'ls .claude/cfq'", cwd="/repo"))
+
+    def test_allow_env_rm_outside_queue(self):
+        self.assertAllowed(self._bash("env rm -rf build/", cwd="/repo"))
+
+    def test_allow_echo_of_rm_wrapped_in_bash_c(self):
+        self.assertAllowed(self._bash("bash -c 'echo rm .claude/cfq'", cwd="/repo"))
+
     # -- allow: reads and unrelated destructive commands ---------------------------------------
 
     def test_allow_rm_rf_outside_queue(self):

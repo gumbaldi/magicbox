@@ -18,11 +18,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import CFQ_BIN  # noqa: E402
 
 PROG = "cfq_park.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 
 def cmd_park(args):

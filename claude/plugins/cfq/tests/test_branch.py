@@ -427,22 +427,37 @@ class BranchTest(CfqTestCase):
         self.assertFalse(out["changelogDirty"], msg=f"other-file changelogDirty -> {out}")
 
     def test_untracked_queue_state_never_counts_as_dirty(self):
-        # A tracked sibling under .claude/ keeps git from collapsing the untracked report up to
-        # ".claude/" itself, so the ".claude/cfq/" line this asserts against is the one git
-        # actually prints.
-        (self.repo / ".claude").mkdir()
-        (self.repo / ".claude" / "keep.txt").write_text("tracked\n")
-        self.run_clean("git", "add", ".claude/keep.txt", cwd=self.repo)
-        self.run_clean(
-            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
-            "commit", "-q", "-m", "track .claude/keep.txt", cwd=self.repo,
-        )
-        queue_dir = self.repo / ".claude" / "cfq"
-        queue_dir.mkdir()
-        (queue_dir / ".lock").write_text("someone\n")
+        # Nothing under .claude/ is tracked -- git collapses the whole untracked subtree to one
+        # "?? .claude/" line unless --untracked-files=all forces it to expand to actual file
+        # paths. Without that flag this line would not match the ".claude/cfq/" prefix check and
+        # would misreport a fresh queue as dirty.
+        queue_dir = self.repo / ".claude" / "cfq" / "impl" / "001-x"
+        queue_dir.mkdir(parents=True)
+        (queue_dir / "01-a.md").write_text("phase\n")
         out = self.json_out(self._plan("2026-01-01-mytopic"))
         self.assertFalse(out["dirty"], msg=f"queue-state dirty -> {out}")
         self.assertFalse(out["changelogDirty"], msg=f"queue-state changelogDirty -> {out}")
+
+    def test_untracked_dirt_outside_queue_still_sets_dirty(self):
+        # Same collapsed-".claude/" situation, but with an untracked file that is not under
+        # .claude/cfq/ next to it -- --untracked-files=all must not make the queue's own state
+        # swallow unrelated dirt.
+        queue_dir = self.repo / ".claude" / "cfq" / "impl" / "001-x"
+        queue_dir.mkdir(parents=True)
+        (queue_dir / "01-a.md").write_text("phase\n")
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "new.py").write_text("x = 1\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertTrue(out["dirty"], msg=f"unrelated untracked dirt -> {out}")
+
+    def test_plan_outside_git_repo_reports_no_repo(self):
+        non_repo = self._repos_dir / "not-a-repo"
+        non_repo.mkdir()
+        proc = self._plan("2026-01-01-mytopic", repo=non_repo)
+        self.assertNotIn("Traceback", proc.stderr, msg=f"raw traceback -> {proc.stderr}")
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_REPO", msg=f"non-repo status -> {out}")
+        self.assertEqual(out["repo"]["root"], str(non_repo), msg=f"non-repo root -> {out}")
 
     def test_continue_mode_also_reports_dirty(self):
         self.run_clean("git", "branch", "v0.3-mytopic", cwd=self.repo)
