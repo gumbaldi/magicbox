@@ -330,6 +330,7 @@ def cmd_summary(args):
 
     phase_outputs, phase_turns = [], []
     model_keys, effort_keys = [], []
+    worker_output, worker_turns = 0, 0
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
         totals = tel.get("totals") if isinstance(tel, dict) else None
@@ -341,6 +342,9 @@ def cmd_summary(args):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
+        subagent = jq_alt(tel.get("subagent") if isinstance(tel, dict) else None, None)
+        worker_output += _totals_field(subagent, "output")
+        worker_turns += _totals_field(subagent, "turns")
 
     planning_by_model = jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
     planning_by_effort = jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
@@ -355,6 +359,11 @@ def cmd_summary(args):
     efforts = ",".join(sorted(set(effort_keys)))
 
     row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
+    # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
+    # an old or classic-mode report with no subagent turns/output must render byte-identical to the
+    # row above, not grow a meaningless zero split.
+    if worker_output > 0 or worker_turns > 0:
+        row += [total_turns - worker_turns, total_output - worker_output, worker_turns, worker_output]
     print("\t".join(_tsv_field(v) for v in row))
 
 

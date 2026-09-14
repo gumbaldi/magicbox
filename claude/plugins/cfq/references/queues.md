@@ -303,7 +303,12 @@ in the trailer, the report and the lookup alike.
 - `Batch` — batch and repo, phases total, green/red split.
 - `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
-  tokens total (planning's share named separately), models, efforts.
+  tokens total (planning's share named separately), models, efforts. A row carrying fields 12-15
+  (only present when the batch ran a worker, i.e. orchestrator mode) additionally names the
+  orchestrator's and the workers' turns and output tokens separately — `orchestrator_turns`,
+  `orchestrator_output`, `worker_turns`, `worker_output`, in that order, the two pairs summing back
+  to fields 9/7 — alongside the existing total. A row without those fields (classic mode, or an
+  older report) renders exactly as before, no worker line.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented

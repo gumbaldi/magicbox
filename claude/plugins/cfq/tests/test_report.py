@@ -391,6 +391,77 @@ M
         self.assertEqual(out["recommended"], [])
         self.assertEqual(out["used"], [])
 
+    # ---- summary orchestrator/worker split (phase 05: `report summary` surfaces the subagent
+    # token split cfq_telemetry.py already computes, additive so a classic-mode report is unaffected)
+
+    def test_summary_splits_orchestrator_and_worker_when_subagent_sums_present(self):
+        batch = self._batch("2026-01-08-orchestrator")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-08-orchestrator", "started": "2026-01-08T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-08T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 10, "output": 1000},
+                        "subagent": {"turns": 6, "output": 700},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+                {
+                    "phase": "02-b", "status": "green", "finished": "2026-01-08T12:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 5, "output": 500},
+                        "subagent": {"turns": 0, "output": 0},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        # existing fields (1-11) unchanged in shape
+        self.assertEqual(fields[:6], [batch.name, "2", "2", "0", "0", "2026-01-08T12:00:00+01:00"])
+        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
+        self.assertEqual((total_output, planning_output, total_turns), ("1500", "0", "15"))
+        # new fields 12-15: orchestrator_turns, orchestrator_output, worker_turns, worker_output
+        self.assertEqual(fields[11:], ["9", "800", "6", "700"])
+        self.assertEqual(int(fields[11]) + int(fields[13]), int(total_turns), "orchestrator + worker turns must add up to the existing total")
+        self.assertEqual(int(fields[12]) + int(fields[14]), int(total_output), "orchestrator + worker output must add up to the existing total")
+
+    def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
+        batch = self._batch("2026-01-09-classic")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-09-classic", "started": "2026-01-09T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-09T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 10, "output": 1000},
+                        "subagent": {"turns": 0, "output": 0},
+                        "by_model": {"sonnet": {}}, "by_effort": {"medium": {}},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        expected = f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
+        self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
+
+        # A report predating this feature -- no `subagent` key at all -- must degrade the same way.
+        batch2 = self._batch("2026-01-10-pre-feature")
+        (batch2 / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-10-pre-feature", "started": "2026-01-10T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-10T11:00:00+01:00",
+                    "telemetry": {"totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {}},
+                },
+            ],
+        }))
+        s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t"
+        self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
+
 
 if __name__ == "__main__":
     unittest.main()
