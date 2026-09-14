@@ -22,9 +22,8 @@ rule behind `pfq`'s site list: it asks everything it needs before planning work 
 that, only exceptional cases still ask; everything routine gets decided and reported, or parked as
 a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
 only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
-drop-a-phase/remove-a-named-capability question; `ifq`: batch selection, scope-creep parking,
-branch base (this phase leaves `ifq`'s sites unchanged) — this section adds a rule, not new
-question sites.
+drop-a-phase/remove-a-named-capability question; `ifq`: scope-creep parking, branch base — this
+section adds a rule, not new question sites.
 
 ## Active Interview Duty
 

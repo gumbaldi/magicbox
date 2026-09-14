@@ -27,17 +27,15 @@ surfaces only through the wait-list path — auto-resuming it would restart work
 reappeared after the batch was started, so it waits like any other blocked batch.
 
 **Multiple selectable batches.** When `selection.inProgress` is `null` and `selection.selectable`
-has more than one entry, `batch`/`nextPhase`/`branch`/`resume`/`contextGate` all come back `null` —
-ask one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?":
-**Work through them in order** (show `selection.selectable`, already sorted flagged-first-then-name)
-or **Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
-description = open phase count + date, then ` · <goal>` when the entry's `goal` is non-null,
-prefixed `high · ` when flagged, suffixed `⚠️ divergent` when `consistency` is `"divergent"`). Set
-the chosen batch (or the first, for "in order"), re-run
-the preflight call with `--select <chosen>` to resolve its fields — **do not acquire the lock yet**.
-Print the `Batch` status line once chosen; both questions stay prose. **Never two batches in the
-same session**, not even once the first finishes and context is still free — different plans belong
-in separate context windows.
+has more than one entry, the preflight already picked `selection.selectable[0]` (sorted
+flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
+for it, no question. Print `Batch` as `<name> · next in order · <n> phases` (prefix `high · ` when
+flagged, suffix `⚠️ divergent` when `consistency` is `"divergent"`). Arguments naming a specific
+batch (Step 1) re-run the preflight with `--select <batch>` instead of taking the ordered default.
+`status: "SELECT_UNAVAILABLE"` means the named batch isn't selectable (blocked, still planning, or
+unknown) — report why, from `selection`, and end; never falls back to the ordered default. **Never
+two batches in the same session**, not even once the first finishes and context is still free —
+different plans belong in separate context windows.
 
 ## Batch Briefing (Step 4)
 
@@ -189,7 +187,7 @@ never fires **for the capacity reason**; the rate-limit reason has its own switc
 `stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as deliberate — warns for nothing for
 that reason either; a payload without `rate_limits` (API-level billing) means the check simply
 doesn't apply, which isn't worth a comment. `onePhasePerSession: true` (the default) means every
-session implements exactly one phase after the single per-batch confirmation from Step 4 — it
+session implements exactly one phase after the batch starts in Step 4 — it
 outranks `WARN`: with one-phase-per-session on, the session ends after a phase either way, and the
 budget warning changes nothing.
 

@@ -195,8 +195,13 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         out = self.json_out(self._run_pf(str(repo3)))
         self.assertEqual(out["status"], "OK", msg=f"multi status = {out}")
-        self.assertIsNone(out["batch"], msg=f"2+ selectable should leave batch null: {out}")
-        self.assertIsNone(out["nextPhase"], msg=f"2+ selectable should leave nextPhase null: {out}")
+        self.assertEqual(
+            out["batch"]["name"], "2026-01-01-alpha",
+            msg=f"2+ selectable should auto-pick the first by order: {out}",
+        )
+        self.assertEqual(
+            out["nextPhase"]["slug"], "01-a", msg=f"2+ selectable nextPhase: {out}"
+        )
         got = sorted(b["name"] for b in out["selection"]["selectable"])
         self.assertEqual(got, ["2026-01-01-alpha", "2026-01-02-beta"], msg=f"selectable = {got}")
         self.assertEqual(
@@ -213,6 +218,43 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["batch"]["name"], "2026-01-02-beta", msg=f"--select did not resolve batch: {out}"
         )
         self.assertEqual(out["nextPhase"]["slug"], "01-b", msg=f"--select nextPhase: {out}")
+
+    def test_multiple_selectable_high_priority_first(self):
+        repo = self._setup_repo("multi-priority")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+        (qdir / "2026-01-02-beta" / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"multi-priority status = {out}")
+        self.assertEqual(
+            out["batch"]["name"], "2026-01-02-beta",
+            msg=f"flagged batch should be chosen over an earlier-named one: {out}",
+        )
+
+    def test_select_unavailable_batch(self):
+        repo = self._setup_repo("select-unavailable")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-alpha\n")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "2026-01-02-blocked"))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"blocked --select = {out}")
+        self.assertIsNone(out["batch"], msg=f"blocked --select should leave batch null: {out}")
+        self.assertEqual(
+            [b["name"] for b in out["selection"]["blocked"]], ["2026-01-02-blocked"],
+            msg=f"blocked --select selection = {out}",
+        )
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "does-not-exist"))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"unknown --select = {out}")
+        self.assertIsNone(out["batch"], msg=f"unknown --select should leave batch null: {out}")
 
     def test_blocked_only_auto_selects_unblocked_dep(self):
         # only blocked batches left -> BLOCKED never happens if an unblocked dep exists (a real,

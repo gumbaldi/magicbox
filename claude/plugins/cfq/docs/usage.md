@@ -51,10 +51,10 @@ green phase.
 1. Gates on the model — **aborts** if the running model isn't in `implModels` (unless
    `allowAnyModel` is set); this is the one hard gate in cfq, everywhere else a mismatch only
    warns.
-2. Picks a batch: work through the open ones flagged-first, or choose a specific one. Skips
-   any batch still blocked by `.dependsOn`.
-3. Shows the batch briefing and asks for a go-ahead before touching anything — no lock is taken
-   before that.
+2. Picks the next batch in order (flagged-first, then name), or the one named on the command
+   line. Skips any batch still blocked by `.dependsOn`.
+3. Shows the batch briefing, then starts immediately — invoking `/ifq` is itself the intent to
+   start, no confirmation question.
 4. Implements one phase at a time — for a phase spanning multiple files or unclear scope, it may
    delegate pre-implementation research (and, on green/red, mechanical test-run output filtering)
    to Explore subagents running on `implExploreModel`; implementation itself always stays in the

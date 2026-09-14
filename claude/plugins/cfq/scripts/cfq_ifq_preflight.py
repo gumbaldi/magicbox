@@ -118,12 +118,16 @@ def cmd_preflight(args):
             key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
         )
 
+    if select_batch and not any(b["name"] == select_batch for b in eligible):
+        print(empty_result("SELECT_UNAVAILABLE", selectable, None, []))
+        return
+
     chosen = ""
-    if select_batch and any(b["name"] == select_batch for b in eligible):
+    if select_batch:
         chosen = select_batch
     elif inprogress_name:
         chosen = inprogress_name
-    elif len(selectable) == 1:
+    elif selectable:
         chosen = selectable[0]["name"]
 
     if not chosen:

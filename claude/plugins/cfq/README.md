@@ -57,8 +57,9 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 ### `/ifq`
 
-Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
-takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
+Gates on the model, picks the next batch in order (or the one named) and briefs it, then starts
+immediately — no confirmation question — takes a repo lock, creates the batch branch, works one
+phase at a time, commits and pushes every
 green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase

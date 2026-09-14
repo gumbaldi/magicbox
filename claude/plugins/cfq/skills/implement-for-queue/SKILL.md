@@ -32,7 +32,7 @@ opening `POSTCHECKS`. `POSTCHECKS` opens only on a `STOP`, a red phase, or a fin
 
 ## Step 1 — Arguments
 
-Text passed with the invocation narrows batch selection in Step 3 — it never replaces the briefing or the go-ahead.
+Text passed with the invocation narrows batch selection in Step 3 — it never replaces the briefing.
 
 ## Step 2 — Plan-Mode Gate
 
@@ -69,19 +69,21 @@ cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Batch Se
 session and apply it here.
 
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
-`branch`/`resume`/`contextGate` are already resolved for it) — skip the `AskUserQuestion`, print
+`branch`/`resume`/`contextGate` are already resolved for it) — print
 `Batch` as `resumed <name> · <done>/<done+open> phases done` (prefix `high · ` if flagged),
-straight to Step 4. `selection.inProgress` null and `selection.selectable` has **exactly one**
-entry → same pre-resolved fields, no question either — print `Batch` noting it was the only
-selectable batch (e.g. `2026-08-18-example · only open batch · 3 phases`), straight to Step 4.
-`selection.selectable` has **zero** entries and `status` isn't `NO_BATCH`/`BLOCKED` → treat as
-`NO_BATCH`. **More than one** → ask, choose, resolve; mechanics (the two-question flow, `--select`,
-**Never two batches in the same session**) in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s
-**Batch Selection Rules**.
+straight to Step 4. `selection.inProgress` null and `selection.selectable` non-empty → the
+preflight already picked `selection.selectable[0]` (sorted flagged-first-then-name) — same
+pre-resolved fields, no question — print `Batch` as `<name> · next in order · <n> phases` (prefix
+`high · ` if flagged), or `<name> · only open batch · <n> phases` when `selectable` has exactly one
+entry, straight to Step 4. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
+selectable) → report why, from `selection` (blocked / still planning / not found), end — never
+falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
+`NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`. Mechanics in
+`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Batch Selection Rules**.
 
-## Step 4 — Batch Briefing and Go-Ahead
+## Step 4 — Batch Briefing and Start
 
-Nothing is touched, no lock taken, until the user has seen what the batch contains — never read
+Nothing is touched, no lock taken, until the briefing has been shown — never read
 phase files in full here, that's Step 8's job. `contextGate.verdict` is `WARN` → print one warning
 line *above* the briefing, naming the reason in the user's language and the concrete numbers from
 `contextGate.note` (e.g. the five-hour budget is at 89% against a 70% threshold); state plainly
@@ -90,24 +92,19 @@ per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Announcement**; `batc
 "divergent"` adds one more such line naming the repair command (`bin/cfq batch verify
 "<repo-root>"`), never blocking. Present `batch.briefText` compactly (already the full per-phase
 listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size and
-context excerpt), then ask exactly one
-`AskUserQuestion`, "Start implementing this batch?" — no extra question for the warning, it only
-adds a line above the existing one:
-- **Start** → acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
-  **end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
-  `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
-  (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
-  base-branch question, checkout, changelog init, post-checkout reconfirm) — based on `origin`'s
-  current state — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
-  happened. `resume` (same preflight
-  result) already carries done/open phases, last commit, deviations, red-phase history,
-  `.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
-  it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 5.
-- **A different batch** → back to Step 3's question with the remaining batches; the declined one
-  isn't offered again. Nothing left → report and end. Not offered at all when Step 3 didn't run a
-  picker (auto-resumed in-progress batch, or only one selectable batch) — offering one here would
-  restart a different batch mid-work; the go-ahead then has only **Start** / **Cancel**.
-- **Cancel** → report "aborted, nothing touched" and end. No lock was ever held.
+context excerpt), then start directly — invoking `/ifq` is itself the intent to start, no
+confirmation question:
+
+Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
+**end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
+`TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
+(from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
+base-branch question, checkout, changelog init, post-checkout reconfirm) — based on `origin`'s
+current state — in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Branch and Changelog on Go-Ahead**. `Branch` renders whichever
+happened. `resume` (same preflight
+result) already carries done/open phases, last commit, deviations, red-phase history,
+`.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
+it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then Step 5.
 
 `policy.orchestratorMode` is `true` → read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` and
 follow it for Steps 5 through 11 instead of what follows; `false` → continue exactly as below.
