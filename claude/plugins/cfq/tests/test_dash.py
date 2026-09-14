@@ -239,6 +239,25 @@ class TestDash(CfqTestCase):
         self.assertNotIn("2026-03-02-b (", rendered, f"non-next batch must not expand:\n{rendered}")
         self.assertNotIn("2026-03-03-c (", rendered, f"flagged batch loses to inProgress:\n{rendered}")
 
+    def test_this_repo_lists_unfinished_batch_without_all_flag(self):
+        # a batch whose phases are all done but `finish` never ran (0 open, 2 done, not
+        # archived) must appear in the non---all view as IN_PROGRESS -- it counts as
+        # inProgress, not as an archived/finished batch.
+        tmp = self._repos_dir / "unfinishedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-05-01-unfinished", open_nums=(), done_nums=("01", "02"))
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+
+        self.assertIn(
+            "| 2026-05-01-unfinished |", rendered, f"unfinished batch row missing:\n{rendered}"
+        )
+        self.assertIn(
+            "0/2 | IN_PROGRESS", rendered, f"unfinished batch status wrong:\n{rendered}"
+        )
+
     def test_this_repo_all_flag_lists_archived_too(self):
         # --all: every batch shown, archived included, no summary line, expansion unchanged.
         tmp = self._repos_dir / "allflag"

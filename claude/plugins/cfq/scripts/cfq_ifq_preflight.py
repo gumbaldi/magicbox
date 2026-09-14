@@ -66,7 +66,10 @@ def cmd_preflight(args):
     candidates = []
     for r in scan_data.get("repos", []):
         if r.get("path") == repo:
-            candidates = [b for b in r.get("batches", []) if not b["archived"] and b["open"] > 0]
+            candidates = [
+                b for b in r.get("batches", [])
+                if not b["archived"] and (b["open"] > 0 or b["done"] > 0)
+            ]
             break
 
     next_scan = json.loads(cfq_run("scan", "--format=next").stdout)

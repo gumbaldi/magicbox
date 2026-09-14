@@ -321,6 +321,46 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"resolved batch briefText missing goal line: {out['batch']['briefText']!r}",
         )
 
+    def test_all_done_not_finished_batch_resumes_with_null_next_phase(self):
+        repo = self._setup_repo("all-done-not-finished")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-unfinished"
+        (batch / "done").mkdir(parents=True)
+        (batch / "done" / "01-a.md").touch()
+        (batch / "done" / "02-b.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"all-done-not-finished status = {out}")
+        self.assertEqual(
+            out["selection"]["inProgress"], "2026-01-01-unfinished", msg=f"inProgress = {out}"
+        )
+        self.assertEqual(out["batch"]["name"], "2026-01-01-unfinished", msg=f"batch = {out}")
+        self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
+        self.assertIsNone(out["contextGate"], msg=f"contextGate should be null: {out}")
+
+    def test_all_done_not_finished_batch_still_blocks_a_dependent(self):
+        repo = self._setup_repo("unfinished-blocks-dependent")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        a = qdir / "2026-01-01-a"
+        (a / "done").mkdir(parents=True)
+        (a / "done" / "01-x.md").touch()
+        b = qdir / "2026-01-02-b"
+        b.mkdir(parents=True)
+        (b / "01-y.md").touch()
+        (b / ".dependsOn").write_text("2026-01-01-a\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-01-a", msg=f"resolved batch = {out}")
+        self.assertEqual(
+            [x["name"] for x in out["selection"]["blocked"]], ["2026-01-02-b"], msg=f"blocked = {out}"
+        )
+
+    def test_zero_zero_batch_alone_is_no_batch(self):
+        repo = self._setup_repo("zero-zero-alone")
+        (repo / ".claude" / "cfq" / "impl" / "2026-01-01-empty").mkdir(parents=True)
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"0/0-only status = {out}")
+
     def test_no_batch(self):
         # nothing at all -> NO_BATCH
         repo5 = self._setup_repo("empty-repo")

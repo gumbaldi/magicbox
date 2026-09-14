@@ -321,6 +321,43 @@ class ScanTest(CfqTestCase):
             msg=f"divergent batch consistency = {batches['2026-03-02-divergent']}",
         )
 
+    def test_inprogress_and_candidacy_for_all_done_not_finished_batch(self):
+        tmp = self.tmp
+
+        # a batch whose phases are all done but `finish` never ran (open=0, done>0, not
+        # archived) is still `inProgress` and still a scan candidate -- it must not vanish.
+        unfinished = tmp / "repo-unfinished" / ".claude" / "cfq" / "impl" / "2026-04-01-unfinished"
+        (unfinished / "done").mkdir(parents=True)
+        (unfinished / "done" / "01-a.md").touch()
+        (unfinished / "done" / "02-b.md").touch()
+
+        # a 0/0 batch (nothing written at all) must stay excluded from candidacy.
+        empty = tmp / "repo-unfinished" / ".claude" / "cfq" / "impl" / "2026-04-02-empty"
+        empty.mkdir(parents=True)
+
+        data = json.loads(self._scan())
+        batches = {
+            b["name"]: b
+            for r in data["repos"] if r["path"] == str(tmp / "repo-unfinished")
+            for b in r["batches"]
+        }
+        unfinished_b = batches["2026-04-01-unfinished"]
+        self.assertEqual(
+            {"open": unfinished_b["open"], "done": unfinished_b["done"],
+             "archived": unfinished_b["archived"], "inProgress": unfinished_b["inProgress"]},
+            {"open": 0, "done": 2, "archived": False, "inProgress": True},
+            msg=f"all-done-not-finished batch = {unfinished_b}",
+        )
+        self.assertFalse(
+            batches["2026-04-02-empty"]["inProgress"], msg=f"0/0 batch = {batches['2026-04-02-empty']}"
+        )
+
+        next_data = json.loads(self._scan("--format=next"))
+        r = next(x for x in next_data["repos"] if x["path"] == str(tmp / "repo-unfinished"))
+        self.assertEqual(r["next"], "2026-04-01-unfinished", msg=r)
+        self.assertEqual(r["reason"], "inProgress", msg=r)
+        self.assertEqual(r["blocked"], [], msg=r)
+
     def test_registry_entry_with_missing_repo_path_does_not_crash(self):
         # A repo the registry still knows about, but whose path is gone -- must not crash the
         # scan and must not surface in the output (its .claude/cfq dir cannot be read either).
@@ -442,6 +479,31 @@ class ScanNextTest(CfqTestCase):
         self.assertEqual(r["reason"], None, msg=r)
         self.assertEqual(r["blocked"], [], msg=r)
         self.assertEqual(r["planning"], [], msg=r)
+
+    def test_all_done_not_finished_counts_toward_multiple_in_progress(self):
+        impl = self.tmp / "repo-multi-unfinished" / ".claude" / "cfq" / "impl"
+        (impl / "2026-04-01-a" / "done").mkdir(parents=True)
+        (impl / "2026-04-01-a" / "done" / "01-x.md").touch()
+        (impl / "2026-04-02-b" / "done").mkdir(parents=True)
+        (impl / "2026-04-02-b" / "01-y.md").touch()
+        (impl / "2026-04-02-b" / "done" / "00-z.md").touch()
+
+        r = self._repo(self._scan_next(), "repo-multi-unfinished")
+        self.assertIsNone(r["next"], msg=r)
+        self.assertEqual(r["reason"], "multipleInProgress", msg=r)
+
+    def test_all_done_not_finished_blocks_a_dependent_batch(self):
+        impl = self.tmp / "repo-unfinished-dep" / ".claude" / "cfq" / "impl"
+        (impl / "2026-04-01-a" / "done").mkdir(parents=True)
+        (impl / "2026-04-01-a" / "done" / "01-x.md").touch()
+        (impl / "2026-04-02-b").mkdir(parents=True)
+        (impl / "2026-04-02-b" / "01-y.md").touch()
+        (impl / "2026-04-02-b" / ".dependsOn").write_text("2026-04-01-a\n")
+
+        r = self._repo(self._scan_next(), "repo-unfinished-dep")
+        self.assertEqual(r["next"], "2026-04-01-a", msg=r)
+        self.assertEqual(r["reason"], "inProgress", msg=r)
+        self.assertEqual(r["blocked"], ["2026-04-02-b"], msg=r)
 
     def test_several_repos_have_independent_winners(self):
         impl1 = self.tmp / "repo-multi-1" / ".claude" / "cfq" / "impl"

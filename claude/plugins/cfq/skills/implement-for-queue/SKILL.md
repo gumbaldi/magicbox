@@ -71,7 +71,10 @@ session and apply it here.
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
 `branch`/`resume`/`contextGate` are already resolved for it) — print
 `Batch` as `resumed <name> · <done>/<done+open> phases done` (prefix `high · ` if flagged),
-straight to Step 4. `selection.inProgress` null and `selection.selectable` non-empty → the
+straight to Step 4. `nextPhase: null` here means every phase already moved to `done/` but
+`bin/cfq finish` never ran — Step 4 still acquires the lock and resolves the branch as usual, then
+skips Steps 5–10 entirely and goes straight to Step 11. `selection.inProgress` null and
+`selection.selectable` non-empty → the
 preflight already picked `selection.selectable[0]` (sorted flagged-first-then-name) — same
 pre-resolved fields, no question — print `Batch` as `<name> · next in order · <n> phases` (prefix
 `high · ` if flagged), or `<name> · only open batch · <n> phases` when `selectable` has exactly one

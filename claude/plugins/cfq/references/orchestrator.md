@@ -9,7 +9,9 @@ it. Everything the worker itself does or returns is defined in
 ## 1. Per phase, before spawning
 
 Re-run `bin/cfq preflight-impl "<repo-root>" --select "<batch>"` to resolve the next open phase,
-then `bin/cfq ctx` for the rate-limit gate. A `WARN` carries the same three-option question as
+then `bin/cfq ctx` for the rate-limit gate. `nextPhase: null` (every phase already moved to
+`done/`, `bin/cfq finish` never ran) → skip straight to step 5's batch end, never spawn a worker
+for a phase that doesn't exist. A `WARN` carries the same three-option question as
 classic mode's `<plugin-root>/references/queues.md`'s **Phase Announcement** — identical wording,
 identical options, no second variant. The capacity reason (`stopUsed`) does not apply here: every
 worker starts on an empty context window, so no size gate runs and `onePhasePerSession` has no

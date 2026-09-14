@@ -154,7 +154,7 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
         "dependsOn": deps,
         "blocked": blocked,
         "unknownDeps": unknown,
-        "inProgress": open_n > 0 and done_n > 0,
+        "inProgress": done_n > 0,
         "planning": planning,
         "consistency": cfq_lib_consistency.scan_consistency(batch_dir),
     }
@@ -279,7 +279,7 @@ def render_overview(data):
 
 
 def rank_next(batches):
-    candidates = [b for b in batches if not b["archived"] and b["open"] > 0]
+    candidates = [b for b in batches if not b["archived"] and (b["open"] > 0 or b["done"] > 0)]
     planning = [b["name"] for b in candidates if b["planning"]]
     blocked = [b["name"] for b in candidates if not b["planning"] and b["blocked"]]
     eligible = [b for b in candidates if not b["planning"] and not b["blocked"]]

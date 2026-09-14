@@ -123,7 +123,7 @@ def this_repo_rollup(scan_repos, repo):
         "path": r["path"], "name": r["path"].split("/")[-1],
         "batches": [
             {"name": b["name"], "priority": b["priority"], "open": b["open"], "done": b["done"],
-             "status": batch_status(b)}
+             "archived": b["archived"], "status": batch_status(b)}
             for b in r["batches"]
         ],
     }
@@ -223,7 +223,10 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
         ]
 
     if this_repo is not None:
-        rows = [b for b in this_repo["batches"] if all_flag or b["open"] > 0]
+        rows = [
+            b for b in this_repo["batches"]
+            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0))
+        ]
         if rows:
             table = ["", f"THIS REPO · {this_repo['name']}", "| Batch | Priority | Open/Done | Status |", "|---|---|---|---|"]
             for b in rows:

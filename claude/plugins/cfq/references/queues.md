@@ -24,7 +24,10 @@ immediately**, touch nothing, name every batch in the list, and say this must be
 never fall through to the picker. A batch that is both blocked and in-progress is excluded from
 this check by the blocked filter (it doesn't reach `selection.selectable`/`.inProgress` at all) and
 surfaces only through the wait-list path — auto-resuming it would restart work whose dependency
-reappeared after the batch was started, so it waits like any other blocked batch.
+reappeared after the batch was started, so it waits like any other blocked batch. A non-archived
+batch with no open phase but at least one done one (`bin/cfq finish` never ran for it) counts as
+in progress too — it resumes straight into Step 11 instead of vanishing from selection, and
+participates in this same `MULTIPLE_IN_PROGRESS` check like any other in-progress batch.
 
 **Multiple selectable batches.** When `selection.inProgress` is `null` and `selection.selectable`
 has more than one entry, the preflight already picked `selection.selectable[0]` (sorted
