@@ -651,7 +651,25 @@
       summary: ""
 - batchNumber: 18
   batch: 018-2026-09-07-plan-critique-and-scope-guard
-  status: parked
+  branch: cfq/018-2026-09-07-plan-critique-and-scope-guard
+  base: cfq/019-2026-09-09-deterministic-queue-mutations
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-pfq-self-critique-fix-first"
+      status: "green"
+      summary: "On a Fail rewritten to correct silently except drop/capability-removal; category 2 judges the proposed cut, not written text; SKILL.md Step 11 status-line contract distinguishes pass vs. correction"
+    - phase: "02-pfq-post-write-phase-audit"
+      status: "green"
+      summary: ""
+    - phase: "03-phase-quality-affected-files-complete"
+      status: "green"
+      summary: ""
+    - phase: "04-ifq-drop-file-scope-stop"
+      status: "green"
+      summary: ""
 - batchNumber: 19
   batch: 019-2026-09-09-deterministic-queue-mutations
   branch: cfq/019-2026-09-09-deterministic-queue-mutations
