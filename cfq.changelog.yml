@@ -729,8 +729,16 @@
   branch: cfq/021-2026-09-14-ponytail-review-and-batch-goal
   base: cfq/020-2026-09-10-ifq-orchestrator-mode
   started: 2026-09-14
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-batch-goal-in-briefing-and-selection"
+      status: "green"
+      summary: ""
+    - phase: "02-ponytail-review-at-batch-end"
+      status: "green"
+      summary: "Added a batch-end ponytail-review pass to /ifq Step 11, gated by the existing usePonytailAudit switch: policy field wired through preflight, dashboard/doctor/settings wording corrected from a single-audit claim to the two one-shot uses, and a new queues.md section specifying the subagent delegation, rendering, question and parking flow."
 - batchNumber: 22
   batch: 022-2026-09-14-dedupe-script-helpers
   status: parked
