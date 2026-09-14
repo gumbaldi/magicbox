@@ -220,6 +220,41 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["batch"]["name"], "2026-01-01-b", msg=f"unknown-dep batch should be selectable: {out}"
         )
 
+    def test_selection_entries_carry_goal_field(self):
+        repo = self._setup_repo("goal-selection")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        long_batch = qdir / "2026-01-01-alpha"
+        long_batch.mkdir(parents=True)
+        (long_batch / "01-a.md").touch()
+        long_goal = " ".join(f"word{i}" for i in range(60))
+        (long_batch / ".batch-context.md").write_text(f"# Batch Context\n\n## Goal\n\n{long_goal}\n")
+
+        no_context_batch = qdir / "2026-01-02-beta"
+        no_context_batch.mkdir(parents=True)
+        (no_context_batch / "01-b.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"goal-selection status = {out}")
+        by_name = {b["name"]: b for b in out["selection"]["selectable"]}
+        self.assertIn("goal", by_name["2026-01-01-alpha"], msg=f"goal key missing: {out}")
+        alpha_goal = by_name["2026-01-01-alpha"]["goal"]
+        self.assertLessEqual(len(alpha_goal), 121, msg=f"goal not cut to 120: {alpha_goal!r}")
+        self.assertTrue(alpha_goal.endswith("…"), msg=f"goal not ellipsized: {alpha_goal!r}")
+        self.assertIsNone(by_name["2026-01-02-beta"]["goal"], msg=f"no context -> goal should be null: {out}")
+
+    def test_resolved_batch_brief_text_contains_goal(self):
+        repo = self._setup_repo("goal-resolved")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nSolo batch goal.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertIn(
+            "goal: Solo batch goal.", out["batch"]["briefText"].splitlines(),
+            msg=f"resolved batch briefText missing goal line: {out['batch']['briefText']!r}",
+        )
+
     def test_no_batch(self):
         # nothing at all -> NO_BATCH
         repo5 = self._setup_repo("empty-repo")

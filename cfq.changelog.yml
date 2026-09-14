@@ -726,7 +726,11 @@
       summary: "Rewrote CLAUDE.md's subagent paragraph to add the ownership case, documented orchestrator mode in README.md/docs/usage.md, corrected docs/configuration.md's default row, flipped orchestratorMode's schema default to true, and bumped plugin.json to 0.10.1."
 - batchNumber: 21
   batch: 021-2026-09-14-ponytail-review-and-batch-goal
-  status: parked
+  branch: cfq/021-2026-09-14-ponytail-review-and-batch-goal
+  base: cfq/020-2026-09-10-ifq-orchestrator-mode
+  started: 2026-09-14
+  status: in-progress
+  legacy: false
 - batchNumber: 22
   batch: 022-2026-09-14-dedupe-script-helpers
   status: parked

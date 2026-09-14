@@ -31,8 +31,9 @@ has more than one entry, `batch`/`nextPhase`/`branch`/`resume`/`contextGate` all
 ask one `AskUserQuestion`, "There are N open plans for this repo. How do you want to proceed?":
 **Work through them in order** (show `selection.selectable`, already sorted flagged-first-then-name)
 or **Choose a specific plan** (a second `AskUserQuestion`, batches as options, label = topic slug,
-description = open phase count + date, prefixed `high · ` when flagged, suffixed `⚠️ divergent`
-when `consistency` is `"divergent"`). Set the chosen batch (or the first, for "in order"), re-run
+description = open phase count + date, then ` · <goal>` when the entry's `goal` is non-null,
+prefixed `high · ` when flagged, suffixed `⚠️ divergent` when `consistency` is `"divergent"`). Set
+the chosen batch (or the first, for "in order"), re-run
 the preflight call with `--select <chosen>` to resolve its fields — **do not acquire the lock yet**.
 Print the `Batch` status line once chosen; both questions stay prose. **Never two batches in the
 same session**, not even once the first finishes and context is still free — different plans belong
@@ -41,11 +42,14 @@ in separate context windows.
 ## Batch Briefing (Step 4)
 
 `batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
-batch — batch name, priority, phase count, `.dependsOn` if present, then one line per phase (number
-and title, size in brackets, context excerpt). Present it as-is, compactly: no prose around it, no
-repetition of the plan, no commentary on the phases. A phase file without `## Size` counts as `M`;
-one without `## Context` shows its title alone — an incomplete plan is worth showing, not worth
-aborting over.
+batch — batch name, priority, phase count, then a `goal:` line from `.batch-context.md`'s
+`## Goal` (cut at about 300 characters, on a word boundary) when the batch has one, `.dependsOn` if
+present, then one line per phase (number and title, size in brackets, context excerpt). Present it
+as-is, compactly: no prose around it, no repetition of the plan, no commentary on the phases. A
+phase file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
+incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
+shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
+with no `goal:` line.
 
 ## Branch and Changelog on Go-Ahead (Step 4)
 

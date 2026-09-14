@@ -21,7 +21,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import render  # noqa: E402
+from cfq_lib import queue as cfq_queue, render  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
 
@@ -108,16 +108,20 @@ def cmd_preflight(args):
         print(empty_result("MULTIPLE_IN_PROGRESS", [], None, inprogress_names))
         return
 
+    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
+
+    def project_selectable(b):
+        entry = project(b, ["name", "priority", "open", "done", "consistency"])
+        entry["goal"] = cfq_queue.read_goal(qdir / b["name"], 120)
+        return entry
+
     if inprogress_count == 1:
         inprogress_name = inprogress_names[0]
-        selectable = [
-            project(b, ["name", "priority", "open", "done", "consistency"])
-            for b in eligible if b["name"] != inprogress_name
-        ]
+        selectable = [project_selectable(b) for b in eligible if b["name"] != inprogress_name]
     else:
         inprogress_name = ""
         selectable = sorted(
-            (project(b, ["name", "priority", "open", "done", "consistency"]) for b in eligible),
+            (project_selectable(b) for b in eligible),
             key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
         )
 
@@ -136,7 +140,6 @@ def cmd_preflight(args):
         print(empty_result(status, selectable, None, []))
         return
 
-    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
     batch_dir = qdir / chosen
     brief_text = cfq_run("brief", str(batch_dir), "--with-done").stdout.rstrip("\n")
     cand = next(b for b in candidates if b["name"] == chosen)
