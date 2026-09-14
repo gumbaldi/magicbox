@@ -52,15 +52,16 @@ computed once by the aggregator, no separate call.
 
 - Neither installed → `➖ mattpocock-skills/ponytail not installed`.
 - Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
-  that are actually off (`grill: classic off`, `maintenance audit: off`).
+  that are actually off (`grill: classic off`, `ponytail audit/review: off`).
 - Both installed, both on → `✅ mattpocock-skills and ponytail installed · classic grill on ·
-  maintenance audit: on`.
+  ponytail audit/review: on`.
 - One installed, one missing → name the missing one and the installed one's switch state, e.g.
   `➖ ponytail not installed · classic grill on`.
 - Ponytail installed and `.ponytailMode` is not `off` → append `· ponytail default mode: <mode> ·
   cfq expects off` and force the icon to `⚠️`, regardless of which of the four cases above
-  applies — cfq expects ponytail dormant outside the maintenance audit. `.ponytailMode == "off"` →
-  no clause appended, no icon change, no warning — `off` is the expected, configured state.
+  applies — cfq expects ponytail dormant outside the maintenance audit and batch-end review.
+  `.ponytailMode == "off"` → no clause appended, no icon change, no warning — `off` is the
+  expected, configured state.
 
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 

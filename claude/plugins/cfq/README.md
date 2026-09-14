@@ -377,16 +377,17 @@ one feature it powers rather than blocking the plugin: `gh` or `tea` for the sec
   the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
-- **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
-  maintenance run (`maintenanceEvery`), not the maintenance run itself. cfq expects ponytail
-  dormant (`defaultMode: off` in `~/.config/ponytail/config.json`) outside that one audit — its
-  own default is `full`, which would otherwise load it into every `pfq`/`ifq` session. `/cfq`
-  offers to set this on first-time setup; `bin/cfq doctor check` keeps advising it afterward if
-  declined or if ponytail is installed later.
+- **`ponytail`** — powers two one-shot uses: the optional cleanup audit, one of several tasks in
+  the periodic maintenance run (`maintenanceEvery`), and `/ifq`'s batch-end `ponytail-review` over
+  the batch diff — neither is the maintenance run itself, and neither needs ponytail's persistent
+  mode. cfq expects ponytail dormant (`defaultMode: off` in `~/.config/ponytail/config.json`)
+  outside those two uses — its own default is `full`, which would otherwise load it into every
+  `pfq`/`ifq` session. `/cfq` offers to set this on first-time setup; `bin/cfq doctor check` keeps
+  advising it afterward if declined or if ponytail is installed later.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 
-Everything except classic grill mode and the cleanup audit works fully without either plugin —
+Everything except classic grill mode and the two ponytail uses works fully without either plugin —
 "Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
 
 ## Credits

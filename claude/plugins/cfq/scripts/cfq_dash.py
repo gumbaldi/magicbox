@@ -156,9 +156,9 @@ def plugins_line(p):
         if not p["useMattpocockGrilling"]:
             off.append("grill: classic off")
         if not p["usePonytailAudit"]:
-            off.append("maintenance audit: off")
+            off.append("ponytail audit/review: off")
         if not off:
-            base = {"icon": "✅", "text": "mattpocock-skills and ponytail installed · classic grill on · maintenance audit: on"}
+            base = {"icon": "✅", "text": "mattpocock-skills and ponytail installed · classic grill on · ponytail audit/review: on"}
         else:
             base = {"icon": "➖", "text": "installed · " + ", ".join(off)}
     else:
@@ -167,7 +167,7 @@ def plugins_line(p):
             state = "classic grill on" if p["useMattpocockGrilling"] else "classic grill off"
         else:
             missing = "mattpocock-skills"
-            state = "maintenance audit: on" if p["usePonytailAudit"] else "maintenance audit: off"
+            state = "ponytail audit/review: on" if p["usePonytailAudit"] else "ponytail audit/review: off"
         base = {"icon": "➖", "text": f"{missing} not installed · {state}"}
 
     text = base["text"] if mode_clause is None else f"{base['text']} · {mode_clause}"

@@ -64,6 +64,7 @@ def cmd_preflight(args):
     policy = project(settings, [
         "implModels", "allowAnyModel", "implBlockedPlugins", "onePhasePerSession",
         "implExploreModel", "implExploreModelComplex", "orchestratorMode", "orchestratorModels",
+        "usePonytailAudit",
     ])
     if not policy["orchestratorModels"]:
         policy["orchestratorModels"] = policy["implModels"]
