@@ -777,4 +777,16 @@
       summary: ""
 - batchNumber: 24
   batch: 024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
-  status: parked
+  branch: cfq/024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
+  base: cfq/023-2026-09-14-fewer-mid-flow-questions
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-resume-unfinished-batch"
+      status: "green"
+      summary: "cfq_scan.py's inProgress now derives from done>0 instead of open>0 and done>0, and its (and cfq_ifq_preflight.py's) candidate predicate accepts open>0 or done>0, so a batch whose phases all moved to done/ but whose finish never ran resumes through the existing in-progress path straight into Step 11 instead of vanishing from selection; cfq_dash.py's THIS REPO view follows the same rule while still excluding archived batches."
+    - phase: "02-drop-batch-end-ponytail-review"
+      status: "green"
+      summary: ""
