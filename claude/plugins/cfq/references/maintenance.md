@@ -6,9 +6,8 @@ Only read when Step 17 finds `DUE <n>`.
    Its `missing`, `stray`, and `unfiled` arrays become findings.
 2. `ponytail:ponytail-audit` — only when `usePonytailAudit` is `true` **and** the skill is
    available. Missing → the run continues with task 1 alone, no comment. The audit is a one-shot
-   skill invocation and does not require ponytail's persistent mode. It is one of two one-shot
-   ponytail uses — the other is `/ifq`'s batch-end review (`queues.md`'s **Ponytail Review (Step
-   11)**), both gated by `usePonytailAudit`. Outside those two, cfq expects ponytail dormant
+   skill invocation and does not require ponytail's persistent mode. It is cfq's one one-shot
+   ponytail use, gated by `usePonytailAudit`. Outside it, cfq expects ponytail dormant
    (`defaultMode: off`).
 3. Findings from both tasks go into **one** combined list. Zero findings → no entry, move to step
    4. One or more → write **one** `plan/` entry via `"<plugin-root>/bin/cfq" note plan

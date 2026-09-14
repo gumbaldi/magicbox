@@ -52,9 +52,9 @@ computed once by the aggregator, no separate call.
 
 - Neither installed → `➖ mattpocock-skills/ponytail not installed`.
 - Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
-  that are actually off (`grill: classic off`, `ponytail audit/review: off`).
+  that are actually off (`grill: classic off`, `ponytail audit: off`).
 - Both installed, both on → `✅ mattpocock-skills and ponytail installed · classic grill on ·
-  ponytail audit/review: on`.
+  ponytail audit: on`.
 - One installed, one missing → name the missing one and the installed one's switch state, e.g.
   `➖ ponytail not installed · classic grill on`.
 - Ponytail installed and `.ponytailMode` is not `off` → append `· ponytail default mode: <mode> ·

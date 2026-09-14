@@ -307,41 +307,6 @@ unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-write
 its `phase` field and the same one Step 5 hands to `report set-commit` — one identifier per phase,
 in the trailer, the report and the lookup alike.
 
-## Ponytail Review (Step 11)
-
-Runs right before `bin/cfq finish` — `finish` moves the batch and releases the lock, so the review
-must happen first. A failing review (subagent error) is one `⚠️` line and never blocks `finish`.
-
-**Gate.** Only when `policy.usePonytailAudit` is `true` **and** `ponytail:ponytail-review` is
-among the session's available skills — same silent-fallback rule as `maintenance.md`'s gate.
-Otherwise: `➖ Ponytail Review off` or `➖ Ponytail Review not installed`, nothing else.
-
-**Delegation.** One Explore subagent on `policy.implExploreModelComplex` (a judge task, per
-`explore-escalation.md`). Its prompt gives it the repo root and tells it to invoke
-`ponytail:ponytail-review` on the output of `git -C <repo-root> diff main...HEAD` (the same base
-`bin/cfq finish` uses for its language check), plus the absolute paths of the batch's
-`.batch-context.md` and its `done/NN-*.md` phase files. Before returning, it drops every finding
-that cuts something a phase's `## Changes` explicitly specified, or that contradicts a
-`## Decisions`/`## Invariants` entry — ponytail never simplifies away what was explicitly
-requested. It reports the drop count only (`dropped <K> as planned`), never the dropped lines. It
-returns **only** the remaining finding lines plus the `net:` line, or `Lean already. Ship.` — never
-the diff, the plan text, prose, or edits.
-
-**Rendering.** A non-zero drop count adds ` · <K> dropped as planned` to the detail. `Lean already`
-→ `✅ Ponytail Review lean`. Findings → `⚠️ Ponytail Review <N> findings · net -<lines>`, then each
-finding as a numbered `   └ ` line, verbatim.
-
-**Question.** Only when findings exist: one `AskUserQuestion`. With ≤ 4 findings, a multi-select
-with one option per finding. With more, a single-select "park all / park none", where individual
-numbers can be given via Other. Recommend parking each finding tagged `yagni:`/`delete:`; leave
-`shrink:` unrecommended. No selection is valid: nothing parked, no second attempt.
-
-**Parking.** Selected findings → **one** `plan/` entry via `"<plugin-root>/bin/cfq" note plan
-"<repo-root>" "ponytail-review-<batch>" "<body-file>"`, in **Plan Entry** format: `## Finding` = the
-selected finding lines verbatim, `## Location` = the absolute paths they name, `## Why Not Here` =
-"found after the batch's last phase; batch-end review does not implement", `## Origin` = the batch
-name plus "ponytail-review at batch end". Status sub-line `   └ parked plan/<file>`.
-
 ## Batch-Done Report Fields (Step 11)
 
 `bin/cfq finish`'s one JSON object, rendered field by field:

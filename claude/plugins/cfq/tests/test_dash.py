@@ -438,8 +438,8 @@ class TestDash(CfqTestCase):
         plugins_line = self._plugins_line(rendered)
 
         self.assertTrue(
-            plugins_line.endswith("ponytail audit/review: on"),
-            f"plugins line should end with 'ponytail audit/review: on':\n{plugins_line}",
+            plugins_line.endswith("ponytail audit: on"),
+            f"plugins line should end with 'ponytail audit: on':\n{plugins_line}",
         )
         self.assertNotIn("mode:", plugins_line, f"mode clause should vanish when ponytailMode is off:\n{plugins_line}")
 
@@ -473,7 +473,7 @@ class TestDash(CfqTestCase):
             env={"CFQ_SCAN_ROOTS": str(tmp), "CFQ_USE_PONYTAIL": "false"},
         ).stdout
 
-        self.assertIn("ponytail audit/review: off", rendered, f"expected wording missing:\n{rendered}")
+        self.assertIn("ponytail audit: off", rendered, f"expected wording missing:\n{rendered}")
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
 
 

@@ -39,7 +39,7 @@ SCHEMA = {
     "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "description": "Skip the implModels/planModels gate entirely."},
     "scanRoots": {"type": "array", "default": ["~/git"], "scope": ["global"], "env": "CFQ_SCAN_ROOTS", "description": "Root directories cfq_scan.py searches for repos with a queue."},
     "useMattpocockGrilling": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_MATTPOCOCK", "description": "Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
-    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run ponytail-audit during maintenance and ponytail-review over the batch diff at batch end."},
+    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run ponytail-audit during maintenance."},
     "codeLanguage": {"type": "string", "default": "en", "pattern": "^[A-Za-z][A-Za-z-]*$", "scope": ["global", "repo"], "env": "CFQ_CODE_LANGUAGE", "description": "Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
     "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
     "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard", "full"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only), standard, or full."},

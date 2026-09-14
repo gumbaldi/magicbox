@@ -378,13 +378,12 @@ one feature it powers rather than blocking the plugin: `gh` or `tea` for the sec
   the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
-- **`ponytail`** — powers two one-shot uses: the optional cleanup audit, one of several tasks in
-  the periodic maintenance run (`maintenanceEvery`), and `/ifq`'s batch-end `ponytail-review` over
-  the batch diff — neither is the maintenance run itself, and neither needs ponytail's persistent
-  mode. cfq expects ponytail dormant (`defaultMode: off` in `~/.config/ponytail/config.json`)
-  outside those two uses — its own default is `full`, which would otherwise load it into every
-  `pfq`/`ifq` session. `/cfq` offers to set this on first-time setup; `bin/cfq doctor check` keeps
-  advising it afterward if declined or if ponytail is installed later.
+- **`ponytail`** — powers one one-shot use: the optional cleanup audit, one of several tasks in
+  the periodic maintenance run (`maintenanceEvery`) — not the maintenance run itself, and it
+  doesn't need ponytail's persistent mode. cfq expects ponytail dormant (`defaultMode: off` in
+  `~/.config/ponytail/config.json`) outside that use — its own default is `full`, which would
+  otherwise load it into every `pfq`/`ifq` session. `/cfq` offers to set this on first-time setup;
+  `bin/cfq doctor check` keeps advising it afterward if declined or if ponytail is installed later.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 

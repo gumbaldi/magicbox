@@ -87,29 +87,23 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"missing reporting object: {out}",
         )
 
-    def test_use_ponytail_audit_policy_follows_setting(self):
+    def test_use_ponytail_audit_not_in_policy(self):
         repo = self._setup_repo("ponytail-policy")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
 
         out = self.json_out(self._run_pf(str(repo)))
-        self.assertEqual(
-            out["policy"]["usePonytailAudit"], True,
-            msg=f"usePonytailAudit default = {out['policy']}",
-        )
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"policy = {out['policy']}")
 
         out = self.json_out(self._run_pf(str(repo), env={"CFQ_USE_PONYTAIL": "false"}))
-        self.assertEqual(
-            out["policy"]["usePonytailAudit"], False,
-            msg=f"usePonytailAudit override = {out['policy']}",
-        )
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"policy = {out['policy']}")
 
-        # empty-result path (NO_BATCH) still emits policy
+        # empty-result path (NO_BATCH) still emits policy, still without usePonytailAudit
         empty_repo = self._setup_repo("ponytail-policy-empty")
         out = self.json_out(self._run_pf(str(empty_repo)))
         self.assertEqual(out["status"], "NO_BATCH", msg=f"empty repo status = {out}")
-        self.assertIn("usePonytailAudit", out["policy"], msg=f"NO_BATCH missing policy: {out}")
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"NO_BATCH policy: {out}")
 
     def test_orchestrator_policy_present_and_true_by_default(self):
         repo = self._setup_repo("orch-default")

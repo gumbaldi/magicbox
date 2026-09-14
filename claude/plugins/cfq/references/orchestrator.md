@@ -48,7 +48,7 @@ silent.
 Render the worker's report as `<plugin-root>/references/queues.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations` map onto `Implemented`/`Verification`/`Deviation`
 directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
-follows classic mode's Step 11 in full, including the ponytail review before `bin/cfq finish`.
+follows classic mode's Step 11 in full.
 
 ## 6. Fallback to classic
 

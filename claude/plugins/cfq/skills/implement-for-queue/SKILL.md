@@ -228,9 +228,7 @@ deliberate, not misconfiguration — semantics in `${CLAUDE_PLUGIN_ROOT}/referen
 
 ## Step 11 — Batch Done
 
-No open `NN-*.md` left → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run the
-batch-end ponytail review per `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Ponytail Review
-(Step 11)** and print `Ponytail Review`, then continue with `finish` whatever the outcome:
+No open `NN-*.md` left → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"`, which moves
 the batch into `impl/done/`, registers the repo, runs the language/maintenance/security/changelog/
 telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
