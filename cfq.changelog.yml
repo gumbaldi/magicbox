@@ -759,8 +759,22 @@
   branch: cfq/023-2026-09-14-fewer-mid-flow-questions
   base: cfq/022-2026-09-14-dedupe-script-helpers
   started: 2026-09-14
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-pfq-upfront-questions"
+      status: "green"
+      summary: ""
+    - phase: "02-ifq-auto-batch-start"
+      status: "green"
+      summary: "ifq auto-selects the first selectable batch (or --select) and starts without a go-ahead question; new SELECT_UNAVAILABLE status for an unselectable named batch"
+    - phase: "03-branch-base-from-dependson"
+      status: "green"
+      summary: ""
+    - phase: "04-changelog-always-committed"
+      status: "green"
+      summary: ""
 - batchNumber: 24
   batch: 024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
   status: parked
