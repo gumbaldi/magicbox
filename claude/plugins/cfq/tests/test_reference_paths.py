@@ -81,7 +81,7 @@ def check_no_token_in_references(root):
 #    Phase 01's original existence check instead.
 def check_no_scripts_named(root):
     fails = []
-    for sub in ("skills", "references"):
+    for sub in ("skills", "references", "agents"):
         d = root / sub
         if not d.is_dir():
             continue
@@ -110,7 +110,11 @@ def check_no_scripts_named(root):
 #    immediately followed by a closing backtick (prose naming it, e.g. "no `jq`") never matches.
 def check_no_shell_mutations(root):
     fails = []
-    files = sorted(root.glob("skills/*/SKILL.md")) + sorted(root.glob("references/*.md"))
+    files = (
+        sorted(root.glob("skills/*/SKILL.md"))
+        + sorted(root.glob("references/*.md"))
+        + sorted(root.glob("agents/*.md"))
+    )
     for f in files:
         for lineno, line in enumerate(f.read_text().splitlines(), start=1):
             for m in SHELL_MUTATION_RE.finditer(line):

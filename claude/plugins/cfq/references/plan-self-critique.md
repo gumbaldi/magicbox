@@ -108,7 +108,7 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   lint. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
   still gets its `Dependencies` and `Verification` checked against reality.
 - **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from Step 4's
-  preflight result — no new `bin/cfq settings get` call), per `references/explore-escalation.md`'s
+  preflight result — no new `bin/cfq settings get` call), per `<plugin-root>/references/explore-escalation.md`'s
   judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the
   failure mode this step exists for is the author reading their own intent instead of the text.
 - **What the agent is given.** The absolute batch directory path and the batch goal from

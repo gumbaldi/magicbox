@@ -69,7 +69,7 @@ condition because there isn't one.
 
 `## Affected Files` names **every** file the phase will change or create — not the interesting
 ones, not the ones the phase is "about". The implementer is measured against this list
-(`references/queues.md`'s `## Stop Rule`), so an incomplete list is a planning defect, not an
+(`<plugin-root>/references/queues.md`'s `## Stop Rule`), so an incomplete list is a planning defect, not an
 implementation defect.
 
 Before the list is considered done, walk it once against this checklist. Each item names what to
@@ -85,7 +85,7 @@ look for; a phase that legitimately has none of a category simply has nothing to
 
 Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
 decide whether a file is in scope, that uncertainty is a research task for the planning session,
-not a hedge in the plan — resolve it before parking: `scripts/cfq-queue-overlap.sh` intersects
+not a hedge in the plan — resolve it before parking: `bin/cfq overlap` intersects
 these lists across open batches to derive conflicts and `.dependsOn` edges, and a wishlist entry
 produces a phantom conflict that costs a real session.
 
