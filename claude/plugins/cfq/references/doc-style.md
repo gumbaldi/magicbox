@@ -34,4 +34,3 @@ identifiers, filenames and commands stay in `codeLanguage`.
 
 - `minimal` — `README` only, no `docs/` tree
 - `standard` — `docs/` with the entry-level topics: setup, usage, configuration
-- `full` — additionally a reference page per module/script and an architecture overview

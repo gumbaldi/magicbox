@@ -59,7 +59,7 @@ computed once by the aggregator, no separate call.
   `➖ ponytail not installed · classic grill on`.
 - Ponytail installed and `.ponytailMode` is not `off` → append `· ponytail default mode: <mode> ·
   cfq expects off` and force the icon to `⚠️`, regardless of which of the four cases above
-  applies — cfq expects ponytail dormant outside the maintenance audit and batch-end review.
+  applies — cfq expects ponytail dormant outside the maintenance audit.
   `.ponytailMode == "off"` → no clause appended, no icon change, no warning — `off` is the
   expected, configured state.
 

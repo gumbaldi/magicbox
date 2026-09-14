@@ -64,7 +64,7 @@ mutation script executes → the structured result is shown. No new script per a
       open, with one line explaining why.
    3. Entries without a `check:` line are only shown, and only checked off on explicit
       confirmation.
-   4. Never create or edit an entry here — those are written by `ifq` (P6).
+   4. Never create or edit an entry here — those are written by `ifq` at batch end.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 

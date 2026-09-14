@@ -295,7 +295,9 @@ PRECHECKS
 ⚠️ Security Diff    unavailable for this repo
 
 IMPLEMENTATION
-✅ P6 livetest      green · 6 deviations
+PHASE 06 DONE
+✅ Implemented     <one clause: what was built>
+✅ Verification    <command, and its result>
 ```
 
 `✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
@@ -387,7 +389,7 @@ one feature it powers rather than blocking the plugin: `gh` or `tea` for the sec
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 
-Everything except classic grill mode and the two ponytail uses works fully without either plugin —
+Everything except classic grill mode and the ponytail maintenance audit works fully without either plugin —
 "Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
 
 ## Credits

@@ -351,6 +351,47 @@ class SettingsTest(CfqTestCase):
         proc = self.run_cfq("settings", "set", "docLevel", "bogus", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set docLevel bogus should fail")
 
+        # docLevel lost its `full` value -- rejected like any other invalid enum value now
+        proc = self.run_cfq("settings", "set", "docLevel", "full", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set docLevel full should fail (full was removed)")
+
+        # fallback: a pre-existing global settings.json with the removed "full" value reads back
+        # as "standard", with no error and without rewriting the file
+        with tempfile.TemporaryDirectory() as legacy_home:
+            legacy_dir = f"{legacy_home}/.claude/code-for-queue"
+            pathlib.Path(legacy_dir).mkdir(parents=True, exist_ok=True)
+            legacy_settings = pathlib.Path(f"{legacy_dir}/settings.json")
+            legacy_settings.write_text('{"docLevel":"full"}')
+
+            got = self.run_cfq("settings", "get", "docLevel", home=legacy_home).stdout.strip()
+            self.assertEqual(
+                got, "standard", msg=f"stored docLevel=full -> got '{got}', want standard"
+            )
+            self.assertEqual(
+                legacy_settings.read_text(),
+                '{"docLevel":"full"}',
+                msg="stored docLevel=full must not rewrite the settings file",
+            )
+
+        # same fallback, repo tier
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            repo_settings = fixture / ".claude" / "cfq" / "settings.json"
+            repo_settings.parent.mkdir(parents=True, exist_ok=True)
+            repo_settings.write_text('{"docLevel":"full"}')
+
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "docLevel", home=self.home
+            ).stdout.strip()
+            self.assertEqual(
+                got, "standard", msg=f"repo-stored docLevel=full -> got '{got}', want standard"
+            )
+            self.assertEqual(
+                repo_settings.read_text(),
+                '{"docLevel":"full"}',
+                msg="repo-stored docLevel=full must not rewrite the settings file",
+            )
+
         self.run_cfq("settings", "set", "codeLanguage", "de", home=self.home, check=True)
         got = self.run_cfq("settings", "get", "codeLanguage", home=self.home).stdout.strip()
         self.assertEqual(got, "de", msg=f"set codeLanguage de -> got '{got}'")

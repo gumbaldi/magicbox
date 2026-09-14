@@ -42,7 +42,7 @@ SCHEMA = {
     "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run ponytail-audit during maintenance."},
     "codeLanguage": {"type": "string", "default": "en", "pattern": "^[A-Za-z][A-Za-z-]*$", "scope": ["global", "repo"], "env": "CFQ_CODE_LANGUAGE", "description": "Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
     "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
-    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard", "full"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only), standard, or full."},
+    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
     "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
@@ -146,6 +146,10 @@ def merged_tiers(repo_path):
     base = merge_tier_file(DEFAULTS, GLOBAL_SETTINGS_FILE)
     if repo_path:
         base = merge_tier_file(base, paths.repo_settings_file(repo_path))
+    if base.get("docLevel") == "full":
+        # docLevel dropped "full" -- a value stored by an older cfq reads back as "standard"
+        # rather than erroring, and the file is never rewritten just for reading it.
+        base["docLevel"] = "standard"
     return base
 
 

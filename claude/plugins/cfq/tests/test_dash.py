@@ -167,17 +167,17 @@ class TestDash(CfqTestCase):
         envp = key_row("maintenanceEvery", run_dash(env={"CFQ_MAINTENANCE_EVERY": "99"}))
         self.assertEqual(envp["marker"], "E", f"env:process marker = {envp}")
 
-        self.run_cfq("settings", "set", "--repo", str(mfixture), "docLevel", "full")
+        self.run_cfq("settings", "set", "--repo", str(mfixture), "docLevel", "standard")
         envd = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "minimal"}))
         self.assertEqual(envd["value"], "minimal", f"docLevel effective value = {envd}")
         self.assertEqual(
-            envd["maskedValue"], "full",
+            envd["maskedValue"], "standard",
             f"docLevel maskedValue must be the repo file value, not just the env value, got {envd}",
         )
         self.assertEqual(envd["maskedSource"], "repo", f"docLevel maskedSource = {envd}")
 
-        (mfixture / ".claude" / "settings.json").write_text('{"env":{"CFQ_DOC_LEVEL":"standard"}}')
-        envl = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "standard"}))
+        (mfixture / ".claude" / "settings.json").write_text('{"env":{"CFQ_DOC_LEVEL":"minimal"}}')
+        envl = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "minimal"}))
         self.assertEqual(envl["marker"], "E", f"env:repo-legacy marker = {envl}")
         self.assertEqual(envl["source"], "env:repo-legacy", f"env:repo-legacy source = {envl}")
 

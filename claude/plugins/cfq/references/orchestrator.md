@@ -2,9 +2,9 @@
 
 `implement-for-queue`'s second mode: the session spawns one `cfq-phase-worker` sub-agent per phase
 instead of implementing in-session, and decides between phases whether the next one starts. Loaded
-only when `policy.orchestratorMode` is `true` — off by default until this batch's last phase flips
-it. Everything the worker itself does or returns is defined in
-`<plugin-root>/agents/cfq-phase-worker.md`; this file is the orchestrator's own loop around it.
+only when `policy.orchestratorMode` is `true` — on by default. Everything the worker itself does
+or returns is defined in `<plugin-root>/agents/cfq-phase-worker.md`; this file is the
+orchestrator's own loop around it.
 
 ## 1. Per phase, before spawning
 
@@ -63,15 +63,3 @@ within the same batch is worth investigating, not silently absorbing.
 A plugin agent at `agents/cfq-phase-worker.md` in plugin `cfq` resolves as `cfq:cfq-phase-worker`
 (plugin-namespaced) when spawned via the `Agent` tool — the documented Claude Code convention for
 plugin-provided sub-agents, and the form recorded here.
-
-Empirically: both `cfq:cfq-phase-worker` and the bare `cfq-phase-worker` were spawned against this
-exact definition from inside the implementing session that just wrote it, and both came back
-`Agent type '<name>' not found. Available agents: claude, claude-code-guide, Explore,
-general-purpose, Plan, statusline-setup` — the running session's plugin instance is loaded from the
-installed plugin cache, not from this checkout, so a newly added `agents/*.md` file is invisible to
-`Agent` calls until the plugin is reinstalled or updated from this source. No session working
-inside its own plugin's checkout can spawn an agent it just added to that same checkout — this is a
-structural limit of testing a plugin agent against itself, not a naming ambiguity. Re-verify the
-namespaced form once this plugin version ships and an `/ifq` session runs against the installed
-copy; `agents/cfq-phase-worker.md` falling back to the spawning session's own model (its `model:`
-field is intentionally absent) is unaffected either way.
