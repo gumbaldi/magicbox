@@ -8,6 +8,12 @@ no pseudo-version increment, no identity derived from Git branch history.
 `check` resolves and judges one named branch (for a free-text base-branch answer) -- also
 read-only, no dispatcher entry of its own since `branch` is already the noun.
 
+On `new`, `base`/`baseRef` are derived from the batch's own `.dependsOn` rather than picked from
+`candidates` by newest commit: `baseSource` is `"main"` (no unmerged dependency branch),
+`"dependsOn"` (the one unmerged dependency branch that contains every other unmerged one), or
+`"ambiguous"` (no single one does -- falls back to the old newest-`lastCommit` candidate, now the
+exceptional case instead of the default).
+
 Ported from cfq-branch.sh -- a port, not a redesign: the CLI contract (verbs, argument order, JSON
 shapes, exit codes) is the invariant this file preserves. The remote-is-source-of-truth rule
 (candidates ranked from `origin`, never local refs) is load-bearing -- see commits
@@ -22,7 +28,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, paths, queue, render  # noqa: E402
 from cfq_lib import proc  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
@@ -306,6 +312,54 @@ def _highest_cfq_branch(candidate_names):
     return highest_name
 
 
+def _dependency_base(repo, batch_name, rchecked, main_ref):
+    """Derives (name, ref, local_only, baseSource) from the batch's `.dependsOn` -- each dep's
+    branch (persisted `changelog branch-for`, else `cfq/<dep>`) is kept when its ref exists
+    (origin first, local when offline) and it is not already an ancestor of `main_ref` (merged
+    deps contribute nothing, same as no dep at all). No unmerged dep branch -> `("main", main_ref,
+    False, "main")`. Exactly one branch among the unmerged set that contains every other one (a
+    chain, or a lone dependency) -> that branch, `baseSource: "dependsOn"`. Otherwise ->
+    `(None, None, None, "ambiguous")`, leaving the caller's own newest-candidate fallback in
+    charge, unchanged from before this derivation existed."""
+    batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch_name
+    deps = queue.read_depends(batch_dir)
+
+    unmerged = []
+    for dep in deps:
+        name = cfq_run("changelog", "branch-for", repo, dep).stdout.strip()
+        if not name:
+            name = f"cfq/{dep}"
+        origin_ref = f"refs/remotes/origin/{name}"
+        local_ref = f"refs/heads/{name}"
+        if rchecked and ref_exists(repo, origin_ref):
+            ref, local_only = origin_ref, False
+        elif ref_exists(repo, local_ref):
+            ref, local_only = local_ref, True
+        else:
+            continue  # dep names no branch that exists anywhere -- ignored
+
+        if ref_exists(repo, main_ref) and git(
+            repo, "merge-base", "--is-ancestor", ref, main_ref, check=False
+        ).returncode == 0:
+            continue  # dep already merged into main -- contributes nothing
+
+        unmerged.append((name, ref, local_only))
+
+    if not unmerged:
+        return "main", main_ref, False, "main"
+
+    for name, ref, local_only in unmerged:
+        contains_all_others = all(
+            other_ref == ref
+            or git(repo, "merge-base", "--is-ancestor", other_ref, ref, check=False).returncode == 0
+            for _, other_ref, _ in unmerged
+        )
+        if contains_all_others:
+            return name, ref, local_only, "dependsOn"
+
+    return None, None, None, "ambiguous"
+
+
 def _emit_new(repo, batch_name, number, rchecked):
     branch = f"cfq/{batch_name}"
 
@@ -354,12 +408,16 @@ def _emit_new(repo, batch_name, number, rchecked):
     for c in cand_objs:
         del c["_lastEpoch"]
 
-    if not cand_objs:
-        base_name, base_ref, base_local_only = "main", main_ref, False
-    else:
-        base_name = cand_objs[0]["name"]
-        base_ref = cand_objs[0]["ref"]
-        base_local_only = cand_objs[0]["localOnly"]
+    base_name, base_ref, base_local_only, base_source = _dependency_base(
+        repo, batch_name, rchecked, main_ref
+    )
+    if base_source == "ambiguous":
+        if not cand_objs:
+            base_name, base_ref, base_local_only = "main", main_ref, False
+        else:
+            base_name = cand_objs[0]["name"]
+            base_ref = cand_objs[0]["ref"]
+            base_local_only = cand_objs[0]["localOnly"]
 
     base_local_ref = f"refs/heads/{base_name}"
     base_origin_ref = f"refs/remotes/origin/{base_name}"
@@ -398,7 +456,7 @@ def _emit_new(repo, batch_name, number, rchecked):
 
     print(render.dump_json({
         "mode": "new", "batch": batch_name, "batchNumber": number, "branch": branch,
-        "base": base_name, "baseRef": base_ref, "candidates": cand_objs,
+        "base": base_name, "baseRef": base_ref, "baseSource": base_source, "candidates": cand_objs,
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
     }))

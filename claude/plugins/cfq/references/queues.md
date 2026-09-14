@@ -62,9 +62,14 @@ fetch fails offline/sandboxed, and everything falls back to local-only behavior 
 deciding, so a stale local `main`/branch never gets silently proposed as a base. On the `new` path,
 `origin/*` is the source of truth for `candidates` — each is an object (`name`, `ref`,
 `aheadOfMain`, `behindRemote`, `aheadRemote`, `localOnly`, `highestBatch`, `mergedIntoOriginMain`,
-`lastCommit`), ranked by `lastCommit` descending, and `base`/`baseRef` already name the
-recommended one (`base: "main"` / `baseRef` pointing at `origin/main` when `candidates` is empty —
-never `null` waiting on a question). Every response additionally carries `remoteChecked` (bool),
+`lastCommit`), ranked by `lastCommit` descending, kept for the `ambiguous` fallback below and for
+the free-text answer's resolution. `base`/`baseRef` are no longer picked from `candidates` by
+newest commit — they're derived from the batch's own `.dependsOn`, in a `baseSource` field:
+`"main"` (no unmerged dependency branch — `base: "main"` / `baseRef` pointing at `origin/main`),
+`"dependsOn"` (the one unmerged dependency branch that contains every other unmerged dependency
+branch), or `"ambiguous"` (no single dependency branch contains all the others — falls back to
+`candidates`' newest-`lastCommit` recommendation, the heuristic this now only decides ties with,
+never the default). Every response additionally carries `remoteChecked` (bool),
 `remoteWarning` (string or `null`, set only when the chosen base — local `main` on `new`, the
 persisted branch on `continue` — has commits `origin` doesn't and the gap can't be auto-resolved),
 `remoteState` (`"synced"`/`"ahead"`/`"behind"`/`"diverged"`/`"unknown"` — the chosen base's own
@@ -88,9 +93,11 @@ on `mode` to read any of the three.
   question minus the push option — `remoteWarning` explains why a push would be rejected.
   **`synced`**/**`unknown`** → plain `git checkout "<branch>"`, no question. Either way, don't write
   a changelog entry — the batch is already recorded.
-- **`new`** → a genuinely empty `candidates` list resolves silently to `base`/`baseRef` (`main`/
-  `origin/main`), no question. Otherwise one `AskUserQuestion` listing every entry in `candidates`
-  (already ranked), asking which one the new branch builds on. Recommended (first, labelled
+- **`new`** → `baseSource: "main"` or `"dependsOn"` resolves silently to the already-derived
+  `base`/`baseRef`, no question — name `baseSource` in the `Branch` status line. `baseSource:
+  "ambiguous"` (no single dependency branch contains every other unmerged one — the exceptional
+  case) → one `AskUserQuestion` listing every entry in `candidates` (already ranked), asking which
+  one the new branch builds on. Recommended (first, labelled
   `(Recommended)`): `base` — the newest by `lastCommit`, never the checked-out branch. Each other
   option's description names its `aheadOfMain`, plus `local only` / `already contained in
   origin/main` / `behind origin by <behindRemote>` where applicable. The free-text answer
