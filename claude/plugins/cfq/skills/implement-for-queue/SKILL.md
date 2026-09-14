@@ -177,19 +177,21 @@ it, green or red, before anything else: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase r
 open; this captures telemetry automatically. `phase` is the full slug (e.g.
 `02-gate-rate-limits-and-cache-display`, never the bare number) — the same value Step 5 passes to
 `report set-commit` and to `changelog commit-message`, and `phase record` rejects anything else.
-`deviations` is not optional padding — name what the plan said, what was built, and why; an honest
-empty array is fine, a glossed-over deviation is not; `errors` carries the actual failure output,
-trimmed to what identifies it.
+`deviations` is not optional padding — name what the plan said, what was built, and why; the
+file-scope comparison in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **File-Scope Deviation**
+runs before every `phase record` call and its result feeds this array — an empty array is fine
+only when that comparison came back empty, a glossed-over deviation is not; `errors` carries the
+actual failure output, trimmed to what identifies it.
 
 Green → register the repo (`bin/cfq registry add "<repo-root>"`), print the **Summary**
 (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Summary** — its `Deviation` lines double as
 the recorded `deviations` array); red → **stop**, print `❌ red` with each trimmed error as `   └ `
 lines, don't move on.
 
-**Stop rule**, before the next phase in the same session: (a) files beyond `## Affected Files`, (b)
-verification red or skipped, (c) a planned change omitted, (d) an unnamed new dependency/script —
-mechanics in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Stop Rule**. Any firing → ask once before continuing; none
-→ continue as today, no question.
+**Stop rule**, before the next phase in the same session: (a) verification red or skipped, (b) a
+planned change omitted, (c) an unnamed new dependency/script — mechanics in
+`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Stop Rule**. Any firing → ask once before
+continuing; none → continue as today, no question.
 
 ## Step 9 — Commit & Push (on green, every phase)
 

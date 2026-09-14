@@ -193,21 +193,53 @@ happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
 deviations → the `Deviation` line is omitted entirely, not printed empty.
 
+## File-Scope Deviation (Step 8, before `phase record`)
+
+Mandatory, every phase, on green — not conditional on suspicion, not skippable when the phase
+"obviously" stayed in scope.
+
+The phase's changes aren't committed yet at this point (`ifq` commits in Step 9), so this compares
+the working tree, never a prior commit. Pipeline: take the changed and untracked paths from `git
+status --porcelain` (covers files the phase created, not only modified ones), resolve them to
+absolute paths against the repo root, and subtract the phase's `## Affected Files` entries,
+extracted the same way `cfq_queue_overlap.py`'s `extract_affected_files` does (a port of `sed -n
+'/^## Affected Files/,/^## /p' "<phase-file>" | sed -n 's/^- \`\([^\`]*\)\`.*/\1/p'`). Ignore
+anything under `<repo-root>/.claude/cfq/` — the queue's own bookkeeping is not a code deviation and
+is git-excluded anyway.
+
+A non-empty difference becomes one `deviations` entry naming the file(s) and why they had to be
+touched — plan said X, the change also required Y, because Z. This is the same `deviations` array
+Step 8 already passes to `bin/cfq phase record` — no new field, no new call. An empty array is
+correct only when the comparison actually came back empty; omitting a difference the comparison
+found is a defect, not brevity.
+
+Nothing new is shown: `## Phase Summary`'s existing `⚠️ Deviation` line already repeats the
+`report.json` entry verbatim, one source and two renderings — no second rendering here.
+
+This does not stop the session, does not ask, and does not block the commit. If the deviation
+reveals that the plan itself was wrong rather than merely incomplete, that's scope creep and goes
+through Step 8's existing parking question (`plan/<YYYY-MM-DD>-<slug>.md`), unchanged.
+
 ## Stop Rule (Step 8, before the next phase)
 
 A gate, not a status line — checked after a phase goes green, before auto-advancing to the next
-open phase in the same session. Exactly four triggers, nothing else:
+open phase in the same session. Exactly three triggers, nothing else:
 
-- (a) files were changed that `## Affected Files` does not list — checked mechanically, never by
-  judgement: `git diff --name-only HEAD~1..HEAD` against that phase's `## Affected Files`.
-- (b) verification came back red, or was not run
-- (c) a change the plan specifies was deliberately left out
-- (d) a new dependency or a new script was introduced that the plan does not name
+- (a) verification came back red, or was not run
+- (b) a change the plan specifies was deliberately left out
+- (c) a new dependency or a new script was introduced that the plan does not name
 
-Any of the four firing → do not auto-advance; state which trigger fired and ask once
+A fourth trigger used to sit here — files changed that `## Affected Files` does not list. It fired
+only after the phase had already gone green, which made the question it raised unanswerable in
+practice: the work was done, the change was evidently necessary, and the only sensible answer was
+"yes, continue". That made it a confirmation prompt, not a gate. What replaces it is stricter, not
+looser: `## File-Scope Deviation` above makes the same mechanical comparison mandatory and records
+the result instead of interrupting for it.
+
+Any of the three firing → do not auto-advance; state which trigger fired and ask once
 (`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
-Everything that is not one of the four is a note in the report, never a stop — say so explicitly so
-a future reader does not add a fifth trigger by interpretation.
+Everything that is not one of the three is a note in the report, never a stop — say so explicitly
+so a future reader does not add a fourth trigger by interpretation.
 
 ## Phase Commit Trailers (Step 9)
 
