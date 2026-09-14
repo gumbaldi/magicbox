@@ -65,7 +65,7 @@ interactively.
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | global, repo | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
-| `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `false` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
+| `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
 | `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |

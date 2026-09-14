@@ -84,7 +84,8 @@ own location, so the copy only routes to the shadowed sibling if both directorie
 
 **Four skills, four roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
 plans and never edits code; `implement-for-queue` (cheap model) works exactly one batch per session and
-hands off on the context gate; `code-for-queue` is the cross-repo dashboard plus settings;
+hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
+on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
@@ -198,27 +199,39 @@ own estimate of its token usage. Only numbers, timestamps and names are carried 
 `tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
-**Subagents are for exploration and mechanical test execution, never for content the parent must
-own.** `plan-for-queue` Step 5 and `implement-for-queue` Step 8 both delegate multi-file or
-unclear-scope research to Explore agents (`planExploreModel` / `implExploreModel`), and
-`implement-for-queue` may additionally run a phase's verification command through the same
-subagent to keep raw test/build log noise out of the expensive model's context. A subagent pays
-off only where the parent doesn't need the full raw result in its own context afterward: research
-fits, since the parent gets a distilled summary and stops there; a **green** verification run fits
-the same way — pass/fail plus which command ran is enough. A **red** run does not get filtered —
-the subagent returns the complete, unfiltered failure output, because the implementing model needs
-the full error to fix it; summarizing a failure is exactly the case where a cheaper model can lose
-the detail that matters. Implementation, test writing and documentation stay off subagents
-entirely — a *newly spawned* subagent starts cold and re-reads what the parent already holds (a
-continued one, addressed via `SendMessage`, keeps its context instead — see
+**A subagent pays off only where the parent never needs the full raw result in its own context
+afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
+`implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents
+(`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
+verification command through the same subagent to keep raw test/build log noise out of the
+expensive model's context. Research fits, since the parent gets a distilled summary and stops
+there; a **green** verification run fits the same way — pass/fail plus which command ran is
+enough. A **red** run does not get filtered — the subagent returns the complete, unfiltered
+failure output, because the implementing model needs the full error to fix it; summarizing a
+failure is exactly the case where a cheaper model can lose the detail that matters.
+
+The second is ownership, not delegation: `implement-for-queue`'s orchestrator mode spawns one
+worker sub-agent per phase (`references/orchestrator.md`), and that worker implements, verifies
+and commits its own phase completely — including the code, the tests and any documentation the
+phase touches. The orchestrator reads only the worker's returned report, never the diff it
+produced, so the same "parent doesn't need the raw result back" condition holds even though the
+subagent's own work is implementation. This does not reopen delegation for a classic-mode session:
+what still never fits, in either mode, is a fragment of work whose result the *parent itself* must
+read back to finish — a *newly spawned* subagent starts cold and re-reads what the parent already
+holds (a continued one, addressed via `SendMessage`, keeps its context instead — see
 `claude/plugins/cfq/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
 and the parent then reads the subagent's output again to verify it, two or three reads where a
-direct read-and-edit would have been one. That trade-off is measurable, not asserted: compare a
-subagent call's reported
-input-token count (`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent
-reading and editing the same files directly — for implementation, test writing and documentation
-the subagent path loses. Anyone tempted to delegate anything beyond exploration or verification
-execution should re-run that comparison first, not take this paragraph on faith.
+direct read-and-edit would have been one.
+
+That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
+(`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent reading and editing
+the same files directly — for a fragment the parent must read back, the subagent path loses.
+For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (its
+additive TSV fields 12-15, populated whenever a phase actually ran as a worker) is the same
+comparison already run per batch — read it before assuming the split still favors orchestrator
+mode. Anyone tempted to delegate anything beyond exploration, verification execution, or a whole
+self-committing phase should re-run the relevant comparison first, not take this paragraph on
+faith.
 
 ## Conventions
 

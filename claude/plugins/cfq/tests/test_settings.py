@@ -191,7 +191,7 @@ class SettingsTest(CfqTestCase):
             "grillMode": "stepwise",
             "planModels": "opus,fable",
             "implModels": "sonnet",
-            "orchestratorMode": "false",
+            "orchestratorMode": "true",
             "orchestratorModels": "",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
@@ -224,7 +224,7 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "orchestratorMode"
         ).stdout.strip()
-        self.assertEqual(got, "false", msg=f"default orchestratorMode = '{got}', want false")
+        self.assertEqual(got, "true", msg=f"default orchestratorMode = '{got}', want true")
 
         with tempfile.TemporaryDirectory() as fixture_s:
             fixture = pathlib.Path(fixture_s)

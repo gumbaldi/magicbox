@@ -87,7 +87,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"missing reporting object: {out}",
         )
 
-    def test_orchestrator_policy_present_and_false_by_default(self):
+    def test_orchestrator_policy_present_and_true_by_default(self):
         repo = self._setup_repo("orch-default")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
@@ -95,7 +95,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(
-            out["policy"]["orchestratorMode"], False, msg=f"orchestratorMode default = {out['policy']}"
+            out["policy"]["orchestratorMode"], True, msg=f"orchestratorMode default = {out['policy']}"
         )
 
     def test_orchestrator_models_falls_back_to_impl_models(self):

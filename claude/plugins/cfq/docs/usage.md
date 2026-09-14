@@ -85,7 +85,27 @@ green phase.
    and you choose whether to continue or hand off.
 
 Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
-`stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
+`stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`,
+`orchestratorMode`, `orchestratorModels`.
+
+### Orchestrator mode
+
+On by default (`orchestratorMode`). Steps 4-5 above describe the classic path; with orchestrator
+mode on, `/ifq` instead spawns one worker sub-agent per phase — its own briefing, its own fresh
+context window — and that worker implements, verifies and commits the whole phase itself. What
+changes for you in practice: no `/clear`-and-`/model sonnet` cycle between phases, since the
+orchestrator session keeps going; each phase's worker still runs visibly in the terminal; and the
+handoff point shifts from the capacity threshold (`stopUsed`, meaningless for a worker that starts
+fresh every phase) to the rate-limit window instead.
+
+Turn it off — per repo, globally, or for one shell — when you'd rather implement every phase in
+the session itself:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set --repo "$(git rev-parse --show-toplevel)" orchestratorMode false
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set orchestratorMode false
+CFQ_ORCHESTRATOR_MODE=0   # one shell session
+```
 
 ## Dashboard, queue and settings — `/cfq`
 

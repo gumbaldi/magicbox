@@ -87,6 +87,21 @@ sequenceDiagram
   I->>U: handoff or batch done
 ```
 
+#### Orchestrator mode
+
+On by default (`orchestratorMode`). Instead of implementing every phase in the session itself,
+`/ifq` spawns one worker sub-agent per phase — each with a fresh context window and a
+deterministic briefing — and decides between phases whether the next one starts. The worker
+implements, verifies and commits its own phase; the orchestrator only reads its returned report,
+never its code. In practice this means no `/clear`-and-`/model sonnet` cycle between phases: the
+same session keeps going, and each phase's worker runs visibly in the terminal. The session still
+hands off when a rate-limit window is crossed, same as before — the capacity-based context gate
+that stopped a classic session doesn't apply to a worker that starts fresh every phase.
+
+Turn it off per repo (`bin/cfq settings set --repo <path> orchestratorMode false`), globally
+(`bin/cfq settings set orchestratorMode false`), or for one shell (`CFQ_ORCHESTRATOR_MODE=0`) to
+go back to implementing every phase in the session itself.
+
 ### `/cfq`
 
 First-time setup, the cross-repo dashboard, management of the current repo's queue, and the
