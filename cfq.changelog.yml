@@ -744,8 +744,16 @@
   branch: cfq/022-2026-09-14-dedupe-script-helpers
   base: cfq/021-2026-09-14-ponytail-review-and-batch-goal
   started: 2026-09-14
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-shared-proc-helpers"
+      status: "green"
+      summary: ""
+    - phase: "02-small-dedupes"
+      status: "green"
+      summary: "write_json/now_iso deduped into cfq_lib/render.py; cfq_report.py's extract_goal reuses cfq_brief.parse_phase_body instead of re-implementing the ## Context extraction; unused datetime/os imports dropped where they became dead."
 - batchNumber: 23
   batch: 023-2026-09-14-fewer-mid-flow-questions
   status: parked
