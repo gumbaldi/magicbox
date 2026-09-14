@@ -21,11 +21,9 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, render  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_dash.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 REASON_TEXT = {"inProgress": "in progress", "priority": "priority high", "order": "next in order"}
 
@@ -41,10 +39,6 @@ ACTION_ROWS_TEMPLATE = [
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
     ("settings, global", "bin/cfq settings list --sources"),
 ]
-
-
-def cfq_run(*args, env=None):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True, env=env)
 
 
 def jq_alt(*values):

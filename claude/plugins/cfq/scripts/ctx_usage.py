@@ -32,15 +32,11 @@ output, exit codes) is the invariant this file preserves.
 
 import json
 import pathlib
-import subprocess
 import sys
 
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 
 def resolved_setting(key, default):

@@ -11,35 +11,18 @@ shape, exit codes) is the invariant this file preserves.
 import argparse
 import pathlib
 import re
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import capture, cfq_run, git, is_git_repo  # noqa: E402
 
 PROG = "cfq_lang.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 # Caps kept as named constants so the sample size is tunable in one place.
 PROSE_MAX_LINES = 200
 PROSE_MAX_BYTES = 8192
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-
-
-def capture(proc):
-    """Mirrors `$(cmd 2>/dev/null || true)`: whatever the command printed to stdout, trailing
-    newlines stripped, regardless of exit code."""
-    return proc.stdout.rstrip("\n")
 
 
 def csv_to_list(csv):
@@ -52,10 +35,6 @@ def get_settings():
     doc_level = capture(cfq_run("settings", "get", "docLevel"))
     i18n_patterns = csv_to_list(capture(cfq_run("settings", "get", "i18nExcludePatterns")))
     return code_language, doc_languages, doc_level, i18n_patterns
-
-
-def is_git_repo(repo):
-    return git(repo, "rev-parse", "--git-dir").returncode == 0
 
 
 def verify_ref(repo, ref):

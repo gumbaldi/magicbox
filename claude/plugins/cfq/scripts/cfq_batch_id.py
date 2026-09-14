@@ -43,11 +43,11 @@ from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_batch_id.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 CHANGELOG_PY = SCRIPT_DIR / "cfq_changelog.py"
 
 # New-name grammar: <digits>-<YYYY-MM-DD>-<slug>, digits precede the date. A legacy
@@ -63,10 +63,6 @@ DEFAULT_WIDTH = 3
 # presumed abandoned (crashed holder) and reclaimed rather than waited on forever. Allocation is
 # fast, so a short stale window is enough -- this is not a long-lived session lock.
 LOCK_STALE_S = 10
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
 
 
 # ---- digit-run width helpers ------------------------------------------------------------------

@@ -33,11 +33,9 @@ from datetime import date
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.proc import CFQ_BIN, is_git_repo  # noqa: E402
 
 PROG = "cfq_changelog.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
@@ -178,12 +176,6 @@ def replace_block(target, start, new_block):
 
 
 # ---- git trailer scanning (ensure's one-time bootstrap) --------------------------------------
-
-def is_git_repo(repo):
-    return subprocess.run(
-        ["git", "-C", repo, "rev-parse", "--git-dir"], capture_output=True, text=True,
-    ).returncode == 0
-
 
 def scan_trailer_max(repo):
     """Highest CFQ-Batch-Number trailer reachable in repo history; 0 if none. Uses Git's own

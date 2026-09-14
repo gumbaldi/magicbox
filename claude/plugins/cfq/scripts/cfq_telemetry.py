@@ -22,11 +22,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_telemetry.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 USAGE = f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>]"
 
@@ -34,10 +32,6 @@ RECOMMENDED_HEADING_RE = re.compile(r"^## Empfohlene Skills")
 HEADING_RE = re.compile(r"^## ")
 RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 TS_TRAILING_MS_RE = re.compile(r"\.\d+Z$")
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
 
 
 def git_toplevel(cwd):

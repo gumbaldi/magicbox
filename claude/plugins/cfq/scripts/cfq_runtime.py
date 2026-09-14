@@ -27,9 +27,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
+from cfq_lib.proc import CFQ_BIN  # noqa: E402
 
 STALE_PAYLOAD_SECONDS = 600
 PONYTAIL_MODES = ("off", "lite", "full", "ultra")

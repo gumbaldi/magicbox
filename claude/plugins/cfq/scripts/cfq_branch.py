@@ -18,38 +18,33 @@ auto-resolved.
 import argparse
 import pathlib
 import re
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import proc  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_branch.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 # New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes the
 # date); legacy names start directly with the date and never match.
 NUMBER_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
 
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
 def git(repo, *args, check=True):
-    """`git -C <repo> <args>`, always capture_output/text. check=True (the default) dies the whole
-    process on a nonzero exit, mirroring what the ported shell's `set -eu` did for the same bare
-    call -- several call sites deliberately swallow failures (`|| true`, `|| echo 0`, an `if`/`&&`
-    test); those pass check=False and handle the result themselves, exactly where the shell
-    version did and nowhere else."""
-    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-    if check and proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
-        sys.exit(proc.returncode)
-    return proc
+    """check=True (the default) dies the whole process on a nonzero exit, mirroring what the
+    ported shell's `set -eu` did for the same bare call -- several call sites deliberately
+    swallow failures (`|| true`, `|| echo 0`, an `if`/`&&` test); those pass check=False and
+    handle the result themselves, exactly where the shell version did and nowhere else. Local
+    wrapper because this default (and the die-on-failure behaviour) differs from
+    `cfq_lib.proc.git`'s own check semantics."""
+    result = proc.git(repo, *args)
+    if check and result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.exit(result.returncode)
+    return result
 
 
 def ref_exists(repo, ref):

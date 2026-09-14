@@ -21,11 +21,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.proc import settings_get  # noqa: E402
 
 PROG = "cfq_layout.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 BLOCK_BEGIN = "# BEGIN cfq-managed (do not edit this block by hand)"
 BLOCK_END = "# END cfq-managed"
@@ -41,12 +39,6 @@ BLOCK_ENTRIES = [
     ".claude/cfq/.maintenance",
     ".claude/cfq/telemetry.jsonl",
 ]
-
-
-def settings_get(repo, key):
-    cmd = [str(CFQ_BIN), "settings", "get", "--repo", repo, key]
-    out = subprocess.run(cmd, capture_output=True, text=True)
-    return out.stdout.strip()
 
 
 def exclude_file(repo):

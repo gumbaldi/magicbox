@@ -66,7 +66,8 @@ noticing, which is the point.
 Scripts call each other through `bin/cfq <noun>`, never by filename — the same rule that applies
 to skills and references. `scripts/cfq_lib/` is the one exception — shared Python with no CLI and
 no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` holds the canonical
-path helpers). Two further exceptions stay direct filename calls, each commented at its call site:
+path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers). Two further
+exceptions stay direct filename calls, each commented at its call site:
 - **Inner-loop calls** (`cfq_batch_id.py`'s per-pair rename and per-orphan reserve,
   `cfq_scan.py`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
   `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.

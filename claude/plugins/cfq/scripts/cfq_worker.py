@@ -28,12 +28,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_worker.py"
 
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-PLUGIN_ROOT = SCRIPT_DIR.parent
-CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
+PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 HEADING_RE = re.compile(r"^## ")
 RECOMMENDED_HEADING_RE = re.compile(r"^## Recommended skills", re.IGNORECASE)
@@ -41,10 +40,6 @@ RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 
 GREEN_TRIGGERS = ("omitted", "dependency")
 VALID_STATUSES = ("green", "red", "question")
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
 
 
 def find_phase_file(batch_dir, phase_num):

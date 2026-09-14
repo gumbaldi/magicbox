@@ -20,9 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cfq_changelog  # noqa: E402
 import cfq_report  # noqa: E402
 from . import trash  # noqa: E402
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent.parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
+from .proc import CFQ_BIN  # noqa: E402
 
 STALE_PLANNING_SECONDS = 6 * 3600
 

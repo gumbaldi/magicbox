@@ -14,25 +14,14 @@ import argparse
 import json
 import pathlib
 import shutil
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
 def cmd_preflight(args):

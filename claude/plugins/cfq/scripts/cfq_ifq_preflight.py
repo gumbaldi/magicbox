@@ -22,11 +22,11 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import queue as cfq_queue, render  # noqa: E402
+from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 GATE_LINE_RE = re.compile(
     r"^USED=(?P<used>[^ ]+) SIZE=(?P<size>[A-Z]) LIMIT=(?P<limit>-?[0-9]+) "
@@ -36,14 +36,6 @@ GATE_LINE_RE = re.compile(
 EMPTY_SELECTION_TEMPLATE = {
     "batch": None, "nextPhase": None, "branch": None, "resume": None, "contextGate": None,
 }
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
 def project(batch, keys):

@@ -19,21 +19,15 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.proc import CFQ_BIN, git  # noqa: E402
 
 PROG = "cfq_resume.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 PHASE_NUM_RE = re.compile(r"^([0-9][0-9])-")
 DEFAULT_BRANCH_JSON = {
     "mode": None, "batch": None, "batchNumber": None, "branch": None, "base": None,
     "candidates": [],
 }
-
-
-def git(repo_root, *args):
-    return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True)
 
 
 def git_verify(repo_root, ref):
