@@ -198,7 +198,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning`. |
 | `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
 | `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
-| `changelog` | Reads and writes `cfq.changelog.yml` (`init`, `commit-message`, `commit`, status lookups). |
+| `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
 | `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |

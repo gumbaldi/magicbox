@@ -28,14 +28,13 @@ PROG = "cfq_layout.py"
 
 BLOCK_BEGIN = "# BEGIN cfq-managed (do not edit this block by hand)"
 BLOCK_END = "# END cfq-managed"
-# Paths excluded when gitStatePolicy=local. changelog.yml is CFQ's numbered-batch allocation
-# ledger as well as workflow history, so it follows the same local/trackable policy as the rest
-# of the queue -- no second Git-state mechanism.
+# Paths excluded when gitStatePolicy=local. changelog.yml is versioned project history and the
+# batch-number ledger, so it is never part of this block, independent of gitStatePolicy -- same
+# carve-out as settings.json.
 BLOCK_ENTRIES = [
     ".claude/cfq/plan/",
     ".claude/cfq/impl/",
     ".claude/cfq/todo/",
-    ".claude/cfq/changelog.yml",
     ".claude/cfq/.lock",
     ".claude/cfq/.maintenance",
     ".claude/cfq/telemetry.jsonl",

@@ -118,7 +118,7 @@ def compute_dirty(repo):
     `--untracked-files=all` keeps git from collapsing an entirely-untracked `.claude/` subtree to
     one `?? .claude/` line, which would not match the `.claude/cfq/` prefix check below and would
     misreport a fresh queue as `dirty`."""
-    changelog_rel = cfq_run("settings", "get", "changelogFile").stdout.strip()
+    changelog_rel = proc.settings_get(repo, "changelogFile")
     dirty = False
     changelog_dirty = False
     for line in git(
@@ -270,7 +270,7 @@ def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelo
             checked_out = git(repo, "symbolic-ref", "-q", "--short", "HEAD", check=False).stdout.strip()
             if checked_out != existing:
                 git(repo, "update-ref", f"refs/heads/{existing}", f"refs/remotes/origin/{existing}")
-            elif git(repo, "status", "--porcelain").stdout == "":
+            elif not dirty:
                 git(repo, "merge", "-q", "--ff-only", f"refs/remotes/origin/{existing}")
             else:
                 continue_warning = (

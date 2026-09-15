@@ -7,7 +7,6 @@
 #        cfq_changelog.py commit-message  <repo-root> <batch> <phase> <status> <message-file>
 #        cfq_changelog.py commit          <repo-root> <message>
 #        cfq_changelog.py ensure          <repo-root>
-#        cfq_changelog.py migrate         <repo-root>
 #        cfq_changelog.py max-batch-number <repo-root>
 """Appends/completes entries in <repo-root>/<changelogFile>, one block per batch.
 
@@ -33,7 +32,7 @@ from datetime import date
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN, is_git_repo  # noqa: E402
+from cfq_lib.proc import is_git_repo, settings_get  # noqa: E402
 
 PROG = "cfq_changelog.py"
 
@@ -43,13 +42,9 @@ NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 # ---- changelog file location -------------------------------------------------------------
 
 def changelog_file(repo):
-    """<repo>/<changelogFile>, or None when changelogFile is disabled (empty). Deliberately does
-    not pass --repo to the dispatcher call -- matches cfq-changelog.sh's own (global-only) read,
-    verbatim."""
-    out = subprocess.run(
-        [str(CFQ_BIN), "settings", "get", "changelogFile"], capture_output=True, text=True,
-    )
-    rel = out.stdout.strip()
+    """<repo>/<changelogFile>, or None when changelogFile is disabled (empty). Honours the repo
+    tier -- changelogFile is scoped ["global", "repo"], and a per-repo override must win."""
+    rel = settings_get(repo, "changelogFile")
     if not rel:
         return None
     return f"{repo}/{rel}"
@@ -437,60 +432,6 @@ def cmd_ensure(args):
     print(render.dump_json({"source": source, "max": max_number, "path": target}))
 
 
-def cmd_migrate(args):
-    """Deliberately not resolved via changelogFile for the OLD file: `cfq.changelog.yml` is the
-    old, no-longer-configurable root-level default (predates the .claude/cfq/ relocation), not a
-    copy of the current schema default."""
-    repo = args.repo
-    old = os.path.join(repo, "cfq.changelog.yml")
-    target = changelog_file(repo)
-    if target is None or not os.path.isfile(old):
-        return
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    pathlib.Path(target).touch(exist_ok=True)
-
-    existing_batches = set()
-    for line in pathlib.Path(target).read_text().split("\n"):
-        if line.startswith("  batch: "):
-            existing_batches.add(line[len("  batch: "):].lstrip(" "))
-
-    old_lines = read_lines(old)
-    starts = [i + 1 for i, l in enumerate(old_lines) if l.startswith("- version:")]
-
-    new_blocks = []
-    for start in starts:
-        # block_end_line keys off "- batchNumber:"; the legacy file uses "- version:" instead, so
-        # the end of each block is computed against that marker here.
-        end = next((s - 1 for s in starts if s > start), len(old_lines))
-        block = "".join(old_lines[start - 1:end])
-
-        obatch = block_field(block, "  batch:")
-        if not obatch or obatch in existing_batches:
-            continue
-
-        obranch = block_field(block, "  branch:") or ""
-        obase = block_field(block, "  base:") or ""
-        ostarted = block_field(block, "  started:") or ""
-        ofinished = block_field(block, "  finished:") or ""
-        ostatus = block_field(block, "  status:") or "done"
-
-        ophases_lines = []
-        capturing = False
-        for line in block.split("\n"):
-            if capturing:
-                ophases_lines.append(line)
-            if line.startswith("  phases:"):
-                capturing = True
-        ophases = "\n".join(ophases_lines)
-
-        new_blocks.append(render_block("null", obatch, obranch, obase, ostarted, ostatus, "true", ofinished, ophases))
-
-    if new_blocks:
-        with open(target, "a") as f:
-            for b in new_blocks:
-                f.write(b + "\n")
-
-
 def cmd_max_batch_number(args):
     repo = args.repo
     target = changelog_file(repo)
@@ -560,10 +501,6 @@ def build_parser():
     p.add_argument("repo")
     p.set_defaults(func=cmd_ensure)
 
-    p = sub.add_parser("migrate")
-    p.add_argument("repo")
-    p.set_defaults(func=cmd_migrate)
-
     p = sub.add_parser("max-batch-number")
     p.add_argument("repo")
     p.set_defaults(func=cmd_max_batch_number)
@@ -584,7 +521,7 @@ def main(argv):
             f"branch-for <repo-root> <batch> | "
             f"commit-message <repo-root> <batch> <phase> <status> <message-file> | "
             f"commit <repo-root> <message> | "
-            f"ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>"
+            f"ensure <repo-root> | max-batch-number <repo-root>"
         )
     func(args)
 

@@ -110,7 +110,7 @@ append primitive itself lives on as `cfq_report.append_phase()`, no longer expos
 one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
 batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
 exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
-`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and `cfq.changelog.yml` — honest about what
+`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and the changelog (`changelogFile`) — honest about what
 `done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
 only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
 (written by
@@ -319,8 +319,9 @@ not replaces, the list above. Don't invent parallel status strings elsewhere; re
 ## Self-hosting quirk
 
 This repo drives its own development through its own queue: `<repo-root>/.claude/cfq/` holds
-the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root (target repos
-use `.git/info/exclude` instead, per `gitStatePolicy`). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
+the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root, except
+`changelog.yml` (and `settings.json`), which stay versioned (target repos use `.git/info/exclude`
+instead, per `gitStatePolicy`, with the same carve-out). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
 against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
 to `cfq/<batch-directory-name>` per batch and record progress in `.claude/cfq/changelog.yml`

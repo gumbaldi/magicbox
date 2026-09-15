@@ -43,7 +43,7 @@ from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
-from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_batch_id.py"
 
@@ -91,14 +91,14 @@ def _dir_names(d):
 
 # ---- changelog location -------------------------------------------------------------------------
 
-def changelog_file_setting():
-    """The raw, repo-relative changelogFile setting value, empty when disabled. Deliberately
-    global-only (no --repo) -- matches cfq_changelog.py's own changelog_file() read, verbatim."""
-    return cfq_run("settings", "get", "changelogFile").stdout.strip()
+def changelog_file_setting(repo):
+    """The raw, repo-relative changelogFile setting value, empty when disabled. Honours the repo
+    tier -- matches cfq_changelog.py's own changelog_file() read."""
+    return settings_get(repo, "changelogFile")
 
 
 def changelog_path(repo):
-    rel = changelog_file_setting()
+    rel = changelog_file_setting(repo)
     if not rel:
         return None
     return f"{repo}/{rel}"
@@ -149,7 +149,7 @@ def compute_next(repo, date, slug):
     """Computes the next identity. Returns (result, ok). Read-only except for cfq_changelog.py's
     own one-time missing-ledger bootstrap, which must run before any number can be computed at
     all."""
-    cf = changelog_file_setting()
+    cf = changelog_file_setting(repo)
     if not cf:
         return errors.error_object(
             "BATCH_CHANGELOG_REQUIRED",

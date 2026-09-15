@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN, capture, cfq_run, cfq_run_merged, git  # noqa: E402
+from cfq_lib.proc import CFQ_BIN, capture, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
 
 PROG = "cfq_finish.py"
 
@@ -117,7 +117,7 @@ def cmd_finish(args):
             add_error("security", sec_now)
 
         changelog = "changelogFile empty"
-        changelog_file = capture(cfq_run("settings", "get", "changelogFile"))
+        changelog_file = settings_get(repo_root, "changelogFile")
         if changelog_file:
             done_phase_dir = batch_dir / "done"
             phases = len(list(done_phase_dir.glob("[0-9][0-9]-*.md"))) if done_phase_dir.is_dir() else 0
