@@ -828,8 +828,19 @@
   branch: cfq/026-2026-09-15-tracked-changelog-default
   base: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
   started: 2026-09-15
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-settings-set-writes-only-key"
+      status: "green"
+      summary: "Global `_apply_set` now reads only the existing global file instead of materializing the full merged tier before writing the new key."
+    - phase: "02-tracked-changelog-default-and-repo-tier"
+      status: "green"
+      summary: "changelog.yml is carved out of the gitStatePolicy:local exclude block (versioned by default), every changelogFile read honours the repo tier via settings_get(repo, key), and the dead changelog migrate verb is deleted."
+    - phase: "03-self-host-changelog-move"
+      status: "green"
+      summary: "Moved cfq.changelog.yml to .claude/cfq/changelog.yml, dropped the stale .gitignore exclusion, and reduced the host global settings.json to only the keys differing from schema defaults (onePhasePerSession) while dropping changelogFile unconditionally."
 - batchNumber: 27
   batch: 027-2026-09-15-windows-cfq-run-bash
   status: parked
