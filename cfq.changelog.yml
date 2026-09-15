@@ -823,3 +823,13 @@
     - phase: "08-docs-drift"
       status: "green"
       summary: ""
+- batchNumber: 26
+  batch: 026-2026-09-15-tracked-changelog-default
+  branch: cfq/026-2026-09-15-tracked-changelog-default
+  base: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
+  started: 2026-09-15
+  status: in-progress
+  legacy: false
+- batchNumber: 27
+  batch: 027-2026-09-15-windows-cfq-run-bash
+  status: parked

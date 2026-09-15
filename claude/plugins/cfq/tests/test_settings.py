@@ -890,5 +890,48 @@ class SettingsTest(CfqTestCase):
         )
 
 
+    # 18. Global `set` writes only the key being set -- no materialization of the full merged
+    # tier (schema defaults + existing file) into the global settings file.
+    def test_18_global_set_writes_only_key(self):
+        global_settings = self.home / ".claude" / "code-for-queue" / "settings.json"
+
+        # routine: no global file exists yet
+        self.run_cfq("settings", "set", "grillMode", "classic", home=self.home, check=True)
+        got = json.loads(global_settings.read_text())
+        self.assertEqual(
+            got, {"grillMode": "classic"},
+            msg=f"routine global set -> got {got}, want only the set key",
+        )
+
+        # edge: global file already holds an unrelated explicit key
+        global_settings.write_text('{"docLevel":"standard"}')
+        self.run_cfq("settings", "set", "grillMode", "classic", home=self.home, check=True)
+        got = json.loads(global_settings.read_text())
+        self.assertEqual(
+            got, {"docLevel": "standard", "grillMode": "classic"},
+            msg=f"edge global set -> got {got}, want existing key kept, no defaults added",
+        )
+
+        # default change takes effect: a schema default change is visible even though this
+        # global file was written by a prior `set` -- proves no frozen value exists
+        global_settings.write_text('{"grillMode":"classic"}')
+        got = self.run_cfq(
+            "settings", "get", "changelogFile", home=self.home
+        ).stdout.strip()
+        self.assertEqual(
+            got, ".claude/cfq/changelog.yml",
+            msg=f"changelogFile after unrelated set -> got '{got}', want schema default",
+        )
+
+        # failure: an invalid set must not touch the file at all (validate before any write)
+        before = global_settings.read_text()
+        proc = self.run_cfq("settings", "set", "grillMode", "bogus", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set grillMode bogus should fail")
+        after = global_settings.read_text()
+        self.assertEqual(
+            before, after, msg="failed global set must not modify the settings file"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

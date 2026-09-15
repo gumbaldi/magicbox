@@ -234,11 +234,8 @@ def _apply_set(key, val, repo_path):
         data = _read_json(target, default={})
     else:
         ensure()
-        # Materializes the full tiered (defaults + existing global file) object into the global
-        # file before the new key lands -- matches cfq-settings.sh exactly, surprising as it is.
-        data = merged_tiers("")
-        _write_json(GLOBAL_SETTINGS_FILE, data)
         target = GLOBAL_SETTINGS_FILE
+        data = _read_json(target, default={})
 
     type_ = entry["type"]
     if type_ == "bool":
