@@ -5,8 +5,8 @@
 #        cfq_changelog.py rename-batch    <repo-root> <old-batch> <new-batch>
 #        cfq_changelog.py branch-for      <repo-root> <batch>
 #        cfq_changelog.py commit-message  <repo-root> <batch> <phase> <status> <message-file>
+#        cfq_changelog.py commit          <repo-root> <message>
 #        cfq_changelog.py ensure          <repo-root>
-#        cfq_changelog.py migrate         <repo-root>
 #        cfq_changelog.py max-batch-number <repo-root>
 """Appends/completes entries in <repo-root>/<changelogFile>, one block per batch.
 
@@ -25,7 +25,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 from datetime import date
@@ -33,11 +32,9 @@ from datetime import date
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.proc import is_git_repo, settings_get  # noqa: E402
 
 PROG = "cfq_changelog.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
@@ -45,13 +42,9 @@ NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 # ---- changelog file location -------------------------------------------------------------
 
 def changelog_file(repo):
-    """<repo>/<changelogFile>, or None when changelogFile is disabled (empty). Deliberately does
-    not pass --repo to the dispatcher call -- matches cfq-changelog.sh's own (global-only) read,
-    verbatim."""
-    out = subprocess.run(
-        [str(CFQ_BIN), "settings", "get", "changelogFile"], capture_output=True, text=True,
-    )
-    rel = out.stdout.strip()
+    """<repo>/<changelogFile>, or None when changelogFile is disabled (empty). Honours the repo
+    tier -- changelogFile is scoped ["global", "repo"], and a per-repo override must win."""
+    rel = settings_get(repo, "changelogFile")
     if not rel:
         return None
     return f"{repo}/{rel}"
@@ -178,12 +171,6 @@ def replace_block(target, start, new_block):
 
 
 # ---- git trailer scanning (ensure's one-time bootstrap) --------------------------------------
-
-def is_git_repo(repo):
-    return subprocess.run(
-        ["git", "-C", repo, "rev-parse", "--git-dir"], capture_output=True, text=True,
-    ).returncode == 0
-
 
 def scan_trailer_max(repo):
     """Highest CFQ-Batch-Number trailer reachable in repo history; 0 if none. Uses Git's own
@@ -348,19 +335,18 @@ def cmd_branch_for(args):
         print(val)
 
 
-def cmd_commit_message(args):
+def compose_commit_message(repo, batch, phase, status, message_file):
     """Appends the standard CFQ-* trailer block to a numbered batch's phase-commit message via
     git interpret-trailers, so the trailers land in the same trailing block as any existing
     trailer (e.g. Co-Authored-By) rather than a second machine section. Legacy (unnumbered)
-    batches pass the message through unchanged -- no number is ever invented for them."""
-    repo, batch, phase, status, message_file = (
-        args.repo, args.batch, args.phase, args.status, args.message_file,
-    )
+    batches pass the message through unchanged -- no number is ever invented for them. Returns the
+    composed text; factored out of `cmd_commit_message` so `cfq_phase.py commit` can call it
+    directly instead of shelling back out to this script."""
     if status != "green":
         errors.die(f"{PROG}: commit-message: status must be 'green', got '{status}'")
     number = parse_batch_number(batch)
     if number is not None:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "git", "-C", repo, "interpret-trailers", "--trim-empty",
                 "--trailer", f"CFQ-Batch-Number={number}",
@@ -369,11 +355,48 @@ def cmd_commit_message(args):
                 "--trailer", f"CFQ-Phase-Status={status}",
                 message_file,
             ],
-            check=True,
+            capture_output=True, text=True, check=True,
         )
-    else:
-        with open(message_file, "rb") as f:
-            shutil.copyfileobj(f, sys.stdout.buffer)
+        return result.stdout
+    return pathlib.Path(message_file).read_text()
+
+
+def cmd_commit_message(args):
+    text = compose_commit_message(args.repo, args.batch, args.phase, args.status, args.message_file)
+    sys.stdout.write(text)
+
+
+def cmd_commit(args):
+    """Commits only the changelog file, scoped by pathspec so an unrelated staged file is never
+    swept in -- `git commit -- <file>` leaves everything else staged exactly as it was. Mirrors
+    cfq_finish.py's own changelog-commit sequence (status --porcelain -> add -> commit), minus the
+    push -- the caller's own next `git push` carries it."""
+    repo, message = args.repo, args.message
+    target = changelog_file(repo)
+    if target is None:
+        print("off")
+        return
+    rel = os.path.relpath(target, repo)
+    if subprocess.run(
+        ["git", "-C", repo, "check-ignore", "-q", "--", rel], capture_output=True, text=True,
+    ).returncode == 0:
+        print("ignored")
+        return
+    status = subprocess.run(
+        ["git", "-C", repo, "status", "--porcelain", "--", rel], capture_output=True, text=True,
+    ).stdout
+    if not status.strip():
+        print("clean")
+        return
+    add = subprocess.run(["git", "-C", repo, "add", "--", rel], capture_output=True, text=True)
+    if add.returncode != 0:
+        errors.die(add.stderr, add.returncode or 1)
+    commit = subprocess.run(
+        ["git", "-C", repo, "commit", "-q", "-m", message, "--", rel], capture_output=True, text=True,
+    )
+    if commit.returncode != 0:
+        errors.die(commit.stderr, commit.returncode or 1)
+    print("committed")
 
 
 def cmd_ensure(args):
@@ -407,60 +430,6 @@ def cmd_ensure(args):
         pathlib.Path(target).write_text("")
 
     print(render.dump_json({"source": source, "max": max_number, "path": target}))
-
-
-def cmd_migrate(args):
-    """Deliberately not resolved via changelogFile for the OLD file: `cfq.changelog.yml` is the
-    old, no-longer-configurable root-level default (predates the .claude/cfq/ relocation), not a
-    copy of the current schema default."""
-    repo = args.repo
-    old = os.path.join(repo, "cfq.changelog.yml")
-    target = changelog_file(repo)
-    if target is None or not os.path.isfile(old):
-        return
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    pathlib.Path(target).touch(exist_ok=True)
-
-    existing_batches = set()
-    for line in pathlib.Path(target).read_text().split("\n"):
-        if line.startswith("  batch: "):
-            existing_batches.add(line[len("  batch: "):].lstrip(" "))
-
-    old_lines = read_lines(old)
-    starts = [i + 1 for i, l in enumerate(old_lines) if l.startswith("- version:")]
-
-    new_blocks = []
-    for start in starts:
-        # block_end_line keys off "- batchNumber:"; the legacy file uses "- version:" instead, so
-        # the end of each block is computed against that marker here.
-        end = next((s - 1 for s in starts if s > start), len(old_lines))
-        block = "".join(old_lines[start - 1:end])
-
-        obatch = block_field(block, "  batch:")
-        if not obatch or obatch in existing_batches:
-            continue
-
-        obranch = block_field(block, "  branch:") or ""
-        obase = block_field(block, "  base:") or ""
-        ostarted = block_field(block, "  started:") or ""
-        ofinished = block_field(block, "  finished:") or ""
-        ostatus = block_field(block, "  status:") or "done"
-
-        ophases_lines = []
-        capturing = False
-        for line in block.split("\n"):
-            if capturing:
-                ophases_lines.append(line)
-            if line.startswith("  phases:"):
-                capturing = True
-        ophases = "\n".join(ophases_lines)
-
-        new_blocks.append(render_block("null", obatch, obranch, obase, ostarted, ostatus, "true", ofinished, ophases))
-
-    if new_blocks:
-        with open(target, "a") as f:
-            for b in new_blocks:
-                f.write(b + "\n")
 
 
 def cmd_max_batch_number(args):
@@ -523,13 +492,14 @@ def build_parser():
     p.add_argument("message_file")
     p.set_defaults(func=cmd_commit_message)
 
+    p = sub.add_parser("commit")
+    p.add_argument("repo")
+    p.add_argument("message")
+    p.set_defaults(func=cmd_commit)
+
     p = sub.add_parser("ensure")
     p.add_argument("repo")
     p.set_defaults(func=cmd_ensure)
-
-    p = sub.add_parser("migrate")
-    p.add_argument("repo")
-    p.set_defaults(func=cmd_migrate)
 
     p = sub.add_parser("max-batch-number")
     p.add_argument("repo")
@@ -550,7 +520,8 @@ def main(argv):
             f"rename-batch <repo-root> <old-batch> <new-batch> | "
             f"branch-for <repo-root> <batch> | "
             f"commit-message <repo-root> <batch> <phase> <status> <message-file> | "
-            f"ensure <repo-root> | migrate <repo-root> | max-batch-number <repo-root>"
+            f"commit <repo-root> <message> | "
+            f"ensure <repo-root> | max-batch-number <repo-root>"
         )
     func(args)
 

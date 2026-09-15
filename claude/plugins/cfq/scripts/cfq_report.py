@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Usage: cfq_report.py append <batch-dir> <phase-json>
-#        cfq_report.py security <batch-dir> <security-json>
+# Usage: cfq_report.py security <batch-dir> <security-json>
 #        cfq_report.py set-commit <batch-dir> <phase-slug> <sha>
+#        cfq_report.py skills <batch-dir>
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
 #        cfq_report.py summary <batch-dir>
 #        cfq_report.py html <batch-dir>
@@ -27,12 +27,13 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 # Shared by html's per-batch report and its collected index.html -- one visual language, not two.
 REPORT_STYLE_CSS = """body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
@@ -105,7 +106,9 @@ def repo_root_of(d):
 
 
 def settings_get(repo_root, key):
-    cmd = [str(CFQ_BIN), "settings", "get"]
+    """Stays local, not `cfq_lib.proc.settings_get`: `repo_root` here is optional (falsy skips
+    `--repo` for a global-only read), which the shared helper doesn't support."""
+    cmd = cfq_argv("settings", "get")
     if repo_root:
         cmd += ["--repo", repo_root]
     cmd.append(key)
@@ -125,13 +128,6 @@ def resolve_html_path(dir_):
     return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
 
 
-def write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
-
-
 def ensure_report(dir_):
     """report.json is created by whoever writes to it first -- planning-time security snapshot
     or the first phase. Same shape in both cases."""
@@ -142,7 +138,7 @@ def ensure_report(dir_):
         ["git", "-C", dir_, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
     ).stdout.strip()
     started = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
-    write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
+    render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
 
 def outcome(phases):
@@ -171,8 +167,14 @@ def bound_lines(value, n=5):
 
 # ---- verbs: append / security / set-commit / last-failure / summary ------------------------
 
-def cmd_append(args):
-    dir_ = args.dir
+def append_phase(dir_, phase_json, record_telemetry=True):
+    """Validates and appends one phase entry to report.json -- the one place this logic lives,
+    called by `cfq_phase.py record` and `cfq_phase.py commit` as their single ledger-write step
+    instead of reimplementing it. No longer reachable as a CLI verb (`report append` was removed
+    once every skill-facing caller moved to `phase record`/`phase commit`); other tooling and
+    tests import this function directly. Returns the validated phase_id. `record_telemetry=False`
+    lets a caller that runs its own accounting (e.g. `cfq_phase.py record`'s `--no-telemetry`) skip
+    the subprocess call."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
 
@@ -181,7 +183,7 @@ def cmd_append(args):
     # or an empty value breaks every one of those lookups without an error, so it is refused
     # here, at the only point that sees the value before it is persisted.
     try:
-        phase_obj = json.loads(args.phase)
+        phase_obj = json.loads(phase_json)
     except json.JSONDecodeError:
         phase_obj = None
     phase_id = ""
@@ -196,10 +198,12 @@ def cmd_append(args):
     ensure_report(dir_)
     data = json.loads(pathlib.Path(f).read_text())
     data.setdefault("phases", []).append(phase_obj)
-    write_json(f, data)
+    render.write_json(f, data)
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
-    subprocess.run([str(CFQ_BIN), "telemetry", "record", dir_, "phase", phase_id])
+    if record_telemetry:
+        subprocess.run(cfq_argv("telemetry", "record", dir_, "phase", phase_id))
+    return phase_id
 
 
 def cmd_security(args):
@@ -219,11 +223,13 @@ def cmd_security(args):
     if isinstance(entry, dict):
         entry["at"] = at
     data["security"] = jq_alt(data.get("security"), []) + [entry]
-    write_json(f, data)
+    render.write_json(f, data)
 
 
-def cmd_set_commit(args):
-    dir_, phase_slug, sha = args.dir, args.phase_slug, args.sha
+def set_commit(dir_, phase_slug, sha):
+    """Backfills the `commit` field of `phase_slug`'s most recent report.json entry -- factored
+    out so `cfq_phase.py commit` can call it directly as part of its own transaction instead of
+    shelling back out to this script."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
     f = os.path.join(dir_, "report.json")
@@ -238,7 +244,35 @@ def cmd_set_commit(args):
             "the full phase slug (NN-slug), not the bare number"
         )
     phases[matches[-1]]["commit"] = sha
-    write_json(f, data)
+    render.write_json(f, data)
+
+
+def cmd_set_commit(args):
+    set_commit(args.dir, args.phase_slug, args.sha)
+
+
+def cmd_skills(args):
+    """Replaces the retired `jq -c '{recommended: ..., used: ...}'` filter over
+    report.json's telemetry.skills_recommended / telemetry.by_skill (references/ifq-batch-end.md's
+    Skills Recommended vs. Used)."""
+    dir_ = args.dir
+    f = os.path.join(dir_, "report.json")
+    data = json.loads(pathlib.Path(f).read_text()) if os.path.isfile(f) else {}
+    phases = data.get("phases", []) if isinstance(data, dict) else []
+
+    recommended, used = set(), set()
+    for p in phases:
+        tel = p.get("telemetry") if isinstance(p, dict) else None
+        if not isinstance(tel, dict):
+            continue
+        rec = jq_alt(tel.get("skills_recommended"), [])
+        if isinstance(rec, list):
+            recommended.update(rec)
+        by_skill = jq_alt(tel.get("by_skill"), {})
+        if isinstance(by_skill, dict):
+            used.update(k for k in by_skill.keys() if k != "-")
+
+    print(render.dump_json({"recommended": sorted(recommended), "used": sorted(used)}))
 
 
 def cmd_last_failure(args):
@@ -295,6 +329,7 @@ def cmd_summary(args):
 
     phase_outputs, phase_turns = [], []
     model_keys, effort_keys = [], []
+    worker_output, worker_turns = 0, 0
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
         totals = tel.get("totals") if isinstance(tel, dict) else None
@@ -306,6 +341,9 @@ def cmd_summary(args):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
+        subagent = jq_alt(tel.get("subagent") if isinstance(tel, dict) else None, None)
+        worker_output += _totals_field(subagent, "output")
+        worker_turns += _totals_field(subagent, "turns")
 
     planning_by_model = jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
     planning_by_effort = jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
@@ -320,6 +358,11 @@ def cmd_summary(args):
     efforts = ",".join(sorted(set(effort_keys)))
 
     row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
+    # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
+    # an old or classic-mode report with no subagent turns/output must render byte-identical to the
+    # row above, not grow a meaningless zero split.
+    if worker_output > 0 or worker_turns > 0:
+        row += [total_turns - worker_turns, total_output - worker_output, worker_turns, worker_output]
     print("\t".join(_tsv_field(v) for v in row))
 
 
@@ -338,24 +381,12 @@ def _tsv_field(v):
 
 def extract_goal(planfile):
     """First two non-empty lines after a `## Context` heading, truncated to 220 chars -- same
-    extraction as cfq_brief.py's k/ctx/n logic, carried over verbatim."""
+    extraction as cfq_brief.py's `parse_phase_body`."""
     try:
-        lines = pathlib.Path(planfile).read_text().splitlines()
+        text = pathlib.Path(planfile).read_text()
     except OSError:
         return ""
-    ctx = ""
-    collecting = False
-    count = 0
-    for line in lines:
-        if line.startswith("## Context"):
-            collecting = True
-            continue
-        if collecting and line.strip() != "":
-            ctx += line + " "
-            count += 1
-            if count >= 2:
-                collecting = False
-    return ctx[:220]
+    return parse_phase_body(text)["context"][:220]
 
 
 def extract_goals(dir_, data):
@@ -517,7 +548,7 @@ def run_scan():
     # Direct sibling call, not the dispatcher: cfq_report.py resolves cfq_scan.py relative to
     # its own real location, which would bypass a test double that shadows cfq_scan.py in a copy
     # of this script's directory (see tests/test_report.py's index/scan-count test).
-    out = subprocess.run(["python3", str(SCRIPT_DIR / "cfq_scan.py")], capture_output=True, text=True)
+    out = subprocess.run([sys.executable, str(SCRIPT_DIR / "cfq_scan.py")], capture_output=True, text=True)
     return json.loads(out.stdout)
 
 
@@ -722,11 +753,6 @@ def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("append")
-    p.add_argument("dir")
-    p.add_argument("phase")
-    p.set_defaults(func=cmd_append)
-
     p = sub.add_parser("security")
     p.add_argument("dir")
     p.add_argument("snap")
@@ -737,6 +763,10 @@ def build_parser():
     p.add_argument("phase_slug")
     p.add_argument("sha")
     p.set_defaults(func=cmd_set_commit)
+
+    p = sub.add_parser("skills")
+    p.add_argument("dir")
+    p.set_defaults(func=cmd_skills)
 
     p = sub.add_parser("last-failure")
     p.add_argument("dir")
@@ -771,9 +801,9 @@ def main(argv):
     func = getattr(args, "func", None)
     if func is None:
         errors.die(
-            f"usage: {PROG} append <batch-dir> <phase-json> | "
-            f"security <batch-dir> <security-json> | "
+            f"usage: {PROG} security <batch-dir> <security-json> | "
             f"set-commit <batch-dir> <phase-slug> <sha> | "
+            f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "
             f"summary <batch-dir> | html <batch-dir> | "
             f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text] | "

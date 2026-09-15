@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 import unittest
 
@@ -14,7 +15,9 @@ class LockTest(CfqTestCase):
         self.repo = self._repos_dir / "repo"
         self.repo.mkdir(parents=True)
         self.lock = self.repo / ".claude" / "cfq" / ".lock"
-        slug = str(self.repo).replace("/", "-")
+        # Mirrors cfq_runtime.py's slug_for exactly -- a tempfile-generated path can contain "_",
+        # which the old `.replace("/", "-")` left untouched while slug_for now maps it to "-".
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo))
         self.tdir = self.home / ".claude" / "projects" / slug
 
     def acquire(self, session, batch):

@@ -20,30 +20,9 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, render  # noqa: E402
+from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
 
 PROG = "cfq_finish.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def cfq_run_merged(*args):
-    """Mirrors the shell version's `$("$cfq" ... 2>&1)` -- stdout and stderr combined."""
-    return subprocess.run(
-        [str(CFQ_BIN), *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
-
-
-def capture(proc):
-    return proc.stdout.rstrip("\n")
-
-
-def git(repo_root, *args):
-    return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True)
 
 
 def load_json_or(text, default):
@@ -138,7 +117,7 @@ def cmd_finish(args):
             add_error("security", sec_now)
 
         changelog = "changelogFile empty"
-        changelog_file = capture(cfq_run("settings", "get", "changelogFile"))
+        changelog_file = settings_get(repo_root, "changelogFile")
         if changelog_file:
             done_phase_dir = batch_dir / "done"
             phases = len(list(done_phase_dir.glob("[0-9][0-9]-*.md"))) if done_phase_dir.is_dir() else 0
@@ -181,7 +160,7 @@ def cmd_finish(args):
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
         }))
     finally:
-        subprocess.run([str(CFQ_BIN), "lock", "release", str(repo_root)], capture_output=True, text=True)
+        subprocess.run(cfq_argv("lock", "release", str(repo_root)), capture_output=True, text=True)
 
 
 def build_parser():

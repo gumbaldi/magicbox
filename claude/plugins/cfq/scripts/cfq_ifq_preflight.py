@@ -21,12 +21,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import render  # noqa: E402
+from cfq_lib import queue as cfq_queue, render  # noqa: E402
+from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 GATE_LINE_RE = re.compile(
     r"^USED=(?P<used>[^ ]+) SIZE=(?P<size>[A-Z]) LIMIT=(?P<limit>-?[0-9]+) "
@@ -36,14 +36,6 @@ GATE_LINE_RE = re.compile(
 EMPTY_SELECTION_TEMPLATE = {
     "batch": None, "nextPhase": None, "branch": None, "resume": None, "contextGate": None,
 }
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
 def project(batch, keys):
@@ -63,15 +55,20 @@ def cmd_preflight(args):
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
     policy = project(settings, [
         "implModels", "allowAnyModel", "implBlockedPlugins", "onePhasePerSession",
-        "implExploreModel", "implExploreModelComplex",
+        "implExploreModel", "implExploreModelComplex", "orchestratorMode", "orchestratorModels",
     ])
+    if not policy["orchestratorModels"]:
+        policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
 
     scan_data = json.loads(cfq_run("scan").stdout)
     candidates = []
     for r in scan_data.get("repos", []):
         if r.get("path") == repo:
-            candidates = [b for b in r.get("batches", []) if not b["archived"] and b["open"] > 0]
+            candidates = [
+                b for b in r.get("batches", [])
+                if not b["archived"] and (b["open"] > 0 or b["done"] > 0)
+            ]
             break
 
     next_scan = json.loads(cfq_run("scan", "--format=next").stdout)
@@ -106,25 +103,33 @@ def cmd_preflight(args):
         print(empty_result("MULTIPLE_IN_PROGRESS", [], None, inprogress_names))
         return
 
+    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
+
+    def project_selectable(b):
+        entry = project(b, ["name", "priority", "open", "done", "consistency"])
+        entry["goal"] = cfq_queue.read_goal(qdir / b["name"], 120)
+        return entry
+
     if inprogress_count == 1:
         inprogress_name = inprogress_names[0]
-        selectable = [
-            project(b, ["name", "priority", "open", "done"])
-            for b in eligible if b["name"] != inprogress_name
-        ]
+        selectable = [project_selectable(b) for b in eligible if b["name"] != inprogress_name]
     else:
         inprogress_name = ""
         selectable = sorted(
-            (project(b, ["name", "priority", "open", "done"]) for b in eligible),
+            (project_selectable(b) for b in eligible),
             key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
         )
 
+    if select_batch and not any(b["name"] == select_batch for b in eligible):
+        print(empty_result("SELECT_UNAVAILABLE", selectable, None, []))
+        return
+
     chosen = ""
-    if select_batch and any(b["name"] == select_batch for b in eligible):
+    if select_batch:
         chosen = select_batch
     elif inprogress_name:
         chosen = inprogress_name
-    elif len(selectable) == 1:
+    elif selectable:
         chosen = selectable[0]["name"]
 
     if not chosen:
@@ -134,7 +139,6 @@ def cmd_preflight(args):
         print(empty_result(status, selectable, None, []))
         return
 
-    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
     batch_dir = qdir / chosen
     brief_text = cfq_run("brief", str(batch_dir), "--with-done").stdout.rstrip("\n")
     cand = next(b for b in candidates if b["name"] == chosen)
@@ -186,6 +190,7 @@ def cmd_preflight(args):
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],
             "dependsOn": cand["dependsOn"], "briefText": brief_text,
+            "consistency": cand.get("consistency"),
         },
         "nextPhase": next_phase_json,
         "branch": branch_json,

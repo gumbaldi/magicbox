@@ -13,28 +13,17 @@ import argparse
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import time
-from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_lock.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def settings_get(repo, key):
-    return cfq_run("settings", "get", "--repo", repo, key).stdout.strip()
 
 
 def mtime(path):
@@ -88,7 +77,7 @@ def cmd_acquire(args):
         "session_id": sid,
         "batch": batch,
         "transcript": tpath,
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "at": render.now_iso(),
         "epoch": int(time.time()),
     }
     tmp = f"{f}.tmp"

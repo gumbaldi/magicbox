@@ -11,6 +11,8 @@ import unittest
 
 from cfq_testlib import CFQ_BIN, SCRIPTS_DIR, CfqTestCase
 
+CORE_BINS = ["bash", "dirname", "grep", "sed", "sort", "cat"]
+
 
 class DispatcherTest(CfqTestCase):
     def test_01_routine_byte_identical_stdout(self):
@@ -89,12 +91,13 @@ class DispatcherTest(CfqTestCase):
         )
 
     def test_07_completeness_every_script_reachable(self):
-        # Extracted straight from bin/cfq's own table, not retyped here, so this stays a
-        # structural check rather than a copy that can silently drift from the real map. Scripts
-        # may be shell or Python (batch 014); scripts/cfq_lib/ is a package, not a command, and
-        # a non-recursive glob already excludes it without needing to say so.
+        # Extracted straight from bin/cfq's own noun_script() case statement, not retyped here,
+        # so this stays a structural check rather than a copy that can silently drift from the
+        # real map (a Bash-3.2-compatible `case` function, not a Bash-4 associative array --
+        # see test_08 below). Scripts may be shell or Python; scripts/cfq_lib/ is a package, not
+        # a command, and a non-recursive glob already excludes it without needing to say so.
         text = CFQ_BIN.read_text()
-        pattern = re.compile(r"^\s*\[[a-z-]+\]=(cfq[a-z_-]+\.(?:sh|py)|ctx_usage\.py)$", re.MULTILINE)
+        pattern = re.compile(r"^\s*[a-z-]+\) echo (cfq[a-z_-]+\.(?:sh|py)|ctx_usage\.py) ;;$", re.MULTILINE)
         mapped = sorted({m.group(1) for m in pattern.finditer(text)})
         on_disk = sorted(
             f.name
@@ -109,6 +112,65 @@ class DispatcherTest(CfqTestCase):
         all_mapped = [m.group(1) for m in pattern.finditer(text)]
         dupes = sorted({s for s in all_mapped if all_mapped.count(s) > 1})
         self.assertEqual(dupes, [], msg=f"script(s) mapped by more than one noun: {dupes}")
+
+    def test_08_every_help_listed_noun_routes(self):
+        # Dynamic counterpart to test_07's static table check: actually runs `--help` for every
+        # noun bin/cfq itself advertises, catching a typo'd case arm (e.g. a stray noun in the
+        # NOUNS list with no matching case branch) that a text-only check would miss.
+        listed = self.run_cfq()
+        nouns = re.findall(r"^  ([a-z-]+) +\S", listed.stderr, re.MULTILINE)
+        self.assertTrue(nouns, msg=f"could not parse any noun from --help output: {listed.stderr}")
+        for noun in nouns:
+            with self.subTest(noun=noun):
+                proc = self.run_cfq(noun, "--help")
+                self.assertEqual(
+                    proc.returncode, 0, msg=f"cfq {noun} --help exit={proc.returncode}: {proc.stderr}"
+                )
+                self.assertNotIn(
+                    f"unknown noun '{noun}'", proc.stderr, msg=f"{noun} does not route to a script"
+                )
+
+    def test_09_bash_32_compatible_syntax_only(self):
+        # Static check: macOS ships Bash 3.2 as /bin/bash, which lacks associative arrays,
+        # ${!name[@]} key expansion, mapfile/readarray, ;;&/;& case fallthrough and
+        # ${var,,}/${var^^} case conversion -- all Bash 4+ features. No construct here proves
+        # 3.2 compatibility on its own; this only guards against reintroducing one of them.
+        text = CFQ_BIN.read_text()
+        self.assertNotIn("declare -A", text, msg="bin/cfq uses a Bash 4 associative array")
+        self.assertNotIn("${!", text, msg="bin/cfq uses Bash 4 ${!name[@]} key expansion")
+        self.assertNotIn("mapfile", text, msg="bin/cfq uses the Bash 4 mapfile builtin")
+        self.assertNotIn("readarray", text, msg="bin/cfq uses the Bash 4 readarray builtin")
+        self.assertNotRegex(text, r";;&|;&", msg="bin/cfq uses Bash 4 case fallthrough")
+        self.assertNotRegex(
+            text, r"\$\{\w+(,,|\^\^)\}", msg="bin/cfq uses Bash 4 ${var,,}/${var^^} case conversion"
+        )
+
+        version = subprocess.run(["/bin/bash", "--version"], capture_output=True, text=True)
+        if version.returncode == 0 and re.search(r"version 3\.", version.stdout):
+            proc = subprocess.run(["/bin/bash", str(CFQ_BIN), "--help"], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, msg=f"bin/cfq --help under /bin/bash 3.x: {proc.stderr}")
+
+    def test_10_python_fallback_via_python_symlink(self):
+        # Fallback: a PATH with no python3 but a `python` symlink to the real interpreter still
+        # works -- the case bin/cfq must handle for a Windows Git Bash host, or any host where
+        # only `python` is on PATH.
+        path = self.minimal_path(*CORE_BINS, rename={"python": "python3"})
+        repo = self.make_repo("repo-fallback")
+        proc = self.run_cfq("settings", "get", "--repo", str(repo), "docLevel", env={"PATH": path})
+        self.assertEqual(proc.returncode, 0, msg=f"settings get failed under python-only PATH: {proc.stderr}")
+        self.assertIn(proc.stdout.strip(), ("minimal", "standard"), msg=f"unexpected docLevel: {proc.stdout!r}")
+
+    def test_11_no_python_at_all_is_exit_127(self):
+        # Failure: no python3, no python, no py anywhere on PATH -> exit 127 with the named guard
+        # message (reworded from "python3 is required" to "Python 3 is required", since the
+        # guard no longer names one specific interpreter binary).
+        path = self.minimal_path(*CORE_BINS)
+        proc = self.run_cfq("settings", "get", "docLevel", env={"PATH": path})
+        self.assertEqual(proc.returncode, 127, msg=f"no-python exit={proc.returncode} (want 127)")
+        self.assertIn(
+            "cfq: Python 3 is required for 'settings' but was not found on PATH.", proc.stderr,
+            msg=f"missing named Python-guard message: {proc.stderr}",
+        )
 
 
 if __name__ == "__main__":

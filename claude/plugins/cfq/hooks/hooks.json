@@ -1,5 +1,5 @@
 {
-  "description": "cfq host dependency check — warns when a required command (jq, git, ...) is missing",
+  "description": "cfq host dependency check on SessionStart, plus the PreToolUse guard that denies raw shell mutations of .claude/cfq/",
   "hooks": {
     "SessionStart": [
       {
@@ -9,6 +9,28 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cfq",
             "args": ["doctor", "hook"]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cfq",
+            "args": ["guard", "pretooluse"]
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cfq",
+            "args": ["guard", "pretooluse"]
           }
         ]
       }

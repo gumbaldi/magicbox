@@ -1,9 +1,12 @@
 """The one place a result becomes either JSON or human-readable text — see CLAUDE.md's "No
 duplicate renderers" invariant. Every port that emits both forms of the same value goes through
-here rather than growing a second, drifting formatter.
+here rather than growing a second, drifting formatter — plus the small `write_json`/`now_iso`
+helpers scripts otherwise duplicate.
 """
 
 import json
+import os
+from datetime import datetime
 
 
 def dump_json(obj):
@@ -22,3 +25,14 @@ def tostring(value):
     if isinstance(value, str):
         return value
     return dump_json(value)
+
+
+def now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def write_json(path, obj):
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)

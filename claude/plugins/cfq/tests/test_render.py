@@ -6,9 +6,14 @@ JSON the default invocation returns -- this file pins that one-code-path guarant
 """
 
 import subprocess
+import sys
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_report  # noqa: E402
 
 
 class TestRender(CfqTestCase):
@@ -92,11 +97,11 @@ class TestRender(CfqTestCase):
         rep_batch = rep_tmp / "repo-r" / ".claude" / "cfq" / "impl" / "2026-01-01-demo"
         rep_batch.mkdir(parents=True)
         self._plain_repo(rep_tmp / "repo-r")
-        self.run_cfq(
-            "report", "append", str(rep_batch),
+        cfq_report.append_phase(
+            str(rep_batch),
             '{"phase":"01-a","status":"red","finished":"2026-01-01T10:00:00+01:00","summary":"boom",'
             '"deviations":[],"errors":["x"],"verification":"FAIL","commit":""}',
-            home=rep_home,
+            record_telemetry=False,
         )
         env = {"CFQ_SCAN_ROOTS": str(rep_tmp)}
         rep_json = self.json_out(self.run_cfq("report", "index", home=rep_home, env=env))

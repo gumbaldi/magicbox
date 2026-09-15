@@ -2,9 +2,11 @@
 # Usage: cfq_layout.py ensure <repo-root>
 #        cfq_layout.py status <repo-root>
 #        cfq_layout.py sync-git-policy <repo-root>
+#        cfq_layout.py probe-cleanup <repo-root> [--docs]
 """Owns the canonical `<repo>/.claude/cfq/` layout and its local Git-state policy. Knows nothing
-about the old `.claude/code-for-queue` layout -- that is the isolated migration utility's job
-(scripts/migrations/cfq-layout-v1.sh). No `migrate` subcommand here on purpose.
+about the old repo-local `.claude/code-for-queue` layout -- the migration utility for that was
+removed once every known repo had moved to this layout; a repo still on the old layout needs an
+older plugin version to upgrade. No `migrate` subcommand here on purpose.
 
 Ported from cfq-layout.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 text output, exit codes) is the invariant this file preserves.
@@ -20,32 +22,23 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.proc import settings_get  # noqa: E402
 
 PROG = "cfq_layout.py"
 
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
-
 BLOCK_BEGIN = "# BEGIN cfq-managed (do not edit this block by hand)"
 BLOCK_END = "# END cfq-managed"
-# Paths excluded when gitStatePolicy=local. changelog.yml is CFQ's numbered-batch allocation
-# ledger as well as workflow history, so it follows the same local/trackable policy as the rest
-# of the queue -- no second Git-state mechanism.
+# Paths excluded when gitStatePolicy=local. changelog.yml is versioned project history and the
+# batch-number ledger, so it is never part of this block, independent of gitStatePolicy -- same
+# carve-out as settings.json.
 BLOCK_ENTRIES = [
     ".claude/cfq/plan/",
     ".claude/cfq/impl/",
     ".claude/cfq/todo/",
-    ".claude/cfq/changelog.yml",
     ".claude/cfq/.lock",
     ".claude/cfq/.maintenance",
     ".claude/cfq/telemetry.jsonl",
 ]
-
-
-def settings_get(repo, key):
-    cmd = [str(CFQ_BIN), "settings", "get", "--repo", repo, key]
-    out = subprocess.run(cmd, capture_output=True, text=True)
-    return out.stdout.strip()
 
 
 def exclude_file(repo):
@@ -139,6 +132,26 @@ def cmd_sync_git_policy(args):
     print("OK")
 
 
+def cmd_probe_cleanup(args):
+    repo = args.repo
+    pathlib.Path(f"{repo}/.claude/cfq/.writeprobe").unlink(missing_ok=True)
+    if not args.docs:
+        print("OK")
+        return
+
+    pathlib.Path(f"{repo}/docs/adr/.writeprobe").unlink(missing_ok=True)
+
+    context_md = pathlib.Path(f"{repo}/CONTEXT.md")
+    if context_md.is_file() and context_md.read_text() == "probe\n":
+        context_md.unlink()
+
+    try:
+        os.rmdir(f"{repo}/docs/adr")
+    except OSError:
+        pass
+    print("OK")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
@@ -155,6 +168,11 @@ def build_parser():
     p.add_argument("repo")
     p.set_defaults(func=cmd_sync_git_policy)
 
+    p = sub.add_parser("probe-cleanup")
+    p.add_argument("repo")
+    p.add_argument("--docs", action="store_true")
+    p.set_defaults(func=cmd_probe_cleanup)
+
     return parser
 
 
@@ -163,7 +181,7 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        errors.die(f"usage: {PROG} ensure|status|sync-git-policy <repo-root>")
+        errors.die(f"usage: {PROG} ensure|status|sync-git-policy <repo-root> | probe-cleanup <repo-root> [--docs]")
     func(args)
 
 

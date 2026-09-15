@@ -17,12 +17,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.env import home_dir  # noqa: E402
 
 PROG = "cfq_registry.py"
 
 
 def registry_dir():
-    return pathlib.Path(os.environ["HOME"]) / ".claude" / "code-for-queue"
+    return home_dir() / ".claude" / "code-for-queue"
 
 
 def registry_file():
@@ -50,10 +51,16 @@ def write_repos(repos):
     os.replace(tmp, f)
 
 
-def cmd_add(args):
+def add_repo(repo):
+    """Registers `repo` -- factored out of `cmd_add` so `cfq_phase.py commit` can call it directly
+    instead of shelling back out to this script."""
     ensure()
-    repos = sorted(set(read_repos()) | {args.repo})
+    repos = sorted(set(read_repos()) | {repo})
     write_repos(repos)
+
+
+def cmd_add(args):
+    add_repo(args.repo)
 
 
 def cmd_prune(args):

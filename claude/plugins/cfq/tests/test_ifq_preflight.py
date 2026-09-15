@@ -41,11 +41,11 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         stub.chmod(0o755)
         self.pf = self.scripts_copy / "cfq_ifq_preflight.py"
 
-    def _run_pf(self, *args, home=None):
-        return self.run_clean(
-            "python3", str(self.pf), *args,
-            env={"HOME": str(home if home is not None else self.home)},
-        )
+    def _run_pf(self, *args, home=None, env=None):
+        run_env = {"HOME": str(home if home is not None else self.home)}
+        if env:
+            run_env.update(env)
+        return self.run_clean("python3", str(self.pf), *args, env=run_env)
 
     def _calls(self):
         return len(self.count_log.read_text().splitlines())
@@ -87,6 +87,75 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"missing reporting object: {out}",
         )
 
+    def test_use_ponytail_audit_not_in_policy(self):
+        repo = self._setup_repo("ponytail-policy")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"policy = {out['policy']}")
+
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_USE_PONYTAIL": "false"}))
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"policy = {out['policy']}")
+
+        # empty-result path (NO_BATCH) still emits policy, still without usePonytailAudit
+        empty_repo = self._setup_repo("ponytail-policy-empty")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"empty repo status = {out}")
+        self.assertNotIn("usePonytailAudit", out["policy"], msg=f"NO_BATCH policy: {out}")
+
+    def test_orchestrator_policy_present_and_true_by_default(self):
+        repo = self._setup_repo("orch-default")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorMode"], True, msg=f"orchestratorMode default = {out['policy']}"
+        )
+
+    def test_orchestrator_models_falls_back_to_impl_models(self):
+        repo = self._setup_repo("orch-fallback")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["sonnet"],
+            msg=f"orchestratorModels should fall back to implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_override_leaves_impl_models_untouched(self):
+        repo = self._setup_repo("orch-override")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_ORCHESTRATOR_MODELS": "opus"}))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["opus"], msg=f"override = {out['policy']}"
+        )
+        self.assertEqual(
+            out["policy"]["implModels"], ["sonnet"],
+            msg=f"fallback substitution must not overwrite implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_empty_is_a_legitimate_answer(self):
+        repo = self._setup_repo("orch-both-empty")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": []}))
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], [],
+            msg=f"both empty should stay empty, not error: {out['policy']}",
+        )
+
     def test_new_mode_calls_branch_twice_across_sequence(self):
         # new mode: preflight (1) + mutation's post-checkout confirm (1) = 2, combined across
         # the sequence.
@@ -120,8 +189,13 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         out = self.json_out(self._run_pf(str(repo3)))
         self.assertEqual(out["status"], "OK", msg=f"multi status = {out}")
-        self.assertIsNone(out["batch"], msg=f"2+ selectable should leave batch null: {out}")
-        self.assertIsNone(out["nextPhase"], msg=f"2+ selectable should leave nextPhase null: {out}")
+        self.assertEqual(
+            out["batch"]["name"], "2026-01-01-alpha",
+            msg=f"2+ selectable should auto-pick the first by order: {out}",
+        )
+        self.assertEqual(
+            out["nextPhase"]["slug"], "01-a", msg=f"2+ selectable nextPhase: {out}"
+        )
         got = sorted(b["name"] for b in out["selection"]["selectable"])
         self.assertEqual(got, ["2026-01-01-alpha", "2026-01-02-beta"], msg=f"selectable = {got}")
         self.assertEqual(
@@ -138,6 +212,43 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["batch"]["name"], "2026-01-02-beta", msg=f"--select did not resolve batch: {out}"
         )
         self.assertEqual(out["nextPhase"]["slug"], "01-b", msg=f"--select nextPhase: {out}")
+
+    def test_multiple_selectable_high_priority_first(self):
+        repo = self._setup_repo("multi-priority")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+        (qdir / "2026-01-02-beta" / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"multi-priority status = {out}")
+        self.assertEqual(
+            out["batch"]["name"], "2026-01-02-beta",
+            msg=f"flagged batch should be chosen over an earlier-named one: {out}",
+        )
+
+    def test_select_unavailable_batch(self):
+        repo = self._setup_repo("select-unavailable")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-alpha\n")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "2026-01-02-blocked"))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"blocked --select = {out}")
+        self.assertIsNone(out["batch"], msg=f"blocked --select should leave batch null: {out}")
+        self.assertEqual(
+            [b["name"] for b in out["selection"]["blocked"]], ["2026-01-02-blocked"],
+            msg=f"blocked --select selection = {out}",
+        )
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "does-not-exist"))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"unknown --select = {out}")
+        self.assertIsNone(out["batch"], msg=f"unknown --select should leave batch null: {out}")
 
     def test_blocked_only_auto_selects_unblocked_dep(self):
         # only blocked batches left -> BLOCKED never happens if an unblocked dep exists (a real,
@@ -168,6 +279,81 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(
             out["batch"]["name"], "2026-01-01-b", msg=f"unknown-dep batch should be selectable: {out}"
         )
+
+    def test_selection_entries_carry_goal_field(self):
+        repo = self._setup_repo("goal-selection")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        long_batch = qdir / "2026-01-01-alpha"
+        long_batch.mkdir(parents=True)
+        (long_batch / "01-a.md").touch()
+        long_goal = " ".join(f"word{i}" for i in range(60))
+        (long_batch / ".batch-context.md").write_text(f"# Batch Context\n\n## Goal\n\n{long_goal}\n")
+
+        no_context_batch = qdir / "2026-01-02-beta"
+        no_context_batch.mkdir(parents=True)
+        (no_context_batch / "01-b.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"goal-selection status = {out}")
+        by_name = {b["name"]: b for b in out["selection"]["selectable"]}
+        self.assertIn("goal", by_name["2026-01-01-alpha"], msg=f"goal key missing: {out}")
+        alpha_goal = by_name["2026-01-01-alpha"]["goal"]
+        self.assertLessEqual(len(alpha_goal), 121, msg=f"goal not cut to 120: {alpha_goal!r}")
+        self.assertTrue(alpha_goal.endswith("…"), msg=f"goal not ellipsized: {alpha_goal!r}")
+        self.assertIsNone(by_name["2026-01-02-beta"]["goal"], msg=f"no context -> goal should be null: {out}")
+
+    def test_resolved_batch_brief_text_contains_goal(self):
+        repo = self._setup_repo("goal-resolved")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nSolo batch goal.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertIn(
+            "goal: Solo batch goal.", out["batch"]["briefText"].splitlines(),
+            msg=f"resolved batch briefText missing goal line: {out['batch']['briefText']!r}",
+        )
+
+    def test_all_done_not_finished_batch_resumes_with_null_next_phase(self):
+        repo = self._setup_repo("all-done-not-finished")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-unfinished"
+        (batch / "done").mkdir(parents=True)
+        (batch / "done" / "01-a.md").touch()
+        (batch / "done" / "02-b.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"all-done-not-finished status = {out}")
+        self.assertEqual(
+            out["selection"]["inProgress"], "2026-01-01-unfinished", msg=f"inProgress = {out}"
+        )
+        self.assertEqual(out["batch"]["name"], "2026-01-01-unfinished", msg=f"batch = {out}")
+        self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
+        self.assertIsNone(out["contextGate"], msg=f"contextGate should be null: {out}")
+
+    def test_all_done_not_finished_batch_still_blocks_a_dependent(self):
+        repo = self._setup_repo("unfinished-blocks-dependent")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        a = qdir / "2026-01-01-a"
+        (a / "done").mkdir(parents=True)
+        (a / "done" / "01-x.md").touch()
+        b = qdir / "2026-01-02-b"
+        b.mkdir(parents=True)
+        (b / "01-y.md").touch()
+        (b / ".dependsOn").write_text("2026-01-01-a\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-01-a", msg=f"resolved batch = {out}")
+        self.assertEqual(
+            [x["name"] for x in out["selection"]["blocked"]], ["2026-01-02-b"], msg=f"blocked = {out}"
+        )
+
+    def test_zero_zero_batch_alone_is_no_batch(self):
+        repo = self._setup_repo("zero-zero-alone")
+        (repo / ".claude" / "cfq" / "impl" / "2026-01-01-empty").mkdir(parents=True)
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"0/0-only status = {out}")
 
     def test_no_batch(self):
         # nothing at all -> NO_BATCH
@@ -206,6 +392,22 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["batch"]["name"], "2026-01-01-inprog", msg=f"auto-selected batch = {out}"
         )
 
+    def test_consistency_field_carried_through(self):
+        repo = self._setup_repo("consistency-carry")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+        (batch / "02-b.md").touch()
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "x", "batch": "2026-01-01-solo", "started": "t",
+            "phases": [{"phase": "99-gone", "status": "green", "commit": "abc"}],
+        }))
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["batch"]["consistency"], "divergent",
+            msg=f"a green ledger entry with no done/ file should carry through as divergent: {out}",
+        )
+
     def test_failed_attempt(self):
         repo8 = self._setup_repo("failed-attempt")
         batch = repo8 / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
@@ -214,11 +416,14 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertFalse(out["nextPhase"]["failedAttempt"]["found"], msg=f"no red entry yet: {out}")
 
-        self.run_clean(
-            "python3", str(self.scripts_copy / "cfq_report.py"), "append", str(batch),
+        pf = batch / "_phase.json"
+        pf.write_text(
             '{"phase":"01-a","status":"red","finished":"2026-01-01T00:00:00+00:00","summary":"boom",'
-            '"deviations":[],"errors":["x"],"verification":"x","commit":""}',
-            env={"HOME": str(self.home)},
+            '"deviations":[],"errors":["x"],"verification":"x","commit":""}'
+        )
+        self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_phase.py"), "record", str(batch), str(pf),
+            "--no-telemetry", env={"HOME": str(self.home)},
         )
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertTrue(out["nextPhase"]["failedAttempt"]["found"], msg=f"red entry not found: {out}")

@@ -52,15 +52,16 @@ computed once by the aggregator, no separate call.
 
 - Neither installed → `➖ mattpocock-skills/ponytail not installed`.
 - Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
-  that are actually off (`grill: classic off`, `maintenance audit: off`).
+  that are actually off (`grill: classic off`, `ponytail audit: off`).
 - Both installed, both on → `✅ mattpocock-skills and ponytail installed · classic grill on ·
-  maintenance audit: on`.
+  ponytail audit: on`.
 - One installed, one missing → name the missing one and the installed one's switch state, e.g.
   `➖ ponytail not installed · classic grill on`.
 - Ponytail installed and `.ponytailMode` is not `off` → append `· ponytail default mode: <mode> ·
   cfq expects off` and force the icon to `⚠️`, regardless of which of the four cases above
-  applies — cfq expects ponytail dormant outside the maintenance audit. `.ponytailMode == "off"` →
-  no clause appended, no icon change, no warning — `off` is the expected, configured state.
+  applies — cfq expects ponytail dormant outside the maintenance audit.
+  `.ponytailMode == "off"` → no clause appended, no icon change, no warning — `off` is the
+  expected, configured state.
 
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 
@@ -106,7 +107,7 @@ plus the expanded next batch), `CONFIG · <name>`, `ACTIONS` (every management a
 command Step C/D can run, naming each in one line), and finally `NEXT` — the copyable
 `cd`/`/model`/`/ifq` sequence, current repo first when several repos have open work, state
 described before the call to action that follows it. No reformatting, no rebuilding a table from
-`.repos`/`.thisRepo`/`.settings` by hand — this is the same aggregation Step 0 fetches as JSON,
+`.repos`/`.thisRepo`/`.settings` by hand — this is the same aggregation **Aggregate** fetches as JSON,
 formatted by the script instead of the model. (The bare `/cfq` slash command already prints this
 block via its own injection before the model runs at all; this step exists for every other way the
 skill gets invoked — natural language, or as part of Step A's flow.)
@@ -124,7 +125,7 @@ confirm → mutate → report under an `ACTION` header. Full per-action detail i
 ## Step D — Settings
 
 Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
-each key's value/source straight from `.settings` (Step 0's call), never re-list. Scope inference,
+each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference,
 the global-only rejection, and the `env:repo-legacy` migration note are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:
 `✅ Setting  maintenanceEvery: 50 → 40 (global)`, or `⚠️ Setting  stopUsed set, but

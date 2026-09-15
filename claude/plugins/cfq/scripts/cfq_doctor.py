@@ -77,10 +77,10 @@ def install_hint(name):
 # ---- ponytail advisory ---------------------------------------------------------------------
 
 def ponytail_advisory():
-    """cfq only ever uses ponytail for one thing (the optional maintenance-run audit, a one-shot
-    skill invocation) and expects it dormant otherwise. Mirrors, at grep precision, the tier
-    order ponytail/hooks/ponytail-config.js's getDefaultMode() itself uses: env var, then config
-    file, then "full"."""
+    """cfq uses one one-shot ponytail skill (the maintenance-run audit), not needing ponytail's
+    persistent mode, and expects it dormant otherwise.
+    Mirrors, at grep precision, the tier order ponytail/hooks/ponytail-config.js's
+    getDefaultMode() itself uses: env var, then config file, then "full"."""
     home = pathlib.Path(os.environ.get("HOME", ""))
     cache = home / ".claude" / "plugins" / "cache"
     if not _ponytail_installed(cache):

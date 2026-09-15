@@ -4,12 +4,19 @@ Self-test for scripts/cfq_report.py: append/set-commit/summary/html/last-failure
 the index/detail surface.
 """
 
+import contextlib
+import io
 import json
 import shutil
 import subprocess
+import sys
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_report  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -21,20 +28,65 @@ class TestReport(CfqTestCase):
     def _report_json(self, batch):
         return json.loads((batch / "report.json").read_text())
 
+    def test_extract_goal_matches_parse_phase_body_equivalent(self):
+        # Pins extract_goal's current output (first two non-empty lines after `## Context`, each
+        # followed by one space, cut to 220 chars) as a literal before refactoring it to reuse
+        # cfq_brief.parse_phase_body -- both must keep producing this exact string.
+        planfile = self._repos_dir / "phase-for-extract-goal.md"
+        planfile.write_text(
+            "# Phase 01 — Something\n\n"
+            "## Size\n\nM\n\n"
+            "## Context\n\n"
+            "This is the first context line and it is reasonably long to help push us toward "
+            "the two hundred and twenty character truncation boundary for testing purposes "
+            "here now.\n"
+            "This is the second context line, also fairly long, to make sure the combined "
+            "length of both lines together comfortably exceeds two hundred twenty characters "
+            "total.\n"
+            "This third line should never be collected because extraction stops after two "
+            "non-empty lines are gathered.\n\n"
+            "## Affected Files\n\n"
+            "- `/tmp/foo.py`\n"
+        )
+        expected = (
+            "This is the first context line and it is reasonably long to help push us toward "
+            "the two hundred and twenty character truncation boundary for testing purposes "
+            "here now. This is the second context line, also fairly long, t"
+        )
+        self.assertEqual(len(expected), 220)
+        self.assertEqual(cfq_report.extract_goal(str(planfile)), expected)
+
+    def test_extract_goal_missing_file_returns_empty_string(self):
+        missing = self._repos_dir / "does-not-exist.md"
+        self.assertEqual(cfq_report.extract_goal(str(missing)), "")
+
+    def _append_raises(self, dir_, phase_json):
+        """Calls append_phase() expecting its errors.die() validation to fire (SystemExit),
+        capturing what it printed to stderr the same way a subprocess call's `proc.stderr` used
+        to."""
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf), self.assertRaises(SystemExit) as ctx:
+            cfq_report.append_phase(dir_, phase_json, record_telemetry=False)
+        self.assertNotEqual(ctx.exception.code, 0)
+        return buf.getvalue()
+
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
 
-        # HOME is an empty dir so append's automatic telemetry call finds no transcript
-        # (fail-soft, no-op) -- this batch stays a "report without telemetry" fixture on purpose.
-        self.run_cfq(
-            "report", "append", str(batch),
+        # record_telemetry=False mirrors the old fixture's empty HOME (append's automatic
+        # telemetry call finding no transcript, fail-soft, no-op) -- this batch stays a "report
+        # without telemetry" fixture on purpose.
+        cfq_report.append_phase(
+            str(batch),
             '{"phase":"01-a","status":"green","finished":"2026-01-01T10:00:00+01:00","summary":"ok",'
             '"deviations":["Plan sagte X, gebaut Y"],"errors":[],"verification":"tests -> PASS","commit":"abc1234"}',
+            record_telemetry=False,
         )
-        self.run_cfq(
-            "report", "append", str(batch),
+        cfq_report.append_phase(
+            str(batch),
             '{"phase":"02-b","status":"red","finished":"2026-01-01T11:00:00+01:00","summary":"fehlgeschlagen",'
             '"deviations":[],"errors":["Verifikation rot: 1 Test <failed>"],"verification":"tests -> FAIL","commit":""}',
+            record_telemetry=False,
         )
 
         self.run_cfq("report", "set-commit", str(batch), "01-a", "def5678")
@@ -68,21 +120,18 @@ class TestReport(CfqTestCase):
         badph = self._batch("2026-01-05-badphase")
 
         # bare number -- the batch-009 shape that started this
-        proc = self.run_cfq("report", "append", str(badph), '{"phase":"01","status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject a bare phase number")
-        self.assertTrue(len(proc.stderr) > 0, "append gave no stderr message for a bare phase number")
+        stderr = self._append_raises(str(badph), '{"phase":"01","status":"green","summary":"x"}')
+        self.assertTrue(len(stderr) > 0, "append gave no stderr message for a bare phase number")
         self.assertFalse((badph / "report.json").exists(), "append created report.json despite rejecting the phase value")
 
         # missing phase field entirely
-        proc = self.run_cfq("report", "append", str(badph), '{"status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject phase JSON without a phase field")
+        self._append_raises(str(badph), '{"status":"green","summary":"x"}')
 
         # empty phase field
-        proc = self.run_cfq("report", "append", str(badph), '{"phase":"","status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject an empty phase field")
+        self._append_raises(str(badph), '{"phase":"","status":"green","summary":"x"}')
 
         # routine case still accepted, and it is what creates report.json
-        self.run_cfq("report", "append", str(badph), '{"phase":"03-c","status":"green","summary":"x"}')
+        cfq_report.append_phase(str(badph), '{"phase":"03-c","status":"green","summary":"x"}', record_telemetry=False)
         self.assertEqual(
             self._report_json(badph)["phases"][-1]["phase"], "03-c",
             "append no longer accepts a well-formed phase slug",
@@ -175,6 +224,7 @@ class TestReport(CfqTestCase):
         stub_dir.mkdir()
         scripts_dir = PLUGIN_ROOT / "scripts"
         (stub_dir / "cfq_report.py").write_bytes((scripts_dir / "cfq_report.py").read_bytes())
+        (stub_dir / "cfq_brief.py").write_bytes((scripts_dir / "cfq_brief.py").read_bytes())
         shutil.copytree(scripts_dir / "cfq_lib", stub_dir / "cfq_lib")
         scan_calls.write_text("")
         stub_scan = stub_dir / "cfq_scan.py"
@@ -283,10 +333,11 @@ It covers the two-line context excerpt.
 
 M
 """)
-        self.run_cfq(
-            "report", "append", str(batch_x),
+        cfq_report.append_phase(
+            str(batch_x),
             '{"phase":"01-a","status":"green","finished":"2026-03-01T10:00:00+01:00","summary":"ok",'
             '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"eee5555"}',
+            record_telemetry=False,
         )
 
         env = {"CFQ_REPORT_DIR": str(rd), "CFQ_SCAN_ROOTS": str(self._repos_dir)}
@@ -305,10 +356,11 @@ M
         batch_y_name = "2026-03-02-nogoal"
         batch_y = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_y_name
         (batch_y / "done").mkdir(parents=True)
-        self.run_cfq(
-            "report", "append", str(batch_y),
+        cfq_report.append_phase(
+            str(batch_y),
             '{"phase":"01-a","status":"green","finished":"2026-03-02T10:00:00+01:00","summary":"ok",'
             '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"fff6666"}',
+            record_telemetry=False,
         )
         out_y = self.run_cfq("report", "html", str(batch_y), env=env).stdout.strip()
         self.assertTrue(len(out_y) > 0, f"html for missing-plan-file batch not created: {out_y}")
@@ -342,6 +394,125 @@ M
         self.assertFalse(
             (batch_x / "report.html").exists(), "fell back to writing batch-dir report.html on reportDir failure",
         )
+
+    # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
+    # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
+
+    def test_skills_overlapping_recommendations_deduplicated_and_sorted(self):
+        batch = self._batch("2026-01-05-skills")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-05-skills", "started": "2026-01-05T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green",
+                    "telemetry": {
+                        "skills_recommended": ["tdd", "code-review"],
+                        "by_skill": {"tdd": 5, "-": 2},
+                    },
+                },
+                {
+                    "phase": "02-b", "status": "green",
+                    "telemetry": {
+                        "skills_recommended": ["code-review", "dataviz"],
+                        "by_skill": {"-": 3},
+                    },
+                },
+            ],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], ["code-review", "dataviz", "tdd"])
+        self.assertEqual(out["used"], ["tdd"])
+
+    def test_skills_phase_without_telemetry_is_skipped_not_a_crash(self):
+        batch = self._batch("2026-01-06-no-telemetry")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-06-no-telemetry", "started": "2026-01-06T10:00:00+01:00",
+            "phases": [{"phase": "01-a", "status": "green"}],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], [])
+        self.assertEqual(out["used"], [])
+
+    def test_skills_empty_phases_array_both_lists_empty(self):
+        batch = self._batch("2026-01-07-empty")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-07-empty", "started": "2026-01-07T10:00:00+01:00",
+            "phases": [],
+        }))
+        out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
+        self.assertEqual(out["recommended"], [])
+        self.assertEqual(out["used"], [])
+
+    # ---- summary orchestrator/worker split (phase 05: `report summary` surfaces the subagent
+    # token split cfq_telemetry.py already computes, additive so a classic-mode report is unaffected)
+
+    def test_summary_splits_orchestrator_and_worker_when_subagent_sums_present(self):
+        batch = self._batch("2026-01-08-orchestrator")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-08-orchestrator", "started": "2026-01-08T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-08T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 10, "output": 1000},
+                        "subagent": {"turns": 6, "output": 700},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+                {
+                    "phase": "02-b", "status": "green", "finished": "2026-01-08T12:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 5, "output": 500},
+                        "subagent": {"turns": 0, "output": 0},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        # existing fields (1-11) unchanged in shape
+        self.assertEqual(fields[:6], [batch.name, "2", "2", "0", "0", "2026-01-08T12:00:00+01:00"])
+        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
+        self.assertEqual((total_output, planning_output, total_turns), ("1500", "0", "15"))
+        # new fields 12-15: orchestrator_turns, orchestrator_output, worker_turns, worker_output
+        self.assertEqual(fields[11:], ["9", "800", "6", "700"])
+        self.assertEqual(int(fields[11]) + int(fields[13]), int(total_turns), "orchestrator + worker turns must add up to the existing total")
+        self.assertEqual(int(fields[12]) + int(fields[14]), int(total_output), "orchestrator + worker output must add up to the existing total")
+
+    def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
+        batch = self._batch("2026-01-09-classic")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-09-classic", "started": "2026-01-09T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-09T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 10, "output": 1000},
+                        "subagent": {"turns": 0, "output": 0},
+                        "by_model": {"sonnet": {}}, "by_effort": {"medium": {}},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        expected = f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
+        self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
+
+        # A report predating this feature -- no `subagent` key at all -- must degrade the same way.
+        batch2 = self._batch("2026-01-10-pre-feature")
+        (batch2 / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-10-pre-feature", "started": "2026-01-10T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-10T11:00:00+01:00",
+                    "telemetry": {"totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {}},
+                },
+            ],
+        }))
+        s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t"
+        self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
 
 
 if __name__ == "__main__":

@@ -14,15 +14,19 @@ as batch `017` phase 05; `cfq_batch_id.py` ported as batch `017` phase 06; `cfq_
 `cfq_lint.py` ported as batch `017` phase 07; `cfq_lang.py`, `cfq_security.py` ported as batch
 `017` phase 08; `cfq_branch.py` ported as batch `017` phase 09; `cfq_resume.py`, `cfq_finish.py`
 ported as batch `017` phase 10; `cfq_pfq_preflight.py`, `cfq_ifq_preflight.py` ported as batch
-`017` phase 11; `cfq_dash.py` ported as batch `017` phase 12) — `bin/cfq` itself stays shell by
-design, see Commands — plus one isolated migration utility (`scripts/migrations/`, permanently
-shell, per batch `014`), eight TOML command aliases (`commands/`). No build step, no package
-manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git`, `python3`
-required) — see Architecture.
+`017` phase 11; `cfq_dash.py` ported as batch `017` phase 12; `cfq_trash.py` (plus the
+CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added as batch `019`
+phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
+added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
+`cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
+phase 04; `cfq_guard.py` (new) added as batch `019` phase 06) — `bin/cfq` itself stays shell by
+design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
+manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
+a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
-`queues.md`) — no per-skill `references/` directory, one path style everywhere
+`ifq-phase.md`) — no per-skill `references/` directory, one path style everywhere
 (`${CLAUDE_PLUGIN_ROOT}/references/<file>.md` from a `SKILL.md`, `<plugin-root>/references/<file>.md`
 from inside another reference file, since the loader only expands `${CLAUDE_PLUGIN_ROOT}` in
 `SKILL.md` itself). Reference files are loaded only on the path that actually needs them, not by
@@ -61,7 +65,8 @@ noticing, which is the point.
 Scripts call each other through `bin/cfq <noun>`, never by filename — the same rule that applies
 to skills and references. `scripts/cfq_lib/` is the one exception — shared Python with no CLI and
 no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` holds the canonical
-path helpers). Two further exceptions stay direct filename calls, each commented at its call site:
+path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers). Two further
+exceptions stay direct filename calls, each commented at its call site:
 - **Inner-loop calls** (`cfq_batch_id.py`'s per-pair rename and per-orphan reserve,
   `cfq_scan.py`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
   `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.
@@ -79,26 +84,42 @@ own location, so the copy only routes to the shadowed sibling if both directorie
 
 **Four skills, four roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
 plans and never edits code; `implement-for-queue` (cheap model) works exactly one batch per session and
-hands off on the context gate; `code-for-queue` is the cross-repo dashboard plus settings;
+hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
+on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/cfq/` (canonical
 path/layout helpers: `cfq_lib/paths.py` — pure path functions, no I/O — and `cfq_layout.py`, which
-owns directory creation and the Git-state policy below; the previous repo-local layout is
-understood only by the isolated `scripts/migrations/cfq-layout-v1.sh` upgrade utility):
+owns directory creation and the Git-state policy below):
 `impl/` holds the phase-plan batches (`<YYYY-MM-DD>-<topic>/NN-slug.md`, `.priority`
 (optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
 (optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
-`report.json` (per-phase implementation report plus telemetry, appended by `implement-for-queue`
-after every phase and travelling with the batch into `impl/done/`), `.planning` (written by
+`report.json` (per-phase implementation report plus telemetry, closed onto the ledger together
+with the file's move into `done/` and the phase's own Git commit by the single transactional call
+`cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
+whatever is already staged (never runs `git add` itself), moves the `.md` file, appends the ledger
+entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
+after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
+phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
+move nothing); `cfq phase reopen <batch-dir> <phase-slug>` is `record`'s inverse, moving a phase back
+out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; the
+append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed as its own
+`report append` CLI verb). `done/` stays the
+one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
+batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
+exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
+`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and the changelog (`changelogFile`) — honest about what
+`done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
+only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
+(written by
 `cfq_park.py` when the batch directory is created, refreshed on every re-park during the same
 `plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch
 younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
-(`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queues.md`) that `implement-for-queue` drops for
+(`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off (Step C, current repo only), and
@@ -164,36 +185,63 @@ interpreter it needs to run. The bundled `SessionStart` hook (`bin/cfq doctor ho
 healthy host and warns both user and Claude only when a required command is missing — it never
 installs anything itself.
 
+**`cfq_guard.py` is the only script the runtime invokes rather than a skill.** Every other script
+is called from `SKILL.md`/reference prose through `bin/cfq`; `cfq_guard.py pretooluse` is wired
+directly into `hooks/hooks.json`'s `PreToolUse` entries and runs on every `Bash`/`Write`/`Edit`
+call in the session, whether or not a cfq skill is active. It denies a raw shell mutation
+(`rm`/`mv`/`cp`/`truncate`/`shred`/`dd`/`ln`/`install`/`sed -i`, a `>`/`>>` redirect, or
+`find … -delete`) whose argument resolves — against the tool call's own `cwd`, not a literal-string
+match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`. Its
+fail-open behaviour (an internal exception allows the call and logs to stderr instead of denying)
+is intentional, not an oversight: a guard that crashes closed would fail every `Bash` call in every
+session, which is worse than the incident it exists to prevent now that phases 01-05 give every
+legitimate mutation a deterministic `bin/cfq` subcommand to point to instead.
+
 **Telemetry is metadata only.** `cfq_telemetry.py` derives everything from the running session's own
 transcript (`cfq_runtime.py`'s path resolution, reused rather than reinvented) — never from a model's
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
 `tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
 
-**Subagents are for exploration and mechanical test execution, never for content the parent must
-own.** `plan-for-queue` Step 5 and `implement-for-queue` Step 8 both delegate multi-file or
-unclear-scope research to Explore agents (`planExploreModel` / `implExploreModel`), and
-`implement-for-queue` may additionally run a phase's verification command through the same
-subagent to keep raw test/build log noise out of the expensive model's context. A subagent pays
-off only where the parent doesn't need the full raw result in its own context afterward: research
-fits, since the parent gets a distilled summary and stops there; a **green** verification run fits
-the same way — pass/fail plus which command ran is enough. A **red** run does not get filtered —
-the subagent returns the complete, unfiltered failure output, because the implementing model needs
-the full error to fix it; summarizing a failure is exactly the case where a cheaper model can lose
-the detail that matters. Implementation, test writing and documentation stay off subagents
-entirely — a *newly spawned* subagent starts cold and re-reads what the parent already holds (a
-continued one, addressed via `SendMessage`, keeps its context instead — see
-`claude/plugins/cfq/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
+**A subagent pays off only where the parent never needs the full raw result in its own context
+afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
+`implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents
+(`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
+verification command through the same subagent to keep raw test/build log noise out of the
+expensive model's context. Research fits, since the parent gets a distilled summary and stops
+there; a **green** verification run fits the same way — pass/fail plus which command ran is
+enough. A **red** run does not get filtered — the subagent returns the complete, unfiltered
+failure output, because the implementing model needs the full error to fix it; summarizing a
+failure is exactly the case where a cheaper model can lose the detail that matters.
+
+The second is ownership, not delegation: `implement-for-queue`'s orchestrator mode spawns one
+worker sub-agent per phase (`references/orchestrator.md`), and that worker implements, verifies
+and commits its own phase completely — including the code, the tests and any documentation the
+phase touches. The orchestrator reads only the worker's returned report, never the diff it
+produced, so the same "parent doesn't need the raw result back" condition holds even though the
+subagent's own work is implementation. This does not reopen delegation for a classic-mode session:
+what still never fits, in either mode, is a fragment of work whose result the *parent itself* must
+read back to finish — a *newly spawned* subagent starts cold and re-reads what the parent already
+holds (a continued one, addressed via `SendMessage`, keeps its context instead — see
+`claude/plugins/cfq/references/ifq-phase.md`'s "Reusing a Warm Explore Agent" for when that applies),
 and the parent then reads the subagent's output again to verify it, two or three reads where a
-direct read-and-edit would have been one. That trade-off is measurable, not asserted: compare a
-subagent call's reported
-input-token count (`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent
-reading and editing the same files directly — for implementation, test writing and documentation
-the subagent path loses. Anyone tempted to delegate anything beyond exploration or verification
-execution should re-run that comparison first, not take this paragraph on faith.
+direct read-and-edit would have been one.
+
+That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
+(`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent reading and editing
+the same files directly — for a fragment the parent must read back, the subagent path loses.
+For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (its
+additive TSV fields 12-15, populated whenever a phase actually ran as a worker) is the same
+comparison already run per batch — read it before assuming the split still favors orchestrator
+mode. Anyone tempted to delegate anything beyond exploration, verification execution, or a whole
+self-committing phase should re-run the relevant comparison first, not take this paragraph on
+faith.
 
 ## Conventions
 
+- Rationale and history for skill/reference/agent rules lives in `claude/plugins/cfq/docs/design-notes.md`,
+  not in the skill text itself — new rationale goes there, never back into a `SKILL.md`, reference
+  file, or agent definition.
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
   `description`/`prompt`. Change one, change both.
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
@@ -219,9 +267,16 @@ execution should re-run that comparison first, not take this paragraph on faith.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
+- **No skill or reference file instructs a shell mutation of anything under `.claude/cfq/`** —
+  every such operation (`phase record`/`commit`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
+  `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a raw `rm`/`mv`/`mkdir`/`jq` written
+  into the text. `tests/test_reference_paths.py` greps for this structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
-- Bash style throughout: `set -eu`, jq for all JSON, write-to-`.tmp`-then-`mv`, `mktemp` + `trap` cleanup.
+- Python scripts are stdlib only; JSON is written via `cfq_lib.render.write_json` (tmp file +
+  `os.replace`), never a raw file write.
+- `bin/cfq` is the only shell file, Bash 3.2-compatible, logic-free — routing and interpreter
+  discovery only.
 - Bump `version` in `.claude-plugin/plugin.json` for user-visible changes. The plugin's `name` there is
   `cfq` (not `code-for-queue` — that was the pre-0.2 name), which is what Claude Code prefixes skill
   names with. Distribution is via the GitHub marketplace, which tracks this repo's default branch
@@ -264,8 +319,9 @@ not replaces, the list above. Don't invent parallel status strings elsewhere; re
 ## Self-hosting quirk
 
 This repo drives its own development through its own queue: `<repo-root>/.claude/cfq/` holds
-the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root (target repos
-use `.git/info/exclude` instead, per `gitStatePolicy`). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
+the plugin's phase plans and is ignored via the versioned `.gitignore` at the repo root, except
+`changelog.yml` (and `settings.json`), which stay versioned (target repos use `.git/info/exclude`
+instead, per `gitStatePolicy`, with the same carve-out). The queue lives in the **repo root**, not inside `claude/plugins/cfq/` — it
 is not part of the plugin, it's this monorepo's own self-hosting state. `/ifq` sessions therefore run
 against the repo root and, per the skill (and like every other repo since `branchPerBatch`), branch
 to `cfq/<batch-directory-name>` per batch and record progress in `.claude/cfq/changelog.yml`

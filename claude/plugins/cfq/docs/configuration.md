@@ -65,6 +65,8 @@ interactively.
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | global, repo | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
 | `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
+| `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
+| `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
 | `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |
 | `implExploreModel` | `CFQ_IMPL_EXPLORE_MODEL` | `haiku` | global, repo | model ifq's pre-implementation research and test-run subagents run on |
@@ -73,17 +75,19 @@ interactively.
 | `stopUsed` | `CFQ_STOP_USED` | `100000` | global, repo | absolute context tokens at which `ifq` hands off instead of starting another phase; `0` hands off after every phase, `-1` never hands off for this reason |
 | `stopFiveHourPct` | `CFQ_STOP_FIVE_HOUR_PCT` | `70` | global, repo | five-hour rate-limit usage in percent at which `ifq` emits a `WARN` before starting another phase, instead of continuing silently; `-1` disables the check |
 | `stopSevenDayPct` | `CFQ_STOP_SEVEN_DAY_PCT` | `95` | global, repo | seven-day rate-limit usage in percent at which `ifq` emits a `WARN` before starting another phase, instead of continuing silently; `-1` disables the check |
+| `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `sessionStaleSeconds` | `CFQ_SESSION_STALE_SECONDS` | `1800` | global, repo | seconds since a session transcript was last touched before it's considered stale (lock takeover, resume staleness) |
 | `ctxWindowLimits` | — | see `describe ctxWindowLimits` | global, repo | context-window size in tokens per model, keyed by whether the model gets the large window |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | global only | roots for automatic queue discovery |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
-| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `true` | global, repo | enables the optional cleanup audit, one of several maintenance tasks gated by `maintenanceEvery` |
+| `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `true` | global, repo | enables the optional cleanup audit (one of several maintenance tasks gated by `maintenanceEvery`) |
 | `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | global, repo | language of everything executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
 | `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | global, repo | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
-| `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | global, repo | how much documentation a repo keeps: `minimal` (`README` only), `standard` (`docs/` with setup, usage, configuration), `full` (additionally a reference page per module/script and an architecture overview) |
+| `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | global, repo | how much documentation a repo keeps: `minimal` (`README` only), `standard` (`docs/` with setup, usage, configuration) |
+| `i18nExcludePatterns` | — | `*/locales/*, */locale/*, */i18n/*, */lang/*, */translations/*` | global, repo | Git pathspec exclusions applied to `ifq`'s language-prose sample — directories that intentionally hold multiple languages, never judged as a `codeLanguage` violation |
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | global, repo | commits since the last maintenance run before it's due again; `0` disables maintenance entirely |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
-| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; empty disables both the changelog and numbered-batch allocation |
+| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty writes `report.html` into the batch directory instead — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
@@ -146,17 +150,34 @@ restate a field list inline — read the field here, then read it back from the 
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
-- **`bin/cfq scan [--format=json|md|tsv]`** — `json` (default): `{repos: [{path, plan, todo,
-  batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
+- **`bin/cfq scan [--format=json|md|tsv|overview|next]`** — `json` (default): `{repos: [{path, plan,
+  todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
-  Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
-- **`bin/cfq report append <batch-dir> <phase-json>`** — appends one phase entry to the batch's
-  `report.json`, creating the file if needed, and records phase telemetry alongside it. The JSON's
-  `phase` field must be the full phase slug (`NN-slug`, the plan file's name without `.md`); a bare
-  number, a missing or an empty value is rejected with a non-zero exit and nothing is written.
-- **`bin/cfq report index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
-  deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
-  `MIXED`.
+  Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`. `overview`: one row per repo
+  (Repo, Plan, Todo, Batches, Status) — `Batches` is the open/done batch counts, `Status` the most
+  severe status among the repo's own batches. `next`: one object per repo — `{path, next, reason,
+  blocked, planning}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
+  `reason` one of `inProgress`/`priority`/`order`/`multipleInProgress`/`null`; the one place the
+  `ifq` selection ranking is decided, consumed rather than recomputed by `cfq_ifq_preflight.py`.
+- **`bin/cfq phase commit <batch-dir> <phase-json-file> <message-file>`** — the green-phase path:
+  commits whatever is already staged (never runs `git add` itself), moves the phase's `.md` file
+  into `done/` and appends its `report.json` entry, backfills the commit SHA, pushes (`-u origin
+  <branch>` on a first push, a plain `git push` after) and registers the repo — one call in place
+  of the six a green phase used to issue one at a time. The phase JSON's `phase` field must be the
+  full phase slug (`NN-slug`); a `status` other than `green` is rejected (`phase record` is the
+  red-phase path). `<message-file>` is the human-written subject/body (plus `Co-Authored-By`); the
+  `CFQ-*` trailers are added internally, the same way `changelog commit-message` adds them. Result:
+  `{status: "OK", sha, pushed, branch, pushError?}` on success — a push failure is reported, not
+  fatal — or `{status: "NOTHING_STAGED"}` / `{status: "COMMIT_FAILED", detail}` /
+  `{status: "RECORD_FAILED", sha, detail}` on the ways it can stop, each with a non-zero exit. The
+  general ledger-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed
+  as its own `report append` CLI verb.
+- **`bin/cfq report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]`** —
+  `[{batch, repo, date, status, deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first.
+  `status`: `GREEN`/`RED`/`MIXED`. `--any` matches a single argument against repo path or batch
+  name and dedupes internally, for when the caller doesn't know which it names; `--repo`/`--batch`
+  narrow independently (AND) when both are given. `--text` renders the same filtered rows as a
+  terminal table plus one `file://` line per row instead of JSON.
 - **`bin/cfq report detail <batch-dir>`** — `{found, batch, repo, started, status, deviationsTotal,
   cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
   commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no

@@ -9,6 +9,7 @@ transcript files, statusline payloads, session ids -- under a fresh HOME per tes
 import json
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 import time
@@ -17,7 +18,15 @@ import unittest
 from cfq_testlib import CfqTestCase
 
 SID = "sid1"
-SLUG = str(pathlib.Path.cwd()).replace("/", "-")
+
+
+def slug_for(path):
+    # Mirrors cfq_runtime.py's slug_for exactly -- Claude Code replaces every non-alphanumeric
+    # character, not just "/", when it derives a project slug from a repo path.
+    return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+SLUG = slug_for(str(pathlib.Path.cwd()))
 
 CORE_BINS = [
     "bash", "python3", "git", "head", "ls", "date", "stat", "printf", "mkdir", "tr", "pwd",
@@ -298,7 +307,7 @@ class TestRuntime(CfqTestCase):
     def test_missing_python3_reports_named_guard_message_on_every_subcommand(self):
         nopython_dir = self.minimal_path(*[b for b in CORE_BINS if b != "python3"])
         nopython_home = self._new_home()
-        guard = "cfq: python3 is required for 'runtime' but was not found on PATH."
+        guard = "cfq: Python 3 is required for 'runtime' but was not found on PATH."
         for sub in (
             "session-id", "transcript-path", "context", "model", "version", "capabilities",
             "plugins", "diagnose",
@@ -326,7 +335,7 @@ class TestRuntime(CfqTestCase):
         otherrepo_dir = tempfile.TemporaryDirectory()
         self.addCleanup(otherrepo_dir.cleanup)
         otherrepo = pathlib.Path(otherrepo_dir.name)
-        otherslug = str(otherrepo).replace("/", "-")
+        otherslug = slug_for(str(otherrepo))
         (h / ".claude" / "projects" / otherslug).mkdir(parents=True)
         (h / ".claude" / "projects" / otherslug / f"{SID}.jsonl").write_text("{}\n")
 
@@ -338,6 +347,28 @@ class TestRuntime(CfqTestCase):
         self.assertEqual(
             proc.stdout.strip(), str(h / ".claude" / "projects" / otherslug / f"{SID}.jsonl"), "repo-slug",
         )
+
+    def test_slug_for_replaces_every_non_alnum_char(self):
+        # Windows drive paths and any Linux/macOS repo path containing "." or "_" must slug the
+        # same way Claude Code itself derives ~/.claude/projects/<slug> -- every non-alphanumeric
+        # character becomes "-", not just "/".
+        h = self._new_home()
+        cases = [
+            ("/home/u/my.repo_x", "-home-u-my-repo-x"),
+            (r"C:\Users\u\repo", "C--Users-u-repo"),
+            ("C:/Users/u/repo", "C--Users-u-repo"),
+        ]
+        for repo_path, slug in cases:
+            with self.subTest(repo=repo_path):
+                proc = self._run("transcript-path", "--repo", repo_path, "--exact", home=h)
+                expected = str(h / ".claude" / "projects" / slug / f"{SID}.jsonl")
+                self.assertEqual(proc.stdout.strip(), expected)
+
+    def test_slug_for_empty_repo_falls_back_to_cwd(self):
+        h = self._new_home()
+        proc = self._run("transcript-path", "--exact", home=h)
+        expected = str(h / ".claude" / "projects" / slug_for(os.getcwd()) / f"{SID}.jsonl")
+        self.assertEqual(proc.stdout.strip(), expected)
 
     # -- model field on the context result --------------------------------------------------
 

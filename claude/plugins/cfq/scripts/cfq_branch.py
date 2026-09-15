@@ -8,6 +8,12 @@ no pseudo-version increment, no identity derived from Git branch history.
 `check` resolves and judges one named branch (for a free-text base-branch answer) -- also
 read-only, no dispatcher entry of its own since `branch` is already the noun.
 
+On `new`, `base`/`baseRef` are derived from the batch's own `.dependsOn` rather than picked from
+`candidates` by newest commit: `baseSource` is `"main"` (no unmerged dependency branch),
+`"dependsOn"` (the one unmerged dependency branch that contains every other unmerged one), or
+`"ambiguous"` (no single one does -- falls back to the old newest-`lastCommit` candidate, now the
+exceptional case instead of the default).
+
 Ported from cfq-branch.sh -- a port, not a redesign: the CLI contract (verbs, argument order, JSON
 shapes, exit codes) is the invariant this file preserves. The remote-is-source-of-truth rule
 (candidates ranked from `origin`, never local refs) is load-bearing -- see commits
@@ -18,38 +24,33 @@ auto-resolved.
 import argparse
 import pathlib
 import re
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, paths, queue, render  # noqa: E402
+from cfq_lib import proc  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_branch.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 # New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes the
 # date); legacy names start directly with the date and never match.
 NUMBER_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
 
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
 def git(repo, *args, check=True):
-    """`git -C <repo> <args>`, always capture_output/text. check=True (the default) dies the whole
-    process on a nonzero exit, mirroring what the ported shell's `set -eu` did for the same bare
-    call -- several call sites deliberately swallow failures (`|| true`, `|| echo 0`, an `if`/`&&`
-    test); those pass check=False and handle the result themselves, exactly where the shell
-    version did and nowhere else."""
-    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-    if check and proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
-        sys.exit(proc.returncode)
-    return proc
+    """check=True (the default) dies the whole process on a nonzero exit, mirroring what the
+    ported shell's `set -eu` did for the same bare call -- several call sites deliberately
+    swallow failures (`|| true`, `|| echo 0`, an `if`/`&&` test); those pass check=False and
+    handle the result themselves, exactly where the shell version did and nowhere else. Local
+    wrapper because this default (and the die-on-failure behaviour) differs from
+    `cfq_lib.proc.git`'s own check semantics."""
+    result = proc.git(repo, *args)
+    if check and result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.exit(result.returncode)
+    return result
 
 
 def ref_exists(repo, ref):
@@ -105,6 +106,36 @@ def list_unpushed_commits(repo, from_ref, to_ref):
 def parse_batch_number(name):
     m = NUMBER_RE.match(name)
     return int(m.group(1)) if m else None
+
+
+def compute_dirty(repo):
+    """(dirty, changelogDirty) from `git status --porcelain`: the changelogFile path (if set) and
+    anything under `.claude/cfq/` never count as `dirty` -- the queue's own untracked/reservation
+    state is expected, not something that should block a checkout. `changelogDirty` is true only
+    when the changelog path itself is the (or a) modified entry. `--no-optional-locks` keeps this
+    call from refreshing/rewriting `.git/index` as a side effect -- `branch plan` is read-only and
+    `cfq_ifq_preflight.py`'s determinism test asserts nothing under the repo is ever touched.
+    `--untracked-files=all` keeps git from collapsing an entirely-untracked `.claude/` subtree to
+    one `?? .claude/` line, which would not match the `.claude/cfq/` prefix check below and would
+    misreport a fresh queue as `dirty`."""
+    changelog_rel = proc.settings_get(repo, "changelogFile")
+    dirty = False
+    changelog_dirty = False
+    for line in git(
+        repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"
+    ).stdout.splitlines():
+        if not line:
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if changelog_rel and path == changelog_rel:
+            changelog_dirty = True
+            continue
+        if path.startswith(".claude/cfq/"):
+            continue
+        dirty = True
+    return dirty, changelog_dirty
 
 
 def find_suffix_match(repo, slug):
@@ -179,6 +210,11 @@ def cmd_check(args):
 def cmd_plan(args):
     repo = args.repo
     batch_name = args.batch
+
+    if git(repo, "rev-parse", "--show-toplevel", check=False).returncode != 0:
+        print(render.dump_json({"status": "NO_REPO", "repo": {"root": repo}}))
+        return
+
     rchecked = is_remote_checked(repo)
 
     number = parse_batch_number(batch_name)
@@ -190,8 +226,11 @@ def cmd_plan(args):
         print(render.dump_json({
             "mode": "off", "batch": batch_name, "batchNumber": number, "branch": None,
             "base": None, "candidates": [], "remoteChecked": False, "remoteWarning": None,
+            "dirty": False, "changelogDirty": False,
         }))
         return
+
+    dirty, changelog_dirty = compute_dirty(repo)
 
     # Prefer the branch already persisted in the CFQ changelog for this exact batch --
     # authoritative, since it is the branch that was actually checked out at init time -- but only
@@ -205,13 +244,13 @@ def cmd_plan(args):
         existing = find_suffix_match(repo, slug)
 
     if existing:
-        _emit_continue(repo, batch_name, number, existing, rchecked)
+        _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelog_dirty)
         return
 
-    _emit_new(repo, batch_name, number, rchecked)
+    _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty)
 
 
-def _emit_continue(repo, batch_name, number, existing, rchecked):
+def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelog_dirty):
     continue_warning = None
     remote_state = "unknown"
     pushable = False
@@ -231,7 +270,7 @@ def _emit_continue(repo, batch_name, number, existing, rchecked):
             checked_out = git(repo, "symbolic-ref", "-q", "--short", "HEAD", check=False).stdout.strip()
             if checked_out != existing:
                 git(repo, "update-ref", f"refs/heads/{existing}", f"refs/remotes/origin/{existing}")
-            elif git(repo, "status", "--porcelain").stdout == "":
+            elif not dirty:
                 git(repo, "merge", "-q", "--ff-only", f"refs/remotes/origin/{existing}")
             else:
                 continue_warning = (
@@ -254,6 +293,7 @@ def _emit_continue(repo, batch_name, number, existing, rchecked):
         "base": None, "candidates": [],
         "remoteChecked": rchecked, "remoteWarning": continue_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
+        "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
 
 
@@ -311,7 +351,55 @@ def _highest_cfq_branch(candidate_names):
     return highest_name
 
 
-def _emit_new(repo, batch_name, number, rchecked):
+def _dependency_base(repo, batch_name, rchecked, main_ref):
+    """Derives (name, ref, local_only, baseSource) from the batch's `.dependsOn` -- each dep's
+    branch (persisted `changelog branch-for`, else `cfq/<dep>`) is kept when its ref exists
+    (origin first, local when offline) and it is not already an ancestor of `main_ref` (merged
+    deps contribute nothing, same as no dep at all). No unmerged dep branch -> `("main", main_ref,
+    False, "main")`. Exactly one branch among the unmerged set that contains every other one (a
+    chain, or a lone dependency) -> that branch, `baseSource: "dependsOn"`. Otherwise ->
+    `(None, None, None, "ambiguous")`, leaving the caller's own newest-candidate fallback in
+    charge, unchanged from before this derivation existed."""
+    batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch_name
+    deps = queue.read_depends(batch_dir)
+
+    unmerged = []
+    for dep in deps:
+        name = cfq_run("changelog", "branch-for", repo, dep).stdout.strip()
+        if not name:
+            name = f"cfq/{dep}"
+        origin_ref = f"refs/remotes/origin/{name}"
+        local_ref = f"refs/heads/{name}"
+        if rchecked and ref_exists(repo, origin_ref):
+            ref, local_only = origin_ref, False
+        elif ref_exists(repo, local_ref):
+            ref, local_only = local_ref, True
+        else:
+            continue  # dep names no branch that exists anywhere -- ignored
+
+        if ref_exists(repo, main_ref) and git(
+            repo, "merge-base", "--is-ancestor", ref, main_ref, check=False
+        ).returncode == 0:
+            continue  # dep already merged into main -- contributes nothing
+
+        unmerged.append((name, ref, local_only))
+
+    if not unmerged:
+        return "main", main_ref, False, "main"
+
+    for name, ref, local_only in unmerged:
+        contains_all_others = all(
+            other_ref == ref
+            or git(repo, "merge-base", "--is-ancestor", other_ref, ref, check=False).returncode == 0
+            for _, other_ref, _ in unmerged
+        )
+        if contains_all_others:
+            return name, ref, local_only, "dependsOn"
+
+    return None, None, None, "ambiguous"
+
+
+def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     branch = f"cfq/{batch_name}"
 
     candidate_names, cand_ref, cand_local_only, main_ref = _collect_candidates(repo, rchecked)
@@ -359,12 +447,16 @@ def _emit_new(repo, batch_name, number, rchecked):
     for c in cand_objs:
         del c["_lastEpoch"]
 
-    if not cand_objs:
-        base_name, base_ref, base_local_only = "main", main_ref, False
-    else:
-        base_name = cand_objs[0]["name"]
-        base_ref = cand_objs[0]["ref"]
-        base_local_only = cand_objs[0]["localOnly"]
+    base_name, base_ref, base_local_only, base_source = _dependency_base(
+        repo, batch_name, rchecked, main_ref
+    )
+    if base_source == "ambiguous":
+        if not cand_objs:
+            base_name, base_ref, base_local_only = "main", main_ref, False
+        else:
+            base_name = cand_objs[0]["name"]
+            base_ref = cand_objs[0]["ref"]
+            base_local_only = cand_objs[0]["localOnly"]
 
     base_local_ref = f"refs/heads/{base_name}"
     base_origin_ref = f"refs/remotes/origin/{base_name}"
@@ -403,9 +495,10 @@ def _emit_new(repo, batch_name, number, rchecked):
 
     print(render.dump_json({
         "mode": "new", "batch": batch_name, "batchNumber": number, "branch": branch,
-        "base": base_name, "baseRef": base_ref, "candidates": cand_objs,
+        "base": base_name, "baseRef": base_ref, "baseSource": base_source, "candidates": cand_objs,
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
+        "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
 
 

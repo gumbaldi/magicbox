@@ -4,9 +4,10 @@ Install the `cfq` plugin marketplace and run first-time setup once per machine.
 
 ## Prerequisites
 
-`bash`, `git` and `jq` on PATH — required, installing the plugin does not install them. Optional:
-`gh` (GitHub) or `tea` (Gitea/Forgejo) for the security check, logged in to the forge cfq should
-query; `npm` for `npm audit` on repos with a `package.json`.
+`bash` (3.2 or newer), `git` and Python 3.8+ (as `python3`, `python` or `py`) on PATH — required,
+installing the plugin does not install them; no `jq`. Optional: `gh` (GitHub) or `tea`
+(Gitea/Forgejo) for the security check, logged in to the forge cfq should query; `npm` for
+`npm audit` on repos with a `package.json`.
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" doctor check` any time to see what's missing and how to
 install it. The bundled `SessionStart` hook runs the same check automatically and stays silent on a

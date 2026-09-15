@@ -168,6 +168,73 @@ class BriefTest(CfqTestCase):
             "2026-01-03-unflagged  phases=1", out.splitlines(), f"unflagged header line wrong: {out}",
         )
 
+    def test_goal_line_from_batch_context(self):
+        (self.batch / ".batch-context.md").write_text(textwrap.dedent("""\
+            # Batch Context
+
+            ## Goal
+
+            First goal line.
+            Second goal line.
+
+            ## Decisions
+
+            - Some decision that must not leak into the brief.
+            """))
+        out = self.run_cfq("brief", str(self.batch), check=True).stdout
+        lines = out.splitlines()
+        header_idx = lines.index("2026-01-01-briefme  priority=high  phases=2")
+        goal_idx = lines.index("goal: First goal line. Second goal line.")
+        depends_idx = lines.index("dependsOn: 2026-01-02-otherbatch")
+        self.assertEqual(goal_idx, header_idx + 1, f"goal line must directly follow header: {out}")
+        self.assertLess(goal_idx, depends_idx, f"goal line must precede dependsOn: {out}")
+        self.assertNotIn("Some decision", out, f"## Decisions leaked into brief output: {out}")
+
+    def test_goal_line_cut_at_word_boundary(self):
+        long_goal = " ".join(f"word{i}" for i in range(80))
+        (self.batch / ".batch-context.md").write_text(f"# Batch Context\n\n## Goal\n\n{long_goal}\n")
+        out = self.run_cfq("brief", str(self.batch), check=True).stdout
+        goal_line = next(l for l in out.splitlines() if l.startswith("goal: "))
+        goal_text = goal_line[len("goal: "):]
+        self.assertLessEqual(len(goal_text), 301, f"goal line too long: {goal_line}")
+        self.assertTrue(goal_text.endswith("…"), f"goal line must end in an ellipsis: {goal_line}")
+        self.assertNotIn(" …", goal_text[-3:], f"cut must land on a word boundary: {goal_line}")
+        self.assertTrue(long_goal.startswith(goal_text[:-1].rstrip()), f"cut text must be a prefix: {goal_line}")
+
+    def test_no_batch_context_omits_goal_line(self):
+        out = self.run_cfq("brief", str(self.batch), check=True).stdout
+        self.assertFalse(
+            any(l.startswith("goal:") for l in out.splitlines()), f"unexpected goal line: {out}",
+        )
+
+    def test_batch_context_without_goal_heading_omits_goal_line(self):
+        (self.batch / ".batch-context.md").write_text("# Batch Context\n\n## Decisions\n\n- x\n")
+        out = self.run_cfq("brief", str(self.batch), check=True).stdout
+        self.assertFalse(
+            any(l.startswith("goal:") for l in out.splitlines()), f"unexpected goal line: {out}",
+        )
+
+    def test_batch_context_with_empty_goal_omits_goal_line(self):
+        (self.batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\n## Decisions\n\n- x\n")
+        out = self.run_cfq("brief", str(self.batch), check=True).stdout
+        self.assertFalse(
+            any(l.startswith("goal:") for l in out.splitlines()), f"unexpected goal line: {out}",
+        )
+
+    def test_with_done_flag_also_prints_goal_line(self):
+        (self.batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nGoal text.\n")
+        out = self.run_cfq("brief", str(self.batch), "--with-done", check=True).stdout
+        lines = out.splitlines()
+        header_idx = lines.index("2026-01-01-briefme  priority=high  phases=2")
+        self.assertEqual(lines[header_idx + 1], "goal: Goal text.", f"--with-done goal line wrong: {out}")
+
+    def test_phase_mode_omits_goal_line(self):
+        (self.batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nGoal text.\n")
+        out = self.run_cfq("brief", str(self.batch), "--phase", "01", check=True).stdout
+        self.assertFalse(
+            any(l.startswith("goal:") for l in out.splitlines()), f"--phase must not print goal line: {out}",
+        )
+
 
 class ParkTest(CfqTestCase):
     def setUp(self):

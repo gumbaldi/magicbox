@@ -15,8 +15,8 @@ flowchart LR
 ## Guides
 
 - [Setup](docs/setup.md) — install the plugin and run first-time setup
-- [Usage](docs/usage.md) — what each skill does, step by step, with a "how do I…" for every
-  common task
+- [Usage](docs/usage.md) — what each skill does and produces, and the settings that shape it,
+  with a link to its exact steps
 - [Configuration](docs/configuration.md) — every setting, how to view and change them globally
   or per repo
 
@@ -57,8 +57,9 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 ### `/ifq`
 
-Gates on the model, picks a batch, briefs it and waits for a go-ahead before touching anything,
-takes a repo lock, creates the batch branch, works one phase at a time, commits and pushes every
+Gates on the model, picks the next batch in order (or the one named) and briefs it, then starts
+immediately — no confirmation question — takes a repo lock, creates the batch branch, works one
+phase at a time, commits and pushes every
 green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
@@ -86,6 +87,21 @@ sequenceDiagram
   end
   I->>U: handoff or batch done
 ```
+
+#### Orchestrator mode
+
+On by default (`orchestratorMode`). Instead of implementing every phase in the session itself,
+`/ifq` spawns one worker sub-agent per phase — each with a fresh context window and a
+deterministic briefing — and decides between phases whether the next one starts. The worker
+implements, verifies and commits its own phase; the orchestrator only reads its returned report,
+never its code. In practice this means no `/clear`-and-`/model sonnet` cycle between phases: the
+same session keeps going, and each phase's worker runs visibly in the terminal. The session still
+hands off when a rate-limit window is crossed, same as before — the capacity-based context gate
+that stopped a classic session doesn't apply to a worker that starts fresh every phase.
+
+Turn it off per repo (`bin/cfq settings set --repo <path> orchestratorMode false`), globally
+(`bin/cfq settings set orchestratorMode false`), or for one shell (`CFQ_ORCHESTRATOR_MODE=0`) to
+go back to implementing every phase in the session itself.
 
 ### `/cfq`
 
@@ -129,11 +145,9 @@ still be committed and shared. Set `gitStatePolicy: trackable` to remove cfq's m
 normal repository `.gitignore`/tracking apply instead; cfq never edits `.gitignore` itself.
 
 Upgrading from a pre-`.claude/cfq/` install: a repo still on the old repo-local
-`.claude/code-for-queue/` layout is not migrated automatically. Run the isolated upgrade utility
-once — `scripts/migrations/cfq-layout-v1.sh plan --all-known` to preview across every known repo,
-then `apply --all-known` to perform it; nothing under the old root is discarded, and a genuine
-conflict (a file that differs from its new-layout counterpart) blocks removal of the old root
-instead of silently overwriting it.
+`.claude/code-for-queue/` layout is not migrated automatically by this version — the one-time
+upgrade utility for that was removed once every known repo had moved to the new layout. A repo
+still on the old layout needs an older plugin version to run the migration first.
 
 - `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
@@ -172,6 +186,44 @@ flowchart TB
 name that resolves to neither an open nor a finished batch is deliberately never blocking —
 it's flagged in the dashboard instead.
 
+## Command reference
+
+`bin/cfq <noun> <verb> [args...]` is the one entrypoint every skill calls — no skill or reference
+file ever mutates `.claude/cfq/` by hand (`rm`, `mv`, `mkdir`, `jq`, …), only through one of these.
+Most of them run only from inside a skill; `dash`, `settings`, `doctor` and `security` are also
+useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
+
+| Noun | Purpose |
+|---|---|
+| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning`. |
+| `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
+| `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, status lookups). |
+| `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
+| `dash` | Cross-repo dashboard: queues, phases, config. |
+| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
+| `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
+| `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
+| `layout` | Owns the `.claude/cfq/` layout, the git-exclude policy, and write-probe cleanup. |
+| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
+| `lock` | The repo lock held by the currently running `/ifq` session. |
+| `maintenance` | Whether the periodic maintenance run is due. |
+| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path. |
+| `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
+| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
+| `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
+| `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
+| `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
+| `registry` | The cross-repo repo list in `~/.claude/code-for-queue/repos.json`. |
+| `report` | The per-phase telemetry ledger (`report.json`) — `append`, `set-commit`, `skills`, `summary`. |
+| `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
+| `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
+| `scan` | Every registered/discovered repo's queues, counted live from disk. |
+| `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
+| `settings` | The global/repo/env settings tiers. |
+| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase. |
+| `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
+
 ## Hook contract
 
 `PreToolUse` on `Write`/`Edit` is the only hook class that can structurally break a `pfq` session.
@@ -197,6 +249,18 @@ scripts over `Bash` and is never seen by a `Write`/`Edit` hook.
 Renaming the queue layout means updating every external guard hook too. That coupling is invisible
 from inside this repository, which is how it broke once: a hook still allowed the pre-migration
 `.claude/code-for-queue/` path long after the queues had moved to `.claude/cfq/`.
+
+**The plugin ships its own `PreToolUse` guard** (`bin/cfq guard pretooluse`, wired in
+`hooks/hooks.json`), separate from the external-hook concern above. It denies `Bash` commands
+(`rm`, `mv`, `cp`, `truncate`, `shred`, `dd`, `ln`, `install`, `sed -i`, a `>`/`>>` redirect, or
+`find … -delete`/`-exec rm`) whose resolved target has `.claude/cfq` as a path component, and
+denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<batch>/**` directly.
+It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
+sanctioned commands the guard's own deny messages point to. Paths are resolved against the
+payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
+same as a fully-qualified path. There is no setting to turn it off — disabling it means disabling
+the plugin. It fails open on an internal error: a crash allows the call rather than blocking every
+`Bash` call in the session.
 
 ## Batch lifecycle
 
@@ -229,7 +293,9 @@ PRECHECKS
 ⚠️ Security Diff    unavailable for this repo
 
 IMPLEMENTATION
-✅ P6 livetest      green · 6 deviations
+PHASE 06 DONE
+✅ Implemented     <one clause: what was built>
+✅ Verification    <command, and its result>
 ```
 
 `✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
@@ -306,22 +372,31 @@ warning (user and Claude both) when a required command is absent. Optional, each
 one feature it powers rather than blocking the plugin: `gh` or `tea` for the security check
 (whichever matches the repo's forge), `npm` for `npm audit` on repos with a `package.json`.
 
+## Platforms
+
+Linux and macOS are fully supported — `bin/cfq` only needs stock Bash 3.2, which is what macOS
+ships as `/bin/bash`. Windows is best effort through Git Bash, which is what Claude Code itself
+runs hooks and `Bash` tool calls through on Windows; it needs Python 3.8+ on `PATH` as `python3`,
+`python` or `py`. cfq's Python scripts re-invoke `bin/cfq` through the `bash` found on `PATH`, so
+Git Bash's `bash` must come before any other (e.g. WSL's) — the case when Python was started from
+Git Bash, which is the supported setup above.
+
 ## Optional dependencies
 
 - **`mattpocock-skills`** — powers `grillMode: classic`, the frontier-per-round interview mode, and
   the `mattpocock-skills:grilling` + `mattpocock-skills:domain-modeling` combination behind the
   "Grilling with docs" path. Install: `/plugin marketplace add anthropics/claude-plugins-official`,
   then `/plugin install mattpocock-skills@claude-plugins-official`.
-- **`ponytail`** — powers the optional cleanup audit, one of several tasks in the periodic
-  maintenance run (`maintenanceEvery`), not the maintenance run itself. cfq expects ponytail
-  dormant (`defaultMode: off` in `~/.config/ponytail/config.json`) outside that one audit — its
-  own default is `full`, which would otherwise load it into every `pfq`/`ifq` session. `/cfq`
-  offers to set this on first-time setup; `bin/cfq doctor check` keeps advising it afterward if
-  declined or if ponytail is installed later.
+- **`ponytail`** — powers one one-shot use: the optional cleanup audit, one of several tasks in
+  the periodic maintenance run (`maintenanceEvery`) — not the maintenance run itself, and it
+  doesn't need ponytail's persistent mode. cfq expects ponytail dormant (`defaultMode: off` in
+  `~/.config/ponytail/config.json`) outside that use — its own default is `full`, which would
+  otherwise load it into every `pfq`/`ifq` session. `/cfq` offers to set this on first-time setup;
+  `bin/cfq doctor check` keeps advising it afterward if declined or if ponytail is installed later.
   Install: `/plugin marketplace add DietrichGebert/ponytail`, then
   `/plugin install ponytail@ponytail`.
 
-Everything except classic grill mode and the cleanup audit works fully without either plugin —
+Everything except classic grill mode and the ponytail maintenance audit works fully without either plugin —
 "Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
 
 ## Credits

@@ -3,6 +3,12 @@
 #        cfq_batch_id.py allocate      <repo-root> <YYYY-MM-DD> <slug>
 #        cfq_batch_id.py migrate-width <repo-root>
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
+#        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
+#        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
+#        cfq_batch_id.py ready         <batch-dir>
+#
+# `ready` removes the `.planning` heartbeat marker a batch directory carries while `plan-for-queue`
+# is still writing it -- hard delete, no trash, since the marker carries no content. Idempotent.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -10,6 +16,9 @@
 # useful for recovery/testing; it is a no-op (`status: OK`) when no migration is currently needed.
 # `reconcile` compares queue directories against the ledger's numbered entries and reports/repairs
 # the gap BATCH_LEDGER_MISMATCH refuses to allocate through -- see reconcile() below.
+# `verify`/`recover` compare a batch's completion state across the filesystem, report.json,
+# Git commit trailers and the changelog -- see cfq_lib/consistency.py, which holds all the logic;
+# these two verbs are argument handling and printing only.
 """Repository-local CFQ batch-number allocation: a stable, version-free identity assigned once at
 PFQ park time. Never derives a number from a Git branch name or an application/package version;
 the only Git-history fallback is cfq_changelog.py's one-time trailer bootstrap inside `ensure`, for
@@ -30,13 +39,15 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
+from cfq_lib import queue as cfq_queue  # noqa: E402
+from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_batch_id.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 CHANGELOG_PY = SCRIPT_DIR / "cfq_changelog.py"
 
 # New-name grammar: <digits>-<YYYY-MM-DD>-<slug>, digits precede the date. A legacy
@@ -52,10 +63,6 @@ DEFAULT_WIDTH = 3
 # presumed abandoned (crashed holder) and reclaimed rather than waited on forever. Allocation is
 # fast, so a short stale window is enough -- this is not a long-lived session lock.
 LOCK_STALE_S = 10
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
 
 
 # ---- digit-run width helpers ------------------------------------------------------------------
@@ -84,14 +91,14 @@ def _dir_names(d):
 
 # ---- changelog location -------------------------------------------------------------------------
 
-def changelog_file_setting():
-    """The raw, repo-relative changelogFile setting value, empty when disabled. Deliberately
-    global-only (no --repo) -- matches cfq_changelog.py's own changelog_file() read, verbatim."""
-    return cfq_run("settings", "get", "changelogFile").stdout.strip()
+def changelog_file_setting(repo):
+    """The raw, repo-relative changelogFile setting value, empty when disabled. Honours the repo
+    tier -- matches cfq_changelog.py's own changelog_file() read."""
+    return settings_get(repo, "changelogFile")
 
 
 def changelog_path(repo):
-    rel = changelog_file_setting()
+    rel = changelog_file_setting(repo)
     if not rel:
         return None
     return f"{repo}/{rel}"
@@ -142,7 +149,7 @@ def compute_next(repo, date, slug):
     """Computes the next identity. Returns (result, ok). Read-only except for cfq_changelog.py's
     own one-time missing-ledger bootstrap, which must run before any number can be computed at
     all."""
-    cf = changelog_file_setting()
+    cf = changelog_file_setting(repo)
     if not cf:
         return errors.error_object(
             "BATCH_CHANGELOG_REQUIRED",
@@ -279,7 +286,7 @@ def migrate_width(repo):
         if target and os.path.isfile(target):
             # Direct sibling call: inside a per-pair loop, where a dispatcher exec per iteration
             # is the more expensive trade (see CLAUDE.md's dispatcher-loop-exception note).
-            subprocess.run(["python3", str(CHANGELOG_PY), "rename-batch", repo, old_n, new_n])
+            subprocess.run([sys.executable, str(CHANGELOG_PY), "rename-batch", repo, old_n, new_n])
 
     return {"status": "OK", "width": to, "migrated": len(pairs)}, True
 
@@ -342,7 +349,7 @@ def reconcile(repo, fix):
     if fix and orphan_dirs:
         for num, name in sorted(orphan_dirs):
             proc = subprocess.run(
-                ["python3", str(CHANGELOG_PY), "reserve", repo, str(num), name],
+                [sys.executable, str(CHANGELOG_PY), "reserve", repo, str(num), name],
                 capture_output=True, text=True,
             )
             if proc.returncode != 0:
@@ -535,6 +542,60 @@ def cmd_reconcile(args):
     sys.exit(0 if ok else 1)
 
 
+# ---- ready ----------------------------------------------------------------------------------
+
+def cmd_ready(args):
+    marker = pathlib.Path(args.batch_dir) / ".planning"
+    if not marker.exists():
+        print("already ready")
+        return
+    marker.unlink()
+    print(f"removed {marker}")
+
+
+# ---- verify / recover -----------------------------------------------------------------------
+
+def _finding_line(batch, finding):
+    return f"{batch} {finding['code']} {finding['phase'] or '-'} {finding['detail']}"
+
+
+def cmd_verify(args):
+    repo = args.repo
+    if args.batch:
+        batch_dirs = [pathlib.Path(paths.impl_dir(repo)) / args.batch]
+        if not batch_dirs[0].is_dir():
+            errors.die(f"{PROG} verify: no such batch directory: {batch_dirs[0]}")
+    else:
+        batch_dirs = cfq_queue.list_batch_dirs(pathlib.Path(paths.impl_dir(repo)))
+
+    all_findings = []
+    for batch_dir in batch_dirs:
+        batch = batch_dir.name
+        for finding in consistency.findings(batch_dir, repo, batch):
+            all_findings.append({"batch": batch, **finding})
+
+    if args.json_flag:
+        print(render.dump_json({"findings": all_findings}))
+    else:
+        for f in all_findings:
+            print(_finding_line(f["batch"], f))
+    sys.exit(0 if not all_findings else 1)
+
+
+def cmd_recover(args):
+    repo, batch = args.repo, args.batch
+    batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch
+    if not batch_dir.is_dir():
+        errors.die(f"{PROG} recover: no such batch directory: {batch_dir}")
+
+    result, ok = consistency.recover(batch_dir, repo, batch, dry_run=args.dry_run)
+    for r in result["repairs"]:
+        print(f"{batch} {r['code']} {r['phase'] or '-'} {r['action']}")
+    for f in result["findings"]:
+        print(f"{batch} REMAINING {f['code']} {f['phase'] or '-'} {f['detail']}")
+    sys.exit(0 if ok else 1)
+
+
 # ---- argument parsing ---------------------------------------------------------------------
 
 def build_parser():
@@ -562,6 +623,22 @@ def build_parser():
     p.add_argument("--fix", dest="fix_flag", action="store_const", const="--fix", default="")
     p.set_defaults(func=cmd_reconcile)
 
+    p = sub.add_parser("verify")
+    p.add_argument("repo")
+    p.add_argument("--batch", default="")
+    p.add_argument("--json", dest="json_flag", action="store_true")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("recover")
+    p.add_argument("repo")
+    p.add_argument("--batch", required=True)
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p.set_defaults(func=cmd_recover)
+
+    p = sub.add_parser("ready")
+    p.add_argument("batch_dir")
+    p.set_defaults(func=cmd_ready)
+
     return parser
 
 
@@ -573,7 +650,10 @@ def main(argv):
         errors.die(
             f"usage: {PROG} next <repo-root> <YYYY-MM-DD> <slug> | "
             "allocate <repo-root> <YYYY-MM-DD> <slug> | "
-            "migrate-width <repo-root> | reconcile <repo-root> [--fix]"
+            "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
+            "verify <repo-root> [--batch <name>] [--json] | "
+            "recover <repo-root> --batch <name> [--dry-run] | "
+            "ready <batch-dir>"
         )
     func(args)
 

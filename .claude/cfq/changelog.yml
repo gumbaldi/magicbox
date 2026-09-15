@@ -543,8 +543,25 @@
   branch: cfq/014-2026-09-03-port-core-scripts-to-python
   base: cfq/013-2026-09-03-migrate-test-suite-to-python-unittest
   started: 2026-09-05
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-13
+  phases:
+    - phase: "01-route-internal-calls-through-dispatcher"
+      status: "green"
+      summary: "Routed all 77 internal sibling calls (19 scripts) through bin/cfq nouns instead of filenames; documented 5 exceptions (loop calls, one test-double-sensitive call) directly at their call sites and in CLAUDE.md."
+    - phase: "02-port-settings-and-establish-cfq-lib"
+      status: "green"
+      summary: "Ported cfq-settings.sh (375 lines of chained jq, three-tier resolution) to cfq_settings.py; established cfq_lib (paths.py, errors.py, render.py) as the shared foundation for phases 03-05; taught bin/cfq to run Python implementations (require_python guard, extension-based dispatch for both exec and --help)."
+    - phase: "03-port-changelog"
+      status: "green"
+      summary: "Ported cfq-changelog.sh (341 lines of hand-rolled YAML I/O) to cfq_changelog.py: all 9 verbs (init/finish/reserve/rename-batch/branch-for/commit-message/ensure/migrate/max-batch-number), line-oriented block parsing kept private to the module (no yamlish.py -- nothing else needs it this batch), routed via bin/cfq's [changelog] noun; cfq-changelog.sh deleted."
+    - phase: "04-port-report"
+      status: "green"
+      summary: "Ported cfq-report.sh's 8 verbs (append/security/set-commit/last-failure/summary/html/index/detail) to cfq_report.py, verified byte-identical against the shell version on real report data, and deleted the shell script."
+    - phase: "05-port-doctor-and-declare-python-dependency"
+      status: "green"
+      summary: "Ported cfq-doctor.sh's check/check --json/hook verbs to cfq_doctor.py (dependency scan, ponytail advisory, install hints), added python3 as a required host dependency, pointed the SessionStart hook and bin/cfq's routing table at the dispatcher/new script, and deleted the shell script."
 - batchNumber: 15
   batch: 015-2026-09-06-ifq-remote-base-and-go-gate
   branch: cfq/015-2026-09-06-ifq-remote-base-and-go-gate
@@ -634,4 +651,205 @@
       summary: ""
 - batchNumber: 18
   batch: 018-2026-09-07-plan-critique-and-scope-guard
-  status: parked
+  branch: cfq/018-2026-09-07-plan-critique-and-scope-guard
+  base: cfq/019-2026-09-09-deterministic-queue-mutations
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-pfq-self-critique-fix-first"
+      status: "green"
+      summary: "On a Fail rewritten to correct silently except drop/capability-removal; category 2 judges the proposed cut, not written text; SKILL.md Step 11 status-line contract distinguishes pass vs. correction"
+    - phase: "02-pfq-post-write-phase-audit"
+      status: "green"
+      summary: ""
+    - phase: "03-phase-quality-affected-files-complete"
+      status: "green"
+      summary: ""
+    - phase: "04-ifq-drop-file-scope-stop"
+      status: "green"
+      summary: ""
+- batchNumber: 19
+  batch: 019-2026-09-09-deterministic-queue-mutations
+  branch: cfq/019-2026-09-09-deterministic-queue-mutations
+  base: cfq/017-2026-09-07-port-remaining-scripts-to-python
+  started: 2026-09-13
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-trash-as-the-only-delete"
+      status: "green"
+      summary: ""
+    - phase: "02-phase-record-and-reopen"
+      status: "green"
+      summary: "cfq_phase.py record/reopen: closing (or reopening) a phase is now one transactional bin/cfq call instead of an agent-issued mv plus a separate report append."
+    - phase: "03-verify-and-recover-batch-state"
+      status: "green"
+      summary: "Added cfq_lib/consistency.py (filesystem_state/ledger_state/git_state/changelog_state/findings/scan_consistency/recover) plus `cfq batch verify`/`cfq batch recover` on cfq_batch_id.py, wired the cheap filesystem-vs-ledger `consistency` field through cfq_scan.py and cfq_ifq_preflight.py, and repaired the two damaged batches in this repo (014 archived via the printed `finish` command, 018's stale `.planning` marker removed) -- `batch verify` now exits 0 with no findings for both."
+    - phase: "04-note-ready-probe-and-skills"
+      status: "green"
+      summary: "Added cfq_note.py (plan|todo), cfq_batch_id.py's ready verb, cfq_layout.py's probe-cleanup verb, and cfq_report.py's skills verb -- the four remaining raw operations the agent performed by hand."
+    - phase: "05-rewire-skills-to-the-commands"
+      status: "green"
+      summary: "Rewired every raw shell mutation in the skill/reference text onto the bin/cfq commands phases 01-04 built: implement-for-queue's Step 8 now writes the phase object once and calls `phase record` (ledger append + done/ move as one transaction, mkdir -p mention deleted) instead of a separate move-then-append-with-report-append sequence; its scope-parking branch and plan-for-queue's Step 15 route through `note plan` and `batch ready`; plan-for-queue's Step 12 drops the /tmp+jq detour for a direct `security` call; write-probe.md's cleanup step and queue-check.md's overlap example drop their raw rm/rmdir/jq for `layout probe-cleanup` and a plain JSON read; queues.md's Phase Summary, Plan Entry/Follow-Up and Skills Recommended vs. Used sections follow the same commands. Added test_reference_paths.py's 5th structural check (greps skills/*/SKILL.md and references/*.md for rm/mv/mkdir/rmdir/jq in command position) so the rule cannot decay silently. Both SKILL.md files shrank (255->254, 214->212) as required."
+    - phase: "06-pretooluse-queue-guard"
+      status: "green"
+      summary: "Added the PreToolUse guard: cfq_guard.py (new, wired into hooks/hooks.json's Bash and Write|Edit matchers as `bin/cfq guard pretooluse`) resolves every Bash argument and every Write/Edit file_path against the tool call's own cwd -- not a literal-string match -- and denies rm/rmdir/mv/cp/truncate/shred/dd/ln/install/sed -i, a >/>> redirect, or find -delete/-exec rm whose resolved target has .claude/cfq as a path component, plus a direct Write/Edit into impl/<batch>/done/** or impl/done/<batch>/**. Reads and every bin/cfq call are allowed by construction (their argv[0] basenames are never in the destructive set). Confirmed the current PreToolUse contract (stdin fields, hookSpecificOutput.permissionDecision deny shape, exit-0-with-JSON honored) against the live Claude Code docs (code.claude.com/docs/en/hooks) rather than from memory before writing any code, as the phase required. Fail-open on any internal error (bare except around both JSON-parse and decision logic, prints one stderr diagnostic, denies nothing). Reused cfq_lib/paths.py for the queue-directory constant rather than a second copy of the literal (see deviations)."
+- batchNumber: 20
+  batch: 020-2026-09-10-ifq-orchestrator-mode
+  branch: cfq/020-2026-09-10-ifq-orchestrator-mode
+  base: cfq/018-2026-09-07-plan-critique-and-scope-guard
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-orchestrator-settings"
+      status: "green"
+      summary: ""
+    - phase: "02-worker-brief-and-verdict"
+      status: "green"
+      summary: ""
+    - phase: "03-worker-agent-and-orchestrator-loop"
+      status: "green"
+      summary: ""
+    - phase: "04-skill-wiring-and-autopark"
+      status: "green"
+      summary: ""
+    - phase: "05-orchestrator-worker-cost-split"
+      status: "green"
+      summary: "report summary surfaces the orchestrator/worker token split from cfq_telemetry.py's existing subagent sums."
+    - phase: "06-docs-claude-md-and-default-flip"
+      status: "green"
+      summary: "Rewrote CLAUDE.md's subagent paragraph to add the ownership case, documented orchestrator mode in README.md/docs/usage.md, corrected docs/configuration.md's default row, flipped orchestratorMode's schema default to true, and bumped plugin.json to 0.10.1."
+- batchNumber: 21
+  batch: 021-2026-09-14-ponytail-review-and-batch-goal
+  branch: cfq/021-2026-09-14-ponytail-review-and-batch-goal
+  base: cfq/020-2026-09-10-ifq-orchestrator-mode
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-batch-goal-in-briefing-and-selection"
+      status: "green"
+      summary: ""
+    - phase: "02-ponytail-review-at-batch-end"
+      status: "green"
+      summary: "Added a batch-end ponytail-review pass to /ifq Step 11, gated by the existing usePonytailAudit switch: policy field wired through preflight, dashboard/doctor/settings wording corrected from a single-audit claim to the two one-shot uses, and a new queues.md section specifying the subagent delegation, rendering, question and parking flow."
+- batchNumber: 22
+  batch: 022-2026-09-14-dedupe-script-helpers
+  branch: cfq/022-2026-09-14-dedupe-script-helpers
+  base: cfq/021-2026-09-14-ponytail-review-and-batch-goal
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-shared-proc-helpers"
+      status: "green"
+      summary: ""
+    - phase: "02-small-dedupes"
+      status: "green"
+      summary: "write_json/now_iso deduped into cfq_lib/render.py; cfq_report.py's extract_goal reuses cfq_brief.parse_phase_body instead of re-implementing the ## Context extraction; unused datetime/os imports dropped where they became dead."
+- batchNumber: 23
+  batch: 023-2026-09-14-fewer-mid-flow-questions
+  branch: cfq/023-2026-09-14-fewer-mid-flow-questions
+  base: cfq/022-2026-09-14-dedupe-script-helpers
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-pfq-upfront-questions"
+      status: "green"
+      summary: ""
+    - phase: "02-ifq-auto-batch-start"
+      status: "green"
+      summary: "ifq auto-selects the first selectable batch (or --select) and starts without a go-ahead question; new SELECT_UNAVAILABLE status for an unselectable named batch"
+    - phase: "03-branch-base-from-dependson"
+      status: "green"
+      summary: ""
+    - phase: "04-changelog-always-committed"
+      status: "green"
+      summary: ""
+- batchNumber: 24
+  batch: 024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
+  branch: cfq/024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
+  base: cfq/023-2026-09-14-fewer-mid-flow-questions
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-14
+  phases:
+    - phase: "01-resume-unfinished-batch"
+      status: "green"
+      summary: "cfq_scan.py's inProgress now derives from done>0 instead of open>0 and done>0, and its (and cfq_ifq_preflight.py's) candidate predicate accepts open>0 or done>0, so a batch whose phases all moved to done/ but whose finish never ran resumes through the existing in-progress path straight into Step 11 instead of vanishing from selection; cfq_dash.py's THIS REPO view follows the same rule while still excluding archived batches."
+    - phase: "02-drop-batch-end-ponytail-review"
+      status: "green"
+      summary: ""
+- batchNumber: 25
+  batch: 025-2026-09-14-framework-review-fixes-and-cross-platform
+  branch: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
+  base: cfq/024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
+  started: 2026-09-14
+  status: done
+  legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-bug-fixes"
+      status: "green"
+      summary: "compute_dirty now runs git status with --untracked-files=all so an entirely-untracked .claude/ subtree never collapses to one \"?? .claude/\" line that would falsely mark a fresh queue dirty; cmd_plan checks the repo via a non-fatal rev-parse first and reports a NO_REPO JSON instead of a raw git traceback outside a git repo; cfq_guard.py's check_bash now unwraps env/sudo/nice/nohup/timeout/command/exec/xargs/time wrappers and recurses (depth-capped at 3) into bash/sh/zsh/dash -c payloads before checking for destructive calls; cfq_park.py imports CFQ_BIN from cfq_lib.proc instead of redefining it; the dead sh_source test helper was deleted from cfq_testlib.py."
+    - phase: "02-leftover-cleanup"
+      status: "green"
+      summary: "Deleted the obsolete bash-fallback lint test; docLevel dropped its \"full\" value (schema enum, merged_tiers() maps a stored full to standard without rewriting the file, docs/configuration.md and references/doc-style.md updated); removed the batch-end-ponytail-review and two-ponytail-uses leftovers from cfq_doctor.py, code-for-queue/SKILL.md and README.md; replaced the stale P6 label in README.md and references/dashboard.md with the real Phase Summary / batch-end wording; orchestrator.md now says orchestratorMode is on by default and drops the stale agent-resolution investigation paragraph."
+    - phase: "03-cross-platform"
+      status: "green"
+      summary: "bin/cfq's noun table is now a Bash-3.2-compatible case-statement function (no declare -A / ${!...}), with a python3/python/py (-3) interpreter-discovery fallback replacing the old bare python3 requirement, message reworded to 'Python 3 is required'; every scripts/*.py subprocess call now uses sys.executable instead of a hardcoded \"python3\" argv element; a shared cfq_lib/env.py::home_dir() (moved out of cfq_runtime.py) replaces every os.environ[\"HOME\"] lookup in cfq_settings.py, cfq_registry.py and cfq_scan.py; cfq_runtime.py's slug_for now maps every non-alphanumeric character to \"-\" (matching Claude Code's real project-slug rule) instead of only \"/\"; the v1 layout migration utility (scripts/migrations/cfq-layout-v1.sh) and its test are deleted, with README/CLAUDE.md/docs/setup.md/cfq_layout.py updated to drop jq and the migration utility as current facts and add a short Platforms section."
+    - phase: "04-ci-matrix"
+      status: "green"
+      summary: ""
+    - phase: "05-phase-commit"
+      status: "green"
+      summary: "bin/cfq phase commit closes a green phase (commit, record, backfill SHA, push, registry add) in one call"
+    - phase: "06-ifq-prompt-restructure"
+      status: "green"
+      summary: ""
+    - phase: "07-pfq-prompt-restructure"
+      status: "green"
+      summary: "pfq's SKILL.md and the shared planning references now use name-based cross-references instead of Step N, and incident/history prose moved to docs/design-notes.md under new ## pfq: headings. Bytes (skills/*/SKILL.md + references/*.md): 123036 -> 122506."
+    - phase: "08-docs-drift"
+      status: "green"
+      summary: ""
+- batchNumber: 26
+  batch: 026-2026-09-15-tracked-changelog-default
+  branch: cfq/026-2026-09-15-tracked-changelog-default
+  base: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
+  started: 2026-09-15
+  status: done
+  legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-settings-set-writes-only-key"
+      status: "green"
+      summary: "Global `_apply_set` now reads only the existing global file instead of materializing the full merged tier before writing the new key."
+    - phase: "02-tracked-changelog-default-and-repo-tier"
+      status: "green"
+      summary: "changelog.yml is carved out of the gitStatePolicy:local exclude block (versioned by default), every changelogFile read honours the repo tier via settings_get(repo, key), and the dead changelog migrate verb is deleted."
+    - phase: "03-self-host-changelog-move"
+      status: "green"
+      summary: "Moved cfq.changelog.yml to .claude/cfq/changelog.yml, dropped the stale .gitignore exclusion, and reduced the host global settings.json to only the keys differing from schema defaults (onePhasePerSession) while dropping changelogFile unconditionally."
+- batchNumber: 27
+  batch: 027-2026-09-15-windows-cfq-run-bash
+  branch: cfq/027-2026-09-15-windows-cfq-run-bash
+  base: cfq/026-2026-09-15-tracked-changelog-default
+  started: 2026-09-15
+  status: done
+  legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-windows-bash-argv"
+      status: "green"
+      summary: ""

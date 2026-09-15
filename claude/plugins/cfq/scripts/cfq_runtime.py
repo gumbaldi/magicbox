@@ -20,6 +20,7 @@ JSON shapes, text output, exit codes) is the invariant this file preserves.
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -27,9 +28,8 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
+from cfq_lib.env import home_dir  # noqa: E402,F401
+from cfq_lib.proc import cfq_argv  # noqa: E402
 
 STALE_PAYLOAD_SECONDS = 600
 PONYTAIL_MODES = ("off", "lite", "full", "ultra")
@@ -40,10 +40,6 @@ def arg_error(message):
     sys.exit(1)
 
 
-def home_dir():
-    return pathlib.Path(os.environ.get("HOME") or str(pathlib.Path.home()))
-
-
 def mtime(path):
     try:
         return int(os.stat(path).st_mtime)
@@ -52,9 +48,11 @@ def mtime(path):
 
 
 def slug_for(repo_path):
-    if repo_path:
-        return repo_path.replace("/", "-")
-    return os.getcwd().replace("/", "-")
+    # Claude Code replaces every non-alphanumeric character with "-" when it derives a project
+    # slug from a repo path (not just "/" -- also Windows drive-path characters, and any "."/"_"
+    # a Linux/macOS path might contain), so this must match that rule exactly or the context gate
+    # falls back to `WARN REASON=unknown` for perfectly normal paths.
+    return re.sub(r"[^A-Za-z0-9]", "-", repo_path or os.getcwd())
 
 
 def resolve_transcript_path(repo_path, exact):
@@ -77,7 +75,7 @@ def resolve_transcript_path(repo_path, exact):
 
 def ctx_window_limit_for(model):
     proc = subprocess.run(
-        [str(CFQ_BIN), "settings", "get", "ctxWindowLimits"], capture_output=True, text=True
+        cfq_argv("settings", "get", "ctxWindowLimits"), capture_output=True, text=True
     )
     try:
         limits = json.loads(proc.stdout) if proc.returncode == 0 else {}

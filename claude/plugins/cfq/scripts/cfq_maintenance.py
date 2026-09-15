@@ -11,7 +11,6 @@ would design on purpose (a failed `git rev-parse HEAD` on `stamp` swallowed into
 import argparse
 import os
 import pathlib
-import subprocess
 import sys
 from datetime import date
 
@@ -19,19 +18,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_maintenance.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
-
-
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
 
 
 def cmd_due(args):

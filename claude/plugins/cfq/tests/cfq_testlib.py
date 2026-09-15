@@ -20,16 +20,31 @@ CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
 
 class CfqTestCase(unittest.TestCase):
     def setUp(self):
+        """Both roots are .resolve()d immediately: on macOS the system temp dir sits under
+        /var, itself a symlink to /private/var, so the raw tempfile path and the canonical path
+        `git rev-parse --show-toplevel` (or any other realpath-ing lookup) returns are two
+        different strings for the same directory. Every fixture built from an unresolved root
+        would then silently fail every registry/scan/preflight comparison downstream -- resolving
+        once here keeps every derived path canonical from the start, matching what a real
+        invocation always gets (repo roots reach `registry add` only after a skill's own
+        `git rev-parse --show-toplevel`)."""
         home_dir = tempfile.TemporaryDirectory()
         self.addCleanup(home_dir.cleanup)
-        self.home = pathlib.Path(home_dir.name)
+        self.home = pathlib.Path(home_dir.name).resolve()
 
         repos_dir = tempfile.TemporaryDirectory()
         self.addCleanup(repos_dir.cleanup)
-        self._repos_dir = pathlib.Path(repos_dir.name)
+        self._repos_dir = pathlib.Path(repos_dir.name).resolve()
 
     def _base_env(self):
-        return {k: v for k, v in os.environ.items() if not k.startswith("CFQ_")}
+        """Strips CFQ_* plus the host's own XDG_CONFIG_HOME/PONYTAIL_DEFAULT_MODE -- both are
+        read directly from os.environ by cfq_doctor.py/cfq_runtime.py regardless of the `home=`
+        override, so a CI runner that happens to set XDG_CONFIG_HOME leaks its (nonexistent)
+        ponytail config into every test unless a test opts back in via its own `env=`."""
+        return {
+            k: v for k, v in os.environ.items()
+            if not k.startswith("CFQ_") and k not in ("XDG_CONFIG_HOME", "PONYTAIL_DEFAULT_MODE")
+        }
 
     def run_cfq(self, *args, home=None, env=None, cwd=None, check=False):
         run_env = self._base_env()
@@ -75,9 +90,11 @@ class CfqTestCase(unittest.TestCase):
         subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d, check=True)
         return d
 
-    def minimal_path(self, *bins):
+    def minimal_path(self, *bins, rename=None):
         """Builds a throwaway PATH directory containing only the given commands (symlinked
-        in), so a missing dependency in a test is real, not accidental."""
+        in), so a missing dependency in a test is real, not accidental. `rename` maps a name to
+        create in the directory to the real command it should resolve to (e.g.
+        {"python": "python3"}, to simulate a host that only has `python` on PATH)."""
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         dir_path = pathlib.Path(d.name)
@@ -85,14 +102,8 @@ class CfqTestCase(unittest.TestCase):
             p = shutil.which(b)
             if p:
                 (dir_path / b).symlink_to(p)
+        for name, real in (rename or {}).items():
+            p = shutil.which(real)
+            if p:
+                (dir_path / name).symlink_to(p)
         return str(dir_path)
-
-
-def sh_source(script, func, *args):
-    proc = subprocess.run(
-        ["bash", "-c", '. "$1"; shift; "$@"', "_", str(script), func, *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return proc.stdout

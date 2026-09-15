@@ -9,6 +9,7 @@ import contextlib
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
@@ -191,6 +192,8 @@ class SettingsTest(CfqTestCase):
             "grillMode": "stepwise",
             "planModels": "opus,fable",
             "implModels": "sonnet",
+            "orchestratorMode": "true",
+            "orchestratorModels": "",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
             "allowAnyModel": "false",
@@ -216,6 +219,85 @@ class SettingsTest(CfqTestCase):
                 self.assertEqual(
                     got, expected, msg=f"regression default {key} = '{got}', want '{expected}'"
                 )
+
+    # 5g. orchestratorMode: default, round-trip through global and repo, env, set rejects
+    def test_05g_orchestrator_mode(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "orchestratorMode"
+        ).stdout.strip()
+        self.assertEqual(got, "true", msg=f"default orchestratorMode = '{got}', want true")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+
+            self.run_cfq("settings", "set", "orchestratorMode", "true", home=self.home, check=True)
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "true", msg=f"global set orchestratorMode -> got '{got}'")
+
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "orchestratorMode", "false",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "orchestratorMode", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "false", msg=f"repo set orchestratorMode -> got '{got}'")
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODE": "1"},
+            ).stdout.strip()
+            self.assertEqual(got, "true", msg=f"CFQ_ORCHESTRATOR_MODE=1 -> got '{got}', want true")
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorMode", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODE": "yes"},
+            ).stdout.strip()
+            self.assertEqual(
+                got, "false", msg=f"CFQ_ORCHESTRATOR_MODE=yes -> got '{got}', want false"
+            )
+
+        proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
+
+    # 5h. orchestratorModels: default, round-trip, env comma split, repo overrides global
+    def test_05h_orchestrator_models(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "orchestratorModels"
+        ).stdout.strip()
+        self.assertEqual(got, "", msg=f"default orchestratorModels = '{got}', want empty")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+
+            got = self.run_cfq(
+                "settings", "get", "orchestratorModels", home=self.home,
+                env={"CFQ_ORCHESTRATOR_MODELS": "sonnet,opus"},
+            ).stdout.strip()
+            self.assertEqual(
+                got, "sonnet,opus", msg=f"CFQ_ORCHESTRATOR_MODELS env split -> got '{got}'"
+            )
+
+            self.run_cfq(
+                "settings", "set", "orchestratorModels", "opus", home=self.home, check=True
+            )
+            got = self.run_cfq(
+                "settings", "get", "orchestratorModels", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "opus", msg=f"global set orchestratorModels -> got '{got}'")
+
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "orchestratorModels", "sonnet",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "orchestratorModels", home=self.home
+            ).stdout.strip()
+            self.assertEqual(
+                got, "sonnet", msg=f"repo overrides global orchestratorModels -> got '{got}'"
+            )
 
     # 6. maintenanceEvery: default, set 0, invalid, env override
     def test_06_maintenance_every(self):
@@ -269,6 +351,47 @@ class SettingsTest(CfqTestCase):
 
         proc = self.run_cfq("settings", "set", "docLevel", "bogus", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set docLevel bogus should fail")
+
+        # docLevel lost its `full` value -- rejected like any other invalid enum value now
+        proc = self.run_cfq("settings", "set", "docLevel", "full", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set docLevel full should fail (full was removed)")
+
+        # fallback: a pre-existing global settings.json with the removed "full" value reads back
+        # as "standard", with no error and without rewriting the file
+        with tempfile.TemporaryDirectory() as legacy_home:
+            legacy_dir = f"{legacy_home}/.claude/code-for-queue"
+            pathlib.Path(legacy_dir).mkdir(parents=True, exist_ok=True)
+            legacy_settings = pathlib.Path(f"{legacy_dir}/settings.json")
+            legacy_settings.write_text('{"docLevel":"full"}')
+
+            got = self.run_cfq("settings", "get", "docLevel", home=legacy_home).stdout.strip()
+            self.assertEqual(
+                got, "standard", msg=f"stored docLevel=full -> got '{got}', want standard"
+            )
+            self.assertEqual(
+                legacy_settings.read_text(),
+                '{"docLevel":"full"}',
+                msg="stored docLevel=full must not rewrite the settings file",
+            )
+
+        # same fallback, repo tier
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            repo_settings = fixture / ".claude" / "cfq" / "settings.json"
+            repo_settings.parent.mkdir(parents=True, exist_ok=True)
+            repo_settings.write_text('{"docLevel":"full"}')
+
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "docLevel", home=self.home
+            ).stdout.strip()
+            self.assertEqual(
+                got, "standard", msg=f"repo-stored docLevel=full -> got '{got}', want standard"
+            )
+            self.assertEqual(
+                repo_settings.read_text(),
+                '{"docLevel":"full"}',
+                msg="repo-stored docLevel=full must not rewrite the settings file",
+            )
 
         self.run_cfq("settings", "set", "codeLanguage", "de", home=self.home, check=True)
         got = self.run_cfq("settings", "get", "codeLanguage", home=self.home).stdout.strip()
@@ -751,6 +874,62 @@ class SettingsTest(CfqTestCase):
         )
         self.assertEqual(
             out["stopSevenDayPct"], 95, msg=f"list stopSevenDayPct = '{out['stopSevenDayPct']}', want 95"
+        )
+
+    # 17. HOME unset in the environment (Windows Git Bash sometimes doesn't set it): falls back
+    # to pathlib.Path.home() instead of raising KeyError.
+    def test_17_home_removed_from_env(self):
+        env = {k: v for k, v in os.environ.items() if k != "HOME" and not k.startswith("CFQ_")}
+        proc = subprocess.run(
+            [str(CFQ_BIN), "settings", "get", "docLevel"], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(proc.returncode, 0, msg=f"settings get docLevel without HOME: {proc.stderr}")
+        self.assertIn(
+            proc.stdout.strip(), ("minimal", "standard"),
+            msg=f"unexpected docLevel without HOME: {proc.stdout!r}",
+        )
+
+
+    # 18. Global `set` writes only the key being set -- no materialization of the full merged
+    # tier (schema defaults + existing file) into the global settings file.
+    def test_18_global_set_writes_only_key(self):
+        global_settings = self.home / ".claude" / "code-for-queue" / "settings.json"
+
+        # routine: no global file exists yet
+        self.run_cfq("settings", "set", "grillMode", "classic", home=self.home, check=True)
+        got = json.loads(global_settings.read_text())
+        self.assertEqual(
+            got, {"grillMode": "classic"},
+            msg=f"routine global set -> got {got}, want only the set key",
+        )
+
+        # edge: global file already holds an unrelated explicit key
+        global_settings.write_text('{"docLevel":"standard"}')
+        self.run_cfq("settings", "set", "grillMode", "classic", home=self.home, check=True)
+        got = json.loads(global_settings.read_text())
+        self.assertEqual(
+            got, {"docLevel": "standard", "grillMode": "classic"},
+            msg=f"edge global set -> got {got}, want existing key kept, no defaults added",
+        )
+
+        # default change takes effect: a schema default change is visible even though this
+        # global file was written by a prior `set` -- proves no frozen value exists
+        global_settings.write_text('{"grillMode":"classic"}')
+        got = self.run_cfq(
+            "settings", "get", "changelogFile", home=self.home
+        ).stdout.strip()
+        self.assertEqual(
+            got, ".claude/cfq/changelog.yml",
+            msg=f"changelogFile after unrelated set -> got '{got}', want schema default",
+        )
+
+        # failure: an invalid set must not touch the file at all (validate before any write)
+        before = global_settings.read_text()
+        proc = self.run_cfq("settings", "set", "grillMode", "bogus", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set grillMode bogus should fail")
+        after = global_settings.read_text()
+        self.assertEqual(
+            before, after, msg="failed global set must not modify the settings file"
         )
 
 

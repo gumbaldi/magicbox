@@ -22,11 +22,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_telemetry.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 USAGE = f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>]"
 
@@ -36,26 +34,11 @@ RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 TS_TRAILING_MS_RE = re.compile(r"\.\d+Z$")
 
 
-def cfq_run(*args):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True)
-
-
 def git_toplevel(cwd):
     proc = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
-
-
-def now_iso():
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
 
 
 def jqor(value, default):
@@ -235,7 +218,7 @@ def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
         "skill": skill,
         "call_count": int(call_count_s),
         "duration_ms": int(duration_ms_s),
-        "timestamp": now_iso(),
+        "timestamp": render.now_iso(),
     }
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -267,13 +250,13 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     report_path = os.path.join(dir_, "report.json")
     if not os.path.isfile(report_path):
-        write_json(report_path, {"repo": repo, "batch": batch, "started": now_iso(), "phases": []})
+        render.write_json(report_path, {"repo": repo, "batch": batch, "started": render.now_iso(), "phases": []})
     data = json.loads(pathlib.Path(report_path).read_text())
     if kind == "planning":
         data["planning"] = rec
     elif data.get("phases"):
         data["phases"][-1]["telemetry"] = rec
-    write_json(report_path, data)
+    render.write_json(report_path, data)
 
     totals = rec["totals"]
     print(

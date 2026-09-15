@@ -1,0 +1,47 @@
+name: cfq
+
+on:
+  push:
+    paths:
+      - "claude/plugins/cfq/**"
+      - ".github/workflows/cfq.yml"
+  pull_request:
+    paths:
+      - "claude/plugins/cfq/**"
+      - ".github/workflows/cfq.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install pytest
+      - run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+      - run: cd claude/plugins/cfq && python -m pytest -q
+
+  windows-smoke:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: |
+          cd claude/plugins/cfq
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          bin/cfq --help
+          bin/cfq doctor check
+          bin/cfq settings get docLevel
+          bin/cfq scan --format=json

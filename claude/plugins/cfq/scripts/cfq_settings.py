@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, paths, render  # noqa: E402
+from cfq_lib.env import home_dir  # noqa: E402
 
 # Single source of truth for every key: type, default, scope, env mapping, description, plus
 # type-specific validation data (min/max for int, values for enum, pattern for string, shape
@@ -32,15 +33,17 @@ SCHEMA = {
     "grillMode": {"type": "enum", "default": "stepwise", "values": ["stepwise", "classic"], "scope": ["global", "repo"], "env": "CFQ_GRILL_MODE", "description": "Interview style for /pfq: stepwise (one question at a time) or classic."},
     "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "description": "Models /pfq is allowed to run under."},
     "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "description": "Models /ifq is allowed to run under."},
+    "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
+    "orchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
     "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "description": "Model used for /pfq exploratory sub-agent research."},
     "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
     "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "description": "Skip the implModels/planModels gate entirely."},
     "scanRoots": {"type": "array", "default": ["~/git"], "scope": ["global"], "env": "CFQ_SCAN_ROOTS", "description": "Root directories cfq_scan.py searches for repos with a queue."},
     "useMattpocockGrilling": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_MATTPOCOCK", "description": "Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
-    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run the optional ponytail-audit cleanup task during maintenance."},
+    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run ponytail-audit during maintenance."},
     "codeLanguage": {"type": "string", "default": "en", "pattern": "^[A-Za-z][A-Za-z-]*$", "scope": ["global", "repo"], "env": "CFQ_CODE_LANGUAGE", "description": "Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
     "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
-    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard", "full"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only), standard, or full."},
+    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
     "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
@@ -65,8 +68,7 @@ SCHEMA = {
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
 
-HOME = os.environ["HOME"]
-GLOBAL_DIR = f"{HOME}/.claude/code-for-queue"
+GLOBAL_DIR = f"{home_dir()}/.claude/code-for-queue"
 GLOBAL_SETTINGS_FILE = f"{GLOBAL_DIR}/settings.json"
 STATE_FILE = f"{GLOBAL_DIR}/state.json"
 
@@ -144,6 +146,10 @@ def merged_tiers(repo_path):
     base = merge_tier_file(DEFAULTS, GLOBAL_SETTINGS_FILE)
     if repo_path:
         base = merge_tier_file(base, paths.repo_settings_file(repo_path))
+    if base.get("docLevel") == "full":
+        # docLevel dropped "full" -- a value stored by an older cfq reads back as "standard"
+        # rather than erroring, and the file is never rewritten just for reading it.
+        base["docLevel"] = "standard"
     return base
 
 
@@ -228,11 +234,8 @@ def _apply_set(key, val, repo_path):
         data = _read_json(target, default={})
     else:
         ensure()
-        # Materializes the full tiered (defaults + existing global file) object into the global
-        # file before the new key lands -- matches cfq-settings.sh exactly, surprising as it is.
-        data = merged_tiers("")
-        _write_json(GLOBAL_SETTINGS_FILE, data)
         target = GLOBAL_SETTINGS_FILE
+        data = _read_json(target, default={})
 
     type_ = entry["type"]
     if type_ == "bool":

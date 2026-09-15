@@ -21,11 +21,9 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, render  # noqa: E402
+from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_dash.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-CFQ_BIN = SCRIPT_DIR.parent / "bin" / "cfq"
 
 REASON_TEXT = {"inProgress": "in progress", "priority": "priority high", "order": "next in order"}
 
@@ -41,10 +39,6 @@ ACTION_ROWS_TEMPLATE = [
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
     ("settings, global", "bin/cfq settings list --sources"),
 ]
-
-
-def cfq_run(*args, env=None):
-    return subprocess.run([str(CFQ_BIN), *args], capture_output=True, text=True, env=env)
 
 
 def jq_alt(*values):
@@ -129,7 +123,7 @@ def this_repo_rollup(scan_repos, repo):
         "path": r["path"], "name": r["path"].split("/")[-1],
         "batches": [
             {"name": b["name"], "priority": b["priority"], "open": b["open"], "done": b["done"],
-             "status": batch_status(b)}
+             "archived": b["archived"], "status": batch_status(b)}
             for b in r["batches"]
         ],
     }
@@ -156,9 +150,9 @@ def plugins_line(p):
         if not p["useMattpocockGrilling"]:
             off.append("grill: classic off")
         if not p["usePonytailAudit"]:
-            off.append("maintenance audit: off")
+            off.append("ponytail audit: off")
         if not off:
-            base = {"icon": "✅", "text": "mattpocock-skills and ponytail installed · classic grill on · maintenance audit: on"}
+            base = {"icon": "✅", "text": "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on"}
         else:
             base = {"icon": "➖", "text": "installed · " + ", ".join(off)}
     else:
@@ -167,7 +161,7 @@ def plugins_line(p):
             state = "classic grill on" if p["useMattpocockGrilling"] else "classic grill off"
         else:
             missing = "mattpocock-skills"
-            state = "maintenance audit: on" if p["usePonytailAudit"] else "maintenance audit: off"
+            state = "ponytail audit: on" if p["usePonytailAudit"] else "ponytail audit: off"
         base = {"icon": "➖", "text": f"{missing} not installed · {state}"}
 
     text = base["text"] if mode_clause is None else f"{base['text']} · {mode_clause}"
@@ -229,7 +223,10 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
         ]
 
     if this_repo is not None:
-        rows = [b for b in this_repo["batches"] if all_flag or b["open"] > 0]
+        rows = [
+            b for b in this_repo["batches"]
+            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0))
+        ]
         if rows:
             table = ["", f"THIS REPO · {this_repo['name']}", "| Batch | Priority | Open/Done | Status |", "|---|---|---|---|"]
             for b in rows:

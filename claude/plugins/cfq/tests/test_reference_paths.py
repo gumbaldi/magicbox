@@ -8,6 +8,7 @@ test-layout.sh check 8. Each check gets a synthetic minimal fixture
 cheap.
 """
 
+import importlib.util
 import re
 import unittest
 
@@ -19,6 +20,7 @@ BARE_LINK_RE = re.compile(
 )
 TOKEN_RE = re.compile(r"CLAUDE_PLUGIN_ROOT")
 SCRIPT_NAME_RE = re.compile(r"cfq-[a-z-]+\.sh")
+SHELL_MUTATION_RE = re.compile(r"\b(rm|mv|mkdir|rmdir|jq)\s")
 
 
 def _md_files(root):
@@ -80,7 +82,7 @@ def check_no_token_in_references(root):
 #    Phase 01's original existence check instead.
 def check_no_scripts_named(root):
     fails = []
-    for sub in ("skills", "references"):
+    for sub in ("skills", "references", "agents"):
         d = root / sub
         if not d.is_dir():
             continue
@@ -102,12 +104,54 @@ def check_no_scripts_named(root):
     return fails
 
 
+# 5. Added by Phase 05: every mutation of `.claude/cfq/` runs through a `bin/cfq` subcommand now
+#    (`phase record`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
+#    `layout probe-cleanup`, ...) -- no skill or reference file may instruct rm/mv/mkdir/rmdir/jq
+#    in command position again. A word followed by whitespace is "command position"; the same word
+#    immediately followed by a closing backtick (prose naming it, e.g. "no `jq`") never matches.
+def check_no_shell_mutations(root):
+    fails = []
+    files = (
+        sorted(root.glob("skills/*/SKILL.md"))
+        + sorted(root.glob("references/*.md"))
+        + sorted(root.glob("agents/*.md"))
+    )
+    for f in files:
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            for m in SHELL_MUTATION_RE.finditer(line):
+                fails.append(
+                    f"FAIL: {f}:{lineno} instructs a shell mutation: {m.group(0).strip()}"
+                )
+    return fails
+
+
+# 6. Added by Phase 08: docs/configuration.md's settings reference table must document every key
+#    in cfq_settings.py's schema -- the schema is the one source of truth (CLAUDE.md's Conventions),
+#    so a new setting that never made it into the table would go undetected otherwise.
+def check_settings_documented(root):
+    fails = []
+    config_doc = root / "docs" / "configuration.md"
+    settings_script = root / "scripts" / "cfq_settings.py"
+    if not config_doc.is_file() or not settings_script.is_file():
+        return fails
+    spec = importlib.util.spec_from_file_location("cfq_settings_schema_check", settings_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = config_doc.read_text()
+    for key in module.SCHEMA:
+        if key not in text:
+            fails.append(f"FAIL: {config_doc} missing settings key documented in cfq_settings.py: {key}")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
     fails += check_no_bare_relative(root)
     fails += check_no_token_in_references(root)
     fails += check_no_scripts_named(root)
+    fails += check_no_shell_mutations(root)
+    fails += check_settings_documented(root)
     return fails
 
 
@@ -201,6 +245,44 @@ class ReferencePathsTest(CfqTestCase):
             any("CLAUDE.md" in line and "cfq-real.sh" in line for line in out),
             msg="check 4 self-test false-flagged CLAUDE.md naming a real script",
         )
+
+    def test_no_shell_mutations(self):
+        tmp = self._repos_dir / "f5"
+        (tmp / "skills" / "some-skill").mkdir(parents=True)
+        (tmp / "references").mkdir(parents=True)
+        (tmp / "skills" / "some-skill" / "SKILL.md").write_text(
+            "Green -> move the file with `mv \"$f\" done/` (`mkdir -p` first).\n"
+        )
+        (tmp / "references" / "r.md").write_text(
+            "Clean up with `rm -f` and pipe through `jq -c '.'`; prose only, no `jq`.\n"
+        )
+
+        out = check_no_shell_mutations(tmp)
+        joined = "\n".join(out)
+        self.assertIn(": mv", joined, msg="check 5 self-test did not catch `mv` in a SKILL.md")
+        self.assertIn(": mkdir", joined, msg="check 5 self-test did not catch `mkdir` in a SKILL.md")
+        self.assertIn(": rm", joined, msg="check 5 self-test did not catch `rm -f` in a reference file")
+        self.assertIn(": jq", joined, msg="check 5 self-test did not catch `jq -c` in command position")
+        self.assertEqual(
+            4, len(out), msg=f"check 5 self-test false-flagged the trailing prose `jq` mention: {out}"
+        )
+
+    def test_settings_documented(self):
+        tmp = self._repos_dir / "f6"
+        (tmp / "scripts").mkdir(parents=True)
+        (tmp / "docs").mkdir(parents=True)
+        (tmp / "scripts" / "cfq_settings.py").write_text(
+            "SCHEMA = {\n"
+            '    "fooKey": {"type": "bool", "default": True},\n'
+            '    "barKey": {"type": "string", "default": ""},\n'
+            "}\n"
+        )
+        (tmp / "docs" / "configuration.md").write_text("| `fooKey` | ... |\n")
+
+        out = check_settings_documented(tmp)
+        joined = "\n".join(out)
+        self.assertIn("barKey", joined, msg="check 6 self-test did not catch an undocumented setting")
+        self.assertNotIn("fooKey", joined, msg="check 6 self-test false-flagged a documented setting")
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

@@ -2,7 +2,9 @@
 # Usage: cfq_brief.py <batch-dir> [--phase <NN>|--with-done]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
-with done phases listed first, ticked. Read-only.
+with done phases listed first, ticked. Batch mode (default and --with-done) prints an optional
+`goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
+does, since it is the per-phase announcement. Read-only.
 
 Ported from cfq-brief.sh -- a port, not a redesign: the CLI contract (argument order, text
 output, exit codes) is the invariant this file preserves. The output is read by an agent, so
@@ -13,6 +15,10 @@ import argparse
 import pathlib
 import re
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from cfq_lib import queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_brief.py"
 
@@ -126,6 +132,10 @@ def cmd_brief(args):
         print(f"{name}  priority=high  phases={len(files)}")
     else:
         print(f"{name}  phases={len(files)}")
+
+    goal = cfq_queue.read_goal(d, 300)
+    if goal is not None:
+        print(f"goal: {goal}")
 
     depends_file = d / ".dependsOn"
     if depends_file.is_file():

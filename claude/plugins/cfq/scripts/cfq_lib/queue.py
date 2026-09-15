@@ -2,6 +2,7 @@
 second-caller module for cfq_scan.py and cfq_queue_overlap.py (both enumerate batch directories
 and apply the same batch-name predicate). Directory enumeration, the batch-name predicate and
 marker-file reading only -- no formatting, no ranking, no report logic; those stay in the callers.
+Marker files read here: `.priority`, `.dependsOn`, `.batch-context.md`.
 """
 
 import re
@@ -30,6 +31,31 @@ def read_priority(batch_dir):
     if not f.is_file():
         return ""
     return "high" if f.read_text().strip() == "high" else ""
+
+
+def read_goal(batch_dir, max_len):
+    """The batch's `## Goal` from `.batch-context.md`, its non-empty lines joined by single
+    spaces, cut to max_len at the last word boundary with a trailing '…'. None if the file is
+    absent, has no `## Goal` heading, or the section is empty."""
+    f = batch_dir / ".batch-context.md"
+    if not f.is_file():
+        return None
+    lines = []
+    in_goal = False
+    for line in f.read_text().splitlines():
+        if line.strip() == "## Goal":
+            in_goal = True
+            continue
+        if in_goal and line.startswith("## "):
+            break
+        if in_goal and line.strip():
+            lines.append(line.strip())
+    goal = " ".join(lines)
+    if not goal:
+        return None
+    if len(goal) > max_len:
+        goal = goal[:max_len].rsplit(" ", 1)[0].rstrip(" .,;:-") + "…"
+    return goal
 
 
 def read_depends(batch_dir):

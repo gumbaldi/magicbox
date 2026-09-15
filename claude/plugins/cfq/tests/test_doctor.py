@@ -59,11 +59,15 @@ class TestDoctor(CfqTestCase):
 
     def test_dependency_inventory_matches_required_and_optional(self):
         inventory = (PLUGIN_ROOT / "config" / "dependencies.txt").read_text()
-        for must in ("bash", "git", "python3"):
+        for must in ("bash", "git"):
             self.assertRegex(
                 inventory, rf"(?m)^{re.escape(must)}\|required\|",
                 f"dependencies.txt missing required entry for {must}",
             )
+        self.assertRegex(
+            inventory, r"(?m)^python3,python,py\|alternative\|",
+            f"dependencies.txt missing the python interpreter alternative row: {inventory}",
+        )
         for opt in ("gh", "tea", "npm"):
             self.assertRegex(
                 inventory, rf"(?m)^{re.escape(opt)}\|optional\|",
@@ -91,8 +95,8 @@ class TestDoctor(CfqTestCase):
         proc = self.run_cfq("doctor", "check", env={"PATH": nopython_dir})
         self.assertEqual(proc.returncode, 127, f"no-python3 exit != 127: {proc.returncode}")
         self.assertIn(
-            "cfq: python3 is required for 'doctor' but was not found on PATH.", proc.stderr,
-            f"missing named python3-guard message: {proc.stderr}",
+            "cfq: Python 3 is required for 'doctor' but was not found on PATH.", proc.stderr,
+            f"missing named python-guard message: {proc.stderr}",
         )
 
     def test_hook_config_uses_plugin_root_variable(self):

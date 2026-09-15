@@ -167,17 +167,17 @@ class TestDash(CfqTestCase):
         envp = key_row("maintenanceEvery", run_dash(env={"CFQ_MAINTENANCE_EVERY": "99"}))
         self.assertEqual(envp["marker"], "E", f"env:process marker = {envp}")
 
-        self.run_cfq("settings", "set", "--repo", str(mfixture), "docLevel", "full")
+        self.run_cfq("settings", "set", "--repo", str(mfixture), "docLevel", "standard")
         envd = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "minimal"}))
         self.assertEqual(envd["value"], "minimal", f"docLevel effective value = {envd}")
         self.assertEqual(
-            envd["maskedValue"], "full",
+            envd["maskedValue"], "standard",
             f"docLevel maskedValue must be the repo file value, not just the env value, got {envd}",
         )
         self.assertEqual(envd["maskedSource"], "repo", f"docLevel maskedSource = {envd}")
 
-        (mfixture / ".claude" / "settings.json").write_text('{"env":{"CFQ_DOC_LEVEL":"standard"}}')
-        envl = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "standard"}))
+        (mfixture / ".claude" / "settings.json").write_text('{"env":{"CFQ_DOC_LEVEL":"minimal"}}')
+        envl = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "minimal"}))
         self.assertEqual(envl["marker"], "E", f"env:repo-legacy marker = {envl}")
         self.assertEqual(envl["source"], "env:repo-legacy", f"env:repo-legacy source = {envl}")
 
@@ -238,6 +238,25 @@ class TestDash(CfqTestCase):
         self.assertIn("2026-03-01-a (in progress)", rendered, f"expanded header missing:\n{rendered}")
         self.assertNotIn("2026-03-02-b (", rendered, f"non-next batch must not expand:\n{rendered}")
         self.assertNotIn("2026-03-03-c (", rendered, f"flagged batch loses to inProgress:\n{rendered}")
+
+    def test_this_repo_lists_unfinished_batch_without_all_flag(self):
+        # a batch whose phases are all done but `finish` never ran (0 open, 2 done, not
+        # archived) must appear in the non---all view as IN_PROGRESS -- it counts as
+        # inProgress, not as an archived/finished batch.
+        tmp = self._repos_dir / "unfinishedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-05-01-unfinished", open_nums=(), done_nums=("01", "02"))
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+
+        self.assertIn(
+            "| 2026-05-01-unfinished |", rendered, f"unfinished batch row missing:\n{rendered}"
+        )
+        self.assertIn(
+            "0/2 | IN_PROGRESS", rendered, f"unfinished batch status wrong:\n{rendered}"
+        )
 
     def test_this_repo_all_flag_lists_archived_too(self):
         # --all: every batch shown, archived included, no summary line, expansion unchanged.
@@ -419,8 +438,8 @@ class TestDash(CfqTestCase):
         plugins_line = self._plugins_line(rendered)
 
         self.assertTrue(
-            plugins_line.endswith("maintenance audit: on"),
-            f"plugins line should end with 'maintenance audit: on':\n{plugins_line}",
+            plugins_line.endswith("ponytail audit: on"),
+            f"plugins line should end with 'ponytail audit: on':\n{plugins_line}",
         )
         self.assertNotIn("mode:", plugins_line, f"mode clause should vanish when ponytailMode is off:\n{plugins_line}")
 
@@ -454,7 +473,7 @@ class TestDash(CfqTestCase):
             env={"CFQ_SCAN_ROOTS": str(tmp), "CFQ_USE_PONYTAIL": "false"},
         ).stdout
 
-        self.assertIn("maintenance audit: off", rendered, f"expected wording missing:\n{rendered}")
+        self.assertIn("ponytail audit: off", rendered, f"expected wording missing:\n{rendered}")
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
 
 

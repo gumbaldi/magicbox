@@ -3,8 +3,8 @@
 Per-key one-line explanations come from `bin/cfq settings describe [<key>]` — this file only holds
 nuance that doesn't reduce to schema data.
 
-- `usePonytailAudit` — gates only the optional cleanup audit, **one task among several** in the
-  maintenance run; it is not the switch for the maintenance run itself, which is controlled by
+- `usePonytailAudit` — gates the optional cleanup audit (**one task among several** in the
+  maintenance run); it is not the switch for the maintenance run itself, which is controlled by
   `maintenanceEvery`.
 - `stopUsed` — absolute context-token ceiling; `0` hands off after every phase, `-1` disables this
   gate entirely. Normal global/repo setting like any other.

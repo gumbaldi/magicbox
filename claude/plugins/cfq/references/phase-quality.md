@@ -1,17 +1,16 @@
 # Phase Quality: Test-First, Risk Flags, Bundled Verification
 
-Read unconditionally in Step 10, before any phase's Changes and Verification text is written — not
-only for a phase that moves, extracts, or reuses existing logic verbatim, or introduces non-trivial
-logic of its own (a branch, a loop, a parser, a multi-step resolution chain, an adapter). Rules 1-4
-name their own trigger condition inline; a phase outside that condition simply has nothing to apply
-for that rule. This file governs what a phase's text must contain once it exists;
-`<plugin-root>/references/plan-self-critique.md` (Step 11) governs whether the phase should exist at all — keep
-the two separate.
+Read unconditionally in **Language and Cut Phases**, before any phase's Changes and Verification
+text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
+introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
+an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rule 6 applies
+to every phase without exception. This file governs what a phase's text must contain once it
+exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
+governs whether the phase should exist at all — keep the two separate.
 
-This file exists because one `/ifq` phase burned far more tokens than the task itself required —
-not the logic, the debugging: a raw `bash -x` trace dumped whole into context, and a dozen one-off
-shell smoke tests instead of one test file. The five rules below turn that incident into a
-standing checkpoint, not a one-time lesson repeated only in a post-mortem.
+The five rules below are a standing checkpoint against runaway debugging tokens and untested
+verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## 1. Test-first, not shell exploration
 
@@ -60,6 +59,33 @@ suggests — writing the fixture, running it, and fixing whatever the move actua
 work a pure-new-code phase of the same file count doesn't have. Bump the `Size` letter one step
 above what raw file/line volume would otherwise suggest (`S` → `M`, `M` → `L`) for any phase where
 this applies — decide it here, at planning time, not discover it mid-`ifq` as an underestimate.
+
+## 6. `## Affected Files` is the complete list
+
+This rule applies to every phase, without exception — unlike rules 1-4, it names no trigger
+condition because there isn't one.
+
+`## Affected Files` names **every** file the phase will change or create — not the interesting
+ones, not the ones the phase is "about". The implementer is measured against this list
+(`<plugin-root>/references/ifq-phase.md`'s `## Stop Rule`), so an incomplete list is a planning
+defect, not an implementation defect.
+
+Before the list is considered done, walk it once against this checklist. Each item names what to
+look for; a phase that legitimately has none of a category simply has nothing to add for it:
+
+- the test file(s) that cover the changed code — new or existing
+- the changelog, version, or release-notes file the repo maintains
+- any registry, index, manifest, or dispatcher that has to learn about a new entry (in this repo:
+  `bin/cfq`, `.claude-plugin/marketplace.json`)
+- the README or documentation section that describes the behaviour being changed
+- generated or derived files that have to be regenerated
+- cross-references elsewhere that point at what is being renamed, renumbered, or moved
+
+Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
+decide whether a file is in scope, that uncertainty is a research task for the planning session,
+not a hedge in the plan — resolve it before parking: `bin/cfq overlap` intersects
+these lists across open batches to derive conflicts and `.dependsOn` edges, and a wishlist entry
+produces a phantom conflict that costs a real session.
 
 ---
 

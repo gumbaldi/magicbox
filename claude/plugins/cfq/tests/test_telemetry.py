@@ -1,9 +1,15 @@
 """Migrated from test-telemetry.sh (bin/cfq telemetry — record/sync)."""
 
 import json
+import re
+import sys
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_report  # noqa: E402
 
 
 TRANSCRIPT_TURNS = """\
@@ -27,7 +33,9 @@ class TelemetryTest(CfqTestCase):
         self.batch = self.repo / ".claude" / "cfq" / "2026-01-01-demo"
         self.batch.mkdir(parents=True)
 
-        slug = str(self.repo).replace("/", "-")
+        # Mirrors cfq_runtime.py's slug_for exactly -- a tempfile-generated path can contain "_",
+        # which the old `.replace("/", "-")` left untouched while slug_for now maps it to "-".
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo))
         tdir = self.home / ".claude" / "projects" / slug
         tdir.mkdir(parents=True)
         self.transcript = tdir / "testsid.jsonl"
@@ -35,12 +43,11 @@ class TelemetryTest(CfqTestCase):
 
         self.jsonl = self.repo / ".claude" / "cfq" / "telemetry.jsonl"
 
-        # Seed report.json with a phase entry, as implement-for-queue would via cfq_report.py
-        # append.
-        self.run_cfq(
-            "report", "append", str(self.batch),
-            '{"phase":"01-foo","status":"green","summary":"test"}',
-            check=True,
+        # Seed report.json with a phase entry, as implement-for-queue would via
+        # cfq_report.append_phase() (phase record/commit's own ledger-write step).
+        cfq_report.append_phase(
+            str(self.batch), '{"phase":"01-foo","status":"green","summary":"test"}',
+            record_telemetry=False,
         )
 
     def _record(self, *args, session="testsid"):

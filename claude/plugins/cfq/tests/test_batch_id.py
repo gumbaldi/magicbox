@@ -474,6 +474,29 @@ class BatchIdTest(CfqTestCase):
                 out.get(key), f"disabled-changelog reconcile error missing/empty field {key}",
             )
 
+    # ---- ready (phase 04: `.planning` removal, no trash -- a heartbeat marker carries no
+    # content) -------------------------------------------------------------------------------
+
+    def test_ready_removes_planning_marker(self):
+        repo29 = self._plain_repo("repo29")
+        batch_dir = repo29 / ".claude" / "cfq" / "impl" / "example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertFalse((batch_dir / ".planning").exists(), "ready did not remove .planning")
+        self.assertIn("removed", proc.stdout)
+
+    def test_ready_is_idempotent_second_call_still_exits_0(self):
+        repo30 = self._plain_repo("repo30")
+        batch_dir = repo30 / ".claude" / "cfq" / "impl" / "example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+
+        self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertIn("already ready", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

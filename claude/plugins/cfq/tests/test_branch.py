@@ -121,10 +121,12 @@ class BranchTest(CfqTestCase):
         out = self.json_out(self._plan("2026-01-01-mytopic"))
         self.assertEqual(out["mode"], "off", msg=f"off mode -> {out}")
         self.assertIsNone(out["branch"], msg=f"off branch should be null -> {out}")
+        self.assertFalse(out["dirty"], msg=f"off dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"off changelogDirty -> {out}")
 
     def test_ahead_branch_appears_in_candidates(self):
-        # A branch ahead of main appears in candidates (as an object) and becomes the recommended
-        # base -- `base` is no longer null just because candidates exist.
+        # A branch ahead of main appears in candidates (as an object) but no longer becomes the
+        # base on its own -- without a `.dependsOn` naming it, `base` stays `main`.
         self.run_clean("git", "checkout", "-q", "-b", "v0.50-ahead", cwd=self.repo)
         self.run_clean(
             "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
@@ -133,8 +135,9 @@ class BranchTest(CfqTestCase):
         self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
         out = self.json_out(self._plan("2026-01-02-newtopic"))
         self.assertEqual(out["mode"], "new", msg=f"candidates-case mode -> {out}")
-        self.assertEqual(out["base"], "v0.50-ahead", msg=f"base -> {out}")
-        self.assertEqual(out["baseRef"], "refs/heads/v0.50-ahead", msg=f"baseRef -> {out}")
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseRef"], "refs/heads/main", msg=f"baseRef -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
         names = [c["name"] for c in out["candidates"]]
         self.assertIn("v0.50-ahead", names, msg=f"v0.50-ahead should be in candidates -> {out}")
 
@@ -381,7 +384,7 @@ class BranchTest(CfqTestCase):
 
     def test_offline_candidates_from_local_branches(self):
         # Offline (no origin) -> candidates fall back to local `git branch`, every one
-        # localOnly, baseRef points at refs/heads/<base> -- same selection as today, new shape.
+        # localOnly. Without a `.dependsOn` naming it, `base` stays `main` (offline `main_ref`).
         self.run_clean("git", "checkout", "-q", "-b", "cfq/001-2026-01-01-offline", cwd=self.repo)
         self.run_clean(
             "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
@@ -390,12 +393,78 @@ class BranchTest(CfqTestCase):
         self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
         out = self.json_out(self._plan("2026-02-08-topic"))
         self.assertEqual(out["remoteChecked"], False, msg=f"offline remoteChecked -> {out}")
-        self.assertEqual(out["base"], "cfq/001-2026-01-01-offline", msg=f"offline base -> {out}")
-        self.assertEqual(
-            out["baseRef"], "refs/heads/cfq/001-2026-01-01-offline", msg=f"offline baseRef -> {out}"
-        )
+        self.assertEqual(out["base"], "main", msg=f"offline base -> {out}")
+        self.assertEqual(out["baseRef"], "refs/heads/main", msg=f"offline baseRef -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"offline baseSource -> {out}")
         cand = out["candidates"][0]
         self.assertTrue(cand["localOnly"], msg=f"offline localOnly -> {cand}")
+
+    def test_changelog_only_modification_is_changelog_dirty_not_dirty(self):
+        # A tracked changelog file that only carries the queue's own reservations/updates ->
+        # changelogDirty, but not dirty -- expected dirt, not a blocker.
+        self.run_cfq("layout", "ensure", str(self.repo), check=True)
+        self.run_cfq(
+            "changelog", "init", str(self.repo), "cfq/2026-05-01-seed", "main",
+            "2026-05-01-seed", check=True,
+        )
+        changelog_path = self.repo / ".claude" / "cfq" / "changelog.yml"
+        self.run_clean("git", "add", "-f", str(changelog_path), cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "-q", "-m", "seed changelog", cwd=self.repo,
+        )
+        self.run_cfq(
+            "changelog", "reserve", str(self.repo), "5", "005-2026-05-02-other", check=True,
+        )
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertFalse(out["dirty"], msg=f"changelog-only dirty -> {out}")
+        self.assertTrue(out["changelogDirty"], msg=f"changelog-only changelogDirty -> {out}")
+
+    def test_other_tracked_dirt_sets_dirty(self):
+        (self.repo / "scratch.txt").write_text("uncommitted\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertTrue(out["dirty"], msg=f"other-file dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"other-file changelogDirty -> {out}")
+
+    def test_untracked_queue_state_never_counts_as_dirty(self):
+        # Nothing under .claude/ is tracked -- git collapses the whole untracked subtree to one
+        # "?? .claude/" line unless --untracked-files=all forces it to expand to actual file
+        # paths. Without that flag this line would not match the ".claude/cfq/" prefix check and
+        # would misreport a fresh queue as dirty.
+        queue_dir = self.repo / ".claude" / "cfq" / "impl" / "001-x"
+        queue_dir.mkdir(parents=True)
+        (queue_dir / "01-a.md").write_text("phase\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertFalse(out["dirty"], msg=f"queue-state dirty -> {out}")
+        self.assertFalse(out["changelogDirty"], msg=f"queue-state changelogDirty -> {out}")
+
+    def test_untracked_dirt_outside_queue_still_sets_dirty(self):
+        # Same collapsed-".claude/" situation, but with an untracked file that is not under
+        # .claude/cfq/ next to it -- --untracked-files=all must not make the queue's own state
+        # swallow unrelated dirt.
+        queue_dir = self.repo / ".claude" / "cfq" / "impl" / "001-x"
+        queue_dir.mkdir(parents=True)
+        (queue_dir / "01-a.md").write_text("phase\n")
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "new.py").write_text("x = 1\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertTrue(out["dirty"], msg=f"unrelated untracked dirt -> {out}")
+
+    def test_plan_outside_git_repo_reports_no_repo(self):
+        non_repo = self._repos_dir / "not-a-repo"
+        non_repo.mkdir()
+        proc = self._plan("2026-01-01-mytopic", repo=non_repo)
+        self.assertNotIn("Traceback", proc.stderr, msg=f"raw traceback -> {proc.stderr}")
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_REPO", msg=f"non-repo status -> {out}")
+        self.assertEqual(out["repo"]["root"], str(non_repo), msg=f"non-repo root -> {out}")
+
+    def test_continue_mode_also_reports_dirty(self):
+        self.run_clean("git", "branch", "v0.3-mytopic", cwd=self.repo)
+        (self.repo / "scratch.txt").write_text("uncommitted\n")
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertEqual(out["mode"], "continue", msg=f"continue mode -> {out}")
+        self.assertTrue(out["dirty"], msg=f"continue dirty -> {out}")
 
 
 class BranchPlanRemoteCandidatesTest(CfqTestCase):
@@ -435,6 +504,11 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
                 return c
         self.fail(f"candidate {name} not found in {out['candidates']}")
 
+    def _depends_on(self, batch, *deps):
+        batch_dir = self.repo / ".claude" / "cfq" / "impl" / batch
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / ".dependsOn").write_text("\n".join(deps) + "\n")
+
     def test_routine_two_candidates_ranked_by_newest_commit(self):
         self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
         self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
@@ -444,10 +518,13 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertEqual(
             names, {"cfq/001-2026-01-01-a", "cfq/002-2026-01-02-b"}, msg=f"candidates -> {out}"
         )
-        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        # No `.dependsOn` naming either -> base stays `main`, candidate ranking is still there
+        # for reference/the ambiguous fallback, just no longer what `base` defaults to.
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
         self.assertEqual(
-            out["baseRef"], "refs/remotes/origin/cfq/002-2026-01-02-b", msg=f"baseRef -> {out}"
+            out["baseRef"], "refs/remotes/origin/main", msg=f"baseRef -> {out}"
         )
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
 
     def test_remote_only_candidate_still_listed(self):
         # Branch pushed, local ref then deleted -> still listed, localOnly false, ref points at
@@ -468,14 +545,14 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertEqual(cand["ref"], "refs/heads/topic-local", msg=f"local-only ref -> {cand}")
 
     def test_newest_commit_wins_over_highest_number(self):
-        # The higher-numbered branch was committed first; the lower-numbered one is newer ->
-        # base is the newer commit, the higher-numbered one is flagged highestBatch instead.
+        # The higher-numbered branch was committed first; the lower-numbered one is newer, but
+        # without a `.dependsOn` naming either, `base` stays `main` -- candidate ranking
+        # (highestBatch) is unaffected.
         self._branch("cfq/002-2026-01-01-earlier-commit-higher-number", "2026-01-01T00:00:00")
         self._branch("cfq/001-2026-01-05-later-commit-lower-number", "2026-01-05T00:00:00")
         out = self.json_out(self._plan("2026-02-04-topic"))
-        self.assertEqual(
-            out["base"], "cfq/001-2026-01-05-later-commit-lower-number", msg=f"base -> {out}"
-        )
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
         highest = self._candidate(out, "cfq/002-2026-01-01-earlier-commit-higher-number")
         self.assertTrue(highest["highestBatch"], msg=f"highestBatch -> {highest}")
 
@@ -522,6 +599,70 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         out = self.json_out(self._plan("2026-02-09-topic"))
         names = {c["name"] for c in out["candidates"]}
         self.assertNotIn("HEAD", names, msg=f"origin/HEAD leaked into candidates -> {out}")
+
+    def test_dependson_unmerged_branch_wins_over_newest_candidate(self):
+        # A `.dependsOn` entry with an unmerged branch wins the base even though an unrelated
+        # branch has a newer commit -- the newest-commit heuristic is demoted to a fallback.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self._branch("cfq/999-2026-01-09-newer-unrelated", "2026-01-09T00:00:00")
+        self._depends_on("2026-02-10-topic", "001-2026-01-01-a")
+        out = self.json_out(self._plan("2026-02-10-topic"))
+        self.assertEqual(out["base"], "cfq/001-2026-01-01-a", msg=f"base -> {out}")
+        self.assertEqual(
+            out["baseRef"], "refs/remotes/origin/cfq/001-2026-01-01-a", msg=f"baseRef -> {out}"
+        )
+        self.assertEqual(out["baseSource"], "dependsOn", msg=f"baseSource -> {out}")
+
+    def test_dependson_chain_prefers_the_branch_built_on_the_other(self):
+        # Two deps where the second was branched from the first -> the second contains the first,
+        # so it is the base -- not `main`, not an ambiguous pick.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self.run_clean(
+            "git", "checkout", "-q", "-b", "cfq/002-2026-01-02-b", "cfq/001-2026-01-01-a",
+            cwd=self.repo,
+        )
+        env = {"GIT_AUTHOR_DATE": "2026-01-02T00:00:00", "GIT_COMMITTER_DATE": "2026-01-02T00:00:00"}
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "b", cwd=self.repo, env=env,
+        )
+        self.run_clean("git", "push", "-q", "-u", "origin", "cfq/002-2026-01-02-b", cwd=self.repo)
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self._depends_on("2026-02-11-topic", "001-2026-01-01-a", "002-2026-01-02-b")
+        out = self.json_out(self._plan("2026-02-11-topic"))
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "dependsOn", msg=f"baseSource -> {out}")
+
+    def test_dependson_merged_dep_falls_back_to_main(self):
+        # A dep whose branch is already an ancestor of origin/main contributes nothing -> base
+        # main, same as no dep at all.
+        self._branch("cfq/001-2026-01-01-merged-dep", "2026-01-01T00:00:00")
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self.run_clean(
+            "git", "merge", "-q", "--ff-only", "cfq/001-2026-01-01-merged-dep", cwd=self.repo
+        )
+        self.run_clean("git", "push", "-q", "origin", "main", cwd=self.repo)
+        self._depends_on("2026-02-12-topic", "001-2026-01-01-merged-dep")
+        out = self.json_out(self._plan("2026-02-12-topic"))
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+
+    def test_dependson_ambiguous_falls_back_to_newest_candidate(self):
+        # Two unmerged dep branches, neither containing the other (both branched independently
+        # from main) -> ambiguous, base falls back to today's newest-commit candidate.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
+        self._depends_on("2026-02-13-topic", "001-2026-01-01-a", "002-2026-01-02-b")
+        out = self.json_out(self._plan("2026-02-13-topic"))
+        self.assertEqual(out["baseSource"], "ambiguous", msg=f"baseSource -> {out}")
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+
+    def test_dependson_missing_branch_ignored(self):
+        # A dep whose branch exists nowhere is ignored, not an error -> base main.
+        self._depends_on("2026-02-14-topic", "999-2026-01-01-ghost")
+        out = self.json_out(self._plan("2026-02-14-topic"))
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
 
 
 class BranchCheckTest(CfqTestCase):

@@ -1,16 +1,11 @@
 # Plan Self-Critique: Does the Cut Still Earn Its Place
 
-`Step 9` asks the **user** what is still open. Step 10 proposes the phase cut and, until this file
-existed, wrote the files right after — nothing asked the **planner** whether the phases it just cut
-actually serve the batch goal. This was observed in batch `009`: six phases were cut, the user said
-"write the plans", and only afterwards, asked unprompted, did re-examining the cut within one turn
-produce a differentiated answer — three phases clearly justified, one only a precondition, one
-delivering a different benefit than assumed, one weak enough to drop. The batch went from six phases
-to five.
+**Closing Question** asks the **user** what is still open. **Language and Cut Phases** proposes the
+phase cut — nothing then asks the **planner** whether the phases it just cut actually serve the
+batch goal.
 
 The specific failure mode this catches: a phase enters the batch because the user picked it from an
-`AskUserQuestion` option list the planner itself wrote, and the planner then treats the answer as
-settled. A step that only asks the user to review the plan cannot catch that — the user is reviewing
+option list the planner itself wrote, and the planner then treats the answer as settled. A step that only asks the user to review the plan cannot catch that — the user is reviewing
 a proposal built from their own earlier answer. This is the mirror image of
 `interaction-policy.md`'s **Active Interview Duty**, which covers decisions the *planner* made
 autonomously; this file covers decisions the *user* made from the planner's own option lists.
@@ -20,7 +15,7 @@ This file governs whether a phase should **exist**. `phase-quality.md` governs w
 
 ## Scope
 
-Read unconditionally at Step 11, every session, regardless of phase count or interview depth. A
+Read unconditionally at **Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A
 two-phase batch still gets two short verdicts — this step is never skipped as "too small to
 bother".
 
@@ -34,8 +29,10 @@ Judge every open phase against all three:
    (debugging stays out of the main context), 4 (smoke tests are bundled, not serialized) and 5
    (size reflects verify-the-reuse work) — three specific rules can actually be checked.
 2. **Fits the existing environment** — no logic errors, no hand-off problems between phases, no
-   dead code left behind, no feature cut off half-finished by a later phase. This category requires
-   reading the phase files against one another, not each in isolation.
+   dead code left behind, no feature cut off half-finished by a later phase. At this step the
+   category judges the *proposed cut* — phase boundaries, ordering, hand-off points as described in
+   the proposal — because no phase file exists on disk yet; the check against the written text is
+   the post-write audit's job.
 3. **Serves the batch goal** — the phase advances the goal named in `.batch-context.md`'s `##
    Goal`. This is the category that catches the option-list failure above: a phase that is in the
    batch only because it was picked from a list the planner wrote fails here.
@@ -55,10 +52,21 @@ are statements about individual phases that per-phase judging alone cannot make 
 
 ## On a Fail
 
-Every failing category becomes one `AskUserQuestion` with a named recommendation and its reasoning.
-Options drawn from: drop the phase · narrow its scope · merge it with another phase · reorder ·
-leave as is. Batch several fails into one call rather than asking serially. Nothing is written
-until the user has answered — the planner does not silently re-cut.
+A failing category is **corrected, not asked about**. Re-cutting, merging, reordering, and
+narrowing a phase to remove duplication are corrections the planner makes on its own and reports.
+
+Exactly two things still trigger one `AskUserQuestion`: **dropping a phase entirely**, and
+**removing a capability the user asked for by name during the interview**. Both change *what* the
+batch delivers; everything else only changes *how* it is split, which is the planner's call.
+
+Batch several question-worthy findings into one call rather than asking serially.
+
+Every correction made without asking is named in the **Self-Critique of the Phase Cut** status line — what was changed and
+why — so a silent fix is still a visible fix. A correction that cannot be stated in one clause is a
+sign the finding is a drop in disguise and belongs in the question instead.
+
+A question whose only sensible answer is "yes, fix it" is not a decision, it is a confirmation
+prompt, and it costs the user a turn for nothing.
 
 ## Recording
 
@@ -72,10 +80,50 @@ Self-Critique
   01 audit-log-schema      pass — cites phase 02's read path
   02 audit-log-writer      pass — cites the batch goal directly
   03 audit-log-dashboard   fail (serves the batch goal) — this batch's goal is "make writes
-                           auditable", not "visualize them"; 03 was picked from Step 8's option
-                           list, not derived from the goal
-  batch                    03 aside, 01→02 compose cleanly, no ordering issue
+                           auditable", not "visualize them"; 03 was picked from Language and Cut
+                           Phases' option list, not derived from the goal
+  04 audit-log-alerting    fixed (fits the existing environment) — depended on 02's writer being
+                           in place; reordered after it, no capability changed — reported, not
+                           asked
+  batch                    03 aside, 01→02→04 compose cleanly, no ordering issue left
 ```
 
-→ one `AskUserQuestion`: "Phase 03 doesn't serve this batch's goal (see above) — drop it, narrow it
-to just the audit-log table view, or leave it as is?"
+→ one question: "Phase 03 doesn't serve this batch's goal (see above) — drop it, narrow it to just
+the audit-log table view, or leave it as is?"
+
+## The Post-Write Audit
+
+This section's verdicts above judge the *proposed cut* — phase boundaries, ordering, hand-off
+points as described before any file exists on disk. Once **Park** has written every phase
+file and `.batch-context.md`, the written text can drift from that proposal in ways the cut review
+never sees: a phase whose `Verification` depends on a file only a later phase creates, a
+`Dependencies` section pointing forward or at nothing. This section is that check against reality.
+
+- **When.** After **Park** has written every phase file and `.batch-context.md`, before **Plan
+  Lint**. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
+  still gets its `Dependencies` and `Verification` checked against reality.
+- **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from **Start Block**'s
+  preflight result — no new `bin/cfq settings get` call), per `<plugin-root>/references/explore-escalation.md`'s
+  judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the
+  failure mode this step exists for is the author reading their own intent instead of the text.
+- **What the agent is given.** The absolute batch directory path and the batch goal from
+  `.batch-context.md`'s `## Goal`. Nothing else — it reads the files itself, unprimed.
+- **What the agent checks**, as four named questions:
+  1. Does any phase's `## Verification` depend on a file, command, or behaviour that only a
+     later-numbered phase creates?
+  2. Does any phase's `## Dependencies` section name a phase that comes after it, or a phase that
+     does not exist in the batch?
+  3. Does any phase's `## Changes` assume a state that no earlier phase establishes and that the
+     repo does not already have?
+  4. Do two phases specify conflicting edits to the same file — the second silently undoing or
+     contradicting the first?
+- **What the agent returns.** A finding list, each entry naming the phase number, the question it
+  fails, and the quoted line that fails it. No prose report, no recommendation, no file edits — the
+  agent is read-only. An empty list is the normal outcome and is returned as such, not padded.
+- **How findings are handled.** The same fix-first rule as above, in `## On a Fail`: the planner
+  corrects the phase files and names each correction in the status line. Only a correction that
+  would drop a phase or remove a capability the user named in the interview goes to one
+  `AskUserQuestion`.
+- **Renumbering after a correction.** A correction that reorders phases renames the files so the
+  numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
+  phase. This happens before **Plan Lint**.

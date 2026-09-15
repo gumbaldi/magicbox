@@ -9,7 +9,6 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT
 # Files allowed to still mention the retired repo-local `.claude/code-for-queue` layout, per
 # check 8 below.
 ALLOWED_LAYOUT_FILES = {
-    "scripts/migrations/cfq-layout-v1.sh",
     "tests/test-layout-migration.sh",
     "tests/test-layout.sh",
     "README.md",
@@ -119,10 +118,11 @@ class LayoutTest(CfqTestCase):
 
     def test_no_repo_local_layout_leftovers(self):
         # 8. Repo-local `.claude/code-for-queue` literal must not reappear in normal scripts
-        # or SKILL.md files — permitted only in the isolated migration utility, its focused
-        # test fixture, and README.md's historical migration note that explicitly document the
-        # retired layout rather than using it. The global `$HOME/.claude/code-for-queue/` store
-        # is a different, still-current path — any line naming HOME/home/~ is that, not this.
+        # or SKILL.md files — permitted only in the retired shell test fixtures (pre-Python-port
+        # names, kept in ALLOWED_LAYOUT_FILES above though the files themselves are long gone) and
+        # README.md's historical migration note, which explicitly documents the retired layout
+        # rather than using it. The global `$HOME/.claude/code-for-queue/` store is a different,
+        # still-current path — any line naming HOME/home/~ is that, not this.
         proc = subprocess.run(
             [
                 "grep", "-rnE", r"\.claude/code-for-queue", str(PLUGIN_ROOT),
@@ -146,6 +146,59 @@ class LayoutTest(CfqTestCase):
         # `.claude/cfq/settings.json` must never end up in cfq's managed local-state exclude
         # block — the settings file is meant to be trackable even under gitStatePolicy=local.
         # Already asserted in test_ensure_and_status above; not re-asserted here.
+
+
+class ProbeCleanupTest(CfqTestCase):
+    def setUp(self):
+        super().setUp()
+        self.repo = self._repos_dir / "probe-repo"
+        self.repo.mkdir()
+        self.run_clean("git", "init", "-q", cwd=self.repo)
+        self.queue_probe = self.repo / ".claude" / "cfq" / ".writeprobe"
+        self.queue_probe.parent.mkdir(parents=True)
+        self.docs_probe = self.repo / "docs" / "adr" / ".writeprobe"
+        self.context_md = self.repo / "CONTEXT.md"
+
+    def test_queue_probe_only(self):
+        self.queue_probe.write_text("probe\n")
+        self.run_cfq("layout", "probe-cleanup", str(self.repo), check=True)
+        self.assertFalse(self.queue_probe.exists(), "queue probe not removed")
+
+    def test_docs_flag_removes_all_three_probes(self):
+        self.queue_probe.write_text("probe\n")
+        self.docs_probe.parent.mkdir(parents=True)
+        self.docs_probe.write_text("probe\n")
+        self.context_md.write_text("probe\n")
+
+        self.run_cfq("layout", "probe-cleanup", str(self.repo), "--docs", check=True)
+        self.assertFalse(self.queue_probe.exists(), "queue probe not removed")
+        self.assertFalse(self.docs_probe.exists(), "docs probe not removed")
+        self.assertFalse(self.context_md.exists(), "probe-only CONTEXT.md not removed")
+        self.assertFalse(self.docs_probe.parent.exists(), "empty docs/adr/ not removed")
+
+    def test_docs_flag_leaves_a_real_multiline_context_md_untouched(self):
+        self.docs_probe.parent.mkdir(parents=True)
+        self.docs_probe.write_text("probe\n")
+        real_content = "# Glossary\n\nreal content, not a probe\n"
+        self.context_md.write_text(real_content)
+
+        proc = self.run_cfq("layout", "probe-cleanup", str(self.repo), "--docs")
+        self.assertEqual(proc.returncode, 0, "probe-cleanup must still exit 0")
+        self.assertEqual(self.context_md.read_text(), real_content, "real CONTEXT.md was touched")
+
+    def test_docs_flag_leaves_a_real_adr_directory_intact(self):
+        self.docs_probe.parent.mkdir(parents=True)
+        self.docs_probe.write_text("probe\n")
+        (self.docs_probe.parent / "0001-real-adr.md").write_text("# ADR\n")
+
+        self.run_cfq("layout", "probe-cleanup", str(self.repo), "--docs", check=True)
+        self.assertFalse(self.docs_probe.exists(), "docs probe not removed")
+        self.assertTrue(self.docs_probe.parent.is_dir(), "docs/adr/ with a real ADR must survive")
+        self.assertTrue((self.docs_probe.parent / "0001-real-adr.md").exists())
+
+    def test_exits_0_when_nothing_was_there(self):
+        proc = self.run_cfq("layout", "probe-cleanup", str(self.repo), "--docs")
+        self.assertEqual(proc.returncode, 0, "probe-cleanup on a clean repo must still exit 0")
 
 
 if __name__ == "__main__":

@@ -6,33 +6,39 @@ Shared rules for `pfq` and `ifq` sessions on gating against harness state and on
 ## Plan-Mode Gate
 
 If a "Plan mode is active" system-reminder is present in context, call `ExitPlanMode`
-immediately — before `pfq`'s Step 4 / before `ifq`'s Step 3 preflight call — naming what this
+immediately — before `pfq`'s **Start Block** / before `ifq`'s **Preflight** call — naming what this
 session is about to write (`pfq`: "interview and park plan files for `<repo>`"; `ifq`: "implement
 the next open phase of `<batch>`"). Neither skill can function under Plan Mode (`pfq` writes
-batch/phase files in Step 15, `ifq` writes code in Step 8) — resolve this before the first write
-attempt, not as a discovered tool failure.
+batch/phase files in **Park**, `ifq` writes code in **Implementation**) — resolve this before the
+first write attempt, not as a discovered tool failure.
 
 ## No Waiting Questions
 
 Never `AskUserQuestion` (or a prose equivalent) about whether to keep waiting on a subagent or
 background task that's still running (Explore delegation, verification delegation). That is not a
 user decision — print a status line, then continue automatically once the result lands.
-`AskUserQuestion` is reserved for points where the answer changes what gets built or parked; every
-existing question site in both skills already qualifies (batch selection, scope-creep parking,
-branch base, interview depth, security phase, grilling rounds, closing question) — this section
-adds a rule, not new question sites.
+`AskUserQuestion` is reserved for points where the answer changes what gets built or parked. The
+rule behind `pfq`'s site list: it asks everything it needs before planning work starts — after
+that, only exceptional cases still ask; everything routine gets decided and reported, or parked as
+a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
+only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
+drop-a-phase/remove-a-named-capability question; `ifq`: scope-creep parking, branch base
+(ambiguous dependencies, ahead/diverged remote only) — this section adds a rule, not new question
+sites.
 
 ## Active Interview Duty
 
-Before treating an open point as "routine" (`pfq` Step 7) or answering the closing "anything else
-open?" check (`pfq` Step 9) as satisfied, explicitly enumerate every decision made autonomously
+Before treating an open point as "routine" (`pfq`'s **Interview**) or answering the closing
+"anything else open?" check (`pfq`'s **Closing Question**) as satisfied, explicitly enumerate
+every decision made autonomously
 during the session that involved a real trade-off — not a forced choice, but one where a
 different, reasonable reading would produce materially different files or behavior (e.g.
 hardcoding a value vs. adding a configurable setting, choosing a data shape, picking a default).
 Surface at least those in one batched `AskUserQuestion` before writing anything. Silently deciding
-them and only asking "anything else?" afterward does not satisfy Step 9 — this section exists
+them and only asking "anything else?" afterward does not satisfy **Closing Question** — this section exists
 specifically to prevent that.
 
-This section covers decisions the *planner* made autonomously. `plan-for-queue`'s Step 11 and
-`<plugin-root>/references/plan-self-critique.md` cover the mirror case — decisions the *user* made from the
+This section covers decisions the *planner* made autonomously. `plan-for-queue`'s
+**Self-Critique of the Phase Cut** and `<plugin-root>/references/plan-self-critique.md` cover the
+mirror case — decisions the *user* made from the
 planner's own option lists, re-examined before any phase file is written.

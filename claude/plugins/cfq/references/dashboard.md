@@ -5,7 +5,7 @@
 | Plugin | What cfq uses it for | Installation | Docs |
 |---|---|---|---|
 | `mattpocock-skills` | classic grill mode (`grillMode: classic`) | `/plugin install mattpocock-skills@claude-plugins-official` — if the marketplace is missing: `/plugin marketplace add anthropics/claude-plugins-official` | `github.com/anthropics/claude-plugins-official`, locally the `SKILL.md` under `skills/productivity/grilling/` in the plugin cache |
-| `ponytail` | one of several tasks in the maintenance run: an optional cleanup audit | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
+| `ponytail` | one one-shot use: an optional cleanup audit (one of several tasks in the maintenance run) | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
 
 An already-installed plugin starts enabled (its switch defaults to `true`) without asking here —
 only offer what `.plugins` reports missing.
@@ -14,9 +14,9 @@ only offer what `.plugins` reports missing.
 
 Only asked when `.plugins.ponytail` is `true` and `.plugins.ponytailMode` is not `off` — ponytail
 defaults to `full` mode itself when unconfigured, which loads it into every session including
-`pfq`/`ifq` and every Explore subagent. cfq only ever uses ponytail for one thing: the optional
-cleanup audit inside the maintenance run, a one-shot skill invocation that doesn't need the
-persistent mode. State plainly, in order:
+`pfq`/`ifq` and every Explore subagent. cfq uses ponytail for one one-shot skill invocation that
+never needs the persistent mode: the optional cleanup audit inside the maintenance run. State
+plainly, in order:
 
 - **What changes**: `~/.config/ponytail/config.json` gets `{"defaultMode": "off"}`, merged into
   whatever is already there (a user may already have `hideStatus` or `quietStartup` set) — never an
@@ -64,7 +64,7 @@ mutation script executes → the structured result is shown. No new script per a
       open, with one line explaining why.
    3. Entries without a `check:` line are only shown, and only checked off on explicit
       confirmation.
-   4. Never create or edit an entry here — those are written by `ifq` (P6).
+   4. Never create or edit an entry here — those are written by `ifq` at batch end.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 
