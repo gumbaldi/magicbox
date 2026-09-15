@@ -69,8 +69,8 @@ condition because there isn't one.
 
 `## Affected Files` names **every** file the phase will change or create — not the interesting
 ones, not the ones the phase is "about". The implementer is measured against this list
-(`<plugin-root>/references/queues.md`'s `## Stop Rule`), so an incomplete list is a planning defect, not an
-implementation defect.
+(`<plugin-root>/references/ifq-phase.md`'s `## Stop Rule`), so an incomplete list is a planning
+defect, not an implementation defect.
 
 Before the list is considered done, walk it once against this checklist. Each item names what to
 look for; a phase that legitimately has none of a category simply has nothing to add for it:

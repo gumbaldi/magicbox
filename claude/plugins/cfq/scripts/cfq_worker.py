@@ -4,7 +4,7 @@
 """The deterministic spine of orchestrator mode: composing the briefing a phase worker is spawned
 with (`brief`), and deciding what the worker's returned report means for the stop rule
 (`verdict`). Both are pure functions of data already on disk plus, for `verdict`, the worker's own
-JSON report on stdin -- see `.batch-context.md` and `references/queues.md`'s `## Stop Rule` for
+JSON report on stdin -- see `.batch-context.md` and `references/ifq-phase.md`'s `## Stop Rule` for
 why this must be a script rather than skill prose.
 
 `verdict`'s stdin contract: `{"status": "green"|"red"|"question", "triggers": [...], "question":

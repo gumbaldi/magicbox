@@ -42,11 +42,11 @@ whatever seems slow". A phase touching `docs/<language.codeLanguage>/…` gets i
 written in every `language.docLanguages` entry before it goes green, per
 `<plugin-root>/references/doc-style.md` or the target repo's own `docs/STYLE.md` if one exists.
 Never delegate implementation, test writing or documentation themselves — only research and
-green-run filtering, per `<plugin-root>/references/queues.md`'s **Research and Verification
+green-run filtering, per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
 Delegation**.
 
 Before finalizing the report, run the same mandatory file-scope comparison classic mode runs before
-closing every green phase — `<plugin-root>/references/queues.md`'s **File-Scope Deviation** —
+closing every green phase — `<plugin-root>/references/ifq-phase.md`'s **File-Scope Deviation** —
 against the batch directory `commands.phaseCommit` targets, and fold any non-empty result into
 `deviations` as one entry naming the file(s) and why. This is a record, never a stop and never a
 question.
@@ -90,9 +90,9 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
 `phase` is always the full slug from the briefing, never a bare number. `triggers` is the worker's
 own classification against the two green-path stop conditions — `"omitted"` when a planned change
 was deliberately left out, `"dependency"` when an unnamed new dependency or script was introduced
-— an empty array when neither applies; this is the one judgment call classic mode's Step 8 prose
-makes in-session and this definition makes once, structurally, because the worker has no channel to
-raise it as an immediate question. `status: "red"` carries the complete, unfiltered failure output
+— an empty array when neither applies; this is the one judgment call classic mode's **Implementation**
+step prose makes in-session and this definition makes once, structurally, because the worker has no
+channel to raise it as an immediate question. `status: "red"` carries the complete, unfiltered failure output
 in `errors`, never a summary. `status: "question"` carries only `phase`, `status` and `question` —
 nothing else has happened yet, so neither `commands.phaseCommit` nor `commands.phaseRecordRed` is
 ever called for it. This is the exact object `bin/cfq worker verdict` accepts on stdin (the
@@ -111,7 +111,7 @@ On `green`, mandatory, not optional — the orchestrator's next step pipes this 
    `Co-Authored-By`) to another, then call `commands.phaseCommit` with both. One call commits,
    moves the phase file into `done/`, appends the `report.json` entry, backfills the commit SHA,
    pushes (`-u origin <branch>` on this worker's first push, a plain `git push` after) and
-   registers the repo — `<plugin-root>/references/queues.md`'s **Phase Commit Trailers** for what
+   registers the repo — `<plugin-root>/references/ifq-phase.md`'s **Phase Commit Trailers** for what
    the commit message gains along the way.
 3. `pushed: false` in the result is reported, not fatal — the phase still closed. `COMMIT_FAILED`
    or `RECORD_FAILED` means treat this run as `red` in the returned report instead — a

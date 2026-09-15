@@ -12,8 +12,8 @@ Re-run `bin/cfq preflight-impl "<repo-root>" --select "<batch>"` to resolve the 
 then `bin/cfq ctx` for the rate-limit gate. `nextPhase: null` (every phase already moved to
 `done/`, `bin/cfq finish` never ran) → skip straight to step 5's batch end, never spawn a worker
 for a phase that doesn't exist. A `WARN` carries the same three-option question as
-classic mode's `<plugin-root>/references/queues.md`'s **Phase Announcement** — identical wording,
-identical options, no second variant. The capacity reason (`stopUsed`) does not apply here: every
+classic mode's `<plugin-root>/references/ifq-phase.md`'s **Phase Announcement** — identical
+wording, identical options, no second variant. The capacity reason (`stopUsed`) does not apply here: every
 worker starts on an empty context window, so no size gate runs and `onePhasePerSession` has no
 effect on this loop at all.
 
@@ -45,16 +45,17 @@ silent.
 
 ## 5. Phase summary and batch end
 
-Render the worker's report as `<plugin-root>/references/queues.md`'s existing **Phase Summary**
+Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations` map onto `Implemented`/`Verification`/`Deviation`
 directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
-follows classic mode's Step 11 in full.
+follows classic mode's **Batch Done** in full.
 
 ## 6. Fallback to classic
 
 A spawn that fails outright, or a worker that returns nothing usable (malformed report, no report
 at all), does not end the batch: the orchestrator implements that phase itself, in-session, exactly
-as classic mode's Step 8 would, and prints one `⚠️` line naming what failed before falling back.
+as classic mode's **Implementation** step would, and prints one `⚠️` line naming what failed before
+falling back.
 This fallback exists to keep a batch moving on an occasional spawn failure — a *repeated* fallback
 within the same batch is worth investigating, not silently absorbing.
 

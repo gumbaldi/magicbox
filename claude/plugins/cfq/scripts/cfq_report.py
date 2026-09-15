@@ -253,7 +253,7 @@ def cmd_set_commit(args):
 
 def cmd_skills(args):
     """Replaces the retired `jq -c '{recommended: ..., used: ...}'` filter over
-    report.json's telemetry.skills_recommended / telemetry.by_skill (references/queues.md's
+    report.json's telemetry.skills_recommended / telemetry.by_skill (references/ifq-batch-end.md's
     Skills Recommended vs. Used)."""
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")

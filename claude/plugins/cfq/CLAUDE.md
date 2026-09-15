@@ -26,7 +26,7 @@ a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
 Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
-`queues.md`) — no per-skill `references/` directory, one path style everywhere
+`ifq-phase.md`) — no per-skill `references/` directory, one path style everywhere
 (`${CLAUDE_PLUGIN_ROOT}/references/<file>.md` from a `SKILL.md`, `<plugin-root>/references/<file>.md`
 from inside another reference file, since the loader only expands `${CLAUDE_PLUGIN_ROOT}` in
 `SKILL.md` itself). Reference files are loaded only on the path that actually needs them, not by
@@ -119,7 +119,7 @@ only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consisten
 younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
-(`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queues.md`) that `implement-for-queue` drops for
+(`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`;
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off (Step C, current repo only), and
@@ -223,7 +223,7 @@ subagent's own work is implementation. This does not reopen delegation for a cla
 what still never fits, in either mode, is a fragment of work whose result the *parent itself* must
 read back to finish — a *newly spawned* subagent starts cold and re-reads what the parent already
 holds (a continued one, addressed via `SendMessage`, keeps its context instead — see
-`claude/plugins/cfq/references/queues.md`'s "Reusing a Warm Explore Agent" for when that applies),
+`claude/plugins/cfq/references/ifq-phase.md`'s "Reusing a Warm Explore Agent" for when that applies),
 and the parent then reads the subagent's output again to verify it, two or three reads where a
 direct read-and-edit would have been one.
 
@@ -239,6 +239,9 @@ faith.
 
 ## Conventions
 
+- Rationale and history for skill/reference/agent rules lives in `claude/plugins/cfq/docs/design-notes.md`,
+  not in the skill text itself — new rationale goes there, never back into a `SKILL.md`, reference
+  file, or agent definition.
 - Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
   `description`/`prompt`. Change one, change both.
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the

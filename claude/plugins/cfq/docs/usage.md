@@ -63,7 +63,7 @@ green phase.
    ```
    PHASE 02 · ifq-per-phase-go-gate · Size L
      Goal     Deterministic phase announcement, extracted from the phase file itself.
-     Files    bin/cfq, SKILL.md, queues.md
+     Files    bin/cfq, SKILL.md, ifq-phase.md
      Check    python3 -m unittest discover -s tests -k brief_park
    ```
 
