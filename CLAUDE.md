@@ -14,6 +14,9 @@ One directory per AI provider — `claude/` for Claude Code, `codex/` for Codex/
 provider-neutral skill sources that are adapted by hand when they are adopted for a provider. Only
 directories that have content exist; there are no empty placeholders and no generator.
 
+`.github/workflows/` at the repo root holds per-plugin CI, path-filtered so each plugin's workflow
+only runs when that plugin's own files change.
+
 Claude Code plugins live at `claude/plugins/<name>/`, one directory per plugin, each fully
 self-contained with its own `.claude-plugin/plugin.json`, its own `README.md`, and its own
 `CLAUDE.md`. The root `marketplace.json` lists each of them with
