@@ -27,8 +27,9 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 | IMPLEMENTATION | 8-9 | per phase: announcement, result, Commit |
 | POSTCHECKS | 10-12 | Context Check, Telemetry, Lock, Batch Done |
 
-Not strictly sequential: a `WARN` at Step 10 loops back to Step 5 for the next phase instead of
-opening `POSTCHECKS`. `POSTCHECKS` opens only on a `STOP`, a red phase, or a finished batch.
+Not strictly sequential: a `WARN` at **Context Check After Every Phase** loops back to **Earlier
+Failed Attempt** for the next phase instead of opening `POSTCHECKS`. `POSTCHECKS` opens only on a
+`STOP`, a red phase, or a finished batch.
 
 ## Step 1 — Arguments
 

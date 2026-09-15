@@ -1,18 +1,16 @@
 # Phase Quality: Test-First, Risk Flags, Bundled Verification
 
-Read unconditionally in Step 10, before any phase's Changes and Verification text is written — not
-only for a phase that moves, extracts, or reuses existing logic verbatim, or introduces non-trivial
-logic of its own (a branch, a loop, a parser, a multi-step resolution chain, an adapter). Rules 1-4
-name their own trigger condition inline, so a phase outside that condition simply has nothing to
-apply for that rule; rule 5 steers the phase's `Size` letter; rule 6 applies to every phase without
-exception. This file governs what a phase's text must contain once it exists;
-`<plugin-root>/references/plan-self-critique.md` (Step 11) governs whether the phase should exist at all — keep
-the two separate.
+Read unconditionally in **Language and Cut Phases**, before any phase's Changes and Verification
+text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
+introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
+an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rule 6 applies
+to every phase without exception. This file governs what a phase's text must contain once it
+exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
+governs whether the phase should exist at all — keep the two separate.
 
-This file exists because one `/ifq` phase burned far more tokens than the task itself required —
-not the logic, the debugging: a raw `bash -x` trace dumped whole into context, and a dozen one-off
-shell smoke tests instead of one test file. The five rules below turn that incident into a
-standing checkpoint, not a one-time lesson repeated only in a post-mortem.
+The five rules below are a standing checkpoint against runaway debugging tokens and untested
+verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## 1. Test-first, not shell exploration
 

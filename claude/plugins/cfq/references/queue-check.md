@@ -1,6 +1,6 @@
 # Queue Check: Overlap with Open Batches
 
-Only read when Step 8 finds at least one open batch for the target repo.
+Only read when **Queue Check** finds at least one open batch for the target repo.
 
 ```bash
 "<plugin-root>/bin/cfq" overlap "<repo-root>"
@@ -13,5 +13,5 @@ shell filter, no `jq`.
 
 - **No overlap** → one sentence, move on. No question.
 - **Overlap** → name the affected paths and every overlapping batch in the `Queue Check` status
-  line. Collect each overlapping batch's name as a `.dependsOn` entry for Step 14's `bin/cfq park`
+  line. Collect each overlapping batch's name as a `.dependsOn` entry for **Park**'s `bin/cfq park`
   call — no question, no "parallel"/"fold into" options.

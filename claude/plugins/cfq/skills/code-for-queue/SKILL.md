@@ -107,7 +107,7 @@ plus the expanded next batch), `CONFIG · <name>`, `ACTIONS` (every management a
 command Step C/D can run, naming each in one line), and finally `NEXT` — the copyable
 `cd`/`/model`/`/ifq` sequence, current repo first when several repos have open work, state
 described before the call to action that follows it. No reformatting, no rebuilding a table from
-`.repos`/`.thisRepo`/`.settings` by hand — this is the same aggregation Step 0 fetches as JSON,
+`.repos`/`.thisRepo`/`.settings` by hand — this is the same aggregation **Aggregate** fetches as JSON,
 formatted by the script instead of the model. (The bare `/cfq` slash command already prints this
 block via its own injection before the model runs at all; this step exists for every other way the
 skill gets invoked — natural language, or as part of Step A's flow.)
@@ -125,7 +125,7 @@ confirm → mutate → report under an `ACTION` header. Full per-action detail i
 ## Step D — Settings
 
 Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
-each key's value/source straight from `.settings` (Step 0's call), never re-list. Scope inference,
+each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference,
 the global-only rejection, and the `env:repo-legacy` migration note are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:
 `✅ Setting  maintenanceEvery: 50 → 40 (global)`, or `⚠️ Setting  stopUsed set, but

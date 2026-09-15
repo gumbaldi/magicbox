@@ -67,8 +67,8 @@ line. `--any` is for a single argument that could name either a repo or a batch 
 below.
 
 No batch has a report (`index` returns `[]`) → say so plainly, and mention that reports have
-existed only since v0.2, so older batches never got one. Exactly one match → skip Step 2 entirely
-and go straight to Step 3's detail view.
+existed only since v0.2, so older batches never got one. Exactly one match → skip **Terminal Table** entirely
+and go straight to **Detail**'s detail view.
 
 ## 2. Terminal Table
 
@@ -76,9 +76,9 @@ and go straight to Step 3's detail view.
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] --text
 ```
 
-Same filters as Step 1 — another cheap single-scan call, this time rendered. Print its output
+Same filters as **Collect** — another cheap single-scan call, this time rendered. Print its output
 exactly as returned (the table plus one `file://` line per row, already pointing into the collected
-tree when `reportDir` is configured) — no rebuilding the table from Step 1's JSON by hand.
+tree when `reportDir` is configured) — no rebuilding the table from **Collect**'s JSON by hand.
 
 ## 3. Detail
 
@@ -112,7 +112,7 @@ No argument → all repos, `index` called without flags. With an argument that c
 or a batch, pass it as `--repo`/`--batch` — narrowing independently when both are given (AND, not
 OR). An argument that could name either → `--any <arg>` instead: `index` matches it against repo
 path or batch name and dedupes internally, one call, never two calls merged by Claude after the
-fact. Print the `Filter` status line right after `Scan`, before Step 2's table.
+fact. Print the `Filter` status line right after `Scan`, before **Terminal Table**'s table.
 
 ## Boundary
 

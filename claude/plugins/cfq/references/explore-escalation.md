@@ -1,6 +1,6 @@
 # Explore Model Escalation
 
-Shared by `plan-for-queue` Step 5 and `implement-for-queue`'s Research and Verification
+Shared by `plan-for-queue`'s **Understand** and `implement-for-queue`'s Research and Verification
 Delegation (`<plugin-root>/references/ifq-phase.md`) — same rule, both places, worded identically:
 
 > Run an Explore agent on `planExploreModel` / `implExploreModel` when the task is to **locate**:
@@ -10,7 +10,7 @@ Delegation (`<plugin-root>/references/ifq-phase.md`) — same rule, both places,
 > stated anywhere, weigh two implementations against each other. If the answer the agent must
 > return is a list, the cheap model is right; if it is an assessment, it is not.
 
-Both keys already ride on each skill's own preflight result (`pfq`'s Step 4, `ifq`'s Step 3)
+Both keys already ride on each skill's own preflight result (`pfq`'s **Start Block**, `ifq`'s **Preflight**)
 (`planningPolicy.planExploreModel`/`.planExploreModelComplex` for `pfq`,
 `policy.implExploreModel`/`.implExploreModelComplex` for `ifq`) — no `bin/cfq settings get` call at
 either site.

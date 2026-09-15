@@ -1,7 +1,7 @@
 # New Repo Config Overview
 
-Only read when Step 4's preflight has `repo.known: false` — shown right before Step 4's
-start-block `AskUserQuestion`; the config question below is one of that call's (up to three)
+Only read when pfq's **Start Block** preflight has `repo.known: false` — shown right before its
+`AskUserQuestion`; the config question below is one of that call's (up to three)
 questions, not a separate call.
 
 Show the full config:
@@ -14,9 +14,9 @@ in, and note whether `--sources` reports any of them as `env:repo-legacy` (an ov
 in the old `<repo-root>/.claude/settings.json` `env` block rather than the repo settings file).
 
 The question: keep the config as-is (default, fast path) vs. adjust something now. Adjustments go
-through `bin/cfq settings set <key> <value>`, exactly as in `code-for-queue` Step D, and run before
-Step 4's write probe. This never blocks — either answer continues straight through the rest of the
-start block.
+through `bin/cfq settings set <key> <value>`, exactly as in `code-for-queue`'s **Settings**, and run
+before **Start Block**'s write probe. This never blocks — either answer continues straight through
+the rest of the start block.
 
 Print the `Config` status line: `➖ known repo`, `⚠️ new repo · reviewed` (user kept defaults), or
 `⚠️ new repo · adjusted <n>` (n = number of keys changed).

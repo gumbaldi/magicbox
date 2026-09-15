@@ -1,13 +1,8 @@
 # Plan Self-Critique: Does the Cut Still Earn Its Place
 
-`Step 9` asks the **user** what is still open. Step 10 proposes the phase cut and, until this file
-existed, wrote the files right after — nothing asked the **planner** whether the phases it just cut
-actually serve the batch goal. This was observed in batch `009`: six phases were cut, the user said
-"write the plans", and only afterwards, asked unprompted, did re-examining the cut within one turn
-produce a differentiated answer — three phases clearly justified, one only a precondition, one
-delivering a different benefit than assumed, one weak enough to drop. The batch went from six phases
-to five. Under the rule below, the drop would still have prompted one question; the two narrowings
-would have been made silently and reported.
+**Closing Question** asks the **user** what is still open. **Language and Cut Phases** proposes the
+phase cut — nothing then asks the **planner** whether the phases it just cut actually serve the
+batch goal.
 
 The specific failure mode this catches: a phase enters the batch because the user picked it from an
 option list the planner itself wrote, and the planner then treats the answer as settled. A step that only asks the user to review the plan cannot catch that — the user is reviewing
@@ -20,7 +15,7 @@ This file governs whether a phase should **exist**. `phase-quality.md` governs w
 
 ## Scope
 
-Read unconditionally at Step 11, every session, regardless of phase count or interview depth. A
+Read unconditionally at **Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A
 two-phase batch still gets two short verdicts — this step is never skipped as "too small to
 bother".
 
@@ -66,12 +61,12 @@ batch delivers; everything else only changes *how* it is split, which is the pla
 
 Batch several question-worthy findings into one call rather than asking serially.
 
-Every correction made without asking is named in the Step 11 status line — what was changed and
+Every correction made without asking is named in the **Self-Critique of the Phase Cut** status line — what was changed and
 why — so a silent fix is still a visible fix. A correction that cannot be stated in one clause is a
 sign the finding is a drop in disguise and belongs in the question instead.
 
 A question whose only sensible answer is "yes, fix it" is not a decision, it is a confirmation
-prompt, and it costs the user a turn for nothing — that is why this section changed.
+prompt, and it costs the user a turn for nothing.
 
 ## Recording
 
@@ -85,8 +80,8 @@ Self-Critique
   01 audit-log-schema      pass — cites phase 02's read path
   02 audit-log-writer      pass — cites the batch goal directly
   03 audit-log-dashboard   fail (serves the batch goal) — this batch's goal is "make writes
-                           auditable", not "visualize them"; 03 was picked from Step 8's option
-                           list, not derived from the goal
+                           auditable", not "visualize them"; 03 was picked from Language and Cut
+                           Phases' option list, not derived from the goal
   04 audit-log-alerting    fixed (fits the existing environment) — depended on 02's writer being
                            in place; reordered after it, no capability changed — reported, not
                            asked
@@ -99,15 +94,15 @@ the audit-log table view, or leave it as is?"
 ## The Post-Write Audit
 
 This section's verdicts above judge the *proposed cut* — phase boundaries, ordering, hand-off
-points as described before any file exists on disk. Once Step 14 (Park) has written every phase
+points as described before any file exists on disk. Once **Park** has written every phase
 file and `.batch-context.md`, the written text can drift from that proposal in ways the cut review
 never sees: a phase whose `Verification` depends on a file only a later phase creates, a
 `Dependencies` section pointing forward or at nothing. This section is that check against reality.
 
-- **When.** After Step 14 has written every phase file and `.batch-context.md`, before Step 16's
-  lint. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
+- **When.** After **Park** has written every phase file and `.batch-context.md`, before **Plan
+  Lint**. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
   still gets its `Dependencies` and `Verification` checked against reality.
-- **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from Step 4's
+- **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from **Start Block**'s
   preflight result — no new `bin/cfq settings get` call), per `<plugin-root>/references/explore-escalation.md`'s
   judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the
   failure mode this step exists for is the author reading their own intent instead of the text.
@@ -131,4 +126,4 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   `AskUserQuestion`.
 - **Renumbering after a correction.** A correction that reorders phases renames the files so the
   numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
-  phase. This happens before the lint, which is why the step sits where it does.
+  phase. This happens before **Plan Lint**.

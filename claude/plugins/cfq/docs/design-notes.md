@@ -32,3 +32,22 @@ least one: Step 3 once claimed to have "resolved Steps 1, 2 and 3a"; Step 8 once
 for a call that had moved to Step 9. Cross-references now name the step instead (`**Size Gate**`,
 `**Batch Done**`), so a renumbering can't silently leave a stale reference behind. The `Section Map`
 table is the one place step numbers still appear on purpose — it *is* the numbering.
+
+## pfq: why Self-Critique of the Phase Cut exists
+
+Observed in batch `009`: six phases were cut, the user said "write the plans", and only
+afterwards, asked unprompted, did re-examining the cut within one turn produce a differentiated
+answer — three phases clearly justified, one only a precondition, one delivering a different
+benefit than assumed, one weak enough to drop. The batch went from six phases to five. Under the
+rule this incident produced, the drop would still have prompted one question; the two narrowings
+would have been made silently and reported. The specific failure mode: a phase enters the batch
+because the user picked it from an option list the planner itself wrote, and a step that only asks
+the user to review the plan cannot catch that — the user is reviewing a proposal built from their
+own earlier answer.
+
+## pfq: why Phase Quality's five rules exist
+
+One `/ifq` phase burned far more tokens than the task itself required — not the logic, the
+debugging: a raw `bash -x` trace dumped whole into context, and a dozen one-off shell smoke tests
+instead of one test file. The five rules in `references/phase-quality.md` turn that incident into a
+standing checkpoint, not a one-time lesson repeated only in a post-mortem.

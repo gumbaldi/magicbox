@@ -1,9 +1,10 @@
 # Write Probe: Fail Before the Interview, Not After It
 
-Read at the end of Step 4, once the interview-depth answer is in and before Step 5 starts.
+Read at the end of **Start Block**, once the interview-depth answer is in and before **Understand**
+starts.
 
-A `PreToolUse` hook on `Write`/`Edit` can deny exactly the calls Step 14 depends on. Finding that
-out in Step 14 costs the whole interview. Probing costs one `Write` and one cleanup call.
+A `PreToolUse` hook on `Write`/`Edit` can deny exactly the calls **Park** depends on. Finding that
+out in **Park** costs the whole interview. Probing costs one `Write` and one cleanup call.
 
 ## Procedure
 
@@ -23,7 +24,7 @@ out in Step 14 costs the whole interview. Probing costs one `Write` and one clea
 
 ## On denial
 
-End the session, exactly as `status: "NO_REPO"` does in Step 4. Print `❌ Write Probe` with the
+End the session, exactly as `status: "NO_REPO"` does in **Start Block**. Print `❌ Write Probe` with the
 blocking hook's own `stopReason` quoted verbatim as the sub-line — the user needs the hook's message
 to find the hook, and paraphrasing it loses the path it names. Nothing has been parked at this
 point, so there is nothing to roll back.
