@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN, git  # noqa: E402
+from cfq_lib.proc import cfq_argv, git  # noqa: E402
 
 PROG = "cfq_resume.py"
 
@@ -37,7 +37,7 @@ def git_verify(repo_root, ref):
 
 def resolve_branch(repo_root, batch_name):
     proc = subprocess.run(
-        [str(CFQ_BIN), "branch", "plan", str(repo_root), batch_name],
+        cfq_argv("branch", "plan", str(repo_root), batch_name),
         capture_output=True, text=True,
     )
     if proc.returncode != 0:

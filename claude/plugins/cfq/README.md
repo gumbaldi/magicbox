@@ -377,7 +377,9 @@ one feature it powers rather than blocking the plugin: `gh` or `tea` for the sec
 Linux and macOS are fully supported — `bin/cfq` only needs stock Bash 3.2, which is what macOS
 ships as `/bin/bash`. Windows is best effort through Git Bash, which is what Claude Code itself
 runs hooks and `Bash` tool calls through on Windows; it needs Python 3.8+ on `PATH` as `python3`,
-`python` or `py`.
+`python` or `py`. cfq's Python scripts re-invoke `bin/cfq` through the `bash` found on `PATH`, so
+Git Bash's `bash` must come before any other (e.g. WSL's) — the case when Python was started from
+Git Bash, which is the supported setup above.
 
 ## Optional dependencies
 

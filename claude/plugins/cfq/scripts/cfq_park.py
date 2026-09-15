@@ -18,7 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN  # noqa: E402
+from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_park.py"
 
@@ -27,7 +27,7 @@ def cmd_park(args):
     if args.priority not in ("high", "normal"):
         errors.die(f"{PROG}: priority must be high|normal, got '{args.priority}'")
 
-    subprocess.run([str(CFQ_BIN), "layout", "ensure", args.repo], stdout=subprocess.DEVNULL, check=True)
+    subprocess.run(cfq_argv("layout", "ensure", args.repo), stdout=subprocess.DEVNULL, check=True)
 
     d = pathlib.Path(cfq_lib_paths.impl_dir(args.repo)) / args.batch
     d.mkdir(parents=True, exist_ok=True)
@@ -47,7 +47,7 @@ def cmd_park(args):
     if args.depends:
         depends_file.write_text("\n".join(args.depends) + "\n")
 
-    subprocess.run([str(CFQ_BIN), "registry", "add", args.repo], stdout=subprocess.DEVNULL, check=True)
+    subprocess.run(cfq_argv("registry", "add", args.repo), stdout=subprocess.DEVNULL, check=True)
 
     print(str(d))
 

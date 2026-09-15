@@ -29,7 +29,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402,F401
-from cfq_lib.proc import CFQ_BIN  # noqa: E402
+from cfq_lib.proc import cfq_argv  # noqa: E402
 
 STALE_PAYLOAD_SECONDS = 600
 PONYTAIL_MODES = ("off", "lite", "full", "ultra")
@@ -75,7 +75,7 @@ def resolve_transcript_path(repo_path, exact):
 
 def ctx_window_limit_for(model):
     proc = subprocess.run(
-        [str(CFQ_BIN), "settings", "get", "ctxWindowLimits"], capture_output=True, text=True
+        cfq_argv("settings", "get", "ctxWindowLimits"), capture_output=True, text=True
     )
     try:
         limits = json.loads(proc.stdout) if proc.returncode == 0 else {}

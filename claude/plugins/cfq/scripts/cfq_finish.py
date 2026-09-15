@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN, capture, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
+from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
 
 PROG = "cfq_finish.py"
 
@@ -160,7 +160,7 @@ def cmd_finish(args):
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
         }))
     finally:
-        subprocess.run([str(CFQ_BIN), "lock", "release", str(repo_root)], capture_output=True, text=True)
+        subprocess.run(cfq_argv("lock", "release", str(repo_root)), capture_output=True, text=True)
 
 
 def build_parser():

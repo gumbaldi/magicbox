@@ -29,7 +29,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
-from cfq_lib.proc import CFQ_BIN  # noqa: E402
+from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
 
@@ -108,7 +108,7 @@ def repo_root_of(d):
 def settings_get(repo_root, key):
     """Stays local, not `cfq_lib.proc.settings_get`: `repo_root` here is optional (falsy skips
     `--repo` for a global-only read), which the shared helper doesn't support."""
-    cmd = [str(CFQ_BIN), "settings", "get"]
+    cmd = cfq_argv("settings", "get")
     if repo_root:
         cmd += ["--repo", repo_root]
     cmd.append(key)
@@ -202,7 +202,7 @@ def append_phase(dir_, phase_json, record_telemetry=True):
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
     # cost the phase its report.
     if record_telemetry:
-        subprocess.run([str(CFQ_BIN), "telemetry", "record", dir_, "phase", phase_id])
+        subprocess.run(cfq_argv("telemetry", "record", dir_, "phase", phase_id))
     return phase_id
 
 

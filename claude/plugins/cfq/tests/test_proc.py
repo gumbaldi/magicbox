@@ -68,6 +68,50 @@ class ProcTest(unittest.TestCase):
         result = proc.cfq_run_merged("no-such-noun")
         self.assertIn("unknown noun", result.stdout)
 
+    def test_cfq_argv_non_windows_skips_bash_lookup(self):
+        with mock.patch.object(proc, "_IS_WINDOWS", False), \
+                mock.patch("shutil.which") as which:
+            result = proc.cfq_argv("registry", "list")
+        self.assertEqual(result, [str(proc.CFQ_BIN), "registry", "list"])
+        which.assert_not_called()
+
+    def test_cfq_argv_windows_resolves_git_bash(self):
+        bash_path = "C:/Program Files/Git/usr/bin/bash.exe"
+        with mock.patch.object(proc, "_IS_WINDOWS", True), \
+                mock.patch("shutil.which", return_value=bash_path) as which:
+            result = proc.cfq_argv("registry", "list")
+        self.assertEqual(result, [bash_path, str(proc.CFQ_BIN), "registry", "list"])
+        which.assert_called_once_with("bash")
+
+    def test_cfq_argv_windows_no_args(self):
+        bash_path = "C:/Program Files/Git/usr/bin/bash.exe"
+        with mock.patch.object(proc, "_IS_WINDOWS", True), \
+                mock.patch("shutil.which", return_value=bash_path):
+            result = proc.cfq_argv()
+        self.assertEqual(result, [bash_path, str(proc.CFQ_BIN)])
+
+    def test_cfq_argv_windows_no_bash_on_path_raises(self):
+        with mock.patch.object(proc, "_IS_WINDOWS", True), \
+                mock.patch("shutil.which", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                proc.cfq_argv("x")
+        self.assertIn("Git Bash", str(ctx.exception))
+
+    def test_cfq_run_and_cfq_run_merged_route_through_cfq_argv_on_windows(self):
+        bash_path = "C:/Program Files/Git/usr/bin/bash.exe"
+        with mock.patch.object(proc, "_IS_WINDOWS", True), \
+                mock.patch("shutil.which", return_value=bash_path), \
+                mock.patch.object(proc.subprocess, "run") as run:
+            proc.cfq_run("a", env={"K": "v"})
+            proc.cfq_run_merged("a")
+
+        self.assertEqual(run.call_count, 2)
+        run_args, run_kwargs = run.call_args_list[0]
+        merged_args, _merged_kwargs = run.call_args_list[1]
+        self.assertEqual(run_args[0][0], bash_path)
+        self.assertEqual(run_kwargs.get("env"), {"K": "v"})
+        self.assertEqual(merged_args[0][0], bash_path)
+
 
 if __name__ == "__main__":
     unittest.main()
