@@ -97,11 +97,16 @@ owns directory creation and the Git-state policy below):
 (optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
 `report.json` (per-phase implementation report plus telemetry, closed onto the ledger together
-with the file's move into `done/` by the single transactional call `cfq phase record <batch-dir>
-<phase-json-file>` — green moves the `.md` file and appends the entry or does neither; `cfq phase
-reopen <batch-dir> <phase-slug>` is the inverse, moving a phase back out of `done/` and marking the
-ledger entry `reopened` without touching `status`/`commit`; `report append` remains a public verb
-for other tooling and its own tests but is no longer called from any skill text). `done/` stays the
+with the file's move into `done/` and the phase's own Git commit by the single transactional call
+`cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
+whatever is already staged (never runs `git add` itself), moves the `.md` file, appends the ledger
+entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
+after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
+phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
+move nothing); `cfq phase reopen <batch-dir> <phase-slug>` is `record`'s inverse, moving a phase back
+out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; the
+append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed as its own
+`report append` CLI verb). `done/` stays the
 one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
 batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
 exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
@@ -260,7 +265,7 @@ faith.
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
 - **No skill or reference file instructs a shell mutation of anything under `.claude/cfq/`** —
-  every such operation (`phase record`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
+  every such operation (`phase record`/`commit`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
   `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a raw `rm`/`mv`/`mkdir`/`jq` written
   into the text. `tests/test_reference_paths.py` greps for this structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them

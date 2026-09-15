@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_report.py append <batch-dir> <phase-json>
-#        cfq_report.py security <batch-dir> <security-json>
+# Usage: cfq_report.py security <batch-dir> <security-json>
 #        cfq_report.py set-commit <batch-dir> <phase-slug> <sha>
 #        cfq_report.py skills <batch-dir>
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
@@ -169,11 +168,13 @@ def bound_lines(value, n=5):
 # ---- verbs: append / security / set-commit / last-failure / summary ------------------------
 
 def append_phase(dir_, phase_json, record_telemetry=True):
-    """Validates and appends one phase entry to report.json -- the append half of `cmd_append`,
-    factored out so `cfq_phase.py record` can call it as its single ledger-write step instead of
-    reimplementing it (`report append` stays the one place this logic lives). Returns the
-    validated phase_id. `record_telemetry=False` lets a caller that runs its own accounting (e.g.
-    `cfq_phase.py record`'s `--no-telemetry`) skip the subprocess call."""
+    """Validates and appends one phase entry to report.json -- the one place this logic lives,
+    called by `cfq_phase.py record` and `cfq_phase.py commit` as their single ledger-write step
+    instead of reimplementing it. No longer reachable as a CLI verb (`report append` was removed
+    once every skill-facing caller moved to `phase record`/`phase commit`); other tooling and
+    tests import this function directly. Returns the validated phase_id. `record_telemetry=False`
+    lets a caller that runs its own accounting (e.g. `cfq_phase.py record`'s `--no-telemetry`) skip
+    the subprocess call."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
 
@@ -205,10 +206,6 @@ def append_phase(dir_, phase_json, record_telemetry=True):
     return phase_id
 
 
-def cmd_append(args):
-    append_phase(args.dir, args.phase)
-
-
 def cmd_security(args):
     dir_ = args.dir
     if not os.path.isdir(dir_):
@@ -229,8 +226,10 @@ def cmd_security(args):
     render.write_json(f, data)
 
 
-def cmd_set_commit(args):
-    dir_, phase_slug, sha = args.dir, args.phase_slug, args.sha
+def set_commit(dir_, phase_slug, sha):
+    """Backfills the `commit` field of `phase_slug`'s most recent report.json entry -- factored
+    out so `cfq_phase.py commit` can call it directly as part of its own transaction instead of
+    shelling back out to this script."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
     f = os.path.join(dir_, "report.json")
@@ -246,6 +245,10 @@ def cmd_set_commit(args):
         )
     phases[matches[-1]]["commit"] = sha
     render.write_json(f, data)
+
+
+def cmd_set_commit(args):
+    set_commit(args.dir, args.phase_slug, args.sha)
 
 
 def cmd_skills(args):
@@ -750,11 +753,6 @@ def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("append")
-    p.add_argument("dir")
-    p.add_argument("phase")
-    p.set_defaults(func=cmd_append)
-
     p = sub.add_parser("security")
     p.add_argument("dir")
     p.add_argument("snap")
@@ -803,8 +801,7 @@ def main(argv):
     func = getattr(args, "func", None)
     if func is None:
         errors.die(
-            f"usage: {PROG} append <batch-dir> <phase-json> | "
-            f"security <batch-dir> <security-json> | "
+            f"usage: {PROG} security <batch-dir> <security-json> | "
             f"set-commit <batch-dir> <phase-slug> <sha> | "
             f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "

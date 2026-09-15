@@ -4,6 +4,8 @@ Self-test for scripts/cfq_report.py: append/set-commit/summary/html/last-failure
 the index/detail surface.
 """
 
+import contextlib
+import io
 import json
 import shutil
 import subprocess
@@ -58,20 +60,33 @@ class TestReport(CfqTestCase):
         missing = self._repos_dir / "does-not-exist.md"
         self.assertEqual(cfq_report.extract_goal(str(missing)), "")
 
+    def _append_raises(self, dir_, phase_json):
+        """Calls append_phase() expecting its errors.die() validation to fire (SystemExit),
+        capturing what it printed to stderr the same way a subprocess call's `proc.stderr` used
+        to."""
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf), self.assertRaises(SystemExit) as ctx:
+            cfq_report.append_phase(dir_, phase_json, record_telemetry=False)
+        self.assertNotEqual(ctx.exception.code, 0)
+        return buf.getvalue()
+
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
 
-        # HOME is an empty dir so append's automatic telemetry call finds no transcript
-        # (fail-soft, no-op) -- this batch stays a "report without telemetry" fixture on purpose.
-        self.run_cfq(
-            "report", "append", str(batch),
+        # record_telemetry=False mirrors the old fixture's empty HOME (append's automatic
+        # telemetry call finding no transcript, fail-soft, no-op) -- this batch stays a "report
+        # without telemetry" fixture on purpose.
+        cfq_report.append_phase(
+            str(batch),
             '{"phase":"01-a","status":"green","finished":"2026-01-01T10:00:00+01:00","summary":"ok",'
             '"deviations":["Plan sagte X, gebaut Y"],"errors":[],"verification":"tests -> PASS","commit":"abc1234"}',
+            record_telemetry=False,
         )
-        self.run_cfq(
-            "report", "append", str(batch),
+        cfq_report.append_phase(
+            str(batch),
             '{"phase":"02-b","status":"red","finished":"2026-01-01T11:00:00+01:00","summary":"fehlgeschlagen",'
             '"deviations":[],"errors":["Verifikation rot: 1 Test <failed>"],"verification":"tests -> FAIL","commit":""}',
+            record_telemetry=False,
         )
 
         self.run_cfq("report", "set-commit", str(batch), "01-a", "def5678")
@@ -105,21 +120,18 @@ class TestReport(CfqTestCase):
         badph = self._batch("2026-01-05-badphase")
 
         # bare number -- the batch-009 shape that started this
-        proc = self.run_cfq("report", "append", str(badph), '{"phase":"01","status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject a bare phase number")
-        self.assertTrue(len(proc.stderr) > 0, "append gave no stderr message for a bare phase number")
+        stderr = self._append_raises(str(badph), '{"phase":"01","status":"green","summary":"x"}')
+        self.assertTrue(len(stderr) > 0, "append gave no stderr message for a bare phase number")
         self.assertFalse((badph / "report.json").exists(), "append created report.json despite rejecting the phase value")
 
         # missing phase field entirely
-        proc = self.run_cfq("report", "append", str(badph), '{"status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject phase JSON without a phase field")
+        self._append_raises(str(badph), '{"status":"green","summary":"x"}')
 
         # empty phase field
-        proc = self.run_cfq("report", "append", str(badph), '{"phase":"","status":"green","summary":"x"}')
-        self.assertNotEqual(proc.returncode, 0, "append should reject an empty phase field")
+        self._append_raises(str(badph), '{"phase":"","status":"green","summary":"x"}')
 
         # routine case still accepted, and it is what creates report.json
-        self.run_cfq("report", "append", str(badph), '{"phase":"03-c","status":"green","summary":"x"}')
+        cfq_report.append_phase(str(badph), '{"phase":"03-c","status":"green","summary":"x"}', record_telemetry=False)
         self.assertEqual(
             self._report_json(badph)["phases"][-1]["phase"], "03-c",
             "append no longer accepts a well-formed phase slug",
@@ -321,10 +333,11 @@ It covers the two-line context excerpt.
 
 M
 """)
-        self.run_cfq(
-            "report", "append", str(batch_x),
+        cfq_report.append_phase(
+            str(batch_x),
             '{"phase":"01-a","status":"green","finished":"2026-03-01T10:00:00+01:00","summary":"ok",'
             '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"eee5555"}',
+            record_telemetry=False,
         )
 
         env = {"CFQ_REPORT_DIR": str(rd), "CFQ_SCAN_ROOTS": str(self._repos_dir)}
@@ -343,10 +356,11 @@ M
         batch_y_name = "2026-03-02-nogoal"
         batch_y = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_y_name
         (batch_y / "done").mkdir(parents=True)
-        self.run_cfq(
-            "report", "append", str(batch_y),
+        cfq_report.append_phase(
+            str(batch_y),
             '{"phase":"01-a","status":"green","finished":"2026-03-02T10:00:00+01:00","summary":"ok",'
             '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"fff6666"}',
+            record_telemetry=False,
         )
         out_y = self.run_cfq("report", "html", str(batch_y), env=env).stdout.strip()
         self.assertTrue(len(out_y) > 0, f"html for missing-plan-file batch not created: {out_y}")

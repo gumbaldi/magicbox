@@ -225,7 +225,7 @@ budget warning changes nothing.
 
 ## Phase Summary (Step 8)
 
-Printed after Step 8, before the `bin/cfq phase record` call:
+Printed after Step 8, before the closing `bin/cfq phase commit` (green) or `phase record` (red) call:
 
 ```
 PHASE 02 DONE
@@ -239,7 +239,7 @@ happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
 deviations → the `Deviation` line is omitted entirely, not printed empty.
 
-## File-Scope Deviation (Step 8, before `phase record`)
+## File-Scope Deviation (Step 8, before closing the phase)
 
 Mandatory, every phase, on green — not conditional on suspicion, not skippable when the phase
 "obviously" stayed in scope.
@@ -255,7 +255,7 @@ is git-excluded anyway.
 
 A non-empty difference becomes one `deviations` entry naming the file(s) and why they had to be
 touched — plan said X, the change also required Y, because Z. This is the same `deviations` array
-Step 8 already passes to `bin/cfq phase record` — no new field, no new call. An empty array is
+Step 8 already passes to `bin/cfq phase commit` — no new field, no new call. An empty array is
 correct only when the comparison actually came back empty; omitting a difference the comparison
 found is a defect, not brevity.
 
@@ -289,23 +289,18 @@ so a future reader does not add a fourth trigger by interpretation.
 
 ## Phase Commit Trailers (Step 9)
 
-Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file,
-then run it through:
+Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file and
+hand it, unmodified, to `bin/cfq phase commit "<batch-dir>" "<phase-json-file>" "<message-file>"` —
+the trailers are added internally, the model never calls `changelog commit-message` itself and
+never hand-writes or hand-formats a `CFQ-*` trailer. For a numbered batch (`batchNumber` from Step
+4's `Branch`/`Resume` data is non-null) `phase commit` appends `CFQ-Batch-Number`, `CFQ-Batch`,
+`CFQ-Phase`, `CFQ-Phase-Status` to the existing trailer block via `git interpret-trailers`, leaving
+the human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
+unchanged — never invent a `CFQ-Batch-Number` for one.
 
-```bash
-"<plugin-root>/bin/cfq" changelog commit-message "<repo-root>" "<batch>" "<phase-slug>" green "<message-file>"
-```
-
-Commit with `git commit -F -` on its output. For a numbered batch (`batchNumber` from Step 4's
-`Branch`/`Resume` data is non-null) this appends `CFQ-Batch-Number`, `CFQ-Batch`, `CFQ-Phase`,
-`CFQ-Phase-Status` to the existing trailer block via `git interpret-trailers`, leaving the
-human-written subject/body untouched. A legacy (unnumbered) batch passes the message through
-unchanged — never invent a `CFQ-Batch-Number` for one. Claude never hand-writes or hand-formats a
-`CFQ-*` trailer.
-
-`<phase-slug>` is the full phase slug — the same value the phase's `report.json` entry carries in
-its `phase` field and the same one Step 5 hands to `report set-commit` — one identifier per phase,
-in the trailer, the report and the lookup alike.
+The phase JSON's `phase` field is the full phase slug — the same value that ends up in the trailer,
+in the `report.json` entry, and in `bin/cfq report last-failure`'s lookup — one identifier
+everywhere, never the bare number.
 
 ## Batch-Done Report Fields (Step 11)
 

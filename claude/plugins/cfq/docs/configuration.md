@@ -152,10 +152,19 @@ restate a field list inline — read the field here, then read it back from the 
   batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
   Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`.
-- **`bin/cfq report append <batch-dir> <phase-json>`** — appends one phase entry to the batch's
-  `report.json`, creating the file if needed, and records phase telemetry alongside it. The JSON's
-  `phase` field must be the full phase slug (`NN-slug`, the plan file's name without `.md`); a bare
-  number, a missing or an empty value is rejected with a non-zero exit and nothing is written.
+- **`bin/cfq phase commit <batch-dir> <phase-json-file> <message-file>`** — the green-phase path:
+  commits whatever is already staged (never runs `git add` itself), moves the phase's `.md` file
+  into `done/` and appends its `report.json` entry, backfills the commit SHA, pushes (`-u origin
+  <branch>` on a first push, a plain `git push` after) and registers the repo — one call in place
+  of the six a green phase used to issue one at a time. The phase JSON's `phase` field must be the
+  full phase slug (`NN-slug`); a `status` other than `green` is rejected (`phase record` is the
+  red-phase path). `<message-file>` is the human-written subject/body (plus `Co-Authored-By`); the
+  `CFQ-*` trailers are added internally, the same way `changelog commit-message` adds them. Result:
+  `{status: "OK", sha, pushed, branch, pushError?}` on success — a push failure is reported, not
+  fatal — or `{status: "NOTHING_STAGED"}` / `{status: "COMMIT_FAILED", detail}` /
+  `{status: "RECORD_FAILED", sha, detail}` on the ways it can stop, each with a non-zero exit. The
+  general ledger-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed
+  as its own `report append` CLI verb.
 - **`bin/cfq report index [--repo <substr>] [--batch <substr>]`** — `[{batch, repo, date, status,
   deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first. `status`: `GREEN`/`RED`/
   `MIXED`.

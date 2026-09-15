@@ -84,17 +84,12 @@ def repo_root_of(batch_dir):
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
 
 
-def build_commands(plugin_root, repo_root, batch_name, batch_dir, phase_slug):
+def build_commands(plugin_root, repo_root, batch_dir):
     return {
-        "phaseRecord": f"{plugin_root}/bin/cfq phase record {batch_dir} <phase-json-file>",
-        "reportSetCommit": (
-            f"{plugin_root}/bin/cfq report set-commit {batch_dir} {phase_slug} <sha>"
+        "phaseCommit": (
+            f"{plugin_root}/bin/cfq phase commit {batch_dir} <phase-json-file> <message-file>"
         ),
-        "changelogCommitMessage": (
-            f"{plugin_root}/bin/cfq changelog commit-message {repo_root} {batch_name} "
-            f"{phase_slug} green <message-file>"
-        ),
-        "registryAdd": f"{plugin_root}/bin/cfq registry add {repo_root}",
+        "phaseRecordRed": f"{plugin_root}/bin/cfq phase record {batch_dir} <phase-json-file>",
         "notePlan": f"{plugin_root}/bin/cfq note plan {repo_root} <slug> <body-file>",
     }
 
@@ -149,7 +144,7 @@ def cmd_brief(args):
 
     recommended_skills = extract_recommended_skills(text, blocked_plugins)
 
-    commands = build_commands(str(PLUGIN_ROOT), repo_root, batch_dir.name, batch_dir, phase_slug)
+    commands = build_commands(str(PLUGIN_ROOT), repo_root, batch_dir)
 
     print(render.dump_json({
         "status": "OK",

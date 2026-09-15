@@ -85,7 +85,8 @@ class WorkerBriefTest(CfqTestCase):
         self.assertIn("priorDeviations", body)
         self.assertEqual(body["priorDeviations"], [])
         self.assertIn("commands", body)
-        self.assertIn("phaseRecord", body["commands"])
+        self.assertIn("phaseCommit", body["commands"])
+        self.assertIn("phaseRecordRed", body["commands"])
 
     def test_no_batch_context_is_null_not_an_error(self):
         (self.batch_dir / ".batch-context.md").unlink()

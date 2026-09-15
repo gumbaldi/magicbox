@@ -26,7 +26,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 from datetime import date
@@ -341,19 +340,18 @@ def cmd_branch_for(args):
         print(val)
 
 
-def cmd_commit_message(args):
+def compose_commit_message(repo, batch, phase, status, message_file):
     """Appends the standard CFQ-* trailer block to a numbered batch's phase-commit message via
     git interpret-trailers, so the trailers land in the same trailing block as any existing
     trailer (e.g. Co-Authored-By) rather than a second machine section. Legacy (unnumbered)
-    batches pass the message through unchanged -- no number is ever invented for them."""
-    repo, batch, phase, status, message_file = (
-        args.repo, args.batch, args.phase, args.status, args.message_file,
-    )
+    batches pass the message through unchanged -- no number is ever invented for them. Returns the
+    composed text; factored out of `cmd_commit_message` so `cfq_phase.py commit` can call it
+    directly instead of shelling back out to this script."""
     if status != "green":
         errors.die(f"{PROG}: commit-message: status must be 'green', got '{status}'")
     number = parse_batch_number(batch)
     if number is not None:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "git", "-C", repo, "interpret-trailers", "--trim-empty",
                 "--trailer", f"CFQ-Batch-Number={number}",
@@ -362,11 +360,15 @@ def cmd_commit_message(args):
                 "--trailer", f"CFQ-Phase-Status={status}",
                 message_file,
             ],
-            check=True,
+            capture_output=True, text=True, check=True,
         )
-    else:
-        with open(message_file, "rb") as f:
-            shutil.copyfileobj(f, sys.stdout.buffer)
+        return result.stdout
+    return pathlib.Path(message_file).read_text()
+
+
+def cmd_commit_message(args):
+    text = compose_commit_message(args.repo, args.batch, args.phase, args.status, args.message_file)
+    sys.stdout.write(text)
 
 
 def cmd_commit(args):

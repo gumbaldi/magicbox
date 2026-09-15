@@ -51,10 +51,16 @@ def write_repos(repos):
     os.replace(tmp, f)
 
 
-def cmd_add(args):
+def add_repo(repo):
+    """Registers `repo` -- factored out of `cmd_add` so `cfq_phase.py commit` can call it directly
+    instead of shelling back out to this script."""
     ensure()
-    repos = sorted(set(read_repos()) | {args.repo})
+    repos = sorted(set(read_repos()) | {repo})
     write_repos(repos)
+
+
+def cmd_add(args):
+    add_repo(args.repo)
 
 
 def cmd_prune(args):

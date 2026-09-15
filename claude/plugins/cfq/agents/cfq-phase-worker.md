@@ -24,9 +24,10 @@ The orchestrator's prompt is `bin/cfq worker brief`'s JSON object, verbatim. Rea
 ## Determinism
 
 Every mutation of `.claude/cfq/` goes through the exact `bin/cfq` invocation named in the
-briefing's `commands` field (`phaseRecord`, `reportSetCommit`, `changelogCommitMessage`,
-`registryAdd`, `notePlan`) — never an improvised `mv`, `rm`, `mkdir` or `jq` against that tree. Git
-is used only for the commit and push in **Commit** below, through `commands.changelogCommitMessage`.
+briefing's `commands` field (`phaseCommit`, `phaseRecordRed`, `notePlan`) — never an improvised
+`mv`, `rm`, `mkdir` or `jq` against that tree. Staging is the one exception: `git add` for the
+phase's own changes happens directly, since `commands.phaseCommit` commits whatever is already
+staged and never runs `git add` itself.
 
 ## Implementation
 
@@ -45,8 +46,8 @@ green-run filtering, per `<plugin-root>/references/queues.md`'s **Research and V
 Delegation**.
 
 Before finalizing the report, run the same mandatory file-scope comparison classic mode runs before
-every `phase record` call — `<plugin-root>/references/queues.md`'s **File-Scope Deviation** —
-against `commands.phaseRecord`'s target batch directory, and fold any non-empty result into
+closing every green phase — `<plugin-root>/references/queues.md`'s **File-Scope Deviation** —
+against the batch directory `commands.phaseCommit` targets, and fold any non-empty result into
 `deviations` as one entry naming the file(s) and why. This is a record, never a stop and never a
 question.
 
@@ -93,24 +94,29 @@ was deliberately left out, `"dependency"` when an unnamed new dependency or scri
 makes in-session and this definition makes once, structurally, because the worker has no channel to
 raise it as an immediate question. `status: "red"` carries the complete, unfiltered failure output
 in `errors`, never a summary. `status: "question"` carries only `phase`, `status` and `question` —
-nothing else has happened yet, so `commands.phaseRecord` is never called for it. This is the exact
-object `bin/cfq worker verdict` accepts on stdin (the orchestrator pipes it there, not the worker
-itself) and, for `green`/`red`, the same object written to the temp file handed to
-`commands.phaseRecord` — one shape, two consumers, never worded or shaped differently for either.
+nothing else has happened yet, so neither `commands.phaseCommit` nor `commands.phaseRecordRed` is
+ever called for it. This is the exact object `bin/cfq worker verdict` accepts on stdin (the
+orchestrator pipes it there, not the worker itself) and, for `green`/`red`, the same object written
+to the temp file handed to `commands.phaseCommit`/`commands.phaseRecordRed` — one shape, two
+consumers, never worded or shaped differently for either.
 
 ## Commit
 
 On `green`, mandatory, not optional — the orchestrator's next step pipes this run's own report into
 `bin/cfq worker verdict`, and that check must run against a committed tree:
 
-1. Call `commands.phaseRecord` with the report above written to a temp file — this moves the phase
-   file into `done/` and appends the `report.json` entry in one transaction.
-2. Compose the commit message (subject/body plus `Co-Authored-By`, written to a temp file) through
-   `commands.changelogCommitMessage`, then `git commit -F -` on its output —
-   `<plugin-root>/references/queues.md`'s **Phase Commit Trailers** for what that call adds.
-3. Push — `-u origin <branch>` on this worker's first push, a plain `git push` after.
-4. Backfill the commit SHA via `git rev-parse HEAD` and `commands.reportSetCommit`, then call
-   `commands.registryAdd`.
+1. `git add` the phase's own changes — staging stays with the worker, `commands.phaseCommit` never
+   runs `git add` itself.
+2. Write the report above to a temp file and the commit message (subject/body plus
+   `Co-Authored-By`) to another, then call `commands.phaseCommit` with both. One call commits,
+   moves the phase file into `done/`, appends the `report.json` entry, backfills the commit SHA,
+   pushes (`-u origin <branch>` on this worker's first push, a plain `git push` after) and
+   registers the repo — `<plugin-root>/references/queues.md`'s **Phase Commit Trailers** for what
+   the commit message gains along the way.
+3. `pushed: false` in the result is reported, not fatal — the phase still closed. `COMMIT_FAILED`
+   or `RECORD_FAILED` means treat this run as `red` in the returned report instead — a
+   `RECORD_FAILED` result still carries the commit `sha`, which the report should include so
+   `bin/cfq batch verify` can reconcile it later; the commit itself is never undone.
 
-On `red`, call `commands.phaseRecord` with the report (status `red`, `errors` populated) — this
+On `red`, call `commands.phaseRecordRed` with the report (status `red`, `errors` populated) — this
 appends the ledger entry without moving the file — and stop; no commit, no push.

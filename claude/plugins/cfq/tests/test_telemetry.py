@@ -2,9 +2,14 @@
 
 import json
 import re
+import sys
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_report  # noqa: E402
 
 
 TRANSCRIPT_TURNS = """\
@@ -38,12 +43,11 @@ class TelemetryTest(CfqTestCase):
 
         self.jsonl = self.repo / ".claude" / "cfq" / "telemetry.jsonl"
 
-        # Seed report.json with a phase entry, as implement-for-queue would via cfq_report.py
-        # append.
-        self.run_cfq(
-            "report", "append", str(self.batch),
-            '{"phase":"01-foo","status":"green","summary":"test"}',
-            check=True,
+        # Seed report.json with a phase entry, as implement-for-queue would via
+        # cfq_report.append_phase() (phase record/commit's own ledger-write step).
+        cfq_report.append_phase(
+            str(self.batch), '{"phase":"01-foo","status":"green","summary":"test"}',
+            record_telemetry=False,
         )
 
     def _record(self, *args, session="testsid"):

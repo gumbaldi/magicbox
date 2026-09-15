@@ -416,11 +416,14 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertFalse(out["nextPhase"]["failedAttempt"]["found"], msg=f"no red entry yet: {out}")
 
-        self.run_clean(
-            "python3", str(self.scripts_copy / "cfq_report.py"), "append", str(batch),
+        pf = batch / "_phase.json"
+        pf.write_text(
             '{"phase":"01-a","status":"red","finished":"2026-01-01T00:00:00+00:00","summary":"boom",'
-            '"deviations":[],"errors":["x"],"verification":"x","commit":""}',
-            env={"HOME": str(self.home)},
+            '"deviations":[],"errors":["x"],"verification":"x","commit":""}'
+        )
+        self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_phase.py"), "record", str(batch), str(pf),
+            "--no-telemetry", env={"HOME": str(self.home)},
         )
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertTrue(out["nextPhase"]["failedAttempt"]["found"], msg=f"red entry not found: {out}")

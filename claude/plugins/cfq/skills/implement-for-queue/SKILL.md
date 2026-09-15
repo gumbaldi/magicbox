@@ -165,23 +165,22 @@ asked about: write a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>"
 noting plainly that a decision is still open on it, and name it in the phase summary — applies in
 both modes, no `AskUserQuestion`, no second attempt.
 
-Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file and record
-it, green or red, before anything else: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase record "<batch-dir>"
-"<phase-json-file>"` — on `green` this appends the ledger entry and moves the plan file into
-`done/` in one transaction, both or neither; on `red` it only appends the entry, the file stays
-open; this captures telemetry automatically. `phase` is the full slug (e.g.
-`02-gate-rate-limits-and-cache-display`, never the bare number) — the same value Step 5 passes to
-`report set-commit` and to `changelog commit-message`, and `phase record` rejects anything else.
-`deviations` is not optional padding — name what the plan said, what was built, and why; the
-file-scope comparison in `${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **File-Scope Deviation**
-runs before every `phase record` call and its result feeds this array — an empty array is fine
-only when that comparison came back empty, a glossed-over deviation is not; `errors` carries the
-actual failure output, trimmed to what identifies it.
+Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file. `phase` is
+the full slug (e.g. `02-gate-rate-limits-and-cache-display`, never the bare number) — the value
+that ends up in the `report.json` entry and the commit's `CFQ-Phase` trailer alike, and both
+`phase record` and `phase commit` reject anything else. `deviations` is not optional padding — name
+what the plan said, what was built, and why; the file-scope comparison in
+`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **File-Scope Deviation** runs before every green
+phase closes and its result feeds this array — an empty array is fine only when that comparison
+came back empty, a glossed-over deviation is not; `errors` carries the actual failure output,
+trimmed to what identifies it.
 
-Green → register the repo (`bin/cfq registry add "<repo-root>"`), print the **Summary**
-(`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Summary** — its `Deviation` lines double as
-the recorded `deviations` array); red → **stop**, print `❌ red` with each trimmed error as `   └ `
-lines, don't move on.
+Green → `git add` the phase's changes (staging stays with the model — the closing call never runs
+`git add` itself), write the commit message (subject/body plus `Co-Authored-By`) to a temp file,
+then close the phase via Step 9's single call. Red → record it now, before anything else:
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase record "<batch-dir>" "<phase-json-file>"` — this appends the
+ledger entry without moving the plan file, capturing telemetry automatically; print `❌ red` with
+each trimmed error as `   └ ` lines and **stop**, don't move on.
 
 **Stop rule**, before the next phase in the same session: (a) verification red or skipped, (b) a
 planned change omitted, (c) an unnamed new dependency/script — mechanics in
@@ -190,16 +189,22 @@ continuing; none → continue as today, no question.
 
 ## Step 9 — Commit & Push (on green, every phase)
 
-Automatically, right after `phase record`, even if more phases follow — never
-collected until batch end or a `/clear`. The branch already exists (Step 4 created it or checked
-an existing one out) — commit, message in `codeLanguage`, composed via `bin/cfq changelog
-commit-message` (`${CLAUDE_PLUGIN_ROOT}/references/queues.md`'s **Phase Commit Trailers**), and push: `-u origin
-<branch>` on this session's first push, a plain `git push` after that. Then backfill the commit
-hash via
-`git rev-parse HEAD` and `bin/cfq report set-commit "<batch-dir>" "<phase-slug>" "<sha>"` — without
-it, `bin/cfq resume`'s commit fields stay empty for every phase from here on. The changelog is
-already committed by Step 4 — never stage it by hand here. Print the `Commit`
-status line — branch and commits pushed.
+Automatically, right after Step 8's `git add`, even if more phases follow — never collected until
+batch end or a `/clear`. The branch already exists (Step 4 created it or checked an existing one
+out) — one call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase commit "<batch-dir>" "<phase-json-file>"
+"<message-file>"`. This composes the commit message (adding the `CFQ-*` trailers the same way
+`changelog commit-message` used to — Claude never hand-writes or hand-formats one), commits,
+moves the plan file into `done/` and appends the ledger entry in one transaction, backfills the
+commit SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git push` after),
+and registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq
+resume`'s commit fields are never left empty by a forgotten follow-up call.
+
+Render `Commit` from that JSON: `status: "OK"` → branch and whether it pushed, `⚠️` with `pushError`
+when `pushed: false` (the phase still closed, just not pushed — a later `git push` catches it up);
+`status: "NOTHING_STAGED"` → `git add` the phase's changes and retry the same call once; `status:
+"COMMIT_FAILED"` or `"RECORD_FAILED"` → treat as a red phase (print `❌ red` with the JSON's
+`detail`), don't move on — a `RECORD_FAILED` result still carries the commit `sha` for `bin/cfq
+batch verify` to reconcile later, since the commit itself succeeded and is never undone.
 
 ## Step 10 — Context Check After Every Phase
 
