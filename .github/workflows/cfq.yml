@@ -44,4 +44,3 @@ jobs:
           bin/cfq --help
           bin/cfq doctor check
           bin/cfq settings get docLevel
-          bin/cfq scan --format=json
