@@ -795,5 +795,31 @@
   branch: cfq/025-2026-09-14-framework-review-fixes-and-cross-platform
   base: cfq/024-2026-09-14-resume-unfinished-batch-drop-batch-end-review
   started: 2026-09-14
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-bug-fixes"
+      status: "green"
+      summary: "compute_dirty now runs git status with --untracked-files=all so an entirely-untracked .claude/ subtree never collapses to one \"?? .claude/\" line that would falsely mark a fresh queue dirty; cmd_plan checks the repo via a non-fatal rev-parse first and reports a NO_REPO JSON instead of a raw git traceback outside a git repo; cfq_guard.py's check_bash now unwraps env/sudo/nice/nohup/timeout/command/exec/xargs/time wrappers and recurses (depth-capped at 3) into bash/sh/zsh/dash -c payloads before checking for destructive calls; cfq_park.py imports CFQ_BIN from cfq_lib.proc instead of redefining it; the dead sh_source test helper was deleted from cfq_testlib.py."
+    - phase: "02-leftover-cleanup"
+      status: "green"
+      summary: "Deleted the obsolete bash-fallback lint test; docLevel dropped its \"full\" value (schema enum, merged_tiers() maps a stored full to standard without rewriting the file, docs/configuration.md and references/doc-style.md updated); removed the batch-end-ponytail-review and two-ponytail-uses leftovers from cfq_doctor.py, code-for-queue/SKILL.md and README.md; replaced the stale P6 label in README.md and references/dashboard.md with the real Phase Summary / batch-end wording; orchestrator.md now says orchestratorMode is on by default and drops the stale agent-resolution investigation paragraph."
+    - phase: "03-cross-platform"
+      status: "green"
+      summary: "bin/cfq's noun table is now a Bash-3.2-compatible case-statement function (no declare -A / ${!...}), with a python3/python/py (-3) interpreter-discovery fallback replacing the old bare python3 requirement, message reworded to 'Python 3 is required'; every scripts/*.py subprocess call now uses sys.executable instead of a hardcoded \"python3\" argv element; a shared cfq_lib/env.py::home_dir() (moved out of cfq_runtime.py) replaces every os.environ[\"HOME\"] lookup in cfq_settings.py, cfq_registry.py and cfq_scan.py; cfq_runtime.py's slug_for now maps every non-alphanumeric character to \"-\" (matching Claude Code's real project-slug rule) instead of only \"/\"; the v1 layout migration utility (scripts/migrations/cfq-layout-v1.sh) and its test are deleted, with README/CLAUDE.md/docs/setup.md/cfq_layout.py updated to drop jq and the migration utility as current facts and add a short Platforms section."
+    - phase: "04-ci-matrix"
+      status: "green"
+      summary: ""
+    - phase: "05-phase-commit"
+      status: "green"
+      summary: "bin/cfq phase commit closes a green phase (commit, record, backfill SHA, push, registry add) in one call"
+    - phase: "06-ifq-prompt-restructure"
+      status: "green"
+      summary: ""
+    - phase: "07-pfq-prompt-restructure"
+      status: "green"
+      summary: "pfq's SKILL.md and the shared planning references now use name-based cross-references instead of Step N, and incident/history prose moved to docs/design-notes.md under new ## pfq: headings. Bytes (skills/*/SKILL.md + references/*.md): 123036 -> 122506."
+    - phase: "08-docs-drift"
+      status: "green"
+      summary: ""
