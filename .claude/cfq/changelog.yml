@@ -843,4 +843,13 @@
       summary: "Moved cfq.changelog.yml to .claude/cfq/changelog.yml, dropped the stale .gitignore exclusion, and reduced the host global settings.json to only the keys differing from schema defaults (onePhasePerSession) while dropping changelogFile unconditionally."
 - batchNumber: 27
   batch: 027-2026-09-15-windows-cfq-run-bash
-  status: parked
+  branch: cfq/027-2026-09-15-windows-cfq-run-bash
+  base: cfq/026-2026-09-15-tracked-changelog-default
+  started: 2026-09-15
+  status: done
+  legacy: false
+  finished: 2026-09-15
+  phases:
+    - phase: "01-windows-bash-argv"
+      status: "green"
+      summary: ""
