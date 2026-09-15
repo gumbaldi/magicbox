@@ -20,13 +20,21 @@ CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
 
 class CfqTestCase(unittest.TestCase):
     def setUp(self):
+        """Both roots are .resolve()d immediately: on macOS the system temp dir sits under
+        /var, itself a symlink to /private/var, so the raw tempfile path and the canonical path
+        `git rev-parse --show-toplevel` (or any other realpath-ing lookup) returns are two
+        different strings for the same directory. Every fixture built from an unresolved root
+        would then silently fail every registry/scan/preflight comparison downstream -- resolving
+        once here keeps every derived path canonical from the start, matching what a real
+        invocation always gets (repo roots reach `registry add` only after a skill's own
+        `git rev-parse --show-toplevel`)."""
         home_dir = tempfile.TemporaryDirectory()
         self.addCleanup(home_dir.cleanup)
-        self.home = pathlib.Path(home_dir.name)
+        self.home = pathlib.Path(home_dir.name).resolve()
 
         repos_dir = tempfile.TemporaryDirectory()
         self.addCleanup(repos_dir.cleanup)
-        self._repos_dir = pathlib.Path(repos_dir.name)
+        self._repos_dir = pathlib.Path(repos_dir.name).resolve()
 
     def _base_env(self):
         """Strips CFQ_* plus the host's own XDG_CONFIG_HOME/PONYTAIL_DEFAULT_MODE -- both are
