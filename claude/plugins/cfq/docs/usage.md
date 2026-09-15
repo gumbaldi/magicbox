@@ -1,107 +1,43 @@
 # Usage
 
-What each of the four skills does, step by step, and where its behavior is configurable. See
-[configuration.md](configuration.md) for what every setting named below actually does.
+What each skill does and produces, and the settings that shape it. See
+[configuration.md](configuration.md) for what every setting actually does, and each skill's own
+`SKILL.md` for its exact steps.
 
 ## Plan a batch — `/pfq`
 
-Interviews you, resolves open questions, and parks phased plans in the repo-local queue. Never
-edits code.
+Interviews you at one of three depths (quick, thorough grilling, or grilling with a written
+`CONTEXT.md`/ADR trail), reads the code — delegating multi-file or unclear-scope research to
+Explore subagents — and parks phased plan files under the repo-local queue. Never edits code,
+builds, or commits, even when a plan-mode approval or an autonomous/auto-run mode would otherwise
+let it. Overlapping open batches get an automatic `.dependsOn`; any fixable security or maintenance
+finding becomes a `plan/` entry for a later session, never a question.
 
-```
-/pfq
-```
-
-1. If invoked without arguments and `.claude/cfq/plan/` has requests waiting (dropped there by a
-   previous `/ifq` session), pfq offers to start with the oldest one, choose a different one, or
-   skip and plan something else instead. Invoked with a briefing, the inbox is left untouched.
-2. Checks the running model against `planModels` — a mismatch only warns, it never blocks.
-3. Asks everything it needs before any research starts, in one start block: an interview depth
-   (quick targeted questions, thorough grilling — a design-tree interview, round by round — or
-   grilling with a written paper trail, a `CONTEXT.md` glossary and ADRs for hard-to-reverse
-   decisions), a high-priority flag (optional — not flagging is the normal case), and — for a repo
-   pfq hasn't seen before — whether to keep or adjust the current config.
-4. Reads the code — for anything spanning multiple files, it delegates to Explore subagents
-   running on `planExploreModel` rather than reading everything in the main session.
-5. Clarifies open points and proposes a phase split. Overlap with another open batch sets
-   `.dependsOn` on it automatically, no question. Fixable security findings and maintenance
-   findings each become one `plan/` entry for a later session, never a question.
-6. Criticises its own phase cut against three categories before writing anything — purposeful,
-   fits the environment, serves the batch goal — dropping, narrowing, merging or reordering a
-   phase where a verdict fails.
-7. Parks the batch as numbered phase files under `.claude/cfq/impl/<date>-<topic>/`. If this ever
-   reports `BATCH_LEDGER_MISMATCH` (a queue directory with no matching changelog entry),
-   `bin/cfq batch reconcile <repo-root>` reports the gap and `--fix` closes it — it never deletes
-   anything, and never touches a reserved number whose directory never got created.
-
-Configurable: `planModels`, `planExploreModel`, `allowAnyModel`, `grillMode`,
-`useMattpocockGrilling`, `planBlockedPlugins`.
+Configurable (see [configuration.md](configuration.md#settings-reference)): `planModels`,
+`planExploreModel`, `planExploreModelComplex`, `allowAnyModel`, `grillMode`,
+`useMattpocockGrilling`, `usePonytailAudit`, `planBlockedPlugins`.
 
 Handoff: `/clear` → `/model <an implModels entry>` → `/ifq`.
+
+Exact steps: [`skills/plan-for-queue/SKILL.md`](../skills/plan-for-queue/SKILL.md).
 
 ## Implement a batch — `/ifq`
 
 Works off one batch from the current repo's queue, phase by phase, committing and pushing every
-green phase.
+green phase. Gates hard on the running model — `implModels`, or `orchestratorModels` when
+orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
+rather than warns. Starts immediately once briefed, no confirmation question. By default
+(`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
+instead of the classic single-session loop, shifting the handoff point from the context-capacity
+gate to the rate-limit window. Never two batches in the same session, even once the first finishes
+early.
 
-```
-/ifq
-```
+Configurable (see [configuration.md](configuration.md#settings-reference)): `implModels`,
+`allowAnyModel`, `orchestratorMode`, `orchestratorModels`, `implExploreModel`,
+`implExploreModelComplex`, `stopUsed`, `stopFiveHourPct`, `stopSevenDayPct`,
+`onePhasePerSession`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
-1. Gates on the model — **aborts** if the running model isn't in `implModels` (unless
-   `allowAnyModel` is set); this is the one hard gate in cfq, everywhere else a mismatch only
-   warns.
-2. Picks the next batch in order (flagged-first, then name), or the one named on the command
-   line. Skips any batch still blocked by `.dependsOn`.
-3. Shows the batch briefing, then starts immediately — invoking `/ifq` is itself the intent to
-   start, no confirmation question.
-4. Implements one phase at a time — for a phase spanning multiple files or unclear scope, it may
-   delegate pre-implementation research (and, on green/red, mechanical test-run output filtering)
-   to Explore subagents running on `implExploreModel`; implementation itself always stays in the
-   main session. Before touching any file, it announces the phase and asks for a go-ahead:
-
-   ```
-   PHASE 02 · ifq-per-phase-go-gate · Size L
-     Goal     Deterministic phase announcement, extracted from the phase file itself.
-     Files    bin/cfq, SKILL.md, ifq-phase.md
-     Check    python3 -m unittest discover -s tests -k brief_park
-   ```
-
-   Runs the phase's own verification, records the outcome (`bin/cfq phase record` moves the plan
-   file into `done/` and appends the ledger entry as one transaction on green), commits and pushes
-   immediately, then prints what actually happened:
-
-   ```
-   PHASE 02 DONE
-   ✅ Implemented     Added --phase to the brief noun, extended its test.
-   ✅ Verification    python3 -m unittest discover -s tests -k brief_park — OK
-   ```
-
-   Before starting the next phase in the same session, it checks four fixed triggers (files
-   changed beyond the plan's list, verification red or skipped, a planned change left out, an
-   unnamed new dependency) — any of them stops the automatic advance and asks once whether to
-   continue.
-5. Hands the session off once the capacity threshold (`stopUsed`) fires (`HANDOFF`/`STOP`), or
-   finishes the batch and moves it to `impl/done/`. Crossing a rate-limit threshold
-   (`stopFiveHourPct` / `stopSevenDayPct`), or failing to read context usage at all, only produces
-   a `WARN` — the next phase is still offered, with the warning attached to the go-ahead question,
-   and you choose whether to continue or hand off.
-
-Configurable: `implModels`, `allowAnyModel`, `implExploreModel`, `stopUsed`, `stopFiveHourPct`,
-`stopSevenDayPct`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`,
-`orchestratorMode`, `orchestratorModels`.
-
-### Orchestrator mode
-
-On by default (`orchestratorMode`). Steps 4-5 above describe the classic path; with orchestrator
-mode on, `/ifq` instead spawns one worker sub-agent per phase — its own briefing, its own fresh
-context window — and that worker implements, verifies and commits the whole phase itself. What
-changes for you in practice: no `/clear`-and-`/model sonnet` cycle between phases, since the
-orchestrator session keeps going; each phase's worker still runs visibly in the terminal; and the
-handoff point shifts from the capacity threshold (`stopUsed`, meaningless for a worker that starts
-fresh every phase) to the rate-limit window instead.
-
-Turn it off — per repo, globally, or for one shell — when you'd rather implement every phase in
+Turn orchestrator mode off — per repo, globally, or for one shell — to implement every phase in
 the session itself:
 
 ```bash
@@ -110,28 +46,31 @@ the session itself:
 CFQ_ORCHESTRATOR_MODE=0   # one shell session
 ```
 
+Exact steps: [`skills/implement-for-queue/SKILL.md`](../skills/implement-for-queue/SKILL.md)
+(classic mode) and [`references/orchestrator.md`](../references/orchestrator.md) (orchestrator
+mode, the default).
+
 ## Dashboard, queue and settings — `/cfq`
 
-```
-/cfq
-```
+First-time setup (see [setup.md](setup.md)), the cross-repo dashboard — a `QUEUES` overview across
+every registered repo, a `THIS REPO` phase table, and a `CONFIG` block for the repo `/cfq` runs
+in — management of the current repo's `todo/` leftovers, and reading or changing settings.
 
-First-time setup (see [setup.md](setup.md)), the cross-repo dashboard — a `QUEUES` overview table
-across every registered repo plus a `THIS REPO` phase-level table and a `CONFIG` block (only the
-settings that deviate from default, each tagged `[D]`/`[G]`/`[R]`/`[E]` for default/global/repo/env)
-for the repo `/cfq` runs in — management of the current repo's `todo/` leftovers, and reading or
-changing settings (see [configuration.md](configuration.md)).
+Configurable: none of its own — it's the interface to every setting listed under the other three
+skills; see [configuration.md](configuration.md).
+
+Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.md).
 
 ## Reports — `/rfq`
 
-Read-only: surfaces what `/ifq` already did. Never writes anything.
+Read-only: surfaces what `/ifq` already did — a compact terminal table across all repos, or the
+detailed HTML report for one batch (which phases went green or red, where the implementation
+departed from the plan, what broke, telemetry). Never writes anything.
 
-```
-/rfq
-```
+Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,
+`reportDir`.
 
-A compact terminal table across all repos, or the detailed HTML report for one batch: which phases
-went green or red, where the implementation departed from the plan, what broke, telemetry.
+Exact steps: [`skills/report-for-queue/SKILL.md`](../skills/report-for-queue/SKILL.md).
 
 ## See also
 

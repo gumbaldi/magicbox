@@ -15,8 +15,8 @@ flowchart LR
 ## Guides
 
 - [Setup](docs/setup.md) — install the plugin and run first-time setup
-- [Usage](docs/usage.md) — what each skill does, step by step, with a "how do I…" for every
-  common task
+- [Usage](docs/usage.md) — what each skill does and produces, and the settings that shape it,
+  with a link to its exact steps
 - [Configuration](docs/configuration.md) — every setting, how to view and change them globally
   or per repo
 

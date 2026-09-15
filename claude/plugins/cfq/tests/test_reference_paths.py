@@ -8,6 +8,7 @@ test-layout.sh check 8. Each check gets a synthetic minimal fixture
 cheap.
 """
 
+import importlib.util
 import re
 import unittest
 
@@ -124,6 +125,25 @@ def check_no_shell_mutations(root):
     return fails
 
 
+# 6. Added by Phase 08: docs/configuration.md's settings reference table must document every key
+#    in cfq_settings.py's schema -- the schema is the one source of truth (CLAUDE.md's Conventions),
+#    so a new setting that never made it into the table would go undetected otherwise.
+def check_settings_documented(root):
+    fails = []
+    config_doc = root / "docs" / "configuration.md"
+    settings_script = root / "scripts" / "cfq_settings.py"
+    if not config_doc.is_file() or not settings_script.is_file():
+        return fails
+    spec = importlib.util.spec_from_file_location("cfq_settings_schema_check", settings_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = config_doc.read_text()
+    for key in module.SCHEMA:
+        if key not in text:
+            fails.append(f"FAIL: {config_doc} missing settings key documented in cfq_settings.py: {key}")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -131,6 +151,7 @@ def run_all(root):
     fails += check_no_token_in_references(root)
     fails += check_no_scripts_named(root)
     fails += check_no_shell_mutations(root)
+    fails += check_settings_documented(root)
     return fails
 
 
@@ -245,6 +266,23 @@ class ReferencePathsTest(CfqTestCase):
         self.assertEqual(
             4, len(out), msg=f"check 5 self-test false-flagged the trailing prose `jq` mention: {out}"
         )
+
+    def test_settings_documented(self):
+        tmp = self._repos_dir / "f6"
+        (tmp / "scripts").mkdir(parents=True)
+        (tmp / "docs").mkdir(parents=True)
+        (tmp / "scripts" / "cfq_settings.py").write_text(
+            "SCHEMA = {\n"
+            '    "fooKey": {"type": "bool", "default": True},\n'
+            '    "barKey": {"type": "string", "default": ""},\n'
+            "}\n"
+        )
+        (tmp / "docs" / "configuration.md").write_text("| `fooKey` | ... |\n")
+
+        out = check_settings_documented(tmp)
+        joined = "\n".join(out)
+        self.assertIn("barKey", joined, msg="check 6 self-test did not catch an undocumented setting")
+        self.assertNotIn("fooKey", joined, msg="check 6 self-test false-flagged a documented setting")
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

@@ -273,7 +273,10 @@ faith.
   into the text. `tests/test_reference_paths.py` greps for this structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
-- Bash style throughout: `set -eu`, jq for all JSON, write-to-`.tmp`-then-`mv`, `mktemp` + `trap` cleanup.
+- Python scripts are stdlib only; JSON is written via `cfq_lib.render.write_json` (tmp file +
+  `os.replace`), never a raw file write.
+- `bin/cfq` is the only shell file, Bash 3.2-compatible, logic-free — routing and interpreter
+  discovery only.
 - Bump `version` in `.claude-plugin/plugin.json` for user-visible changes. The plugin's `name` there is
   `cfq` (not `code-for-queue` — that was the pre-0.2 name), which is what Claude Code prefixes skill
   names with. Distribution is via the GitHub marketplace, which tracks this repo's default branch
