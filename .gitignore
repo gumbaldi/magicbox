@@ -4,6 +4,8 @@
 .claude/cfq/.lock
 .claude/cfq/.maintenance
 .claude/cfq/telemetry.jsonl
+.claude/cfq/.trash/
 *.tmp
 __pycache__/
 *.pyc
+.serena/
