@@ -66,11 +66,21 @@ deciding, so a stale local `main`/branch never gets silently proposed as a base.
 `aheadOfMain`, `behindRemote`, `aheadRemote`, `localOnly`, `highestBatch`, `mergedIntoOriginMain`,
 `lastCommit`), ranked by `lastCommit` descending, kept for the `ambiguous` fallback below and for
 the free-text answer's resolution. `base`/`baseRef` are derived from the batch's own `.dependsOn`,
-in a `baseSource` field: `"main"` (no unmerged dependency branch — `base: "main"` / `baseRef`
-pointing at `origin/main`), `"dependsOn"` (the one unmerged dependency branch that contains every
-other unmerged dependency branch), or `"ambiguous"` (no single dependency branch contains all the
-others — falls back to `candidates`' newest-`lastCommit` recommendation, the heuristic this only
-decides ties with, never the default). Every response additionally carries `remoteChecked` (bool),
+in a `baseSource` field:
+
+- `"dependsOn"` — the one unmerged dependency branch that contains every other unmerged one;
+- `"ambiguous"` — no single dependency branch contains all the others (falls back to
+  `candidates`' newest-`lastCommit` recommendation, unchanged);
+- `"highestBatch"` — no unmerged dependency branch: the new batch chains onto the
+  highest-numbered unmerged `cfq/<NNN>-…` branch (non-`cfq/` branches are never chosen here);
+- `"newerCandidate"` — same base as `highestBatch`, but another unmerged `cfq/` branch that is
+  not contained in it has a newer commit;
+- `"main"` — bootstrap only: no unmerged numbered `cfq/` branch exists (`base: "main"`, `baseRef`
+  pointing at `origin/main`).
+
+Every response additionally carries `uncontained` — array of `{"name", "lastCommit", "newer"}`,
+unmerged `cfq/` branches whose tip is not in the chosen base, empty unless `baseSource` is
+`highestBatch`/`newerCandidate`, always `[]` on `continue`/`off` — plus `remoteChecked` (bool),
 `remoteWarning` (string or `null`, set only when the chosen base — local `main` on `new`, the
 persisted branch on `continue` — has commits `origin` doesn't and the gap can't be auto-resolved),
 `remoteState` (`"synced"`/`"ahead"`/`"behind"`/`"diverged"`/`"unknown"` — the chosen base's own
@@ -106,8 +116,19 @@ on `mode` to read any of the three.
   touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
   changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
   the `new` path.
-- **`new`** → `baseSource: "main"` or `"dependsOn"` resolves silently to the already-derived
-  `base`/`baseRef`, no question — name `baseSource` in the `Branch` status line. `baseSource:
+- **`new`** → `baseSource: "dependsOn"`, `"highestBatch"` or `"main"` resolves silently to the
+  already-derived `base`/`baseRef`, no question — name `baseSource` in the `Branch` status line.
+  When `uncontained` is non-empty on `baseSource: "highestBatch"`, add one `   └ ⚠️` sub-line under
+  `Branch` per entry: "`<name>` has commits not in `<base>` (last commit `<lastCommit>`)" — an
+  older, non-`newer` chain that never surfaces as a question. `baseSource: "newerCandidate"` → one
+  `AskUserQuestion` naming that a newer unmerged `cfq/` branch exists than the highest batch
+  number. Recommended (first, labelled `(Recommended)`): `base` — the highest-numbered branch
+  itself, description naming its batch number. Then one option per `uncontained` entry with
+  `newer: true`, description naming its `lastCommit` and its `aheadOfMain` (looked up from
+  `candidates` by name); any `uncontained` entry that is not `newer` is named in the question text
+  itself, not offered as its own option. The free-text answer (`AskUserQuestion`'s built-in
+  "Other") and the `bin/cfq branch check` resolution follow the exact same rules the `ambiguous`
+  question below already documents — point at that paragraph, don't repeat it. `baseSource:
   "ambiguous"` (no single dependency branch contains every other unmerged one — the exceptional
   case) → one `AskUserQuestion` listing every entry in `candidates` (already ranked), asking which
   one the new branch builds on. Recommended (first, labelled
