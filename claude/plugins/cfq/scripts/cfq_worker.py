@@ -91,6 +91,9 @@ def build_commands(plugin_root, repo_root, batch_dir):
         ),
         "phaseRecordRed": f"{plugin_root}/bin/cfq phase record {batch_dir} <phase-json-file>",
         "notePlan": f"{plugin_root}/bin/cfq note plan {repo_root} <slug> <body-file>",
+        "notePlanFramework": (
+            f"{plugin_root}/bin/cfq note plan --framework {repo_root} <slug> <body-file>"
+        ),
     }
 
 

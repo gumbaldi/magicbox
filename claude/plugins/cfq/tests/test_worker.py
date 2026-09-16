@@ -88,6 +88,20 @@ class WorkerBriefTest(CfqTestCase):
         self.assertIn("phaseCommit", body["commands"])
         self.assertIn("phaseRecordRed", body["commands"])
 
+    def test_note_plan_framework_command_inserts_flag_after_note_plan(self):
+        body = self.json_out(self._brief("02"))
+        note_plan = body["commands"]["notePlan"]
+        note_plan_framework = body["commands"]["notePlanFramework"]
+        self.assertEqual(
+            note_plan_framework,
+            note_plan.replace("note plan ", "note plan --framework ", 1),
+            msg=f"notePlanFramework must be notePlan with --framework inserted after 'note plan': "
+            f"{body['commands']}",
+        )
+        self.assertNotIn(
+            "--framework", note_plan, msg="notePlan itself must stay unchanged"
+        )
+
     def test_no_batch_context_is_null_not_an_error(self):
         (self.batch_dir / ".batch-context.md").unlink()
         body = self.json_out(self._brief("02"))

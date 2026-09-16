@@ -165,9 +165,9 @@ either way), per `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Research an
 Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
 `docLanguages` entry before it goes green, per `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or
 `<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked, never
-asked about: write a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`,
-noting plainly that a decision is still open on it, and name it in the phase summary — applies in
-both modes, no `AskUserQuestion`, no second attempt.
+asked about: write a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`
+(`--framework` for a cfq-itself finding, rule in `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`),
+noting a decision is still open, and name it in the phase summary — both modes, no `AskUserQuestion`, no second attempt.
 
 Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file. `phase` is
 the full slug (e.g. `02-gate-rate-limits-and-cache-display`, never the bare number) — the value
