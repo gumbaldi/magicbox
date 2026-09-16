@@ -93,6 +93,7 @@ interactively.
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
+| `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/code-for-queue/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
 | `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
 | `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 | `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |

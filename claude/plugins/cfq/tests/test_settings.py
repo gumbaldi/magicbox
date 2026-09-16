@@ -932,6 +932,34 @@ class SettingsTest(CfqTestCase):
             before, after, msg="failed global set must not modify the settings file"
         )
 
+    # 19. frameworkRepo: default, absolute set, relative rejected, global-only scope
+    def test_19_framework_repo(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "frameworkRepo"
+        ).stdout.strip()
+        self.assertEqual(got, "", msg=f"default frameworkRepo = '{got}', want empty")
+
+        self.run_cfq(
+            "settings", "set", "frameworkRepo", "/tmp/framework-repo", home=self.home, check=True
+        )
+        got = self.run_cfq(
+            "settings", "get", "frameworkRepo", home=self.home
+        ).stdout.strip()
+        self.assertEqual(got, "/tmp/framework-repo", msg=f"set absolute path -> got '{got}'")
+
+        proc = self.run_cfq("settings", "set", "frameworkRepo", "relative", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set relative frameworkRepo should fail")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            proc = self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "frameworkRepo", "/tmp/x",
+                home=self.home,
+            )
+            self.assertNotEqual(
+                proc.returncode, 0, msg="set frameworkRepo --repo should fail (global-only scope)"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
