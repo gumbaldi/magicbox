@@ -853,3 +853,13 @@
     - phase: "01-windows-bash-argv"
       status: "green"
       summary: ""
+- batchNumber: 28
+  batch: 028-2026-09-15-ifq-chain-new-batch-onto-newest-branch
+  branch: cfq/028-2026-09-15-ifq-chain-new-batch-onto-newest-branch
+  base: main
+  started: 2026-09-16
+  status: in-progress
+  legacy: false
+- batchNumber: 29
+  batch: 029-2026-09-16-ifq-orchestrator-gate-and-framework-findings
+  status: parked
