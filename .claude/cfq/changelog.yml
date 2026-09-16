@@ -858,8 +858,16 @@
   branch: cfq/028-2026-09-15-ifq-chain-new-batch-onto-newest-branch
   base: main
   started: 2026-09-16
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-16
+  phases:
+    - phase: "01-chain-new-batch-onto-highest-cfq-branch"
+      status: "green"
+      summary: ""
+    - phase: "02-document-chained-base-and-bump-version"
+      status: "green"
+      summary: ""
 - batchNumber: 29
   batch: 029-2026-09-16-ifq-orchestrator-gate-and-framework-findings
   status: parked
