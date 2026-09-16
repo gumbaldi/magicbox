@@ -72,18 +72,19 @@ Rules** section on first use each session and apply it here.
 
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
 `branch`/`resume`/`contextGate` are already resolved for it) — print
-`Batch` as `resumed <name> · <done>/<done+open> phases done` (prefix `high · ` if flagged),
-straight to **Batch Briefing**. `nextPhase: null` here means every phase already moved to
-`done/` but `bin/cfq finish` never ran — **Batch Briefing** still acquires the lock and resolves
-the branch as usual, then skips ahead straight to **Batch Done**. `selection.inProgress` null and
-`selection.selectable` non-empty → the
+`Batch` as `resumed <name> · <done>/<done+open> phases done · mode=orchestrator|classic` (prefix
+`high · ` if flagged), straight to **Batch Briefing**. `nextPhase: null` here means every phase
+already moved to `done/` but `bin/cfq finish` never ran — **Batch Briefing** still acquires the
+lock and resolves the branch as usual, then skips ahead straight to **Batch Done**.
+`selection.inProgress` null and `selection.selectable` non-empty → the
 preflight already picked `selection.selectable[0]` (sorted flagged-first-then-name) — same
-pre-resolved fields, no question — print `Batch` as `<name> · next in order · <n> phases` (prefix
-`high · ` if flagged), or `<name> · only open batch · <n> phases` when `selectable` has exactly one
-entry, straight to **Batch Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that
-isn't selectable) → report why, from `selection` (blocked / still planning / not found), end —
-never falls back to the ordered default. `selection.selectable` has **zero** entries and `status`
-isn't `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`. Mechanics in
+pre-resolved fields, no question — print `Batch` as `<name> · next in order · <n> phases ·
+mode=orchestrator|classic` (prefix `high · ` if flagged), or `<name> · only open batch · <n>
+phases · mode=orchestrator|classic` when `selectable` has exactly one entry, straight to **Batch
+Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't selectable) →
+report why, from `selection` (blocked / still planning / not found), end — never falls back to the
+ordered default. `selection.selectable` has **zero** entries and `status` isn't
+`NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`. Mechanics in
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules**.
 
 ## Step 4 — Batch Briefing and Start
@@ -109,12 +110,11 @@ on `origin`'s current state — in `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-s
 and Changelog on Go-Ahead**. `Branch` renders whichever happened. `resume` (same preflight
 result) already carries done/open phases, last commit, deviations, red-phase history,
 `.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
-it now. Print `Resume` — phases done/open, `.batch-context.md` present or not. Then **Earlier
-Failed Attempt**.
+it now. Print `Resume` — phases done/open, `.batch-context.md` present or not.
 
 `policy.orchestratorMode` is `true` → read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` and
 follow it in place of everything from **Earlier Failed Attempt** through **Batch Done** below;
-`false` → continue exactly as below.
+`false` → **Earlier Failed Attempt**.
 
 ## Step 5 — Earlier Failed Attempt
 

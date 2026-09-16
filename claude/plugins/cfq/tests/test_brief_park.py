@@ -236,6 +236,79 @@ class BriefTest(CfqTestCase):
         )
 
 
+class BriefOrchestratorGateTest(CfqTestCase):
+    """--phase's deterministic mode gate: bin/cfq brief --phase refuses to serve the classic-mode
+    phase announcement while orchestratorMode is on for the owning repo, see
+    references/orchestrator.md section 6."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("gaterepo")
+        self.batch = self.repo / ".claude/cfq/impl/2026-01-01-gateme"
+        self.batch.mkdir(parents=True)
+        (self.batch / "01-first.md").write_text(textwrap.dedent("""\
+            # First phase
+
+            ## Size
+
+            S
+
+            ## Affected Files
+
+            - `/tmp/example/foo.sh`
+            """))
+
+    def _set_orchestrator_mode(self, value):
+        self.run_cfq(
+            "settings", "set", "--repo", str(self.repo), "orchestratorMode", value,
+            home=self.home, check=True,
+        )
+
+    def test_routine_case_mode_off_prints_announcement(self):
+        self._set_orchestrator_mode("false")
+        proc = self.run_cfq("brief", str(self.batch), "--phase", "01", home=self.home)
+        self.assertEqual(proc.returncode, 0, f"mode off should exit 0: {proc.stderr}")
+        self.assertIn("PHASE 01 · First phase · Size S", proc.stdout, f"announcement missing: {proc.stdout}")
+
+    def test_blocked_case_mode_on_refuses(self):
+        self._set_orchestrator_mode("true")
+        proc = self.run_cfq("brief", str(self.batch), "--phase", "01", home=self.home)
+        self.assertEqual(proc.returncode, 2, f"mode on should exit 2: {proc.stdout} / {proc.stderr}")
+        self.assertEqual(proc.stdout, "", f"mode on should print no stdout: {proc.stdout}")
+        self.assertIn("MODE_MISMATCH", proc.stderr, f"stderr missing MODE_MISMATCH: {proc.stderr}")
+        self.assertIn("worker brief", proc.stderr, f"stderr missing fallback hint: {proc.stderr}")
+
+    def test_fallback_case_classic_fallback_flag_passes_gate(self):
+        self._set_orchestrator_mode("true")
+        proc = self.run_cfq(
+            "brief", str(self.batch), "--phase", "01", "--classic-fallback", home=self.home,
+        )
+        self.assertEqual(proc.returncode, 0, f"--classic-fallback should exit 0: {proc.stderr}")
+        self.assertIn(
+            "PHASE 01 · First phase · Size S", proc.stdout, f"announcement missing: {proc.stdout}",
+        )
+
+    def test_unaffected_case_batch_mode_ignores_gate(self):
+        self._set_orchestrator_mode("true")
+        proc = self.run_cfq("brief", str(self.batch), home=self.home)
+        self.assertEqual(proc.returncode, 0, f"batch mode should ignore the gate: {proc.stderr}")
+        proc_with_done = self.run_cfq("brief", str(self.batch), "--with-done", home=self.home)
+        self.assertEqual(
+            proc_with_done.returncode, 0, f"--with-done should ignore the gate: {proc_with_done.stderr}",
+        )
+
+    def test_edge_case_batch_dir_outside_queue_layout_has_no_gate(self):
+        self._set_orchestrator_mode("true")
+        stray = self._repos_dir / "not-under-a-queue"
+        stray.mkdir()
+        (stray / "01-first.md").write_text("# First phase\n\n## Affected Files\n")
+        proc = self.run_cfq("brief", str(stray), "--phase", "01", home=self.home)
+        self.assertEqual(
+            proc.returncode, 0, f"unresolvable repo root must never gate: {proc.stderr}",
+        )
+        self.assertIn("PHASE 01 · First phase", proc.stdout, f"announcement missing: {proc.stdout}")
+
+
 class ParkTest(CfqTestCase):
     def setUp(self):
         super().setUp()

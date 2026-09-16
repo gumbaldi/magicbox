@@ -37,8 +37,11 @@ Configurable (see [configuration.md](configuration.md#settings-reference)): `imp
 `implExploreModelComplex`, `stopUsed`, `stopFiveHourPct`, `stopSevenDayPct`,
 `onePhasePerSession`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
-Turn orchestrator mode off — per repo, globally, or for one shell — to implement every phase in
-the session itself:
+The classic-mode phase announcement (`bin/cfq brief --phase`) refuses to run while orchestrator
+mode is on (`MODE_MISMATCH`, exit 2) — the documented spawn-failure fallback in
+[`references/orchestrator.md`](../references/orchestrator.md) passes `--classic-fallback` to
+override it; turning orchestrator mode off — per repo, globally, or for one shell — is the way to
+implement every phase in the session itself outside that fallback:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set --repo "$(git rev-parse --show-toplevel)" orchestratorMode false

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN>|--with-done]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
 with done phases listed first, ticked. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
-does, since it is the per-phase announcement. Read-only.
+does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
+refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
+--classic-fallback is passed -- the deterministic half of the classic/orchestrator mode gate, see
+references/orchestrator.md section 6.
 
 Ported from cfq-brief.sh -- a port, not a redesign: the CLI contract (argument order, text
 output, exit codes) is the invariant this file preserves. The output is read by an agent, so
@@ -18,6 +21,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import paths as cfq_paths  # noqa: E402
+from cfq_lib import proc as cfq_proc  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_brief.py"
@@ -108,11 +113,51 @@ def phase_num(path):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
+def _repo_root_from_batch_dir(batch_dir):
+    """Walks up from <repo>/.claude/cfq/impl/<batch> until a parent whose own path ends in
+    cfq_lib.paths.QUEUE_DIR_COMPONENTS (i.e. the parent itself is <repo>/.claude/cfq) is found,
+    then strips those same components back off to return <repo>. None when no such parent exists
+    (batch_dir isn't under a recognisable queue layout) -- callers treat that as "no gate", never
+    a failure."""
+    resolved = batch_dir.resolve()
+    n = len(cfq_paths.QUEUE_DIR_COMPONENTS)
+    for ancestor in resolved.parents:
+        if ancestor.parts[-n:] == cfq_paths.QUEUE_DIR_COMPONENTS:
+            return pathlib.Path(*ancestor.parts[:-n])
+    return None
+
+
+def _check_orchestrator_gate(batch_dir):
+    """The classic-mode phase announcement (`brief --phase`) refuses to run while orchestratorMode
+    is on for the owning repo -- the one deterministic point where a session that skipped the
+    prose branch in implement-for-queue/SKILL.md Step 4 can still be caught before any code is
+    written. Fail-open, same spirit as cfq_guard.py: an unresolvable repo root, a non-zero
+    `settings get` exit, or unparsable output all mean "no gate", never a crash."""
+    repo = _repo_root_from_batch_dir(batch_dir)
+    if repo is None:
+        return
+    result = cfq_proc.cfq_run("settings", "get", "--repo", str(repo), "orchestratorMode")
+    if result.returncode != 0:
+        return
+    if result.stdout.strip() != "true":
+        return
+    print(
+        f"{PROG}: MODE_MISMATCH orchestrator mode is on for {repo} — spawn a cfq-phase-worker via "
+        "'bin/cfq worker brief', or pass --classic-fallback for the documented spawn-failure "
+        "fallback.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
 def cmd_brief(args):
     d = pathlib.Path(str(args.batch_dir).rstrip("/"))
     if not d.is_dir():
         print(f"{PROG}: no such batch directory: {d}", file=sys.stderr)
         sys.exit(1)
+
+    if args.phase is not None and not args.classic_fallback:
+        _check_orchestrator_gate(d)
 
     if args.phase is not None:
         matches = sorted(d.glob(f"{args.phase}-*.md")) + sorted((d / "done").glob(f"{args.phase}-*.md"))
@@ -157,6 +202,7 @@ def build_parser():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--phase")
     group.add_argument("--with-done", action="store_true")
+    parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser
 

@@ -55,7 +55,10 @@ follows classic mode's **Batch Done** in full.
 A spawn that fails outright, or a worker that returns nothing usable (malformed report, no report
 at all), does not end the batch: the orchestrator implements that phase itself, in-session, exactly
 as classic mode's **Implementation** step would, and prints one `⚠️` line naming what failed before
-falling back.
+falling back. Classic mode's own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
+refuses while `orchestratorMode` is still on, so this in-session fallback calls it with
+`--classic-fallback` appended — the flag that is what makes this documented fallback pass the
+gate.
 This fallback exists to keep a batch moving on an occasional spawn failure — a *repeated* fallback
 within the same batch is worth investigating, not silently absorbing.
 
