@@ -873,5 +873,22 @@
   branch: cfq/029-2026-09-16-ifq-orchestrator-gate-and-framework-findings
   base: cfq/028-2026-09-15-ifq-chain-new-batch-onto-newest-branch
   started: 2026-09-16
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-16
+  phases:
+    - phase: "01-orchestrator-mode-gate"
+      status: "green"
+      summary: ""
+    - phase: "02-framework-note-routing"
+      status: "green"
+      summary: ""
+    - phase: "03-framework-routing-wiring"
+      status: "green"
+      summary: ""
+    - phase: "04-guard-fd-redirect"
+      status: "green"
+      summary: ""
+    - phase: "05-stop-used-default-and-release"
+      status: "green"
+      summary: ""
