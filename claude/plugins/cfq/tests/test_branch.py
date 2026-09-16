@@ -68,6 +68,7 @@ class BranchTest(CfqTestCase):
         self.assertEqual(out["remoteState"], "unknown", msg=f"offline remoteState -> {out}")
         self.assertFalse(out["pushable"], msg=f"offline pushable -> {out}")
         self.assertEqual(out["unpushed"], [], msg=f"offline unpushed -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"continue uncontained -> {out}")
 
     def test_remote_only_branch_continues(self):
         # Remote-only branch for the slug -> same continue result.
@@ -123,10 +124,11 @@ class BranchTest(CfqTestCase):
         self.assertIsNone(out["branch"], msg=f"off branch should be null -> {out}")
         self.assertFalse(out["dirty"], msg=f"off dirty -> {out}")
         self.assertFalse(out["changelogDirty"], msg=f"off changelogDirty -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"off uncontained -> {out}")
 
     def test_ahead_branch_appears_in_candidates(self):
-        # A branch ahead of main appears in candidates (as an object) but no longer becomes the
-        # base on its own -- without a `.dependsOn` naming it, `base` stays `main`.
+        # A branch ahead of main appears in candidates (as an object) but a non-`cfq/` branch is
+        # never chained onto silently -- `base` stays `main`.
         self.run_clean("git", "checkout", "-q", "-b", "v0.50-ahead", cwd=self.repo)
         self.run_clean(
             "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
@@ -384,7 +386,7 @@ class BranchTest(CfqTestCase):
 
     def test_offline_candidates_from_local_branches(self):
         # Offline (no origin) -> candidates fall back to local `git branch`, every one
-        # localOnly. Without a `.dependsOn` naming it, `base` stays `main` (offline `main_ref`).
+        # localOnly. An unmerged local numbered cfq/ branch now becomes the chain base.
         self.run_clean("git", "checkout", "-q", "-b", "cfq/001-2026-01-01-offline", cwd=self.repo)
         self.run_clean(
             "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
@@ -393,9 +395,13 @@ class BranchTest(CfqTestCase):
         self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
         out = self.json_out(self._plan("2026-02-08-topic"))
         self.assertEqual(out["remoteChecked"], False, msg=f"offline remoteChecked -> {out}")
-        self.assertEqual(out["base"], "main", msg=f"offline base -> {out}")
-        self.assertEqual(out["baseRef"], "refs/heads/main", msg=f"offline baseRef -> {out}")
-        self.assertEqual(out["baseSource"], "main", msg=f"offline baseSource -> {out}")
+        self.assertEqual(
+            out["base"], "cfq/001-2026-01-01-offline", msg=f"offline base -> {out}"
+        )
+        self.assertEqual(
+            out["baseRef"], "refs/heads/cfq/001-2026-01-01-offline", msg=f"offline baseRef -> {out}"
+        )
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"offline baseSource -> {out}")
         cand = out["candidates"][0]
         self.assertTrue(cand["localOnly"], msg=f"offline localOnly -> {cand}")
 
@@ -518,13 +524,19 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertEqual(
             names, {"cfq/001-2026-01-01-a", "cfq/002-2026-01-02-b"}, msg=f"candidates -> {out}"
         )
-        # No `.dependsOn` naming either -> base stays `main`, candidate ranking is still there
-        # for reference/the ambiguous fallback, just no longer what `base` defaults to.
-        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        # No `.dependsOn` naming either -> chains onto the highest-numbered unmerged cfq/ branch,
+        # which here also happens to have the newer commit; cfq/001 is uncontained but older, so
+        # it only warns.
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
         self.assertEqual(
-            out["baseRef"], "refs/remotes/origin/main", msg=f"baseRef -> {out}"
+            out["baseRef"], "refs/remotes/origin/cfq/002-2026-01-02-b", msg=f"baseRef -> {out}"
         )
-        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        self.assertEqual(
+            out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
+        )
+        self.assertFalse(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
 
     def test_remote_only_candidate_still_listed(self):
         # Branch pushed, local ref then deleted -> still listed, localOnly false, ref points at
@@ -544,17 +556,86 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertTrue(cand["localOnly"], msg=f"local-only -> {cand}")
         self.assertEqual(cand["ref"], "refs/heads/topic-local", msg=f"local-only ref -> {cand}")
 
-    def test_newest_commit_wins_over_highest_number(self):
-        # The higher-numbered branch was committed first; the lower-numbered one is newer, but
-        # without a `.dependsOn` naming either, `base` stays `main` -- candidate ranking
-        # (highestBatch) is unaffected.
+    def test_newer_uncontained_branch_triggers_newer_candidate(self):
+        # The kankuri shape: two independently-branched cfq branches, the lower-numbered one has
+        # the newer commit and is not contained in the higher-numbered one -> the
+        # highest-numbered branch is still recommended as base, but baseSource flags the newer,
+        # uncontained alternative for the caller to ask about.
         self._branch("cfq/002-2026-01-01-earlier-commit-higher-number", "2026-01-01T00:00:00")
         self._branch("cfq/001-2026-01-05-later-commit-lower-number", "2026-01-05T00:00:00")
         out = self.json_out(self._plan("2026-02-04-topic"))
-        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+        self.assertEqual(
+            out["base"], "cfq/002-2026-01-01-earlier-commit-higher-number", msg=f"base -> {out}"
+        )
+        self.assertEqual(out["baseSource"], "newerCandidate", msg=f"baseSource -> {out}")
         highest = self._candidate(out, "cfq/002-2026-01-01-earlier-commit-higher-number")
         self.assertTrue(highest["highestBatch"], msg=f"highestBatch -> {highest}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        self.assertEqual(
+            out["uncontained"][0]["name"], "cfq/001-2026-01-05-later-commit-lower-number",
+            msg=f"uncontained name -> {out}",
+        )
+        self.assertTrue(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
+
+    def test_older_uncontained_branch_only_warns(self):
+        # Two independently-branched cfq branches, the higher-numbered one has the newer commit
+        # -> chains normally, but the older, uncontained candidate still surfaces as a warning.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
+        out = self.json_out(self._plan("2026-02-16-topic"))
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        self.assertEqual(
+            out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
+        )
+        self.assertFalse(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
+
+    def test_non_cfq_branch_never_chained(self):
+        # Only a non-cfq/ branch is ahead of main -> never chosen as base silently, base stays
+        # main, the branch still appears in candidates.
+        self._branch("feature-x", "2026-01-01T00:00:00")
+        out = self.json_out(self._plan("2026-02-17-topic"))
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+        names = [c["name"] for c in out["candidates"]]
+        self.assertIn("feature-x", names, msg=f"feature-x should still be listed -> {out}")
+
+    def test_merged_cfq_branch_not_chained(self):
+        # The only cfq/ branch is fast-forward-merged into origin/main -> not a chain candidate
+        # (aheadOfMain 0), base falls back to the bootstrap case.
+        self._branch("cfq/001-2026-01-01-merged", "2026-01-01T00:00:00")
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self.run_clean(
+            "git", "merge", "-q", "--ff-only", "cfq/001-2026-01-01-merged", cwd=self.repo
+        )
+        self.run_clean("git", "push", "-q", "origin", "main", cwd=self.repo)
+        out = self.json_out(self._plan("2026-02-18-topic"))
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+
+    def test_no_dependson_chains_onto_highest_numbered_branch(self):
+        # Routine case: no `.dependsOn`, the higher-numbered branch is built on the lower one ->
+        # chains onto the highest-numbered unmerged cfq/ branch instead of resetting to main.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self.run_clean(
+            "git", "checkout", "-q", "-b", "cfq/002-2026-01-02-b", "cfq/001-2026-01-01-a",
+            cwd=self.repo,
+        )
+        env = {"GIT_AUTHOR_DATE": "2026-01-02T00:00:00", "GIT_COMMITTER_DATE": "2026-01-02T00:00:00"}
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "b", cwd=self.repo, env=env,
+        )
+        self.run_clean("git", "push", "-q", "-u", "origin", "cfq/002-2026-01-02-b", cwd=self.repo)
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        out = self.json_out(self._plan("2026-02-15-topic"))
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(
+            out["baseRef"], "refs/remotes/origin/cfq/002-2026-01-02-b", msg=f"baseRef -> {out}"
+        )
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
     def test_merged_batch_branch_still_listed(self):
         # Highest-numbered branch fully merged into origin/main -> still listed as an
@@ -592,6 +673,7 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertEqual(out["candidates"], [], msg=f"candidates -> {out}")
         self.assertEqual(out["base"], "main", msg=f"base -> {out}")
         self.assertEqual(out["baseRef"], "refs/remotes/origin/main", msg=f"baseRef -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
     def test_origin_head_never_a_candidate(self):
         self.run_clean("git", "remote", "set-head", "origin", "main", cwd=self.repo)
@@ -612,6 +694,7 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
             out["baseRef"], "refs/remotes/origin/cfq/001-2026-01-01-a", msg=f"baseRef -> {out}"
         )
         self.assertEqual(out["baseSource"], "dependsOn", msg=f"baseSource -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"dependsOn uncontained -> {out}")
 
     def test_dependson_chain_prefers_the_branch_built_on_the_other(self):
         # Two deps where the second was branched from the first -> the second contains the first,
@@ -646,6 +729,21 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         out = self.json_out(self._plan("2026-02-12-topic"))
         self.assertEqual(out["base"], "main", msg=f"base -> {out}")
         self.assertEqual(out["baseSource"], "main", msg=f"baseSource -> {out}")
+
+    def test_dependson_merged_dep_still_chains(self):
+        # `.dependsOn` names only a merged dep, but an unmerged cfq/ branch exists and isn't
+        # named -> behaves like no `.dependsOn` at all, chains onto the highest-numbered one.
+        self._branch("cfq/001-2026-01-01-merged-dep", "2026-01-01T00:00:00")
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self.run_clean(
+            "git", "merge", "-q", "--ff-only", "cfq/001-2026-01-01-merged-dep", cwd=self.repo
+        )
+        self.run_clean("git", "push", "-q", "origin", "main", cwd=self.repo)
+        self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
+        self._depends_on("2026-02-19-topic", "001-2026-01-01-merged-dep")
+        out = self.json_out(self._plan("2026-02-19-topic"))
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
 
     def test_dependson_ambiguous_falls_back_to_newest_candidate(self):
         # Two unmerged dep branches, neither containing the other (both branched independently

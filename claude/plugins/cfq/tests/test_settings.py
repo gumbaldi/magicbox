@@ -99,7 +99,7 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "stopUsed"
         ).stdout.strip()
-        self.assertEqual(got, "100000", msg=f"default stopUsed = '{got}', want 100000")
+        self.assertEqual(got, "125000", msg=f"default stopUsed = '{got}', want 125000")
 
         proc = self.run_cfq("settings", "set", "grillMode", "klassisch", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set grillMode klassisch should fail")
@@ -109,14 +109,14 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "stopUsed"
         ).stdout.strip()
-        self.assertEqual(got, "100000", msg=f"default stopUsed = '{got}', want 100000")
+        self.assertEqual(got, "125000", msg=f"default stopUsed = '{got}', want 125000")
 
         with tempfile.TemporaryDirectory() as fresh_home, self._home_as(fresh_home):
             got = self.run_clean(
                 str(CFQ_BIN), "settings", "get", "stopUsed"
             ).stdout.strip()
             self.assertEqual(
-                got, "100000", msg=f"default stopUsed on fresh HOME = '{got}', want 100000"
+                got, "125000", msg=f"default stopUsed on fresh HOME = '{got}', want 125000"
             )
 
         self.run_cfq("settings", "set", "stopUsed", "50000", home=self.home, check=True)
@@ -931,6 +931,34 @@ class SettingsTest(CfqTestCase):
         self.assertEqual(
             before, after, msg="failed global set must not modify the settings file"
         )
+
+    # 19. frameworkRepo: default, absolute set, relative rejected, global-only scope
+    def test_19_framework_repo(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "frameworkRepo"
+        ).stdout.strip()
+        self.assertEqual(got, "", msg=f"default frameworkRepo = '{got}', want empty")
+
+        self.run_cfq(
+            "settings", "set", "frameworkRepo", "/tmp/framework-repo", home=self.home, check=True
+        )
+        got = self.run_cfq(
+            "settings", "get", "frameworkRepo", home=self.home
+        ).stdout.strip()
+        self.assertEqual(got, "/tmp/framework-repo", msg=f"set absolute path -> got '{got}'")
+
+        proc = self.run_cfq("settings", "set", "frameworkRepo", "relative", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set relative frameworkRepo should fail")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            proc = self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "frameworkRepo", "/tmp/x",
+                home=self.home,
+            )
+            self.assertNotEqual(
+                proc.returncode, 0, msg="set frameworkRepo --repo should fail (global-only scope)"
+            )
 
 
 if __name__ == "__main__":

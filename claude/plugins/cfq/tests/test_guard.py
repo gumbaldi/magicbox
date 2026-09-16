@@ -79,6 +79,20 @@ class GuardTest(CfqTestCase):
         )
         self.assertDenied(proc)
 
+    def test_deny_redirect_into_queue_relative_to_cwd(self):
+        proc = self._bash(
+            "echo hi > report.json", cwd="/repo/.claude/cfq/impl/019-x",
+        )
+        self.assertDenied(proc)
+
+    def test_deny_file_redirect_into_queue_via_fd_dup_operator(self):
+        # `&>`/`&>>` redirect both stdout and stderr to a real file -- unlike `>&1` etc., this one
+        # does name a path and must stay checked.
+        proc = self._bash(
+            "echo hi &> report.json", cwd="/repo/.claude/cfq/impl/019-x",
+        )
+        self.assertDenied(proc)
+
     def test_deny_find_delete_in_queue(self):
         proc = self._bash("find /repo/.claude/cfq -name '*.md' -delete", cwd="/repo")
         self.assertDenied(proc)
@@ -136,6 +150,14 @@ class GuardTest(CfqTestCase):
         )
         self.assertAllowed(self._bash("ls", cwd="/repo"))
         self.assertAllowed(self._bash("grep -r x /repo/.claude/cfq", cwd="/repo"))
+
+    def test_allow_fd_duplication_redirects_from_inside_the_queue(self):
+        # A duplication of a file descriptor (`>&1`, `2>&1`, `>&2`, `>&-`) never names a file, so
+        # it must never be treated as a guard target even from a `cwd` inside `.claude/cfq`.
+        cwd = "/repo/.claude/cfq/impl/019-x"
+        self.assertAllowed(self._bash("claude/plugins/cfq/bin/cfq settings get stopUsed 2>&1", cwd=cwd))
+        self.assertAllowed(self._bash("echo hi >&2", cwd=cwd))
+        self.assertAllowed(self._bash("exec 3>&-", cwd=cwd))
 
     def test_allow_bin_cfq_calls(self):
         self.assertAllowed(

@@ -9,10 +9,18 @@ no pseudo-version increment, no identity derived from Git branch history.
 read-only, no dispatcher entry of its own since `branch` is already the noun.
 
 On `new`, `base`/`baseRef` are derived from the batch's own `.dependsOn` rather than picked from
-`candidates` by newest commit: `baseSource` is `"main"` (no unmerged dependency branch),
-`"dependsOn"` (the one unmerged dependency branch that contains every other unmerged one), or
-`"ambiguous"` (no single one does -- falls back to the old newest-`lastCommit` candidate, now the
-exceptional case instead of the default).
+`candidates` by newest commit: `baseSource` is `"dependsOn"` (the one unmerged dependency branch
+that contains every other unmerged one), `"ambiguous"` (no single one does -- falls back to the
+old newest-`lastCommit` candidate, now the exceptional case instead of the default),
+`"highestBatch"` (no unmerged dependency branch -- chains onto the highest-numbered unmerged
+`cfq/<NNN>-...` branch among `candidates` instead, so repos that keep `main` frozen and
+accumulate batches as a chain don't reset to a stale `main`), `"newerCandidate"` (same base as
+`"highestBatch"`, but another unmerged cfq branch not contained in it has a newer commit -- the
+caller asks which to use), or `"main"` (bootstrap only: no unmerged numbered `cfq/` branch exists
+at all). `uncontained` (`new`-mode only) lists every other unmerged cfq branch not contained in
+the chosen base, `{"name", "lastCommit", "newer"}` -- `"newerCandidate"` fires when at least one
+entry has `newer: true`; older entries are still listed, but only ever surfaced as a warning.
+`uncontained` is `[]` for `"dependsOn"`/`"ambiguous"` and in every other mode.
 
 Ported from cfq-branch.sh -- a port, not a redesign: the CLI contract (verbs, argument order, JSON
 shapes, exit codes) is the invariant this file preserves. The remote-is-source-of-truth rule
@@ -225,8 +233,8 @@ def cmd_plan(args):
     if branch_per_batch == "false":
         print(render.dump_json({
             "mode": "off", "batch": batch_name, "batchNumber": number, "branch": None,
-            "base": None, "candidates": [], "remoteChecked": False, "remoteWarning": None,
-            "dirty": False, "changelogDirty": False,
+            "base": None, "candidates": [], "uncontained": [], "remoteChecked": False,
+            "remoteWarning": None, "dirty": False, "changelogDirty": False,
         }))
         return
 
@@ -290,7 +298,7 @@ def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelo
 
     print(render.dump_json({
         "mode": "continue", "batch": batch_name, "batchNumber": number, "branch": existing,
-        "base": None, "candidates": [],
+        "base": None, "candidates": [], "uncontained": [],
         "remoteChecked": rchecked, "remoteWarning": continue_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
         "dirty": dirty, "changelogDirty": changelog_dirty,
@@ -356,8 +364,9 @@ def _dependency_base(repo, batch_name, rchecked, main_ref):
     branch (persisted `changelog branch-for`, else `cfq/<dep>`) is kept when its ref exists
     (origin first, local when offline) and it is not already an ancestor of `main_ref` (merged
     deps contribute nothing, same as no dep at all). No unmerged dep branch -> `("main", main_ref,
-    False, "main")`. Exactly one branch among the unmerged set that contains every other one (a
-    chain, or a lone dependency) -> that branch, `baseSource: "dependsOn"`. Otherwise ->
+    False, "main")` -- the caller turns this into the chain decision (`_chain_base()`), not a
+    final answer on its own. Exactly one branch among the unmerged set that contains every other
+    one (a chain, or a lone dependency) -> that branch, `baseSource: "dependsOn"`. Otherwise ->
     `(None, None, None, "ambiguous")`, leaving the caller's own newest-candidate fallback in
     charge, unchanged from before this derivation existed."""
     batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch_name
@@ -397,6 +406,51 @@ def _dependency_base(repo, batch_name, rchecked, main_ref):
             return name, ref, local_only, "dependsOn"
 
     return None, None, None, "ambiguous"
+
+
+def _chain_base(repo, cand_objs):
+    """Applied only when `_dependency_base()` returned `baseSource: "main"` (no unmerged
+    `.dependsOn` branch, or every dep merged/missing) -- chains onto the highest-numbered unmerged
+    `cfq/<NNN>-...` branch among `cand_objs` instead of resetting to `main`, so repos that keep
+    `main` frozen and accumulate cfq batches as a chain don't get a stale base. `cand_objs` is
+    already filtered/ranked (descending `lastCommit`, `_lastEpoch` still present -- the caller
+    deletes it only after this decision is made). Chain candidates are `cfq/`-prefixed entries
+    whose remainder parses as a batch number and whose `aheadOfMain > 0`; a non-`cfq/` branch or a
+    fully-merged cfq branch (`aheadOfMain == 0`) is never chosen silently. No chain candidate ->
+    `None` (bootstrap case, caller keeps `baseSource: "main"`). Otherwise the highest-numbered
+    chain candidate is the base (`baseSource: "highestBatch"`); every other chain candidate not
+    contained in it (`merge-base --is-ancestor`) becomes one `uncontained` entry, in the same
+    (descending-`lastCommit`) order as `cand_objs` -- `newer: true` when its commit epoch is
+    strictly greater than the base's, which also flips `baseSource` to `"newerCandidate"` (the
+    base itself is unchanged -- it stays the recommendation, the caller asks). An older
+    uncontained entry never changes `baseSource`, only adds to the warning list."""
+    chain_candidates = [
+        c for c in cand_objs
+        if c["name"].startswith("cfq/")
+        and parse_batch_number(c["name"][len("cfq/"):]) is not None
+        and c["aheadOfMain"] > 0
+    ]
+    if not chain_candidates:
+        return None
+
+    base = max(chain_candidates, key=lambda c: parse_batch_number(c["name"][len("cfq/"):]))
+    base_source = "highestBatch"
+
+    uncontained = []
+    for c in chain_candidates:
+        if c is base:
+            continue
+        contained = git(
+            repo, "merge-base", "--is-ancestor", c["ref"], base["ref"], check=False
+        ).returncode == 0
+        if contained:
+            continue
+        newer = c["_lastEpoch"] > base["_lastEpoch"]
+        uncontained.append({"name": c["name"], "lastCommit": c["lastCommit"], "newer": newer})
+        if newer:
+            base_source = "newerCandidate"
+
+    return base["name"], base["ref"], base["localOnly"], base_source, uncontained
 
 
 def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
@@ -444,12 +498,11 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     # rather than one `sort(reverse=True)`, which would leave ties in their original order.
     cand_objs.sort(key=lambda c: c["_lastEpoch"])
     cand_objs.reverse()
-    for c in cand_objs:
-        del c["_lastEpoch"]
 
     base_name, base_ref, base_local_only, base_source = _dependency_base(
         repo, batch_name, rchecked, main_ref
     )
+    uncontained = []
     if base_source == "ambiguous":
         if not cand_objs:
             base_name, base_ref, base_local_only = "main", main_ref, False
@@ -457,6 +510,13 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
             base_name = cand_objs[0]["name"]
             base_ref = cand_objs[0]["ref"]
             base_local_only = cand_objs[0]["localOnly"]
+    elif base_source == "main":
+        chained = _chain_base(repo, cand_objs)
+        if chained is not None:
+            base_name, base_ref, base_local_only, base_source, uncontained = chained
+
+    for c in cand_objs:
+        del c["_lastEpoch"]
 
     base_local_ref = f"refs/heads/{base_name}"
     base_origin_ref = f"refs/remotes/origin/{base_name}"
@@ -496,6 +556,7 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     print(render.dump_json({
         "mode": "new", "batch": batch_name, "batchNumber": number, "branch": branch,
         "base": base_name, "baseRef": base_ref, "baseSource": base_source, "candidates": cand_objs,
+        "uncontained": uncontained,
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
         "dirty": dirty, "changelogDirty": changelog_dirty,

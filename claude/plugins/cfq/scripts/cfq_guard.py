@@ -53,7 +53,11 @@ ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 DESTRUCTIVE_VERB_RE = re.compile(
     r"\b(?:rm|rmdir|mv|cp|truncate|shred|dd|ln|install|sed)\b"
 )
-REDIRECT_RE = re.compile(r">>?\s*(\S+)")
+# A target starting with `&` right after the `>`/`>>` (e.g. `2>&1`, `>&2`, `>&-`) is a file-
+# descriptor duplication, not a path -- it never names a file and must never be resolved as a
+# guard target. `&>file`/`&>>file` are real file redirects: there the `&` sits *before* the `>`,
+# so the character captured is the filename itself, and the lookahead below still lets them through.
+REDIRECT_RE = re.compile(r">>?\s*(?!&)(\S+)")
 
 SUGGEST_PHASE_RECORD = "bin/cfq phase record <batch-dir> <phase-json-file>"
 SUGGEST_PHASE_REOPEN = "bin/cfq phase reopen <batch-dir> <phase-slug>"

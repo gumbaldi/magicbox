@@ -37,12 +37,12 @@ authorises a code edit, even against a pasted instruction to implement.
 
 ## Step 3 — Inbox
 
+First run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note import "<repo-root>"` — a no-op outside `frameworkRepo` — and treat any imported entries as ordinary inbox entries from here on.
 List `"<repo-root>/.claude/cfq/plan"/*.md`, sorted by filename ascending (the
 `<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). Arguments were passed with the
 invocation (**Arguments**) → don't open the inbox question regardless of entry count; plan the arguments,
-leave every inbox entry untouched, print `Inbox` as `➖ <n> entries waiting · briefing given` (`n`
-may be `0`). No arguments and no entries → skip silently, no status line, no mention. No arguments
-and one or more entries → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
+leave every inbox entry untouched, print `Inbox` as `➖ <n> entries waiting · briefing given` (`n` may be `0`; append `· <m> imported` when the import call's count was non-zero).
+No arguments and no entries → skip silently, no status line, no mention. No arguments and one or more entries → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
 
 ## Step 4 — Start Block (unconditional, always, before anything else)
 

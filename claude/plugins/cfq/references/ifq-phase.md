@@ -4,7 +4,11 @@
 
 Runs after the Size Gate, before any code is written, every phase. The announcement is
 `bin/cfq brief "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
-deterministic, extracted from the phase file, so it cannot drift in wording between phases:
+deterministic, extracted from the phase file, so it cannot drift in wording between phases. This
+is the classic-mode announcement specifically: the call refuses (`MODE_MISMATCH`, exit 2) while
+`orchestratorMode` is on for the repo, since that mode's own phase announcement goes through
+`bin/cfq worker brief` instead — see `<plugin-root>/references/orchestrator.md` section 6 for the
+one documented `--classic-fallback` override.
 
 ```
 PHASE 02 · ifq-per-phase-go-gate · Size L

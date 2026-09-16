@@ -95,6 +95,13 @@ class TestCtxUsage(CfqTestCase):
                     for token in case["want_all"]:
                         self.assertIn(token, out, f"{case['name']} -> {out}")
 
+    def test_default_stop_used_is_125000_with_no_override(self):
+        # No CFQ_STOP_USED at all, and a throwaway HOME with no global settings file: the
+        # schema default is what actually governs, not a test override.
+        out = self._run("gate", "M", env={"CFQ_CTX_TEST_USED": "50000"}).stdout.strip()
+        self.assertIn("LIMIT=125000", out, out)
+        self.assertIn("START REASON=none", out, out)
+
     def test_stopused_zero_bypass_does_not_suppress_unknown_reason(self):
         # A throwaway HOME with no override, no payload, no transcript: an unresolved context
         # reading still surfaces as an advisory WARN even while the capacity bypass is active.

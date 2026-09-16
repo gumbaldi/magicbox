@@ -315,6 +315,9 @@ Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never
 `status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
 documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
 not replaces, the list above. Don't invent parallel status strings elsewhere; reuse this list.
+`MODE_MISMATCH` is the one token in this vocabulary that is never a JSON `status` value — it's
+`cfq_brief.py`'s stderr/exit-2 refusal when `--phase` is called while `orchestratorMode` is on,
+reported by exit code rather than by a field a caller parses.
 
 ## Self-hosting quirk
 

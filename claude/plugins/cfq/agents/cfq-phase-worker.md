@@ -54,9 +54,11 @@ question.
 ## Out-of-scope findings
 
 Park each one without asking: one `plan/<YYYY-MM-DD>-<slug>.md` entry per finding, written through
-`commands.notePlan`, noting plainly that a decision is still open on it. List every entry written
-this way in the report's `parkedPlanEntries` so the orchestrator can name them in the phase
-summary. Nothing is dropped, and nothing interrupts the implementation to ask about it.
+`commands.notePlan` — or `commands.notePlanFramework` for a finding about cfq itself, rule in
+`<plugin-root>/references/queue-entries.md` — noting plainly that a decision is still open on it.
+List every entry written this way in the report's `parkedPlanEntries` so the orchestrator can name
+them in the phase summary. Nothing is dropped, and nothing interrupts the implementation to ask
+about it.
 
 ## When the worker may stop and ask
 
