@@ -49,7 +49,7 @@ def resolved_setting(key, default):
 
 
 def main(argv):
-    stop_used = resolved_setting("stopUsed", 100000)
+    stop_used = resolved_setting("stopUsed", 125000)
     stop_5h = resolved_setting("stopFiveHourPct", 70)
     stop_7d = resolved_setting("stopSevenDayPct", 95)
 

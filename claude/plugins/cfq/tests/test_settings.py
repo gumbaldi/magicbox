@@ -99,7 +99,7 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "stopUsed"
         ).stdout.strip()
-        self.assertEqual(got, "100000", msg=f"default stopUsed = '{got}', want 100000")
+        self.assertEqual(got, "125000", msg=f"default stopUsed = '{got}', want 125000")
 
         proc = self.run_cfq("settings", "set", "grillMode", "klassisch", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set grillMode klassisch should fail")
@@ -109,14 +109,14 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "stopUsed"
         ).stdout.strip()
-        self.assertEqual(got, "100000", msg=f"default stopUsed = '{got}', want 100000")
+        self.assertEqual(got, "125000", msg=f"default stopUsed = '{got}', want 125000")
 
         with tempfile.TemporaryDirectory() as fresh_home, self._home_as(fresh_home):
             got = self.run_clean(
                 str(CFQ_BIN), "settings", "get", "stopUsed"
             ).stdout.strip()
             self.assertEqual(
-                got, "100000", msg=f"default stopUsed on fresh HOME = '{got}', want 100000"
+                got, "125000", msg=f"default stopUsed on fresh HOME = '{got}', want 125000"
             )
 
         self.run_cfq("settings", "set", "stopUsed", "50000", home=self.home, check=True)
