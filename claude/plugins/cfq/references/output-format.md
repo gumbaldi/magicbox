@@ -14,4 +14,5 @@ Rules: detail = what happened, not what happens next · a step that didn't run s
 with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` line, never the detail column ·
 headers/labels/status lines are always English, and so are values — including the `RESULT` block's
 label/value list (`none`, not `nichts`); only `AskUserQuestion` copy and interview prose follow the
-user's language · no commentary around the block.
+user's language · padding is plain space characters, never HTML entities such as `&nbsp;`, which
+render as visible text rather than whitespace in a terminal · no commentary around the block.

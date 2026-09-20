@@ -252,16 +252,16 @@ faith.
   regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
   `(new)` marker, `.priority` values. Only the prose content inside those files follows
   `codeLanguage`.
-- **Progress is reported as status lines, not prose.** Every SKILL.md carries a word-for-word
-  identical `## Output Format` block (section header in caps, per step `<icon> <label padded to
-  16 chars> <detail>`, icons `✅ ⚠️ ❌ ➖`, printed live as each step completes). A new skill
-  copies the block from `implement-for-queue/SKILL.md` and adds only its own `## Section Map`.
-  `AskUserQuestion`, briefings, and data tables are exempt and stay prose. Change the block →
-  change it in all four `SKILL.md` files. Two forms are in use — the full block (`report-for-queue`)
-  and a shortened one that says the same thing in fewer lines (`implement-for-queue`,
-  `plan-for-queue`, `code-for-queue`), needed to stay inside the 200-line budget below.
-  Whichever form a skill uses, it must still be word-for-word identical across every skill using
-  that form.
+- **Progress is reported as status lines, not prose.** The canonical `## Output Format` block
+  (section header in caps, per step `<icon> <label padded to 16 chars> <detail>`, icons
+  `✅ ⚠️ ❌ ➖`, printed live as each step completes) lives in
+  `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
+  `plan-for-queue`, and `code-for-queue`. `report-for-queue` keeps a full inline copy instead,
+  needed to stay inside the 200-line budget below without adding a reference-file read to a skill
+  that otherwise wouldn't need one. Change the block → change `references/output-format.md`, and
+  keep `report-for-queue`'s inline copy in sync with it (same content, its own bullet style — not
+  necessarily word-for-word). A new skill points at the reference file rather than copying the
+  block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
 - **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything
   happens. Content that would push a file past that moves to `references/` and is loaded only on
   the path that needs it — pattern: `claude/plugins/cfq/references/grilling.md`.
