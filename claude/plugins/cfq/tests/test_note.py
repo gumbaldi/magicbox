@@ -6,6 +6,7 @@ itself -- date, slug normalisation and target directory are convention (see phas
 """
 
 import datetime
+import pathlib
 import unittest
 
 from cfq_testlib import CfqTestCase
@@ -222,6 +223,71 @@ class NoteTest(CfqTestCase):
         remaining = list(inbox.glob("*.md"))
         self.assertEqual(len(remaining), 1, "the colliding entry must stay in the inbox")
         self.assertEqual(remaining[0].name, f"{self.today}-finding.md")
+
+    # note merge-todo composes the whole card itself -- title, ready-to-run merge command and a
+    # `check:` line -- so the line can never be forgotten the way a model-composed card leaves it
+    # out (see .batch-context.md for phase 01's rationale).
+    def test_merge_todo_writes_card_with_check_line(self):
+        branch = "cfq/030-2026-09-20-some-slug"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        expected = (
+            self.repo / ".claude" / "cfq" / "todo"
+            / f"{self.today}-merge-cfq-030-2026-09-20-some-slug.md"
+        )
+        self.assertEqual(out, str(expected))
+
+        content = expected.read_text()
+        lines = content.splitlines()
+        self.assertTrue(lines[0].startswith("# "), "card must open with an H1 title")
+        self.assertIn(f"git checkout main && git merge --ff-only {branch}", content)
+        check_lines = [line for line in lines if line.startswith("check: ")]
+        self.assertEqual(len(check_lines), 1, "card must carry exactly one check: line")
+
+    # Edge case that actually bites: normalise_slug() maps anything outside [a-z0-9-] to nothing,
+    # so a raw branch slug with a "/" would collapse the segment boundary (cfq030-x) unless the
+    # subcommand translates "/" to "-" itself before normalising.
+    def test_merge_todo_branch_slash_keeps_segment_boundary(self):
+        branch = "cfq/030-x"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
+        self.assertEqual(out, str(expected))
+
+    # The check: line must try origin/main first and fall back to local main -- a repo without a
+    # remote still closes its cards, and a stale/missing origin ref leaves the card open rather
+    # than reporting a merge that hasn't happened (never a false positive). Same resolution order
+    # as cfq_branch.py:331/341.
+    def test_merge_todo_check_line_tries_origin_then_local_main(self):
+        branch = "cfq/030-x"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        content = pathlib.Path(out).read_text()
+        expected_check = (
+            "check: git merge-base --is-ancestor cfq/030-x origin/main 2>/dev/null "
+            "|| git merge-base --is-ancestor cfq/030-x main"
+        )
+        self.assertIn(expected_check, content)
+
+    # Same day, same branch, twice: the second call must fail with the existing EXISTS error and
+    # must not overwrite the first card -- merge-todo inherits cmd_note's write path rather than
+    # inventing its own overwrite behaviour.
+    def test_merge_todo_twice_same_day_fails_and_leaves_first_card_unchanged(self):
+        branch = "cfq/030-x"
+        self.run_cfq("note", "merge-todo", str(self.repo), branch, check=True)
+        target = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
+        before = target.read_text()
+
+        proc = self.run_cfq("note", "merge-todo", str(self.repo), branch)
+        self.assertNotEqual(proc.returncode, 0, "writing onto an existing card must fail")
+        self.assertIn("EXISTS", proc.stderr)
+        self.assertEqual(target.read_text(), before, "existing card's bytes must be unchanged")
 
     # Empty/missing inbox directory: exit 0, imported: [], no directory created as a side effect.
     def test_import_with_missing_inbox_directory(self):

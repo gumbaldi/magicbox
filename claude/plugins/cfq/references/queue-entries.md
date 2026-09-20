@@ -41,8 +41,16 @@ names the repo the finding was made in, since the entry leaves that repo.
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:
-<shell-command>` line (exit `0` means done). For the merge case: `check: git branch --merged main
-| grep -q <branch>`. Plus `## Origin`, same as above.
+<shell-command>` line (exit `0` means done). Plus `## Origin`, same as above.
+
+For the merge case, don't hand-compose the card: `"<plugin-root>/bin/cfq" note merge-todo
+"<repo-root>" "<branch>"` writes it, title, ready-to-run merge command and `check:` line together,
+so the line can never be left out. Its check resolves `origin/main` first and falls back to local
+`main` (`git merge-base --is-ancestor <branch> origin/main 2>/dev/null || git merge-base
+--is-ancestor <branch> main`) rather than `git branch --merged main | grep -q <branch>`, which
+tests only the local `main` ref and can report a branch as unmerged when the local clone is simply
+behind `origin/main`. A hand-written `todo/` card for anything else may still carry its own
+`check:` line.
 
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`, `<slug>` normalised by `note` itself. The headings
 are always English; only the prose inside them follows `codeLanguage`.

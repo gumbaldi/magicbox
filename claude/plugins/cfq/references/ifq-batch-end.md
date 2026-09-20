@@ -39,8 +39,10 @@
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
-  `   └ ` line, printed not run; also a `todo/` entry (`bin/cfq note todo`, per **Follow-Up** in
-  `queue-entries.md`) without asking, so a forgotten merge is never lost.
+  `   └ ` line, printed not run; also a `todo/` card, written without asking by
+  `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
+  `queue-entries.md`), so a forgotten merge is never lost and the card's `check:` line lets `/cfq`
+  close it on its own once the merge lands.
 - `Report` — `file://` path, only when the Batch-Done step rendered one, else the line is omitted.
 
 ## Skills Recommended vs. Used
