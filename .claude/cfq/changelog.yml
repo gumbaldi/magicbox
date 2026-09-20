@@ -909,4 +909,8 @@
       summary: ""
 - batchNumber: 31
   batch: 031-2026-09-20-shrink-skill-files-and-dedupe-helpers
-  status: parked
+  branch: cfq/031-2026-09-20-shrink-skill-files-and-dedupe-helpers
+  base: cfq/030-2026-09-20-merge-todo-check-and-padding-clause
+  started: 2026-09-20
+  status: in-progress
+  legacy: false
