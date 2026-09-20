@@ -112,6 +112,23 @@ class TestDoctor(CfqTestCase):
         )
         self.assertFalse(cmd.startswith("/"), f"hook command is an absolute path: {cmd}")
 
+        pre_tool_use = data["hooks"]["PreToolUse"]
+        self.assertEqual(
+            len(pre_tool_use), 1, f"PreToolUse should collapse to a single block: {pre_tool_use}",
+        )
+        matcher = pre_tool_use[0]["matcher"]
+        for tool in ("Bash", "Write", "Edit"):
+            self.assertIn(tool, matcher, f"PreToolUse matcher missing {tool}: {matcher}")
+        guard_hook = pre_tool_use[0]["hooks"][0]
+        self.assertTrue(
+            guard_hook["command"].startswith("${CLAUDE_PLUGIN_ROOT}"),
+            f"PreToolUse guard command does not use ${{CLAUDE_PLUGIN_ROOT}}: {guard_hook['command']}",
+        )
+        self.assertEqual(
+            guard_hook["args"], ["guard", "pretooluse"],
+            f"PreToolUse guard args changed: {guard_hook['args']}",
+        )
+
     def test_ponytail_advisory_full_mode_does_not_affect_ok(self):
         healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "tea", "npm")
         pony_home = self._new_pony_home()

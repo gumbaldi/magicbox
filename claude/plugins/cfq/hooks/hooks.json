@@ -15,17 +15,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cfq",
-            "args": ["guard", "pretooluse"]
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
+        "matcher": "Bash|Write|Edit",
         "hooks": [
           {
             "type": "command",

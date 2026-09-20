@@ -14,6 +14,7 @@ from cfq_testlib import CfqTestCase, SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_report  # noqa: E402
+from cfq_lib import render  # noqa: E402
 
 
 class TestRender(CfqTestCase):
@@ -191,6 +192,28 @@ class TestRender(CfqTestCase):
         )
         for entity in ("&nbsp;", "&amp;", "&#"):
             self.assertNotIn(entity, all_output, f"HTML entity {entity!r} found in rendered terminal output")
+
+
+class TestJqAlt(unittest.TestCase):
+    def test_routine(self):
+        self.assertEqual(render.jq_alt("a", "b"), "a")
+        self.assertEqual(render.jq_alt(None, "b"), "b")
+        self.assertEqual(render.jq_alt(False, "b"), "b")
+
+    def test_variadic(self):
+        self.assertEqual(render.jq_alt(None, None, "see detail"), "see detail")
+
+    def test_falsy_but_valid_values_are_not_rejected(self):
+        # jq's `//` only rejects `null` and `false`, never `0` or `""` -- unlike Python's `or`.
+        self.assertEqual(render.jq_alt(0, "b"), 0)
+        self.assertEqual(render.jq_alt("", "b"), "")
+
+    def test_exhausted_falls_back_to_none(self):
+        self.assertIsNone(render.jq_alt(None))
+        self.assertIsNone(render.jq_alt())
+
+    def test_two_arg_default_none_shape(self):
+        self.assertIsNone(render.jq_alt(None, None))
 
 
 if __name__ == "__main__":

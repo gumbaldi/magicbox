@@ -41,14 +41,6 @@ ACTION_ROWS_TEMPLATE = [
 ]
 
 
-def jq_alt(*values):
-    """Mirrors jq's `//`: the first value that is neither null nor false."""
-    for v in values:
-        if v is not None and v is not False:
-            return v
-    return None
-
-
 def parse_args(argv):
     argv = list(argv)
     mode = "json"
@@ -284,7 +276,7 @@ def main(argv):
     runtime_json = json.loads(cfq_run("runtime", "plugins").stdout)
     if runtime_json.get("status") != "OK":
         if mode == "render":
-            code = jq_alt(runtime_json.get("code"), runtime_json.get("cap"), "see detail")
+            code = render.jq_alt(runtime_json.get("code"), runtime_json.get("cap"), "see detail")
             print("PRECHECKS")
             print(f"⚠️ {'Dash':<16}runtime degraded · {code}")
             print(f"➖ {'Plugins':<16}unknown · runtime degraded")

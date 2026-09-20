@@ -52,21 +52,9 @@ PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
 # ---- jq-semantics helpers -----------------------------------------------------------------
 
-def jq_alt(value, default):
-    """Mirrors jq's `//` operator: `value` unless it is null or false."""
-    if value is None or value is False:
-        return default
-    return value
-
-
 def jq_add(values):
     """Mirrors jq's `add`: sum of the list, or null (None) for an empty list."""
-    if not values:
-        return None
-    total = 0
-    for v in values:
-        total += v
-    return total
+    return sum(values) if values else None
 
 
 def jq_round(x):
@@ -83,7 +71,7 @@ def html_escape_jq(s):
 
 def esc(value):
     """Mirrors the shell script's `def esc: (. // "") | tostring | @html;`."""
-    return html_escape_jq(render.tostring(jq_alt(value, "")))
+    return html_escape_jq(render.tostring(render.jq_alt(value, "")))
 
 
 # ---- shared path/settings helpers ----------------------------------------------------------
@@ -156,7 +144,7 @@ def outcome(phases):
 
 
 def bound_lines(value, n=5):
-    s = jq_alt(value, "")
+    s = render.jq_alt(value, "")
     if not isinstance(s, str):
         s = render.tostring(s)
     lines = s.split("\n")
@@ -222,7 +210,7 @@ def cmd_security(args):
     entry = dict(snap_obj) if isinstance(snap_obj, dict) else snap_obj
     if isinstance(entry, dict):
         entry["at"] = at
-    data["security"] = jq_alt(data.get("security"), []) + [entry]
+    data["security"] = render.jq_alt(data.get("security"), []) + [entry]
     render.write_json(f, data)
 
 
@@ -265,10 +253,10 @@ def cmd_skills(args):
         tel = p.get("telemetry") if isinstance(p, dict) else None
         if not isinstance(tel, dict):
             continue
-        rec = jq_alt(tel.get("skills_recommended"), [])
+        rec = render.jq_alt(tel.get("skills_recommended"), [])
         if isinstance(rec, list):
             recommended.update(rec)
-        by_skill = jq_alt(tel.get("by_skill"), {})
+        by_skill = render.jq_alt(tel.get("by_skill"), {})
         if isinstance(by_skill, dict):
             used.update(k for k in by_skill.keys() if k != "-")
 
@@ -293,13 +281,13 @@ def cmd_last_failure(args):
     print(render.dump_json({
         "found": True,
         "phase": e.get("phase"),
-        "note": jq_alt(e.get("summary"), ""),
-        "at": jq_alt(e.get("finished"), ""),
+        "note": render.jq_alt(e.get("summary"), ""),
+        "at": render.jq_alt(e.get("finished"), ""),
     }))
 
 
 def _totals_field(totals, key):
-    return jq_alt(totals.get(key) if isinstance(totals, dict) else None, 0)
+    return render.jq_alt(totals.get(key) if isinstance(totals, dict) else None, 0)
 
 
 def cmd_summary(args):
@@ -315,12 +303,12 @@ def cmd_summary(args):
     red = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
     deviations = 0
     for p in phases:
-        d = jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
+        d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
         if isinstance(d, list):
             deviations += len(d)
 
     last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-    date = jq_alt(jq_alt(last_finished, data.get("started")), "")
+    date = render.jq_alt(render.jq_alt(last_finished, data.get("started")), "")
 
     planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
     planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -335,18 +323,18 @@ def cmd_summary(args):
         totals = tel.get("totals") if isinstance(tel, dict) else None
         phase_outputs.append(_totals_field(totals, "output"))
         phase_turns.append(_totals_field(totals, "turns"))
-        by_model = jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
-        by_effort = jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
+        by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
+        by_effort = render.jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
         if isinstance(by_model, dict):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
-        subagent = jq_alt(tel.get("subagent") if isinstance(tel, dict) else None, None)
+        subagent = render.jq_alt(tel.get("subagent") if isinstance(tel, dict) else None, None)
         worker_output += _totals_field(subagent, "output")
         worker_turns += _totals_field(subagent, "turns")
 
-    planning_by_model = jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
-    planning_by_effort = jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
+    planning_by_model = render.jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
+    planning_by_effort = render.jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
     if isinstance(planning_by_model, dict):
         model_keys = list(planning_by_model.keys()) + model_keys
     if isinstance(planning_by_effort, dict):
@@ -408,7 +396,7 @@ def extract_goals(dir_, data):
 
 
 def section_list(items, title):
-    items = jq_alt(items, [])
+    items = render.jq_alt(items, [])
     if not isinstance(items, list) or len(items) == 0:
         return ""
     lis = "".join(f"<li>{esc(x)}</li>" for x in items)
@@ -433,12 +421,12 @@ def telemetry_html(phase):
     totals = t.get("totals") if isinstance(t.get("totals"), dict) else {}
     by_model = t.get("by_model") if isinstance(t.get("by_model"), dict) else {}
     by_effort = t.get("by_effort") if isinstance(t.get("by_effort"), dict) else {}
-    duration = f"{math.floor(jq_alt(t.get('wallclock_s'), 0))} s"
+    duration = f"{math.floor(render.jq_alt(t.get('wallclock_s'), 0))} s"
     pairs = [
         ("Turns", totals.get("turns")),
         ("Out", totals.get("output")),
-        ("In", jq_alt(totals.get("billable_in"), 0)),
-        ("Cache", jq_alt(totals.get("cache_read"), 0)),
+        ("In", render.jq_alt(totals.get("billable_in"), 0)),
+        ("Cache", render.jq_alt(totals.get("cache_read"), 0)),
         ("Dauer", duration),
         ("Model", ", ".join(sorted(by_model.keys()))),
         ("Effort", ", ".join(sorted(by_effort.keys()))),
@@ -462,10 +450,10 @@ def phase_html(phase, goals):
     parts.append(telemetry_html(phase))
     parts.append(section_list(phase.get("deviations"), "Deviations"))
     parts.append(section_list(phase.get("errors"), "Errors"))
-    verification = jq_alt(phase.get("verification"), "")
+    verification = render.jq_alt(phase.get("verification"), "")
     if verification != "":
         parts.append(f'<p class="verification"><code>{esc(phase.get("verification"))}</code></p>')
-    commit = jq_alt(phase.get("commit"), "")
+    commit = render.jq_alt(phase.get("commit"), "")
     if commit != "":
         parts.append(f'<p class="commit">Commit: <code>{esc(phase.get("commit"))}</code></p>')
     parts.append("</section>")
@@ -583,11 +571,11 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
         phases = data.get("phases", []) if isinstance(data, dict) else []
         deviations = 0
         for p in phases:
-            d = jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
+            d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
             if isinstance(d, list):
                 deviations += len(d)
         last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-        date = jq_alt(jq_alt(last_finished, data.get("started") if isinstance(data, dict) else None), "")
+        date = render.jq_alt(render.jq_alt(last_finished, data.get("started") if isinstance(data, dict) else None), "")
 
         planning = data.get("planning") if isinstance(data, dict) else None
         planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -660,7 +648,7 @@ def cmd_detail(args):
     phases = data.get("phases", [])
     deviations_total = 0
     for p in phases:
-        d = jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
+        d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
         if isinstance(d, list):
             deviations_total += len(d)
 
@@ -677,12 +665,12 @@ def cmd_detail(args):
         out_phases.append({
             "phase": p.get("phase"),
             "status": p.get("status"),
-            "summary": jq_alt(p.get("summary"), ""),
-            "deviations": jq_alt(p.get("deviations"), []),
-            "errors": jq_alt(p.get("errors"), []),
+            "summary": render.jq_alt(p.get("summary"), ""),
+            "deviations": render.jq_alt(p.get("deviations"), []),
+            "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
-            "commit": jq_alt(p.get("commit"), ""),
-            "telemetry": jq_alt(p.get("telemetry"), None),
+            "commit": render.jq_alt(p.get("commit"), ""),
+            "telemetry": render.jq_alt(p.get("telemetry"), None),
         })
 
     print(render.dump_json({
@@ -709,8 +697,8 @@ def row_html(row):
         batch_html = f'<a href="{esc(row["repoBase"])}/{esc(row["batch"])}.html">{esc(row["batch"])}</a>'
     else:
         batch_html = esc(row["batch"])
-    out_tokens = jq_alt(row.get("cost", {}).get("outputTokens"), 0)
-    turns = jq_alt(row.get("cost", {}).get("turns"), 0)
+    out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
+    turns = render.jq_alt(row.get("cost", {}).get("turns"), 0)
     deviations = row.get("deviations")
     dev_part = f' · {render.tostring(deviations)} Deviations' if isinstance(deviations, (int, float)) and deviations > 0 else ""
     return (
