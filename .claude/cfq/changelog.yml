@@ -892,3 +892,10 @@
     - phase: "05-stop-used-default-and-release"
       status: "green"
       summary: ""
+- batchNumber: 30
+  batch: 030-2026-09-20-merge-todo-check-and-padding-clause
+  branch: cfq/030-2026-09-20-merge-todo-check-and-padding-clause
+  base: main
+  started: 2026-09-20
+  status: in-progress
+  legacy: false
