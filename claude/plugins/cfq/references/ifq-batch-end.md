@@ -2,7 +2,10 @@
 
 ## Batch-Done Report Fields
 
-`bin/cfq finish`'s one JSON object, rendered field by field:
+`bin/cfq finish` moves the batch into `impl/done/`, registers the repo, runs the
+language/maintenance/security/changelog/telemetry sequence and releases the lock unconditionally (a
+`trap`, so a mid-sequence failure can never leave the repo locked), and prints one JSON object,
+rendered field by field:
 
 - `Language`: `.lang.issues` is the structural count (`missing`/`stray`/`unfiled`); judge
   `.lang.prose.sample` for prose, comments, identifiers and commit messages not in `codeLanguage` —
@@ -22,6 +25,10 @@
 - `Changelog` from `.changelog` as-is.
 - `Telemetry` from `.telemetry`, `Lock` from `.lock`.
 - Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
+
+Render the HTML report only when `htmlReport` is `true` (`bin/cfq report html
+"<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
+/rfq renders on demand` and no `file://` line in **Closing Reports**.
 
 ## Closing Report Fields (full format)
 
@@ -44,6 +51,11 @@
   `queue-entries.md`), so a forgotten merge is never lost and the card's `check:` line lets `/cfq`
   close it on its own once the merge lands.
 - `Report` — `file://` path, only when the Batch-Done step rendered one, else the line is omitted.
+
+**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases
+open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the
+full format, naming the red phase; its `❌` line already appeared in **Implementation**, so this
+step only repeats the `5 green, 1 red` split in `Batch`, not the error text.
 
 ## Skills Recommended vs. Used
 

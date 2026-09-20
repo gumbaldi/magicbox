@@ -38,6 +38,13 @@ above; a framework finding adds the `--framework` flag right after `note plan` â
 routing, the caller never picks a target repo or path. A framework entry's `## Origin` additionally
 names the repo the finding was made in, since the entry leaves that repo.
 
+## Parking Out-of-Scope Work
+
+Work found beyond this phase's scope is always parked, never asked about: write a `plan/` entry via
+`bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"` (`--framework` for a cfq-itself finding,
+rule in this file's **Plan Entry** section above), noting a decision is still open, and name it in
+the phase summary â€” both modes, no `AskUserQuestion`, no second attempt.
+
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:

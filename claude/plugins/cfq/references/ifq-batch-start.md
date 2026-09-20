@@ -1,5 +1,15 @@
 # ifq: Batch Selection, Briefing, Branch and Resume
 
+## Model Gate Stop
+
+The running model's name is in your system prompt's environment block; `policy.allowAnyModel:
+true` → skip this check, otherwise it must match one of `policy.implModels` (substring match:
+`sonnet` matches `claude-sonnet-5`) — or, when `policy.orchestratorMode` is `true`,
+`policy.orchestratorModels` instead (already carries the fallback to `implModels` when empty, no
+extra logic here). No match → **stop immediately**, touch nothing, report the allowed models, that
+`/model <x>` then `/ifq` is the way forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list.
+Print the `Model Gate` status line either way, naming which list was matched.
+
 ## Batch Selection Rules
 
 `bin/cfq preflight-impl`'s `selection` object carries `blocked`, `planning`, `inProgress`, and
@@ -39,6 +49,21 @@ unknown) — report why, from `selection`, and end; never falls back to the orde
 two batches in the same session**, not even once the first finishes and context is still free —
 different plans belong in separate context windows.
 
+`selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
+`branch`/`resume`/`contextGate` are already resolved for it) — print `Batch` as `resumed <name> ·
+<done>/<done+open> phases done · mode=orchestrator|classic` (prefix `high · ` if flagged), straight
+to **Batch Briefing**. `nextPhase: null` here means every phase already moved to `done/` but
+`bin/cfq finish` never ran — **Batch Briefing** still acquires the lock and resolves the branch as
+usual, then skips ahead straight to **Batch Done**. `selection.inProgress` null and
+`selection.selectable` non-empty → the preflight already picked `selection.selectable[0]` (sorted
+flagged-first-then-name) — same pre-resolved fields, no question — print `Batch` as `<name> · next
+in order · <n> phases · mode=orchestrator|classic` (prefix `high · ` if flagged), or `<name> · only
+open batch · <n> phases · mode=orchestrator|classic` when `selectable` has exactly one entry,
+straight to **Batch Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
+selectable) → report why, from `selection` (blocked / still planning / not found), end — never
+falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
+`NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
+
 ## Batch Briefing
 
 `batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
@@ -50,6 +75,21 @@ phase file without `## Size` counts as `M`; one without `## Context` shows its t
 incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
 shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
 with no `goal:` line.
+
+## Briefing Warnings
+
+`contextGate.verdict` is `WARN` → print one warning line *above* the briefing, naming the reason in
+the user's language and the concrete numbers from `contextGate.note` (e.g. the five-hour budget is
+at 89% against a 70% threshold); state plainly that this is a budget warning, not a blocker, and
+that the phase runs normally if started — wording per `<plugin-root>/references/ifq-phase.md`'s
+**Phase Announcement**; `batch.consistency == "divergent"` adds one more such line naming the
+repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
+
+## Lock Acquisition
+
+Exit ≠ 0 (`LOCKED`) → **end immediately**, touch nothing, name holder/batch/time, note the
+30-minute stale takeover; `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just
+acquired.
 
 ## Branch and Changelog on Go-Ahead
 
