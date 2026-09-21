@@ -52,13 +52,20 @@ drifting variants.
 `stopUsed: 0` is deliberate, not a misconfiguration — `STOP` fires after every phase for the
 capacity reason, one context window each. A rate limit produces a `WARN`, which never overrides a
 capacity `STOP` and never ends a session on its own — a rate-limit stop never wins over the
-`stopUsed: 0` bypass. `stopUsed: -1` is equally deliberate — `STOP` never fires **for the capacity
-reason**; the rate-limit reason has its own switches. `stopFiveHourPct: -1` and `stopSevenDayPct:
--1` are each just as deliberate — warns for nothing for that reason either; a payload without
-`rate_limits` (API-level billing) means the check simply doesn't apply. `onePhasePerSession: true`
-(the default) means every session implements exactly one phase after the batch starts — it
-outranks `WARN`: with one-phase-per-session on, the session ends after a phase either way, and the
-budget warning changes nothing.
+`stopUsed: 0` bypass. In orchestrator mode, the same `stopUsed: 0` means the orchestrator hands off
+after every phase, one phase per context window — the same deliberate configuration this bullet
+already describes for classic mode, just evaluated against the orchestrator's own session
+(`<plugin-root>/references/orchestrator.md` step 1) rather than the worker's, which never
+accumulates enough to trip it. `stopUsed: -1` is equally deliberate — `STOP` never fires **for the
+capacity reason**; the rate-limit reason has its own switches. In orchestrator mode, `stopUsed: -1`
+means the capacity stop never fires there either, and the rate-limit thresholds below are then the
+only thing that ends a batch. `stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as
+deliberate — warns for nothing for that reason either; a payload without `rate_limits` (API-level
+billing) means the check simply doesn't apply. `onePhasePerSession: true` (the default) means every
+session implements exactly one phase after the batch starts — it outranks `WARN`: with
+one-phase-per-session on, the session ends after a phase either way, and the budget warning changes
+nothing. `onePhasePerSession` has no effect on the orchestrator loop, in either `stopUsed` state —
+see `<plugin-root>/references/orchestrator.md` step 1.
 
 Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGate.size>
 LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon

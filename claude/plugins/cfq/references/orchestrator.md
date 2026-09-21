@@ -9,13 +9,27 @@ orchestrator's own loop around it.
 ## 1. Per phase, before spawning
 
 Re-run `bin/cfq preflight-impl "<repo-root>" --select "<batch>"` to resolve the next open phase,
-then `bin/cfq ctx` for the rate-limit gate. `nextPhase: null` (every phase already moved to
-`done/`, `bin/cfq finish` never ran) → skip straight to step 5's batch end, never spawn a worker
-for a phase that doesn't exist. A `WARN` carries the same three-option question as
-classic mode's `<plugin-root>/references/ifq-phase.md`'s **Phase Announcement** — identical
-wording, identical options, no second variant. The capacity reason (`stopUsed`) does not apply here: every
-worker starts on an empty context window, so no size gate runs and `onePhasePerSession` has no
-effect on this loop at all.
+then `bin/cfq ctx` — before spawning is the right point for this call, because the phase that just
+returned is fully accounted for in the orchestrator's own transcript and no worker is interrupted
+mid-run. `nextPhase: null` (every phase already moved to `done/`, `bin/cfq finish` never ran) →
+skip straight to step 5's batch end, never spawn a worker for a phase that doesn't exist.
+
+This one call carries both verdicts, and capacity always wins when both fire:
+
+- `STOP` (`REASON=capacity`) is about the **orchestrator's own** session, not the worker's — it
+  ends the batch right here, without asking: the next worker is not spawned, `POSTCHECKS` runs
+  exactly as classic mode's `STOP` branch describes it, and the session prints the `HANDOFF ·
+  implement-for-queue` short format. The batch resumes in a fresh `/ifq` session with the
+  remaining phases untouched in `impl/`. A call that returns `STOP` never also asks the `WARN`
+  question below.
+- `WARN` (a rate-limit reason) carries the same three-option question as classic mode's
+  `<plugin-root>/references/ifq-phase.md`'s **Phase Announcement** — identical wording, identical
+  options, no second variant.
+
+The Size Gate itself does not run for the worker, and `onePhasePerSession` has no effect on this
+loop at all: every worker starts on an empty context window, so neither applies to it. Both are
+about the *worker's* session specifically — the `bin/cfq ctx` call above is about the
+*orchestrator's own* session and is the only capacity check this loop has.
 
 ## 2. Spawn
 

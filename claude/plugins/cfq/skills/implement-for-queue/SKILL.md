@@ -158,8 +158,10 @@ or checked an existing one out) — one call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" p
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, now returning `OK` / `WARN` / `STOP`.
 `policy.onePhasePerSession` (**Batch Selection**'s preflight, no new call) `true` → treat exactly
 like `STOP` below, regardless of the context gate's own verdict; `false` → the context gate alone
-decides. In orchestrator mode this step never runs and `onePhasePerSession` has no effect on this
-loop at all; see `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`.
+decides. In orchestrator mode this step's own in-session check never runs — the orchestrator's
+equivalent capacity check lives in `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` step 1
+instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` still has no effect on the
+orchestrator loop; that part is unchanged.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
   (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing
