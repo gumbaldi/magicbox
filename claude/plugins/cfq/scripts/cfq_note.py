@@ -4,6 +4,8 @@
 #        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
 #        cfq_note.py list <repo-root> [--text]
+#        cfq_note.py sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S]
+#                           [--close <filename>]...
 """Writes a `plan/` or `todo/` queue entry: `<repo>/.claude/cfq/{plan,todo}/<today>-<slug>.md`.
 
 Date, slug normalisation and target directory are convention, not judgement -- the caller
@@ -28,12 +30,23 @@ before normalisation) differ.
 `plan/*.md` (non-recursive, so `plan/done/` is never listed), sorted by filename ascending, which
 is already oldest-first given the `<YYYY-MM-DD>-<slug>.md` naming. `--from-plan` on `cfq park` is
 the inbox's other half: it consumes the entry `list` showed.
+
+`sweep <repo-root>` runs every `todo/*.md` card's `check:` line (first match wins; further
+`check:` lines are counted into `extraChecks` and never executed) and classifies each card
+`green`/`red`/`unresolvable`/`manual` -- a bare call only reports, `--apply` additionally moves the
+`green` cards into `todo/done/`, re-running the checks rather than trusting an earlier report
+(same read/write split as `batch verify`/`batch recover`). Exit `127` is `unresolvable` rather than
+`red`; a `red`/`unresolvable` card older than `--stale-days` (default 30, from the filename's
+`YYYY-MM-DD` prefix) is additionally marked `stale`. `--close <filename>` (repeatable) moves a
+named card regardless of its state -- the sanctioned explicit path for a card with no `check:`
+line, replacing a hand-`mv`. Never touches `plan/`.
 """
 
 import argparse
 import os
 import pathlib
 import re
+import subprocess
 import sys
 from datetime import date
 
@@ -240,6 +253,154 @@ def cmd_list(args):
         print("  ".join(parts))
 
 
+CHECK_RE = re.compile(r"^check:\s*(.+)$")
+DEFAULT_STALE_DAYS = 30
+DEFAULT_TIMEOUT = 30
+CARD_STATES = ("green", "red", "unresolvable", "manual")
+
+
+def _card_age_days(entry_date, path):
+    """Days since the card's filename date prefix; falls back to the file's mtime when the
+    filename carries no parseable `YYYY-MM-DD` prefix."""
+    d = None
+    if entry_date:
+        try:
+            d = date.fromisoformat(entry_date)
+        except ValueError:
+            d = None
+    if d is None:
+        d = date.fromtimestamp(path.stat().st_mtime)
+    return (date.today() - d).days
+
+
+def _run_check(cmd, repo_root, timeout):
+    """Runs one `check:` command with cwd set to the repo root. Only the exit code matters --
+    captured stdout/stderr is never part of the record. Returns (exit_code, state, reason)."""
+    try:
+        result = subprocess.run(
+            ["bash", "-c", cmd], cwd=str(repo_root), capture_output=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "red", "timeout"
+    if result.returncode == 0:
+        return 0, "green", ""
+    if result.returncode == 127:
+        return 127, "unresolvable", ""
+    return result.returncode, "red", f"exit {result.returncode}"
+
+
+def _sweep_card(path, repo_root, timeout, stale_days):
+    entry = _parse_plan_entry(path)  # (verbatim) title/date parsing, shared with `note list`
+
+    checks = []
+    for line in path.read_text().splitlines():
+        m = CHECK_RE.match(line.strip())
+        if m:
+            checks.append(m.group(1))
+
+    age_days = _card_age_days(entry["date"], path)
+    record = {
+        "file": entry["filename"],
+        "title": entry["title"],
+        "state": "manual",
+        "check": checks[0] if checks else "",
+        "exit": None,
+        "reason": "",
+        "ageDays": age_days,
+        "stale": False,
+        "moved": False,
+        "extraChecks": max(0, len(checks) - 1),
+        "error": "",
+    }
+
+    if checks:
+        exit_code, state, reason = _run_check(checks[0], repo_root, timeout)
+        record["exit"] = exit_code
+        record["state"] = state
+        record["reason"] = reason
+        if state in ("red", "unresolvable") and age_days >= stale_days:
+            record["stale"] = True
+
+    return record
+
+
+def _sweep_text(result):
+    cards = [c for c in result["cards"] if c["state"] in CARD_STATES]
+    if not cards:
+        print("No todo cards waiting in the queue.")
+        return
+
+    order = {"green": 0, "unresolvable": 1, "red": 2, "manual": 3}
+
+    def sort_key(c):
+        bucket = order[c["state"]]
+        # Red is sorted oldest-first within its own bucket -- the actionable end stays on top.
+        return (bucket, -c["ageDays"] if c["state"] == "red" else 0)
+
+    for c in sorted(cards, key=sort_key):
+        parts = [c["state"], c["title"] or c["file"]]
+        if c["stale"]:
+            parts.append("stale?")
+        print("  ".join(parts))
+
+
+def cmd_sweep(args):
+    repo_root = pathlib.Path(args.repo).resolve()
+    todo_dir = pathlib.Path(cfq_lib_paths.todo_dir(str(repo_root)))
+    done_dir = todo_dir / "done"
+
+    card_paths = sorted(todo_dir.glob("*.md")) if todo_dir.is_dir() else []
+    found_names = {p.name for p in card_paths}
+    close_names = list(dict.fromkeys(args.close))
+
+    counts = {"green": 0, "red": 0, "unresolvable": 0, "manual": 0, "moved": 0, "errors": 0}
+    records = []
+
+    for card_path in card_paths:
+        record = _sweep_card(card_path, repo_root, args.timeout, args.stale_days)
+        counts[record["state"]] += 1
+
+        should_move = (
+            card_path.name in close_names
+            or (args.apply and record["state"] == "green")
+        )
+        if should_move:
+            target = done_dir / card_path.name
+            if target.exists():
+                record["error"] = f"EXISTS: {target}"
+                counts["errors"] += 1
+            else:
+                done_dir.mkdir(parents=True, exist_ok=True)
+                os.replace(str(card_path), str(target))
+                record["moved"] = True
+                counts["moved"] += 1
+
+        records.append(record)
+
+    for name in close_names:
+        if name not in found_names:
+            counts["errors"] += 1
+            records.append({
+                "file": name, "title": "", "state": "", "check": "", "exit": None,
+                "reason": "", "ageDays": None, "stale": False, "moved": False,
+                "extraChecks": 0, "error": "NO_SUCH_FILE",
+            })
+
+    result = {
+        "status": "OK",
+        "repo": str(repo_root),
+        "applied": bool(args.apply),
+        "staleDays": args.stale_days,
+        "cards": records,
+        "counts": counts,
+    }
+
+    if args.text:
+        _sweep_text(result)
+    else:
+        print(render.dump_json(result))
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
@@ -267,6 +428,15 @@ def build_parser():
     list_p.add_argument("--text", action="store_true")
     list_p.set_defaults(func=cmd_list)
 
+    sweep_p = sub.add_parser("sweep")
+    sweep_p.add_argument("repo")
+    sweep_p.add_argument("--apply", action="store_true")
+    sweep_p.add_argument("--text", action="store_true")
+    sweep_p.add_argument("--stale-days", type=int, default=DEFAULT_STALE_DAYS, dest="stale_days")
+    sweep_p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, dest="timeout")
+    sweep_p.add_argument("--close", action="append", default=[], dest="close")
+    sweep_p.set_defaults(func=cmd_sweep)
+
     return parser
 
 
@@ -278,7 +448,9 @@ def main(argv):
         errors.die(
             f"usage: {PROG} plan|todo <repo-root> <slug> <body-file> [--framework] | "
             f"merge-todo <repo-root> <branch> | import <repo-root> | "
-            f"list <repo-root> [--text]"
+            f"list <repo-root> [--text] | "
+            f"sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S] "
+            f"[--close <filename>]..."
         )
         return
     func(args)

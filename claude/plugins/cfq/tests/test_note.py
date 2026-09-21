@@ -7,6 +7,7 @@ itself -- date, slug normalisation and target directory are convention (see phas
 
 import datetime
 import pathlib
+import time
 import unittest
 
 from cfq_testlib import CfqTestCase
@@ -388,6 +389,200 @@ class NoteListTest(CfqTestCase):
             "note", "list", str(self.repo), "--text", check=True,
         ).stdout
         self.assertIn("No planning requests waiting in the queue.", out)
+
+
+class NoteSweepTest(CfqTestCase):
+    """Behavior tests for `bin/cfq note sweep` -- runs every `todo/` card's `check:` line and
+    classifies it green/red/unresolvable/manual; a bare call only reports, `--apply` additionally
+    moves the green cards into `todo/done/`. See phase 01's .batch-context.md and
+    .claude/cfq/impl/033-2026-09-21-todo-queue-sweep/01-note-sweep-verb.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.todo_dir = self.repo / ".claude" / "cfq" / "todo"
+        self.done_dir = self.todo_dir / "done"
+        self.today = datetime.date.today().isoformat()
+
+    def _write_card(self, filename, content):
+        self.todo_dir.mkdir(parents=True, exist_ok=True)
+        f = self.todo_dir / filename
+        f.write_text(content)
+        return f
+
+    def _card_by_file(self, out, filename):
+        for c in out["cards"]:
+            if c["file"] == filename:
+                return c
+        self.fail(f"no card named {filename!r} in {out['cards']!r}")
+
+    def test_bare_sweep_classifies_and_does_not_move(self):
+        self._write_card(f"{self.today}-green.md", "# Green\n\nbody\n\ncheck: true\n")
+        self._write_card(f"{self.today}-red.md", "# Red\n\nbody\n\ncheck: false\n")
+        self._write_card(f"{self.today}-manual.md", "# Manual\n\nbody, no check line.\n")
+
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual(out["status"], "OK")
+        self.assertEqual(self._card_by_file(out, f"{self.today}-green.md")["state"], "green")
+        self.assertEqual(self._card_by_file(out, f"{self.today}-red.md")["state"], "red")
+        self.assertEqual(self._card_by_file(out, f"{self.today}-manual.md")["state"], "manual")
+        self.assertEqual(
+            out["counts"],
+            {"green": 1, "red": 1, "unresolvable": 0, "manual": 1, "moved": 0, "errors": 0},
+        )
+        self.assertFalse(any(self.done_dir.glob("*.md")) if self.done_dir.is_dir() else False)
+        for c in out["cards"]:
+            self.assertFalse(c["moved"])
+
+    def test_apply_moves_only_green_card(self):
+        self._write_card(f"{self.today}-green.md", "# Green\n\nbody\n\ncheck: true\n")
+        self._write_card(f"{self.today}-red.md", "# Red\n\nbody\n\ncheck: false\n")
+        self._write_card(f"{self.today}-manual.md", "# Manual\n\nbody, no check line.\n")
+
+        out = self.json_out(
+            self.run_cfq("note", "sweep", str(self.repo), "--apply", check=True)
+        )
+        green = self._card_by_file(out, f"{self.today}-green.md")
+        self.assertTrue(green["moved"])
+        self.assertTrue((self.done_dir / f"{self.today}-green.md").exists())
+        self.assertFalse((self.todo_dir / f"{self.today}-green.md").exists())
+        self.assertTrue((self.todo_dir / f"{self.today}-red.md").exists())
+        self.assertTrue((self.todo_dir / f"{self.today}-manual.md").exists())
+
+    def test_unresolvable_command_reports_exit_127_not_red(self):
+        self._write_card(
+            f"{self.today}-broken.md",
+            "# Broken\n\nbody\n\ncheck: this-command-does-not-exist-xyz\n",
+        )
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        card = self._card_by_file(out, f"{self.today}-broken.md")
+        self.assertEqual(card["state"], "unresolvable")
+        self.assertEqual(card["exit"], 127)
+
+    def test_stale_marker_depends_on_age_and_stale_days_override(self):
+        old = (datetime.date.today() - datetime.timedelta(days=40)).isoformat()
+        self._write_card(f"{old}-oldfail.md", "# Old fail\n\nbody\n\ncheck: false\n")
+        self._write_card(f"{self.today}-newfail.md", "# New fail\n\nbody\n\ncheck: false\n")
+        self._write_card(f"{self.today}-newgreen.md", "# New green\n\nbody\n\ncheck: true\n")
+
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertTrue(self._card_by_file(out, f"{old}-oldfail.md")["stale"])
+        self.assertFalse(self._card_by_file(out, f"{self.today}-newfail.md")["stale"])
+        self.assertFalse(
+            self._card_by_file(out, f"{self.today}-newgreen.md")["stale"],
+            "green cards never carry a stale mark",
+        )
+
+        out90 = self.json_out(
+            self.run_cfq("note", "sweep", str(self.repo), "--stale-days", "90", check=True)
+        )
+        self.assertFalse(self._card_by_file(out90, f"{old}-oldfail.md")["stale"])
+
+    def test_check_runs_with_cwd_set_to_repo_root(self):
+        self._write_card(
+            f"{self.today}-marker.md", "# Marker\n\nbody\n\ncheck: test -f marker.txt\n"
+        )
+
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual(self._card_by_file(out, f"{self.today}-marker.md")["state"], "red")
+
+        # Placing the marker inside todo/ must not satisfy the check -- cwd is the repo root.
+        (self.todo_dir / "marker.txt").write_text("wrong place\n")
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual(self._card_by_file(out, f"{self.today}-marker.md")["state"], "red")
+
+        (self.repo / "marker.txt").write_text("right place\n")
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual(self._card_by_file(out, f"{self.today}-marker.md")["state"], "green")
+
+    def test_todo_done_card_is_never_swept(self):
+        self._write_card(f"{self.today}-visible.md", "# Visible\n\nbody\n\ncheck: true\n")
+        self.done_dir.mkdir(parents=True)
+        (self.done_dir / f"{self.today}-already-done.md").write_text("# Done\n\nbody\n")
+
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual([c["file"] for c in out["cards"]], [f"{self.today}-visible.md"])
+
+    def test_missing_todo_dir_returns_empty_list(self):
+        self.assertFalse(self.todo_dir.exists())
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        self.assertEqual(out["status"], "OK")
+        self.assertEqual(out["cards"], [])
+
+    def test_close_moves_named_card_regardless_of_state(self):
+        self._write_card(f"{self.today}-manual.md", "# Manual\n\nbody, no check line.\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "sweep", str(self.repo), "--close", f"{self.today}-manual.md", check=True,
+            )
+        )
+        card = self._card_by_file(out, f"{self.today}-manual.md")
+        self.assertTrue(card["moved"])
+        self.assertTrue((self.done_dir / f"{self.today}-manual.md").exists())
+
+    def test_apply_alone_leaves_the_no_check_card_in_place(self):
+        self._write_card(f"{self.today}-manual.md", "# Manual\n\nbody, no check line.\n")
+
+        self.run_cfq("note", "sweep", str(self.repo), "--apply", check=True)
+        self.assertTrue((self.todo_dir / f"{self.today}-manual.md").exists())
+        self.assertFalse((self.done_dir / f"{self.today}-manual.md").exists())
+
+    def test_close_naming_missing_file_is_an_error_moves_nothing_else(self):
+        self._write_card(f"{self.today}-green.md", "# Green\n\nbody\n\ncheck: true\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "sweep", str(self.repo), "--close", "does-not-exist.md", check=True,
+            )
+        )
+        self.assertEqual(out["counts"]["errors"], 1)
+        self.assertTrue((self.todo_dir / f"{self.today}-green.md").exists())
+        self.assertFalse((self.done_dir / f"{self.today}-green.md").exists())
+
+    def test_second_check_line_is_never_executed(self):
+        self._write_card(
+            f"{self.today}-double.md",
+            "# Double\n\nbody\n\ncheck: true\ncheck: touch second-ran.txt\n",
+        )
+        out = self.json_out(self.run_cfq("note", "sweep", str(self.repo), check=True))
+        card = self._card_by_file(out, f"{self.today}-double.md")
+        self.assertEqual(card["state"], "green")
+        self.assertEqual(card["extraChecks"], 1)
+        self.assertFalse((self.repo / "second-ran.txt").exists())
+
+    def test_apply_collision_leaves_card_in_place_others_still_move(self):
+        self._write_card(f"{self.today}-green.md", "# Green\n\nbody\n\ncheck: true\n")
+        self._write_card(f"{self.today}-othergreen.md", "# Other green\n\nbody\n\ncheck: true\n")
+        self.done_dir.mkdir(parents=True)
+        (self.done_dir / f"{self.today}-green.md").write_text("already there\n")
+
+        out = self.json_out(
+            self.run_cfq("note", "sweep", str(self.repo), "--apply", check=True)
+        )
+        collided = self._card_by_file(out, f"{self.today}-green.md")
+        self.assertFalse(collided["moved"])
+        self.assertNotEqual(collided["error"], "")
+        self.assertTrue((self.todo_dir / f"{self.today}-green.md").exists())
+        self.assertEqual((self.done_dir / f"{self.today}-green.md").read_text(), "already there\n")
+
+        other = self._card_by_file(out, f"{self.today}-othergreen.md")
+        self.assertTrue(other["moved"])
+        self.assertTrue((self.done_dir / f"{self.today}-othergreen.md").exists())
+
+    def test_timeout_reports_red_with_reason_and_returns_promptly(self):
+        self._write_card(f"{self.today}-slow.md", "# Slow\n\nbody\n\ncheck: sleep 5\n")
+
+        start = time.monotonic()
+        out = self.json_out(
+            self.run_cfq("note", "sweep", str(self.repo), "--timeout", "1", check=True)
+        )
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 4, "sweep must not wait for the full sleep duration")
+
+        card = self._card_by_file(out, f"{self.today}-slow.md")
+        self.assertEqual(card["state"], "red")
+        self.assertEqual(card["reason"], "timeout")
 
 
 if __name__ == "__main__":
