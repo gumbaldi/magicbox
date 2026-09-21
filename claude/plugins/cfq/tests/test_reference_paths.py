@@ -21,6 +21,7 @@ BARE_LINK_RE = re.compile(
 TOKEN_RE = re.compile(r"CLAUDE_PLUGIN_ROOT")
 SCRIPT_NAME_RE = re.compile(r"cfq-[a-z-]+\.sh")
 SHELL_MUTATION_RE = re.compile(r"\b(rm|mv|mkdir|rmdir|jq)\s")
+SKILL_LINE_BUDGET = 200
 
 
 def _md_files(root):
@@ -144,6 +145,18 @@ def check_settings_documented(root):
     return fails
 
 
+# 7. Added by Phase 04: CLAUDE.md's 200-line SKILL.md budget was a sentence nobody enforced, which
+#    is how two skills drifted past it unnoticed. Whole-file `wc -l`-equivalent line count,
+#    frontmatter included -- what a session actually pays for.
+def check_skill_line_budget(root):
+    fails = []
+    for f in sorted(root.glob("skills/*/SKILL.md")):
+        n = len(f.read_text().splitlines())
+        if n > SKILL_LINE_BUDGET:
+            fails.append(f"FAIL: {f}: {n} lines exceeds the {SKILL_LINE_BUDGET}-line SKILL.md budget")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -152,6 +165,7 @@ def run_all(root):
     fails += check_no_scripts_named(root)
     fails += check_no_shell_mutations(root)
     fails += check_settings_documented(root)
+    fails += check_skill_line_budget(root)
     return fails
 
 
@@ -283,6 +297,35 @@ class ReferencePathsTest(CfqTestCase):
         joined = "\n".join(out)
         self.assertIn("barKey", joined, msg="check 6 self-test did not catch an undocumented setting")
         self.assertNotIn("fooKey", joined, msg="check 6 self-test false-flagged a documented setting")
+
+    def test_skill_line_budget(self):
+        tmp = self._repos_dir / "f7"
+        (tmp / "skills" / "ok").mkdir(parents=True)
+        (tmp / "skills" / "tight").mkdir(parents=True)
+        (tmp / "skills" / "fat").mkdir(parents=True)
+        (tmp / "skills" / "ok" / "SKILL.md").write_text("x\n" * 200)
+        (tmp / "skills" / "tight" / "SKILL.md").write_text("x\n" * 199)
+        (tmp / "skills" / "fat" / "SKILL.md").write_text("x\n" * 201)
+
+        out = check_skill_line_budget(tmp)
+        joined = "\n".join(out)
+        self.assertIn(
+            "fat", joined, msg="check 7 self-test did not catch a SKILL.md over the line budget"
+        )
+        self.assertIn("201", joined, msg="check 7 self-test did not name the line count in its failure")
+        self.assertNotIn(
+            "ok/SKILL.md",
+            joined,
+            msg="check 7 self-test false-flagged a SKILL.md exactly at the budget",
+        )
+        self.assertNotIn(
+            "tight/SKILL.md",
+            joined,
+            msg="check 7 self-test false-flagged a SKILL.md under the budget",
+        )
+        self.assertEqual(
+            1, len(out), msg=f"check 7 self-test should only flag the over-budget file: {out}"
+        )
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

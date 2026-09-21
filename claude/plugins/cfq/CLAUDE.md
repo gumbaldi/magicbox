@@ -262,9 +262,12 @@ faith.
   keep `report-for-queue`'s inline copy in sync with it (same content, its own bullet style — not
   necessarily word-for-word). A new skill points at the reference file rather than copying the
   block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
-- **200-line budget per `SKILL.md`.** Every session pays for a skill's size before anything
-  happens. Content that would push a file past that moves to `references/` and is loaded only on
-  the path that needs it — pattern: `claude/plugins/cfq/references/grilling.md`.
+- **200-line budget per `SKILL.md`, counted `wc -l` over the whole file, frontmatter included.**
+  Every session pays for a skill's size before anything happens. Content that would push a file
+  past that moves to `references/` and is loaded only on the path that needs it — pattern:
+  `claude/plugins/cfq/references/grilling.md`. `tests/test_reference_paths.py`'s
+  `check_skill_line_budget` enforces it — a `SKILL.md` over budget fails the suite. The working
+  target is ~180 lines, so a small addition does not immediately break the build.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
