@@ -112,6 +112,9 @@ formatted by the script instead of the model. (The bare `/cfq` slash command alr
 block via its own injection before the model runs at all; this step exists for every other way the
 skill gets invoked — natural language, or as part of Step A's flow.)
 
+`QUEUES`' `Reports` column and its `ACTIONS` entry both point at `/rfq` (`report-for-queue`) for
+reading what a finished batch produced — the dashboard itself never renders a report.
+
 The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request.
 
 ## Step C — Management (on request, always confirm before writing)

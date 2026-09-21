@@ -24,6 +24,26 @@ EXTRA_TURN = """\
 """
 
 
+def _sub_line(ts, agent, usage=None):
+    """One entry as a sub-agent transcript file (subagents/agent-*.jsonl) would carry it -- same
+    shape as a main-transcript entry, plus attributionAgent."""
+    usage = usage or {
+        "input_tokens": 30, "output_tokens": 15,
+        "cache_read_input_tokens": 2, "cache_creation_input_tokens": 0,
+    }
+    obj = {
+        "type": "assistant",
+        "timestamp": ts,
+        "isSidechain": True,
+        "effort": "high",
+        "attributionAgent": agent,
+        "attributionSkill": "cfq:implement-for-queue",
+        "attributionPlugin": "cfq",
+        "message": {"model": "claude-sonnet-5", "usage": usage},
+    }
+    return json.dumps(obj, separators=(",", ":"))
+
+
 class TelemetryTest(CfqTestCase):
     def setUp(self):
         super().setUp()
@@ -36,9 +56,9 @@ class TelemetryTest(CfqTestCase):
         # Mirrors cfq_runtime.py's slug_for exactly -- a tempfile-generated path can contain "_",
         # which the old `.replace("/", "-")` left untouched while slug_for now maps it to "-".
         slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo))
-        tdir = self.home / ".claude" / "projects" / slug
-        tdir.mkdir(parents=True)
-        self.transcript = tdir / "testsid.jsonl"
+        self.tdir = self.home / ".claude" / "projects" / slug
+        self.tdir.mkdir(parents=True)
+        self.transcript = self.tdir / "testsid.jsonl"
         self.transcript.write_text(TRANSCRIPT_TURNS)
 
         self.jsonl = self.repo / ".claude" / "cfq" / "telemetry.jsonl"
@@ -84,7 +104,14 @@ class TelemetryTest(CfqTestCase):
         )
 
         self.assertEqual(rec1["tools"], {"Bash": 1}, msg="tools")
-        self.assertEqual(rec1["subagent"]["turns"], 1, msg="subagent.turns, want 1")
+        # No subagents/ directory exists in this fixture -- the fourth (isSidechain:true) line in
+        # TRANSCRIPT_TURNS is an ordinary main-session turn now (it still counts toward totals
+        # above), not a sub-agent turn: sub-agent turns come only from the subagents/ directory.
+        # This is the backwards-compatibility guarantee for the 328 existing records, all of which
+        # were written with no such directory.
+        self.assertEqual(rec1["subagent"]["turns"], 0, msg="subagent.turns, want 0 (no subagents/ dir)")
+        self.assertEqual(rec1["by_agent"], {}, msg="by_agent empty with no subagents/ dir")
+        self.assertEqual(rec1["mode"], "classic", msg="mode classic with no worker-attributed turns")
 
         # No prompt/tool-argument text ever reaches the stored record.
         n = self.jsonl.read_text().count("GEHEIMER_PROMPT_TEXT")
@@ -92,9 +119,9 @@ class TelemetryTest(CfqTestCase):
 
         # Structural whitelist: every leaf field name must be one we deliberately added.
         allowed = {
-            "schema", "kind", "repo", "batch", "phase", "session_id", "branch", "cc_version",
-            "from", "until", "wallclock_s", "turns", "input", "output", "cache_read",
-            "cache_creation", "billable_in", "Bash",
+            "schema", "kind", "repo", "batch", "phase", "mode", "session_id", "branch",
+            "cc_version", "from", "until", "wallclock_s", "turns", "input", "output",
+            "cache_read", "cache_creation", "billable_in", "Bash",
         }
         leaves = set(_leaf_keys(rec1))
         extra = leaves - allowed
@@ -160,6 +187,71 @@ class TelemetryTest(CfqTestCase):
         proc = self.run_cfq("telemetry", "sync", str(self.repo))
         out = proc.stdout + proc.stderr
         self.assertEqual(out.strip(), "telemetry sync: nothing new", msg=f"second sync = {out!r}")
+
+    def _subagent_dir(self):
+        d = self.tdir / "testsid" / "subagents"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_subagent_worker_turns_populate_by_agent_and_orchestrator_mode(self):
+        subdir = self._subagent_dir()
+        (subdir / "agent-1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "cfq:cfq-phase-worker") + "\n"
+            + _sub_line("2026-08-13T10:01:30.000Z", "cfq:cfq-phase-worker") + "\n"
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["subagent"]["turns"], 2, msg="subagent.turns, want 2")
+        self.assertIn("cfq:cfq-phase-worker", rec["by_agent"], msg="by_agent missing the worker")
+        self.assertEqual(rec["mode"], "orchestrator")
+        self.assertEqual(rec["totals"]["turns"], 4, msg="totals stays the orchestrator's own session")
+
+    def test_subagent_explore_only_stays_classic_mode(self):
+        subdir = self._subagent_dir()
+        (subdir / "agent-1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "Explore") + "\n"
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["subagent"]["turns"], 1, msg="subagent.turns, want 1")
+        self.assertIn("Explore", rec["by_agent"])
+        self.assertNotIn("cfq:cfq-phase-worker", rec["by_agent"])
+        self.assertEqual(
+            rec["mode"], "classic",
+            msg="Explore-only sub-agent usage must not be read as orchestrator mode",
+        )
+        self.assertEqual(rec["totals"]["turns"], 4, msg="totals stays the orchestrator's own session")
+
+    def test_subagent_entries_outside_window_excluded(self):
+        subdir = self._subagent_dir()
+        agent_file = subdir / "agent-1.jsonl"
+        agent_file.write_text(_sub_line("2026-08-13T10:00:30.000Z", "cfq:cfq-phase-worker") + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        rec1 = self._last_record()
+        self.assertEqual(rec1["subagent"]["turns"], 1, msg="first window: 1 sub-agent turn")
+
+        # Second call: bump the window forward. The old entry (before the new `since`) and a
+        # deliberately-future entry (after the new `until`) must both be excluded; only the entry
+        # that actually falls inside (since, until] counts.
+        with self.transcript.open("a") as f:
+            f.write(EXTRA_TURN)
+        with agent_file.open("a") as f:
+            f.write(_sub_line("2026-08-13T10:03:30.000Z", "cfq:cfq-phase-worker") + "\n")
+            f.write(_sub_line("2026-08-13T10:05:00.000Z", "cfq:cfq-phase-worker") + "\n")
+
+        self._record(str(self.batch), "phase", "01-foo")
+        rec2 = self._last_record()
+        self.assertEqual(
+            rec2["subagent"]["turns"], 1,
+            msg="only the entry inside the new (since, until] window counts",
+        )
+        self.assertEqual(rec2["totals"]["turns"], 1, msg="totals stays windowed the same as before")
+
+    def test_planning_record_mode_is_empty(self):
+        self._record(str(self.batch), "planning")
+        rec = self._last_record()
+        self.assertEqual(rec["mode"], "", msg="mode is empty on planning records, like phase")
+        self.assertEqual(rec["by_agent"], {})
 
     def test_bootstrap_kind(self):
         proc = self.run_cfq(

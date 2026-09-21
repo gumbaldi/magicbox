@@ -36,17 +36,10 @@ ACTION_ROWS_TEMPLATE = [
     ("work off todo/ entries", "runs their check: commands"),
     ("change a setting", "just say it in plain language"),
     ("full batch list", "bin/cfq dash render --all"),
+    ("view reports", "/rfq"),
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
     ("settings, global", "bin/cfq settings list --sources"),
 ]
-
-
-def jq_alt(*values):
-    """Mirrors jq's `//`: the first value that is neither null nor false."""
-    for v in values:
-        if v is not None and v is not False:
-            return v
-    return None
 
 
 def parse_args(argv):
@@ -107,6 +100,7 @@ def repo_rollup(r):
         "path": r["path"], "name": r["path"].split("/")[-1], "plan": r["plan"], "todo": r["todo"],
         "open": sum(1 for b in batches if not b["archived"]),
         "done": sum(1 for b in batches if b["archived"]),
+        "reports": sum(1 for b in batches if b["report"]),
         "status": batch_status({
             "blocked": any(b["blocked"] for b in batches),
             "planning": any(b["planning"] for b in batches),
@@ -216,9 +210,9 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     if not repos:
         lines += ["", "No repos with a queue yet."]
     else:
-        lines += ["", "QUEUES", "| Repo | Plan | Todo | Batches | Status |", "|---|---|---|---|---|"]
+        lines += ["", "QUEUES", "| Repo | Plan | Todo | Batches | Reports | Status |", "|---|---|---|---|---|---|"]
         lines += [
-            f"| {r['name']} | {r['plan']} | {r['todo']} | {r['open']}/{r['done']} | {r['status']} |"
+            f"| {r['name']} | {r['plan']} | {r['todo']} | {r['open']}/{r['done']} | {r['reports']} | {r['status']} |"
             for r in repos
         ]
 
@@ -284,7 +278,7 @@ def main(argv):
     runtime_json = json.loads(cfq_run("runtime", "plugins").stdout)
     if runtime_json.get("status") != "OK":
         if mode == "render":
-            code = jq_alt(runtime_json.get("code"), runtime_json.get("cap"), "see detail")
+            code = render.jq_alt(runtime_json.get("code"), runtime_json.get("cap"), "see detail")
             print("PRECHECKS")
             print(f"⚠️ {'Dash':<16}runtime degraded · {code}")
             print(f"➖ {'Plugins':<16}unknown · runtime degraded")

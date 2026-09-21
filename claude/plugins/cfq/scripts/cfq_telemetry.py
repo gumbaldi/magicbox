@@ -28,6 +28,14 @@ PROG = "cfq_telemetry.py"
 
 USAGE = f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>]"
 
+# The phase worker's plugin-namespaced agent name -- the one place it is defined is
+# agents/cfq-phase-worker.md, which resolves to this form (references/orchestrator.md,
+# "Sub-agent type"). A record's `mode` is "orchestrator" exactly when this name shows up in
+# `by_agent`, never derived from the `orchestratorMode` setting -- a failed spawn falls back to
+# in-session implementation, and a record labelled from the setting would call that phase
+# "orchestrator" and poison the comparison mode exists for.
+WORKER_AGENT = "cfq:cfq-phase-worker"
+
 RECOMMENDED_HEADING_RE = re.compile(r"^## Empfohlene Skills")
 HEADING_RE = re.compile(r"^## ")
 RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
@@ -49,6 +57,13 @@ def jqor(value, default):
 def transcript_path():
     # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter.
     return cfq_run("runtime", "transcript-path").stdout.strip()
+
+
+def subagent_dir():
+    # Same pwd-based resolution as transcript_path(), shared via the runtime adapter -- the
+    # directory is derived, never guessed here (cfq_runtime.py owns every assumption about
+    # Claude Code's on-disk layout).
+    return cfq_run("runtime", "subagent-dir").stdout.strip()
 
 
 def extract_recommended_skills(dir_, phase):
@@ -137,15 +152,39 @@ def bucket(items, keyfn):
     return {k: sums(groups[k]) for k in order}
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended):
-    entries = parse_transcript(tf)
-    t = [
+def assistant_turns(entries, since, until):
+    """type==assistant, timestamped entries whose timestamp falls inside (since, until] -- an
+    empty bound on either side leaves that side unbounded, matching jqor's `//` convention."""
+    return [
         e for e in entries
         if e.get("type") == "assistant"
         and (e.get("timestamp") or "") != ""
         and (since == "" or e.get("timestamp") > since)
+        and (until == "" or e.get("timestamp") <= until)
     ]
-    sub = [e for e in t if e.get("isSidechain") is True]
+
+
+def subagent_turns(since, until):
+    """Every agent-*.jsonl in the resolved subagents/ directory, parsed with the same
+    parse_transcript() the main transcript uses (sub-agent entries share its shape), filtered to
+    the same (since, until] window the main-transcript turns were filtered to -- this is what
+    keeps a per-phase record holding only that phase's own worker, not every sub-agent the
+    session ever spawned."""
+    d = subagent_dir()
+    if not d or not os.path.isdir(d):
+        return []
+    entries = []
+    for p in sorted(pathlib.Path(d).glob("agent-*.jsonl")):
+        try:
+            entries.extend(parse_transcript(str(p)))
+        except (OSError, ValueError):
+            continue
+    return assistant_turns(entries, since, until)
+
+
+def build_record(tf, since, kind, phase, batch, repo, recommended):
+    entries = parse_transcript(tf)
+    t = assistant_turns(entries, since, "")
 
     tools = {}
     for it in t:
@@ -161,12 +200,17 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     last_ts = t[-1].get("timestamp") if t else None
     last = t[-1] if t else {}
 
+    sub = subagent_turns(since, jqor(last_ts, ""))
+    by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
+    mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
+
     return {
         "schema": 1,
         "kind": kind,
         "repo": repo,
         "batch": batch,
         "phase": phase,
+        "mode": mode,
         "session_id": jqor(last.get("sessionId"), ""),
         "branch": jqor(last.get("gitBranch"), ""),
         "cc_version": jqor(last.get("version"), ""),
@@ -178,6 +222,7 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
         "by_effort": bucket(t, lambda it: jqor(it.get("effort"), "?")),
         "by_skill": bucket(t, lambda it: jqor(it.get("attributionSkill"), "-")),
         "by_plugin": bucket(t, lambda it: jqor(it.get("attributionPlugin"), "-")),
+        "by_agent": by_agent,
         "tools": tools,
         "subagent": sums(sub),
         "skills_recommended": recommended,

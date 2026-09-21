@@ -42,6 +42,7 @@ class LayoutTest(CfqTestCase):
             ".claude/cfq/settings.json\n", text, msg="settings.json must not be excluded"
         )
         self.assertIn(".claude/cfq/plan/\n", text, msg="plan/ missing from exclude block")
+        self.assertIn(".claude/cfq/reports/\n", text, msg="reports/ missing from exclude block")
 
         # 3. Idempotent: ensure again -> still exactly one block, byte-identical exclude file
         before = exclude_file.read_text()
@@ -121,7 +122,7 @@ class LayoutTest(CfqTestCase):
         # or SKILL.md files — permitted only in the retired shell test fixtures (pre-Python-port
         # names, kept in ALLOWED_LAYOUT_FILES above though the files themselves are long gone) and
         # README.md's historical migration note, which explicitly documents the retired layout
-        # rather than using it. The global `$HOME/.claude/code-for-queue/` store is a different,
+        # rather than using it. The global `$HOME/.claude/cfq/` store is a different,
         # still-current path — any line naming HOME/home/~ is that, not this.
         proc = subprocess.run(
             [

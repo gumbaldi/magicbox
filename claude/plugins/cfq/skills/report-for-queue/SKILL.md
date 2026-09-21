@@ -39,6 +39,8 @@ Rules:
 - Section headers, labels, and status-line content are always English — regardless of the
   language the rest of the conversation is in. Only interactive prose (see below) follows the
   user's language.
+- Padding to the label column uses plain space characters, never HTML entities such as `&nbsp;`
+  — those render as visible text rather than whitespace in a terminal.
 - No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
   what the lines already say.
 - The result section is a label/value list under the same padding, not a table.
@@ -77,8 +79,9 @@ and go straight to **Detail**'s detail view.
 ```
 
 Same filters as **Collect** — another cheap single-scan call, this time rendered. Print its output
-exactly as returned (the table plus one `file://` line per row, already pointing into the collected
-tree when `reportDir` is configured) — no rebuilding the table from **Collect**'s JSON by hand.
+exactly as returned: the table plus one `file://` line per row whose HTML has already been
+rendered. A row with no rendered HTML yet is listed without one — that's the cue to render it in
+**Detail** below, not a broken link. No rebuilding the table from **Collect**'s JSON by hand.
 
 ## 3. Detail
 

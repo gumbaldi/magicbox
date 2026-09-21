@@ -52,13 +52,33 @@ drifting variants.
 `stopUsed: 0` is deliberate, not a misconfiguration — `STOP` fires after every phase for the
 capacity reason, one context window each. A rate limit produces a `WARN`, which never overrides a
 capacity `STOP` and never ends a session on its own — a rate-limit stop never wins over the
-`stopUsed: 0` bypass. `stopUsed: -1` is equally deliberate — `STOP` never fires **for the capacity
-reason**; the rate-limit reason has its own switches. `stopFiveHourPct: -1` and `stopSevenDayPct:
--1` are each just as deliberate — warns for nothing for that reason either; a payload without
-`rate_limits` (API-level billing) means the check simply doesn't apply. `onePhasePerSession: true`
-(the default) means every session implements exactly one phase after the batch starts — it
-outranks `WARN`: with one-phase-per-session on, the session ends after a phase either way, and the
-budget warning changes nothing.
+`stopUsed: 0` bypass. In orchestrator mode, the same `stopUsed: 0` means the orchestrator hands off
+after every phase, one phase per context window — the same deliberate configuration this bullet
+already describes for classic mode, just evaluated against the orchestrator's own session
+(`<plugin-root>/references/orchestrator.md` step 1) rather than the worker's, which never
+accumulates enough to trip it. `stopUsed: -1` is equally deliberate — `STOP` never fires **for the
+capacity reason**; the rate-limit reason has its own switches. In orchestrator mode, `stopUsed: -1`
+means the capacity stop never fires there either, and the rate-limit thresholds below are then the
+only thing that ends a batch. `stopFiveHourPct: -1` and `stopSevenDayPct: -1` are each just as
+deliberate — warns for nothing for that reason either; a payload without `rate_limits` (API-level
+billing) means the check simply doesn't apply. `onePhasePerSession: true` (the default) means every
+session implements exactly one phase after the batch starts — it outranks `WARN`: with
+one-phase-per-session on, the session ends after a phase either way, and the budget warning changes
+nothing. `onePhasePerSession` has no effect on the orchestrator loop, in either `stopUsed` state —
+see `<plugin-root>/references/orchestrator.md` step 1.
+
+Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGate.size>
+LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon
+`✅` for `START`, `⚠️` for `WARN`, `❌` for `HANDOFF` — `contextGate.reason` names which threshold
+fired structurally, the report repeats that token rather than a paraphrase of the note.
+
+`WARN` (at **Context Check After Every Phase**) → **do not end, do not advance silently.** Go to
+**Earlier Failed Attempt** for the next phase (re-running the preflight with `--select <batch>` as
+that step already requires for any phase past the first), so the Size Gate resolves `WARN` again
+and the Phase Announcement carries the warning and its three options. If there is no next open
+phase, **Batch Done** runs normally — a finished batch is not held back by a budget warning. An
+unresolvable context reading arrives as `WARN REASON=unknown` and follows this same path — the user
+decides, rather than the session ending on a missing measurement.
 
 ## Phase Summary
 
@@ -76,6 +96,17 @@ PHASE 02 DONE
 happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report.json`
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
 deviations → the `Deviation` line is omitted entirely, not printed empty.
+
+## Phase Object Fields
+
+Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file. `phase` is
+the full slug (e.g. `02-gate-rate-limits-and-cache-display`, never the bare number) — the value
+that ends up in the `report.json` entry and the commit's `CFQ-Phase` trailer alike, and both
+`phase record` and `phase commit` reject anything else. `deviations` is not optional padding — name
+what the plan said, what was built, and why; the file-scope comparison in the **File-Scope
+Deviation** section below runs before every green phase closes and its result feeds this array —
+an empty array is fine only when that comparison came back empty, a glossed-over deviation is not;
+`errors` carries the actual failure output, trimmed to what identifies it.
 
 ## File-Scope Deviation
 
@@ -117,6 +148,22 @@ Any of the three firing → do not auto-advance; state which trigger fired and a
 (`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
+
+## Commit Result Rendering
+
+`bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the same way
+`changelog commit-message` used to — Claude never hand-writes or hand-formats one), commits, moves
+the plan file into `done/` and appends the ledger entry in one transaction, backfills the commit
+SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git push` after), and
+registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq resume`'s
+commit fields are never left empty by a forgotten follow-up call.
+
+Render `Commit` from that JSON: `status: "OK"` → branch and whether it pushed, `⚠️` with
+`pushError` when `pushed: false` (the phase still closed, just not pushed — a later `git push`
+catches it up); `status: "NOTHING_STAGED"` → `git add` the phase's changes and retry the same call
+once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` → treat as a red phase (print `❌ red` with
+the JSON's `detail`), don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
+`bin/cfq batch verify` to reconcile later, since the commit itself succeeded and is never undone.
 
 ## Phase Commit Trailers
 

@@ -11,7 +11,7 @@ highest wins:
    below).
 2. **Repo settings** — `<repo>/.claude/cfq/settings.json`, written via `set --repo <path>`.
    Applies only to that repo, wherever it's cloned.
-3. **Global settings** — `~/.claude/code-for-queue/settings.json`, written via plain `set`.
+3. **Global settings** — `~/.claude/cfq/settings.json`, written via plain `set`.
    Applies to every repo unless a repo overrides the key.
 4. **Default** — the schema's built-in value, used when nothing above sets the key.
 
@@ -89,11 +89,11 @@ interactively.
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
-| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty writes `report.html` into the batch directory instead — see layout below |
+| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty renders into `<repo>/.claude/cfq/reports/` instead — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/code-for-queue/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
+| `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
 | `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
 | `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 | `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
@@ -125,10 +125,13 @@ With `reportDir` set, `bin/cfq report html <batch-dir>` writes into
 `<reportDir>/index.html` alongside it — one page linking every report-bearing batch across every
 repo (`bin/cfq report index`'s own data), grouped by repo, newest first. A batch `index` reports
 that has no HTML rendered yet is listed without a link rather than omitted. Leaving `reportDir`
-empty keeps today's behavior: `report.html` next to `report.json` in the batch directory, no
-`index.html`. This is meant for a location reachable outside the queue's own git-excluded
-directory — a WSL user opening reports from Windows Explorer, for example — `htmlReport` (above)
-controls whether it renders automatically at batch completion.
+empty — the default — renders into `<repo>/.claude/cfq/reports/<batch>.html` instead: flat, one
+file per batch, with its own `index.html` scoped to that repo's own batches, and stable across
+archiving since the batch name (not the batch's `impl/`-vs-`impl/done/` location) is the only
+thing the path depends on. Set an absolute `reportDir` instead for a location reachable outside
+the queue's own git-excluded directory and shared across repos — a WSL user opening reports from
+Windows Explorer, for example — `htmlReport` (above) controls whether either mode renders
+automatically at batch completion.
 
 ## Script Output Reference
 

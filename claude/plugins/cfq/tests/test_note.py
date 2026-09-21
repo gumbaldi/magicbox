@@ -6,6 +6,7 @@ itself -- date, slug normalisation and target directory are convention (see phas
 """
 
 import datetime
+import pathlib
 import unittest
 
 from cfq_testlib import CfqTestCase
@@ -32,7 +33,7 @@ class NoteTest(CfqTestCase):
         self.assertEqual(out, str(expected))
         self.assertEqual(expected.read_text(), "# Finding\n\nsomething noticed\n")
 
-        inbox = self.home / ".claude" / "code-for-queue" / "framework-inbox"
+        inbox = self.home / ".claude" / "cfq" / "framework-inbox"
         self.assertFalse(
             inbox.exists(), "note plan without --framework must never create the inbox directory"
         )
@@ -83,7 +84,7 @@ class NoteTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "a missing body file must fail")
 
     def _inbox_dir(self):
-        return self.home / ".claude" / "code-for-queue" / "framework-inbox"
+        return self.home / ".claude" / "cfq" / "framework-inbox"
 
     # frameworkRepo unset: --framework always lands in the global inbox, never the repo's own
     # plan/.
@@ -223,6 +224,71 @@ class NoteTest(CfqTestCase):
         self.assertEqual(len(remaining), 1, "the colliding entry must stay in the inbox")
         self.assertEqual(remaining[0].name, f"{self.today}-finding.md")
 
+    # note merge-todo composes the whole card itself -- title, ready-to-run merge command and a
+    # `check:` line -- so the line can never be forgotten the way a model-composed card leaves it
+    # out (see .batch-context.md for phase 01's rationale).
+    def test_merge_todo_writes_card_with_check_line(self):
+        branch = "cfq/030-2026-09-20-some-slug"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        expected = (
+            self.repo / ".claude" / "cfq" / "todo"
+            / f"{self.today}-merge-cfq-030-2026-09-20-some-slug.md"
+        )
+        self.assertEqual(out, str(expected))
+
+        content = expected.read_text()
+        lines = content.splitlines()
+        self.assertTrue(lines[0].startswith("# "), "card must open with an H1 title")
+        self.assertIn(f"git checkout main && git merge --ff-only {branch}", content)
+        check_lines = [line for line in lines if line.startswith("check: ")]
+        self.assertEqual(len(check_lines), 1, "card must carry exactly one check: line")
+
+    # Edge case that actually bites: normalise_slug() maps anything outside [a-z0-9-] to nothing,
+    # so a raw branch slug with a "/" would collapse the segment boundary (cfq030-x) unless the
+    # subcommand translates "/" to "-" itself before normalising.
+    def test_merge_todo_branch_slash_keeps_segment_boundary(self):
+        branch = "cfq/030-x"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
+        self.assertEqual(out, str(expected))
+
+    # The check: line must try origin/main first and fall back to local main -- a repo without a
+    # remote still closes its cards, and a stale/missing origin ref leaves the card open rather
+    # than reporting a merge that hasn't happened (never a false positive). Same resolution order
+    # as cfq_branch.py:331/341.
+    def test_merge_todo_check_line_tries_origin_then_local_main(self):
+        branch = "cfq/030-x"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        content = pathlib.Path(out).read_text()
+        expected_check = (
+            "check: git merge-base --is-ancestor cfq/030-x origin/main 2>/dev/null "
+            "|| git merge-base --is-ancestor cfq/030-x main"
+        )
+        self.assertIn(expected_check, content)
+
+    # Same day, same branch, twice: the second call must fail with the existing EXISTS error and
+    # must not overwrite the first card -- merge-todo inherits cmd_note's write path rather than
+    # inventing its own overwrite behaviour.
+    def test_merge_todo_twice_same_day_fails_and_leaves_first_card_unchanged(self):
+        branch = "cfq/030-x"
+        self.run_cfq("note", "merge-todo", str(self.repo), branch, check=True)
+        target = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
+        before = target.read_text()
+
+        proc = self.run_cfq("note", "merge-todo", str(self.repo), branch)
+        self.assertNotEqual(proc.returncode, 0, "writing onto an existing card must fail")
+        self.assertIn("EXISTS", proc.stderr)
+        self.assertEqual(target.read_text(), before, "existing card's bytes must be unchanged")
+
     # Empty/missing inbox directory: exit 0, imported: [], no directory created as a side effect.
     def test_import_with_missing_inbox_directory(self):
         self.run_cfq(
@@ -235,6 +301,93 @@ class NoteTest(CfqTestCase):
         self.assertEqual(out["status"], "OK")
         self.assertEqual(out["imported"], [])
         self.assertFalse(inbox.exists(), "importing must not create the inbox directory")
+
+
+class NoteListTest(CfqTestCase):
+    """Behavior tests for `bin/cfq note list` -- renders the plan/ inbox without consuming it,
+    see phase 05's .batch-context.md and .claude/cfq/impl/.../05-plan-inbox-list-and-consume.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.plan_dir = self.repo / ".claude" / "cfq" / "plan"
+
+    def _write_entry(self, filename, content):
+        self.plan_dir.mkdir(parents=True, exist_ok=True)
+        f = self.plan_dir / filename
+        f.write_text(content)
+        return f
+
+    def test_three_entries_mixed_creation_order_sorted_output(self):
+        # Written out of filename order on purpose -- the listing must sort by filename, not by
+        # creation order.
+        self._write_entry("2026-01-03-third.md", "# Third\n\nbody\n")
+        self._write_entry("2026-01-01-first.md", "# First\n\nbody\n")
+        self._write_entry("2026-01-02-second.md", "# Second\n\nbody\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual(
+            [e["filename"] for e in out],
+            ["2026-01-01-first.md", "2026-01-02-second.md", "2026-01-03-third.md"],
+        )
+        self.assertEqual(out[0]["date"], "2026-01-01")
+        self.assertEqual(out[0]["slug"], "first")
+        self.assertEqual(out[0]["title"], "First")
+        self.assertEqual(out[0]["path"], str(self.plan_dir / "2026-01-01-first.md"))
+
+    def test_entry_with_no_heading_falls_back_to_first_non_empty_line(self):
+        self._write_entry("2026-01-01-noheading.md", "\nJust a plain first line.\n\nMore body.\n")
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["title"], "Just a plain first line.")
+        self.assertEqual(out[0]["excerpt"], "More body.")
+
+    def test_single_long_paragraph_excerpt_is_truncated_with_ellipsis(self):
+        long_line = " ".join(f"word{i}" for i in range(60))
+        self.assertGreater(len(long_line), 200)
+        self._write_entry("2026-01-01-long.md", f"# Long finding\n\n{long_line}\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        excerpt = out[0]["excerpt"]
+        self.assertLessEqual(len(excerpt), 201, f"excerpt too long: {excerpt!r}")
+        self.assertTrue(excerpt.endswith("…"), f"excerpt must end in an ellipsis: {excerpt!r}")
+        self.assertTrue(long_line.startswith(excerpt[:-1].rstrip()), f"cut text must be a prefix: {excerpt!r}")
+
+    def test_plan_done_entry_is_not_listed(self):
+        self._write_entry("2026-01-01-visible.md", "# Visible\n\nbody\n")
+        done_dir = self.plan_dir / "done"
+        done_dir.mkdir(parents=True)
+        (done_dir / "2026-01-01-consumed.md").write_text("# Consumed\n\nbody\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual([e["filename"] for e in out], ["2026-01-01-visible.md"])
+
+    def test_empty_plan_dir_returns_empty_list(self):
+        self.plan_dir.mkdir(parents=True)
+        proc = self.run_cfq("note", "list", str(self.repo))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc), [])
+
+    def test_missing_plan_dir_returns_empty_list(self):
+        self.assertFalse(self.plan_dir.exists())
+        proc = self.run_cfq("note", "list", str(self.repo))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc), [])
+
+    def test_text_rendering_lists_date_title_and_excerpt(self):
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nsomething noticed here.\n")
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--text", check=True,
+        ).stdout
+        self.assertIn("2026-01-01  First finding  something noticed here.", out.splitlines())
+        self.assertNotIn("&nbsp;", out, "padding must use real spaces, never HTML entities")
+
+    def test_text_rendering_empty_inbox(self):
+        self.plan_dir.mkdir(parents=True)
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--text", check=True,
+        ).stdout
+        self.assertIn("No planning requests waiting in the queue.", out)
 
 
 if __name__ == "__main__":

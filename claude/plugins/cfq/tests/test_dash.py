@@ -23,6 +23,7 @@ ACTION_KEYWORDS = [
     "dependency",
     "todo",
     "setting",
+    "rfq",
 ]
 
 DASHBOARD_MD = Path(__file__).resolve().parents[1] / "references" / "dashboard.md"
@@ -329,6 +330,51 @@ class TestDash(CfqTestCase):
         self.assertEqual(
             len(with_all["thisRepo"]["batches"]), 2, f"batches = {with_all['thisRepo']['batches']}"
         )
+
+    def test_queues_reports_column(self):
+        # Reports counts report.json presence across a repo's batches, open and archived both,
+        # rendered next to Batches -- neighbouring counts (Plan/Todo/Batches) print a bare number
+        # for zero, so Reports does too rather than a dash or blank.
+        tmp = self._repos_dir / "reportsroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        b1 = self._open_batch(repo, "2026-07-01-a")
+        (b1 / "report.json").write_text("{}")
+        self._archived_batch(repo, "2026-07-02-b")
+        b3 = self._archived_batch(repo, "2026-07-03-c")
+        (b3 / "report.json").write_text("{}")
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(tmp), env=env).stdout
+
+        self.assertIn(
+            "| repo | 0 | 0 | 1/2 | 2 |", rendered, f"reports column wrong:\n{rendered}"
+        )
+
+    def test_queues_reports_column_zero(self):
+        tmp = self._repos_dir / "noreportsroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-07-04-d")
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(tmp), env=env).stdout
+
+        self.assertIn(
+            "| repo | 0 | 0 | 1/0 | 0 |", rendered, f"zero reports should render as a bare 0:\n{rendered}"
+        )
+
+    def test_actions_lists_view_reports_pointing_at_rfq(self):
+        tmp = self._repos_dir / "rfqactionsroot"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+
+        self.assertIn("view reports", rendered, f"view-reports action missing:\n{rendered}")
+        self.assertIn("/rfq", rendered, f"/rfq pointer missing from ACTIONS:\n{rendered}")
 
     # --- Phase 03: NEXT last, ACTIONS visible, unambiguous plugins line ---
 

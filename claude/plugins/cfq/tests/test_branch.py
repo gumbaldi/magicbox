@@ -116,7 +116,7 @@ class BranchTest(CfqTestCase):
 
     def test_branch_per_batch_off(self):
         # branchPerBatch=false -> off (no env var for this key, set it via settings.json).
-        cfq_home = self.home / ".claude" / "code-for-queue"
+        cfq_home = self.home / ".claude" / "cfq"
         cfq_home.mkdir(parents=True)
         (cfq_home / "settings.json").write_text('{"branchPerBatch": false}\n')
         out = self.json_out(self._plan("2026-01-01-mytopic"))

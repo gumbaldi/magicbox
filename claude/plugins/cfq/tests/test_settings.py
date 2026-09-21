@@ -40,7 +40,7 @@ class SettingsTest(CfqTestCase):
     # 2. Legacy settings.json: has planPreferredPlugins, lacks telemetrySyncRepo
     def test_02_legacy_settings_json(self):
         with tempfile.TemporaryDirectory() as legacy_home:
-            legacy_dir = f"{legacy_home}/.claude/code-for-queue"
+            legacy_dir = f"{legacy_home}/.claude/cfq"
 
             pathlib.Path(legacy_dir).mkdir(parents=True, exist_ok=True)
             pathlib.Path(f"{legacy_dir}/settings.json").write_text(
@@ -359,7 +359,7 @@ class SettingsTest(CfqTestCase):
         # fallback: a pre-existing global settings.json with the removed "full" value reads back
         # as "standard", with no error and without rewriting the file
         with tempfile.TemporaryDirectory() as legacy_home:
-            legacy_dir = f"{legacy_home}/.claude/code-for-queue"
+            legacy_dir = f"{legacy_home}/.claude/cfq"
             pathlib.Path(legacy_dir).mkdir(parents=True, exist_ok=True)
             legacy_settings = pathlib.Path(f"{legacy_dir}/settings.json")
             legacy_settings.write_text('{"docLevel":"full"}')
@@ -682,11 +682,11 @@ class SettingsTest(CfqTestCase):
             )
 
             self.assertTrue(
-                pathlib.Path(f"{state_home}/.claude/code-for-queue/settings.json").is_file(),
+                pathlib.Path(f"{state_home}/.claude/cfq/settings.json").is_file(),
                 msg="settings.json missing after set",
             )
             self.assertTrue(
-                pathlib.Path(f"{state_home}/.claude/code-for-queue/state.json").is_file(),
+                pathlib.Path(f"{state_home}/.claude/cfq/state.json").is_file(),
                 msg="state.json missing after state set",
             )
 
@@ -893,7 +893,7 @@ class SettingsTest(CfqTestCase):
     # 18. Global `set` writes only the key being set -- no materialization of the full merged
     # tier (schema defaults + existing file) into the global settings file.
     def test_18_global_set_writes_only_key(self):
-        global_settings = self.home / ".claude" / "code-for-queue" / "settings.json"
+        global_settings = self.home / ".claude" / "cfq" / "settings.json"
 
         # routine: no global file exists yet
         self.run_cfq("settings", "set", "grillMode", "classic", home=self.home, check=True)

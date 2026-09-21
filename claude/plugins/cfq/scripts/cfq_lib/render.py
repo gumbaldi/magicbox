@@ -19,6 +19,14 @@ def dump_json_pretty(obj):
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
+def jq_alt(*values):
+    """Mirrors jq's `//`: the first value that is neither null nor false."""
+    for v in values:
+        if v is not None and v is not False:
+            return v
+    return None
+
+
 def tostring(value):
     """Mirrors jq's `tostring` filter: a string passes through unquoted, everything else
     becomes its compact JSON form (numbers, bools and null included)."""

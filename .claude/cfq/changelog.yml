@@ -892,3 +892,66 @@
     - phase: "05-stop-used-default-and-release"
       status: "green"
       summary: ""
+- batchNumber: 30
+  batch: 030-2026-09-20-merge-todo-check-and-padding-clause
+  branch: cfq/030-2026-09-20-merge-todo-check-and-padding-clause
+  base: main
+  started: 2026-09-20
+  status: done
+  legacy: false
+  finished: 2026-09-20
+  phases:
+    - phase: "01-merge-todo-helper"
+      status: "green"
+      summary: ""
+    - phase: "02-status-line-padding-clause"
+      status: "green"
+      summary: ""
+- batchNumber: 31
+  batch: 031-2026-09-20-shrink-skill-files-and-dedupe-helpers
+  branch: cfq/031-2026-09-20-shrink-skill-files-and-dedupe-helpers
+  base: cfq/030-2026-09-20-merge-todo-check-and-padding-clause
+  started: 2026-09-20
+  status: done
+  legacy: false
+  finished: 2026-09-21
+  phases:
+    - phase: "01-dedupe-jq-helpers-and-hook-blocks"
+      status: "green"
+      summary: ""
+    - phase: "02-shrink-implement-for-queue-skill"
+      status: "green"
+      summary: ""
+    - phase: "03-shrink-plan-for-queue-skill"
+      status: "green"
+      summary: ""
+    - phase: "04-enforce-skill-size-budget"
+      status: "green"
+      summary: ""
+- batchNumber: 32
+  batch: 032-2026-09-20-orchestrator-gate-worker-telemetry-and-reports
+  branch: cfq/032-2026-09-20-orchestrator-gate-worker-telemetry-and-reports
+  base: cfq/031-2026-09-20-shrink-skill-files-and-dedupe-helpers
+  started: 2026-09-21
+  status: done
+  legacy: false
+  finished: 2026-09-21
+  phases:
+    - phase: "01-orchestrator-capacity-gate"
+      status: "green"
+      summary: ""
+    - phase: "02-telemetry-captures-worker-usage"
+      status: "green"
+      summary: ""
+    - phase: "03-report-output-location-and-links"
+      status: "green"
+      summary: ""
+    - phase: "04-dashboard-surfaces-reports"
+      status: "green"
+      summary: ""
+    - phase: "05-plan-inbox-list-and-consume"
+      status: "green"
+      summary: ""
+    - phase: "06-rename-global-state-dir"
+      status: "green"
+      summary: ""

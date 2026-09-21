@@ -51,59 +51,26 @@ Print the `PRECHECKS` header, then one call:
 plugin boundaries and batch selection together — read its fields below, no further calls needed
 for those three steps.
 
-**Model Gate.** The running model's name is in your system prompt's environment block;
-`policy.allowAnyModel: true` → skip this check, otherwise it must match one of
-`policy.implModels` (substring match: `sonnet` matches `claude-sonnet-5`) — or, when
-`policy.orchestratorMode` is `true`, `policy.orchestratorModels` instead (already carries the
-fallback to `implModels` when empty, no extra logic here). No match → **stop
-immediately**, touch nothing, report the allowed models, that `/model <x>` then `/ifq` is the way
-forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list. Print the `Model Gate` status line
-either way, naming which list was matched.
+**Model Gate.** cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
 
 **Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
 ignored. Print the `Plugin Boundaries` status line.
 
-**Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open
-plans for this repo in the queue.", end. `BLOCKED`/`MULTIPLE_IN_PROGRESS`/`selection.planning`
-entries each need specific wording (wait list, stop-immediately rule, the still-planning notice) —
-cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection
-Rules** section on first use each session and apply it here.
-
-`selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
-`branch`/`resume`/`contextGate` are already resolved for it) — print
-`Batch` as `resumed <name> · <done>/<done+open> phases done · mode=orchestrator|classic` (prefix
-`high · ` if flagged), straight to **Batch Briefing**. `nextPhase: null` here means every phase
-already moved to `done/` but `bin/cfq finish` never ran — **Batch Briefing** still acquires the
-lock and resolves the branch as usual, then skips ahead straight to **Batch Done**.
-`selection.inProgress` null and `selection.selectable` non-empty → the
-preflight already picked `selection.selectable[0]` (sorted flagged-first-then-name) — same
-pre-resolved fields, no question — print `Batch` as `<name> · next in order · <n> phases ·
-mode=orchestrator|classic` (prefix `high · ` if flagged), or `<name> · only open batch · <n>
-phases · mode=orchestrator|classic` when `selectable` has exactly one entry, straight to **Batch
-Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't selectable) →
-report why, from `selection` (blocked / still planning / not found), end — never falls back to the
-ordered default. `selection.selectable` has **zero** entries and `status` isn't
-`NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`. Mechanics in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules**.
+**Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. Every other outcome's wording — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules** section on first use each session and apply it here.
 
 ## Step 4 — Batch Briefing and Start
 
 Nothing is touched, no lock taken, until the briefing has been shown — never read
-phase files in full here, that's **Implementation**'s job. `contextGate.verdict` is `WARN` → print
-one warning line *above* the briefing, naming the reason in the user's language and the concrete
-numbers from `contextGate.note` (e.g. the five-hour budget is at 89% against a 70% threshold);
-state plainly that this is a budget warning, not a blocker, and that the phase runs normally if
-started — wording per `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Phase Announcement**;
-`batch.consistency == "divergent"` adds one more such line naming the repair command (`bin/cfq
-batch verify "<repo-root>"`), never blocking. Present `batch.briefText` compactly (already the full
+phase files in full here, that's **Implementation**'s job. `contextGate.verdict` is `WARN`, and
+`batch.consistency == "divergent"` — cold-path detail: read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings** section on first use each session and apply it here. Present `batch.briefText` compactly (already the full
 per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size
 and context excerpt), then start directly — invoking `/ifq` is itself the intent to start, no
 confirmation question:
 
-Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`). Exit ≠ 0 (`LOCKED`) →
-**end immediately**, touch nothing, name holder/batch/time, note the 30-minute stale takeover;
-`TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just acquired. `branch.mode`
+Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`
 (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
 base-branch question, checkout, changelog init, changelog commit, post-checkout reconfirm) — based
 on `origin`'s current state — in `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Branch
@@ -139,12 +106,9 @@ branches:
   `AskUserQuestion` fires only in this branch; nothing is skipped and nothing ends here.
 - `HANDOFF` → no phase ran, hand off cleanly (the **Context Check**) instead.
 
-Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGate.size>
-LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon
-`✅` for `START`, `⚠️` for `WARN`, `❌` for `HANDOFF` — `contextGate.reason` names which threshold
-fired structurally, the report repeats that token rather than a paraphrase of the note; this closes
-`PRECHECKS`. In orchestrator mode this step does not run — every worker starts at zero context, so
-there is nothing the gate would protect against.
+Print the `Size Gate` status line — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here; this closes `PRECHECKS`. In orchestrator mode this step
+does not run — every worker starts at zero context, so there is nothing the gate would protect
+against.
 
 ## Step 7 — Phase Announcement
 
@@ -164,20 +128,9 @@ delegate the filtering to the same subagent, a red run never does (full unfilter
 either way), per `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Research and Verification
 Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
 `docLanguages` entry before it goes green, per `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or
-`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked, never
-asked about: write a `plan/` entry via `bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"`
-(`--framework` for a cfq-itself finding, rule in `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`),
-noting a decision is still open, and name it in the phase summary — both modes, no `AskUserQuestion`, no second attempt.
+`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`'s **Parking Out-of-Scope Work** section on first use each session and apply it here.
 
-Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file. `phase` is
-the full slug (e.g. `02-gate-rate-limits-and-cache-display`, never the bare number) — the value
-that ends up in the `report.json` entry and the commit's `CFQ-Phase` trailer alike, and both
-`phase record` and `phase commit` reject anything else. `deviations` is not optional padding — name
-what the plan said, what was built, and why; the file-scope comparison in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **File-Scope Deviation** runs before every green
-phase closes and its result feeds this array — an empty array is fine only when that comparison
-came back empty, a glossed-over deviation is not; `errors` carries the actual failure output,
-trimmed to what identifies it.
+Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Phase Object Fields** section on first use each session and apply it here.
 
 Green → `git add` the phase's changes (staging stays with the model — the closing call never runs
 `git add` itself), write the commit message (subject/body plus `Co-Authored-By`) to a temp file,
@@ -197,27 +150,18 @@ continuing; none → continue as today, no question.
 Automatically, right after **Implementation**'s `git add`, even if more phases follow — never
 collected until batch end or a `/clear`. The branch already exists (**Batch Briefing** created it
 or checked an existing one out) — one call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase commit
-"<batch-dir>" "<phase-json-file>" "<message-file>"`. This composes the commit message (adding the
-`CFQ-*` trailers the same way `changelog commit-message` used to — Claude never hand-writes or
-hand-formats one), commits, moves the plan file into `done/` and appends the ledger entry in one
-transaction, backfills the commit SHA, pushes (`-u origin <branch>` on this session's first push, a
-plain `git push` after), and registers the repo (`bin/cfq registry add`) — all from its own JSON
-result, so `bin/cfq resume`'s commit fields are never left empty by a forgotten follow-up call.
-
-Render `Commit` from that JSON: `status: "OK"` → branch and whether it pushed, `⚠️` with `pushError`
-when `pushed: false` (the phase still closed, just not pushed — a later `git push` catches it up);
-`status: "NOTHING_STAGED"` → `git add` the phase's changes and retry the same call once; `status:
-"COMMIT_FAILED"` or `"RECORD_FAILED"` → treat as a red phase (print `❌ red` with the JSON's
-`detail`), don't move on — a `RECORD_FAILED` result still carries the commit `sha` for `bin/cfq
-batch verify` to reconcile later, since the commit itself succeeded and is never undone.
+"<batch-dir>" "<phase-json-file>" "<message-file>"` — cold-path detail: read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Commit Result Rendering** section on first use each session and apply it here.
 
 ## Step 10 — Context Check After Every Phase
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, now returning `OK` / `WARN` / `STOP`.
 `policy.onePhasePerSession` (**Batch Selection**'s preflight, no new call) `true` → treat exactly
 like `STOP` below, regardless of the context gate's own verdict; `false` → the context gate alone
-decides. In orchestrator mode this step never runs and `onePhasePerSession` has no effect on this
-loop at all; see `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`.
+decides. In orchestrator mode this step's own in-session check never runs — the orchestrator's
+equivalent capacity check lives in `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` step 1
+instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` still has no effect on the
+orchestrator loop; that part is unchanged.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
   (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing
@@ -225,43 +169,18 @@ loop at all; see `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`.
   batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format from
   **Closing Reports**.
 - `OK` → next phase, same batch.
-- `WARN` → **do not end, do not advance silently.** Go to **Earlier Failed Attempt** for the next
-  phase (re-running the preflight with `--select <batch>` as that step already requires for any
-  phase past the first), so the Size Gate resolves `WARN` again and the Phase Announcement carries
-  the warning and its three options. If there is no next open phase, **Batch Done** runs
-  normally — a finished batch is not held back by a budget warning. An unresolvable context reading
-  arrives as `WARN REASON=unknown` and follows this same path — the user decides, rather than the
-  session ending on a missing measurement.
-
-The `stopUsed`/`stopFiveHourPct`/`stopSevenDayPct`/`onePhasePerSession` values above are each
-deliberate, not misconfiguration — semantics in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics**.
+- `WARN` → do not end, do not advance silently — cold-path detail: read
+  `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here.
 
 ## Step 11 — Batch Done
 
 No open `NN-*.md` left → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"`, which moves
-the batch into `impl/done/`, registers the repo, runs the language/maintenance/security/changelog/
-telemetry sequence and releases the lock unconditionally (a `trap`, so a mid-sequence failure can
-never leave the repo locked), and prints one JSON object. Render its fields — `Language`/
-`Maintenance`/`Security Diff`/`Changelog`/`Telemetry`/`Lock`/`.errors` — field-by-field detail in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields**.
-
-Render the HTML report only when `htmlReport` is `true` (`bin/cfq report html
-"<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
-/rfq renders on demand` and no `file://` line in **Closing Reports**. Hand the batch to
-**Closing Reports** for the closing report.
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"` — cold-path detail:
+read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields** section on first use each session and apply it here. Hand the batch to **Closing Reports** for the closing
+report.
 
 ## Step 12 — Closing Reports
 
 One format, two lengths, both end the session, both a label/value list under the `Output Format`
-padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short).
-**Full format** — `RESULT · implement-for-queue` header, fields `Batch`/`Cost`/`Skills`/
-`Security`/`Merge`/`Report` — field-by-field detail (which script call, what each renders, the
-`todo/` entry for a forgotten merge) in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Closing Report Fields**.
-
-**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases open, the `USED`
-value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the full format,
-naming the red phase; its `❌` line already appeared in **Implementation**, so this step only
-repeats the `5 green, 1 red` split in `Batch`, not the error text.
+padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short) —
+cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Closing Report Fields** section on first use each session and apply it here.

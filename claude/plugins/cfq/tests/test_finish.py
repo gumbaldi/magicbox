@@ -56,7 +56,7 @@ class FinishTest(CfqTestCase):
         # fails to write, cfq-finish.sh must still complete the rest of the sequence and release
         # the lock.
         home = self._repos_dir / "home2"
-        (home / ".claude/code-for-queue").mkdir(parents=True)
+        (home / ".claude/cfq").mkdir(parents=True)
         repo = self._new_repo("repo2")
         batch = self._new_batch(repo, "2026-01-01-brokenchangelog")
         self.run_cfq(
@@ -65,7 +65,7 @@ class FinishTest(CfqTestCase):
 
         readonlydir = repo / "readonlydir"
         readonlydir.mkdir()
-        (home / ".claude/code-for-queue/settings.json").write_text(
+        (home / ".claude/cfq/settings.json").write_text(
             json.dumps({"changelogFile": "readonlydir/changelog.yml"})
         )
         readonlydir.chmod(0o555)
@@ -94,13 +94,13 @@ class FinishTest(CfqTestCase):
 
     def test_changelog_file_empty_is_not_an_error(self):
         home = self._repos_dir / "home3"
-        (home / ".claude/code-for-queue").mkdir(parents=True)
+        (home / ".claude/cfq").mkdir(parents=True)
         repo = self._new_repo("repo3")
         batch = self._new_batch(repo, "2026-01-01-nochangelog")
         self.run_cfq(
             "lock", "acquire", str(repo), "2026-01-01-nochangelog", home=home, check=True,
         )
-        (home / ".claude/code-for-queue/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
 
         out = self.json_out(
             self.run_cfq("finish", str(repo), str(batch), "v0.1-nochangelog", home=home, check=True)
@@ -141,17 +141,23 @@ class FinishTest(CfqTestCase):
 
     def test_html_report_auto_renders_when_enabled(self):
         home = self._repos_dir / "home5"
-        (home / ".claude/code-for-queue").mkdir(parents=True)
+        (home / ".claude/cfq").mkdir(parents=True)
         repo = self._new_repo("repo5")
         batch = self._new_batch(repo, "2026-01-01-htmlon")
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmlon", home=home, check=True)
-        (home / ".claude/code-for-queue/settings.json").write_text(json.dumps({"htmlReport": True}))
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
 
         proc = self.run_cfq("finish", str(repo), str(batch), "v0.1-htmlon", home=home, check=True)
         self.json_out(proc)
+        # Default reportDir (empty) now renders into the repo-local reports/ dir, not next to
+        # report.json inside the moved batch directory -- see phase 03 of batch 032.
         self.assertTrue(
-            (repo / ".claude/cfq/impl/done/2026-01-01-htmlon/report.html").is_file(),
-            "htmlReport=true should auto-render report.html",
+            (repo / ".claude/cfq/reports/2026-01-01-htmlon.html").is_file(),
+            "htmlReport=true should auto-render into .claude/cfq/reports/",
+        )
+        self.assertFalse(
+            (repo / ".claude/cfq/impl/done/2026-01-01-htmlon/report.html").exists(),
+            "report.html must no longer land inside the batch directory by default",
         )
 
     def test_html_report_default_off(self):

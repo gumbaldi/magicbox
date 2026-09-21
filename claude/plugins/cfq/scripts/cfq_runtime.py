@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: cfq_runtime.py session-id
 #        cfq_runtime.py transcript-path [--repo <path>] [--exact]
+#        cfq_runtime.py subagent-dir [--repo <path>] [--exact]
 #        cfq_runtime.py context
 #        cfq_runtime.py model
 #        cfq_runtime.py version
@@ -71,6 +72,19 @@ def resolve_transcript_path(repo_path, exact):
         return ""
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return str(files[0])
+
+
+def resolve_subagent_dir(repo_path, exact):
+    """The sub-agent transcript directory sits next to the main transcript file: the transcript
+    path with its .jsonl suffix dropped, plus "/subagents" -- e.g.
+    <project-slug-dir>/<session-id>/subagents/agent-<agentId>.jsonl. Empty when the transcript
+    path itself cannot be resolved or the directory does not exist, matching how the other verbs
+    degrade rather than raising."""
+    tp = resolve_transcript_path(repo_path, exact)
+    if not tp or not tp.endswith(".jsonl"):
+        return ""
+    d = pathlib.Path(tp[: -len(".jsonl")]) / "subagents"
+    return str(d) if d.is_dir() else ""
 
 
 def ctx_window_limit_for(model):
@@ -376,7 +390,8 @@ def result_json(state):
 
 
 USAGE = (
-    "usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] | context | model | "
+    "usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] | "
+    "subagent-dir [--repo <path>] | context | model | "
     "version | capabilities | plugins | plugin-installed <name> | diagnose [--repo <path>]"
 )
 
@@ -410,6 +425,8 @@ def main(argv):
         print(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     elif cmd == "transcript-path":
         print(resolve_transcript_path(repo_path, exact))
+    elif cmd == "subagent-dir":
+        print(resolve_subagent_dir(repo_path, exact))
     elif cmd == "context":
         print(render.dump_json(result_json(do_resolve(""))))
     elif cmd == "model":

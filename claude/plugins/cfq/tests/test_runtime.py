@@ -370,6 +370,28 @@ class TestRuntime(CfqTestCase):
         expected = str(h / ".claude" / "projects" / slug_for(os.getcwd()) / f"{SID}.jsonl")
         self.assertEqual(proc.stdout.strip(), expected)
 
+    # -- subagent-dir ----------------------------------------------------------------------------
+
+    def test_subagent_dir_present(self):
+        h = self._new_home()
+        (h / ".claude" / "projects" / SLUG / f"{SID}.jsonl").write_text("{}\n")
+        subdir = h / ".claude" / "projects" / SLUG / SID / "subagents"
+        subdir.mkdir(parents=True)
+        (subdir / "agent-1.jsonl").write_text("{}\n")
+        proc = self._run("subagent-dir", home=h)
+        self.assertEqual(proc.stdout.strip(), str(subdir))
+
+    def test_subagent_dir_missing_directory_returns_empty(self):
+        h = self._new_home()
+        (h / ".claude" / "projects" / SLUG / f"{SID}.jsonl").write_text("{}\n")
+        proc = self._run("subagent-dir", home=h)
+        self.assertEqual(proc.stdout.strip(), "")
+
+    def test_subagent_dir_no_transcript_resolves_returns_empty(self):
+        h = self._new_home()
+        proc = self._run("subagent-dir", home=h)
+        self.assertEqual(proc.stdout.strip(), "", "no transcript resolved must not raise")
+
     # -- model field on the context result --------------------------------------------------
 
     def test_payload_carries_a_model_context_reports_it(self):

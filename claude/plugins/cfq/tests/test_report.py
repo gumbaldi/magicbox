@@ -395,6 +395,107 @@ M
             (batch_x / "report.html").exists(), "fell back to writing batch-dir report.html on reportDir failure",
         )
 
+    def test_html_repo_local_default_and_index(self):
+        # change 1: an empty reportDir (the new default) resolves to <repo-root>/.claude/cfq/
+        # reports/<batch>.html rather than inside the batch directory -- the required fixture
+        # case: the first test running the shared body renderer against a path derived from the
+        # batch directory itself.
+        repo_y = self._repos_dir / "repo-y"
+        batch_y_name = "2026-04-01-repolocal"
+        batch_y = repo_y / ".claude" / "cfq" / "impl" / batch_y_name
+        batch_y.mkdir(parents=True)
+        cfq_report.append_phase(
+            str(batch_y),
+            '{"phase":"01-a","status":"green","finished":"2026-04-01T10:00:00+01:00","summary":"ok",'
+            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"1110000"}',
+            record_telemetry=False,
+        )
+
+        env = {"CFQ_SCAN_ROOTS": str(self._repos_dir)}
+        out = self.run_cfq("report", "html", str(batch_y), env=env).stdout.strip()
+        expected_path = repo_y / ".claude" / "cfq" / "reports" / f"{batch_y_name}.html"
+        self.assertEqual(out, str(expected_path), f"repo-local default html path = {out}")
+        self.assertTrue(expected_path.is_file(), "repo-local report.html not created")
+        self.assertFalse((batch_y / "report.html").exists(), "report.html must not also land in the batch dir")
+
+        # change 3: the repo-local default also regenerates index.html in that same reports/
+        # directory, with a flat href -- not the shared-reportDir <repoBase>/<batch>.html shape,
+        # since the reports/ dir is already repo-local.
+        index_path = repo_y / ".claude" / "cfq" / "reports" / "index.html"
+        self.assertTrue(index_path.is_file(), "repo-local index.html not created")
+        index_html = index_path.read_text()
+        self.assertIn(f'<a href="{batch_y_name}.html">', index_html, "repo-local index link not flat/relative")
+
+        # change 3, scoping: a batch from a different repo must never show up in repo_y's own
+        # local index, even though the underlying scan is cross-repo -- "listing that repo's
+        # batches" per the phase, not everyone else's.
+        repo_z = self._repos_dir / "repo-z"
+        batch_z_name = "2026-04-02-otherrepo"
+        batch_z = repo_z / ".claude" / "cfq" / "impl" / batch_z_name
+        batch_z.mkdir(parents=True)
+        cfq_report.append_phase(
+            str(batch_z),
+            '{"phase":"01-a","status":"green","finished":"2026-04-02T10:00:00+01:00","summary":"ok",'
+            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"2220000"}',
+            record_telemetry=False,
+        )
+        self.run_cfq("report", "html", str(batch_y), env=env)  # regenerate repo_y's own index
+        index_html = index_path.read_text()
+        self.assertNotIn(batch_z_name, index_html, "repo-y's local index picked up a batch from another repo")
+
+        # change 4: batch_z has a report.json but no rendered HTML anywhere -- the global table
+        # still lists it, but prints no file:// line for it.
+        idx_text = self.run_cfq("report", "index", "--text", env=env).stdout
+        self.assertIn(batch_z_name, idx_text, "unrendered batch missing from the table")
+        unrendered_path = repo_z / ".claude" / "cfq" / "reports" / f"{batch_z_name}.html"
+        self.assertNotIn(f"file://{unrendered_path}", idx_text, "file:// line printed for an unrendered report")
+
+    def test_html_telemetry_mode_and_worker_split(self):
+        # change 5: the detail/HTML renderer surfaces phase 02's `mode` and, when the worker
+        # share is non-zero, the orchestrator/worker split.
+        batch = self._batch("2026-05-01-orchestrator-html")
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({
+                "phase": "01-a", "status": "green", "finished": "2026-05-01T10:00:00+01:00",
+                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
+                "commit": "3330000",
+                "telemetry": {
+                    "totals": {"turns": 10, "output": 1000},
+                    "subagent": {"turns": 6, "output": 700},
+                    "by_model": {}, "by_effort": {}, "mode": "orchestrator",
+                },
+            }),
+            record_telemetry=False,
+        )
+        out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
+        self.assertEqual(out, str(batch / "report.html"), f"html path (default reportDir) = {out}")
+        html = (batch / "report.html").read_text()
+        self.assertIn('>Mode <b>orchestrator</b>', html, "mode not rendered")
+        self.assertIn(
+            '>Split <b>4/6 Turns, 300/700 out (orchestrator/worker)</b>', html,
+            "orchestrator/worker split not rendered correctly",
+        )
+
+        # A record predating phase 02 (no mode, no subagent activity) must render exactly as
+        # before -- no empty Mode/Split column, no "None".
+        batch2 = self._batch("2026-05-02-classic-html")
+        cfq_report.append_phase(
+            str(batch2),
+            json.dumps({
+                "phase": "01-a", "status": "green", "finished": "2026-05-02T10:00:00+01:00",
+                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
+                "commit": "4440000",
+                "telemetry": {"totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {}},
+            }),
+            record_telemetry=False,
+        )
+        out2 = self.run_clean(str(CFQ_BIN), "report", "html", str(batch2)).stdout.strip()
+        self.assertEqual(out2, str(batch2 / "report.html"), f"html path (default reportDir) = {out2}")
+        html2 = (batch2 / "report.html").read_text()
+        self.assertNotIn('>Mode <b>', html2, "Mode column rendered despite no mode field")
+        self.assertNotIn('>Split <b>', html2, "Split column rendered despite no subagent activity")
+
     # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
     # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
 
