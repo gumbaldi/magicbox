@@ -970,3 +970,10 @@
     - phase: "02-wire-sweep-into-cfq"
       status: "green"
       summary: ""
+- batchNumber: 34
+  batch: 034-2026-09-21-report-overview-and-rfq-output
+  branch: cfq/034-2026-09-21-report-overview-and-rfq-output
+  base: cfq/033-2026-09-21-todo-queue-sweep
+  started: 2026-09-21
+  status: in-progress
+  legacy: false
