@@ -47,7 +47,7 @@ SCHEMA = {
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
     "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
-    "htmlReport": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": None, "description": "Render an HTML report at batch completion in addition to the terminal summary."},
+    "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Render the HTML report at batch end; set false to render only on /rfq request."},
     "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "description": "Plugins /pfq must never call, even indirectly."},
     "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "description": "Plugins /ifq must never call, even indirectly."},
     "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},

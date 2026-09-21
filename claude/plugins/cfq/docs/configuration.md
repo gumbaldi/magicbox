@@ -88,7 +88,7 @@ interactively.
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | global, repo | commits since the last maintenance run before it's due again; `0` disables maintenance entirely |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
-| `htmlReport` | — | `false` | global, repo | render the HTML report automatically at batch end; otherwise only on `/rfq` request |
+| `htmlReport` | — | `true` | global, repo | render the HTML report at batch end; set false to render only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty renders into `<repo>/.claude/cfq/reports/` instead — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
@@ -130,8 +130,9 @@ file per batch, with its own `index.html` scoped to that repo's own batches, and
 archiving since the batch name (not the batch's `impl/`-vs-`impl/done/` location) is the only
 thing the path depends on. Set an absolute `reportDir` instead for a location reachable outside
 the queue's own git-excluded directory and shared across repos — a WSL user opening reports from
-Windows Explorer, for example — `htmlReport` (above) controls whether either mode renders
-automatically at batch completion.
+Windows Explorer, for example — rendering happens automatically at batch completion in either mode
+by default; `htmlReport` (above) is the switch that turns the automatic render off, leaving it to
+`/rfq` on request.
 
 ## Script Output Reference
 

@@ -105,21 +105,22 @@ section.security{background:var(--surface);border:1px solid var(--border);border
 .muted{color:var(--fg-muted)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .tscroll{overflow-x:auto}
-.phase-table table{border-collapse:collapse;width:100%;font-size:.85rem}
-.phase-table th,.phase-table td{padding:.4rem .6rem;border-bottom:1px solid var(--border);
-  text-align:left;white-space:nowrap}
-.phase-table thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
+.phase-table table,.repo table{border-collapse:collapse;width:100%;font-size:.85rem}
+.phase-table th,.phase-table td,.repo th,.repo td{padding:.4rem .6rem;
+  border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.phase-table thead th,.repo thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
   text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-strong)}
-.phase-table td.n,.phase-table th.n{text-align:right;font-variant-numeric:tabular-nums;
-  font-family:var(--mono)}
-.phase-table td.c,.phase-table th.c{text-align:center}
-.phase-table tbody tr:hover{background:var(--surface-2)}
+.phase-table td.n,.phase-table th.n,.repo td.n,.repo th.n{text-align:right;
+  font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.phase-table td.c,.phase-table th.c,.repo td.c,.repo th.c{text-align:center}
+.phase-table tbody tr:hover,.repo tbody tr:hover{background:var(--surface-2)}
 .phase-table tfoot td,.phase-table tfoot th{border-top:1px solid var(--border-strong);
   border-bottom:none;color:var(--fg-muted);font-weight:600}
-.phase-table td a{color:var(--accent);text-decoration:none}
-.phase-table td a:hover{text-decoration:underline}
+.phase-table td a,.repo td a{color:var(--accent);text-decoration:none}
+.phase-table td a:hover,.repo td a:hover{text-decoration:underline}
 .verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 section.repo{margin:1.5rem 0}
+.repo h2 .count{font-weight:400;font-size:.8rem;color:var(--fg-faint);margin-left:.5rem}
 @media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
 @media print{
   :root{--bg:#fff;--surface:#fff;--surface-2:#f2f2f2;--fg:#000;--fg-muted:#333;--border:#999;}
@@ -1324,6 +1325,8 @@ def cmd_detail(args):
 # ---- collected index.html (reportDir mode) ---------------------------------------------------
 
 def row_html(row):
+    """One `<tr>` in a repo's index table. A batch with no HTML rendered yet keeps its row and
+    loses only the link (`README.md`: "still listed, just without a link")."""
     status = row.get("status") or ""
     if row.get("rendered"):
         batch_html = f'<a href="{esc(row["href"])}">{esc(row["batch"])}</a>'
@@ -1332,17 +1335,31 @@ def row_html(row):
     out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
     turns = render.jq_alt(row.get("cost", {}).get("turns"), 0)
     deviations = row.get("deviations")
-    dev_part = f' · {render.tostring(deviations)} Deviations' if isinstance(deviations, (int, float)) and deviations > 0 else ""
+    devs_disp = fmt_int(deviations) if isinstance(deviations, (int, float)) and deviations > 0 else ""
     return (
-        f'<li><span class="badge {status.lower()}">{esc(status)}</span> '
-        f'{batch_html} · {esc(row.get("date"))} · {render.tostring(out_tokens)} out, '
-        f'{render.tostring(turns)} Turns{dev_part}</li>'
+        f'<tr class="{esc(status.lower())}"><td class="c">{esc(status_glyph(status))}</td>'
+        f'<td>{batch_html}</td>'
+        f'<td>{esc(fmt_datetime(row.get("date")))}</td>'
+        f'<td class="n">{esc(devs_disp)}</td>'
+        f'<td class="n">{esc(fmt_int(out_tokens))}</td>'
+        f'<td class="n">{esc(fmt_int(turns))}</td></tr>'
     )
 
 
-def repo_section_html(items):
-    lis = "".join(row_html(it) for it in items)
-    return f'<section class="repo"><h2>{esc(items[0]["repoBase"])}</h2><ul>{lis}</ul></section>'
+def repo_section_html(repo_base, items):
+    """One `<section class="repo">` per repo, the same table shape as phase 04's phase table
+    (`.phase-table table,.repo table` share their declarations) so the two pages read as one
+    system."""
+    total_out = sum(render.jq_alt(it.get("cost", {}).get("outputTokens"), 0) for it in items)
+    rows = "".join(row_html(it) for it in items)
+    return (
+        f'<section class="repo"><h2>{esc(repo_base)} '
+        f'<span class="count">{esc(fmt_int(len(items)))} batches · {esc(fmt_tokens(total_out))} out'
+        '</span></h2><div class="tscroll"><table><thead><tr>'
+        '<th class="c"><span class="sr">Status</span>·</th><th>Batch</th>'
+        '<th>Date</th><th class="n">Devs</th><th class="n">Out</th><th class="n">Turns</th>'
+        f'</tr></thead><tbody>{rows}</tbody></table></div></section>'
+    )
 
 
 def regenerate_index(report_dir, repo_root_filter=None):
@@ -1364,15 +1381,25 @@ def regenerate_index(report_dir, repo_root_filter=None):
         rendered = row["rendered"]
         href = os.path.relpath(row["href"], report_dir) if rendered else ""
         repo_base = os.path.basename(row["repo"])
-        enriched = {**row, "repoBase": repo_base, "rendered": rendered, "href": href}
+        enriched = {**row, "rendered": rendered, "href": href}
         groups.setdefault(repo_base, []).append(enriched)
 
-    sections = [repo_section_html(groups[key]) for key in sorted(groups.keys())]
+    sections = [repo_section_html(key, groups[key]) for key in sorted(groups.keys())]
     body = "".join(sections) if sections else '<p class="meta">No reports yet.</p>'
+    total_out = sum(render.jq_alt(r.get("cost", {}).get("outputTokens"), 0) for r in rows)
+    header = (
+        '<header class="batch"><div class="ident"><h1>cfq reports</h1></div>'
+        '<dl class="meta">'
+        f'<div><dt>Repos</dt><dd>{esc(fmt_int(len(groups)))}</dd></div>'
+        f'<div><dt>Batches</dt><dd>{esc(fmt_int(len(rows)))}</dd></div>'
+        f'<div><dt>Output tokens</dt><dd>{esc(fmt_int(total_out))}</dd></div>'
+        f'<div><dt>Generated</dt><dd>{esc(datetime.now().strftime("%Y-%m-%d %H:%M"))}</dd></div>'
+        '</dl></header>'
+    )
     doc = (
         '<!doctype html><html><head><meta charset="utf-8"><title>cfq reports</title>'
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        '<h1>cfq reports</h1>' + body + '</body></html>'
+        + header + body + '</body></html>'
     )
     idx_out = os.path.join(report_dir, "index.html")
     tmp = f"{idx_out}.tmp"

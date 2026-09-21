@@ -206,7 +206,7 @@ class SettingsTest(CfqTestCase):
             "maintenanceEvery": "50",
             "branchPerBatch": "true",
             "changelogFile": ".claude/cfq/changelog.yml",
-            "htmlReport": "false",
+            "htmlReport": "true",
             "planBlockedPlugins": "superpowers",
             "implBlockedPlugins": "superpowers",
             "telemetrySyncRepo": "",
@@ -436,7 +436,7 @@ class SettingsTest(CfqTestCase):
             msg=f"default changelogFile = {out['changelogFile']}, want .claude/cfq/changelog.yml",
         )
         self.assertEqual(
-            out["htmlReport"], False, msg=f"default htmlReport = {out['htmlReport']}, want false"
+            out["htmlReport"], True, msg=f"default htmlReport = {out['htmlReport']}, want true"
         )
 
         proc = self.run_cfq("settings", "set", "branchPerBatch", "nope", home=self.home)

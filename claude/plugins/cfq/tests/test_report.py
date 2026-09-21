@@ -379,6 +379,11 @@ M
         self.assertIn(batch_x_name, index_html, f"index.html missing batch {batch_x_name}")
         n_links = index_html.count("<a href=")
         self.assertGreaterEqual(n_links, 1, f"index.html has no links: {n_links}")
+        # phase 07: index.html shares the batch report's header design and renders a table per
+        # repo, not the old flat <ul>.
+        self.assertIn('<header class="batch">', index_html, "index.html missing the shared header block")
+        self.assertIn('<section class="repo">', index_html, "index.html missing the per-repo table section")
+        self.assertIn('<tr class="green">', index_html, "index.html missing a rendered batch's table row")
 
         # edge: batch whose phase file no longer exists -> phase still renders, goal omitted, no crash
         batch_y_name = "2026-03-02-nogoal"
@@ -403,6 +408,22 @@ M
         index_html = (rd / "index.html").read_text()
         href_count = index_html.count(f"repo-x/{batch_x_name}.html")
         self.assertEqual(href_count, 1, f"index.html links batch_x more than once: {href_count}")
+
+        # edge: a batch with a report.json but no rendered HTML keeps its row, without a href --
+        # `README.md`'s "still listed, just without a link" guarantee, now for the table markup.
+        batch_w_name = "2026-03-03-unrendered"
+        batch_w = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_w_name
+        (batch_w / "done").mkdir(parents=True)
+        cfq_report.append_phase(
+            str(batch_w),
+            '{"phase":"01-a","status":"green","finished":"2026-03-03T10:00:00+01:00","summary":"ok",'
+            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"aaa7777"}',
+            record_telemetry=False,
+        )
+        self.run_cfq("report", "html", str(batch_x), env=env)  # regenerate the index
+        index_html = (rd / "index.html").read_text()
+        self.assertIn(batch_w_name, index_html, f"index.html missing unrendered batch {batch_w_name}")
+        self.assertNotIn(f"{batch_w_name}.html", index_html, "index.html links an unrendered batch")
 
         # must-fall-back: reportDir pointing at a path that cannot be created -> non-zero exit,
         # stderr message, batch-directory file NOT silently written instead
@@ -468,6 +489,11 @@ M
         self.assertTrue(index_path.is_file(), "repo-local index.html not created")
         index_html = index_path.read_text()
         self.assertIn(f'<a href="{batch_y_name}.html">', index_html, "repo-local index link not flat/relative")
+        # phase 07: index.html shares the batch report's header design and renders a table per
+        # repo, one <tr> per batch -- the one-design contract this phase exists to restore.
+        self.assertIn('<header class="batch">', index_html, "index.html missing the shared header block")
+        self.assertIn('<section class="repo">', index_html, "index.html missing the per-repo table section")
+        self.assertIn('<tr class="green">', index_html, "index.html missing the rendered batch's table row")
 
         # change 3, scoping: a batch from a different repo must never show up in repo_y's own
         # local index, even though the underlying scan is cross-repo -- "listing that repo's

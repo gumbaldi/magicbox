@@ -324,9 +324,11 @@ by default (`--limit 0` for the full history) with a marker column showing which
 have their HTML rendered — or drill into a single batch for the detailed HTML report. By default
 it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
 an `index.html` regenerated alongside it listing that repo's own batches; set `reportDir` for the
-collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). The
-HTML is regenerated fresh on every request and can be deleted freely — `report.json` is the source
-of truth, and a batch whose HTML hasn't been rendered yet is still listed, just without a link.
+collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). Every
+finished batch renders its HTML at batch end and refreshes the repo's `index.html`; `/rfq`
+re-renders on demand, and `htmlReport: false` turns the automatic render off. The HTML can be
+deleted freely — `report.json` is the source of truth, and a batch whose HTML hasn't been rendered
+yet is still listed, just without a link.
 
 ## Telemetry
 
