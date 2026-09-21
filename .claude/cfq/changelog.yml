@@ -930,4 +930,8 @@
       summary: ""
 - batchNumber: 32
   batch: 032-2026-09-20-orchestrator-gate-worker-telemetry-and-reports
-  status: parked
+  branch: cfq/032-2026-09-20-orchestrator-gate-worker-telemetry-and-reports
+  base: cfq/031-2026-09-20-shrink-skill-files-and-dedupe-helpers
+  started: 2026-09-21
+  status: in-progress
+  legacy: false
