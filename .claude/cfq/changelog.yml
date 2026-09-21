@@ -960,5 +960,13 @@
   branch: cfq/033-2026-09-21-todo-queue-sweep
   base: main
   started: 2026-09-21
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-21
+  phases:
+    - phase: "01-note-sweep-verb"
+      status: "green"
+      summary: ""
+    - phase: "02-wire-sweep-into-cfq"
+      status: "green"
+      summary: ""
