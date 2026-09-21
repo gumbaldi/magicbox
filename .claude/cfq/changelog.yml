@@ -975,5 +975,28 @@
   branch: cfq/034-2026-09-21-report-overview-and-rfq-output
   base: cfq/033-2026-09-21-todo-queue-sweep
   started: 2026-09-21
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-report-data-layer"
+      status: "green"
+      summary: ""
+    - phase: "02-report-visual-system"
+      status: "green"
+      summary: ""
+    - phase: "03-report-overview-section"
+      status: "green"
+      summary: ""
+    - phase: "04-report-phase-table"
+      status: "green"
+      summary: ""
+    - phase: "05-report-phase-details"
+      status: "green"
+      summary: ""
+    - phase: "06-rfq-terminal-output"
+      status: "green"
+      summary: ""
+    - phase: "07-report-index-and-default"
+      status: "green"
+      summary: ""
