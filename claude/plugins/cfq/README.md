@@ -319,8 +319,10 @@ which verification ran, and the commit SHA. It lives in the batch directory, so 
 the batch into `done/` and is covered by the same `.git/info/exclude` entry as the rest of the
 queue.
 
-Run `/rfq` for a compact terminal table across all repos, or drill into a single batch for the
-detailed HTML report. By default it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
+Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
+by default (`--limit 0` for the full history) with a marker column showing which batches already
+have their HTML rendered — or drill into a single batch for the detailed HTML report. By default
+it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
 an `index.html` regenerated alongside it listing that repo's own batches; set `reportDir` for the
 collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). The
 HTML is regenerated fresh on every request and can be deleted freely — `report.json` is the source

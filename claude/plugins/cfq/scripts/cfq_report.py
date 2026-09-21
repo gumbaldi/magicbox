@@ -5,7 +5,7 @@
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
 #        cfq_report.py summary <batch-dir>
 #        cfq_report.py html <batch-dir>
-#        cfq_report.py index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]
+#        cfq_report.py index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text]
 #        cfq_report.py detail <batch-dir>
 """Implementation reports per batch. The report lives in the batch directory and travels with it.
 
@@ -554,6 +554,19 @@ def fmt_int(n):
     if isinstance(n, bool) or not isinstance(n, (int, float)):
         return "–"
     return f"{int(n):,}"
+
+
+def fmt_tokens(n):
+    """`jq_round`'s `k` rounding, stepped up to one decimal place of `M` above 1,000k (`12.4M`) --
+    the one formatter the index table's `Out` cell and its group header's summed total both call,
+    so the two numbers can never disagree. `0`/negative/non-numeric -> "–", same placeholder the
+    `k`-only rounding already used for a zero cost."""
+    if isinstance(n, bool) or not isinstance(n, (int, float)) or n <= 0:
+        return "–"
+    k = n / 1000.0
+    if k < 1000:
+        return f"{jq_round(k)}k"
+    return f"{k / 1000.0:.1f}M"
 
 
 _LEADING_NUMBER_RE = re.compile(r"^\d+-")
@@ -1152,6 +1165,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             if isinstance(d, list):
                 deviations += len(d)
         date = batch_finished(data)
+        status = outcome(phases)
 
         planning = data.get("planning") if isinstance(data, dict) else None
         planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -1164,12 +1178,23 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_outputs.append(_totals_field(totals, "output"))
             phase_turns.append(_totals_field(totals, "turns"))
 
+        # `rendered`/`href` used to be computed a second time, independently, inside
+        # regenerate_index() -- both call sites now share this one `resolve_html_path()` answer
+        # instead of two copies of the same formula. `href` is the resolved absolute path (or ""
+        # when nothing has been rendered yet); regenerate_index() derives its own report-relative
+        # link from it rather than re-resolving the layout itself.
+        resolved = resolve_html_path(os.path.dirname(m["path"]))
+        rendered = os.path.isfile(resolved)
+
         rows.append({
             "batch": m["name"],
             "repo": m["repo"],
             "date": date,
-            "status": outcome(phases),
+            "status": status,
+            "glyph": status_glyph(status),
             "deviations": deviations,
+            "rendered": rendered,
+            "href": resolved if rendered else "",
             "cost": {
                 "outputTokens": planning_output + sum(phase_outputs),
                 "turns": planning_turns + sum(phase_turns),
@@ -1181,31 +1206,57 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
     return rows, meta
 
 
+def _index_group_lines(repo_key, group_rows, limit):
+    """One repo's `### heading` + table + optional "… n more" hint, each block ending in a blank
+    line -- the fix for the pasted defect (a Markdown table row followed by a non-blank line
+    renders as a further row). `limit <= 0` means no truncation at all."""
+    total_out = sum(r["cost"]["outputTokens"] for r in group_rows)
+    shown = group_rows if limit <= 0 else group_rows[:limit]
+    lines = [f"### {repo_key} · {len(group_rows)} batches · {fmt_tokens(total_out)} out", ""]
+    lines.append("| Batch | · | Devs | Date | Out | 📄 |")
+    lines.append("|---|---|---|---|---|---|")
+    for r in shown:
+        devs_disp = "" if not r["deviations"] else str(r["deviations"])
+        date_disp = fmt_short(r["date"]) or "–"
+        out_disp = fmt_tokens(r["cost"]["outputTokens"])
+        rendered_disp = "✓" if r["rendered"] else ""
+        lines.append(
+            "| " + " | ".join([r["batch"], r["glyph"], devs_disp, date_disp, out_disp, rendered_disp]) + " |"
+        )
+    lines.append("")
+    remaining = len(group_rows) - len(shown)
+    if remaining > 0:
+        lines.append(f"… {remaining} more · --limit 0 shows all")
+        lines.append("")
+    return lines
+
+
 def cmd_index(args):
-    rows, meta = build_index_rows(args.repo, args.batch, args.any_filter)
+    rows, _meta = build_index_rows(args.repo, args.batch, args.any_filter)
     if not args.text:
         print(render.dump_json(rows))
         return
     if not rows:
         print("No batch has a report yet — reports have existed only since v0.2, so older batches never got one.")
         return
-    lines = ["| " + " | ".join(["Repo", "Batch", "Status", "Dev.", "Date", "Cost"]) + " |", "|---|---|---|---|---|---|"]
-    for r in rows:
-        repo_short = r["repo"].split("/")[-1]
-        status_disp = f'**{r["status"]}**' if r["status"] in ("RED", "MIXED") else r["status"]
-        cost = r["cost"]["outputTokens"]
-        cost_disp = "–" if cost == 0 else f"{jq_round(cost / 1000)}k"
-        lines.append("| " + " | ".join([repo_short, r["batch"], status_disp, str(r["deviations"]), r["date"], cost_disp]) + " |")
-    print("\n".join(lines))
-    for r in rows:
-        m = next((mm for mm in meta if mm["repo"] == r["repo"] and mm["name"] == r["batch"]), None)
-        if m is None:
-            continue
-        path = resolve_html_path(os.path.dirname(m["path"]))
-        # Missing file -> the row above stays listed, just without this link -- printing a
-        # file:// line unconditionally is exactly the defect this check removes.
-        if os.path.isfile(path):
-            print(f"file://{path}")
+
+    # One group per repo, newest-group-first without a second sort: `rows` already arrives sorted
+    # newest-first across every repo (build_index_rows), so the first row encountered for a given
+    # repo is necessarily that repo's own newest -- and since the whole list is date-descending,
+    # the order groups are first encountered in is already newest-group-first too.
+    groups = {}
+    order = []
+    for row in rows:
+        key = os.path.basename(row["repo"])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    out_lines = []
+    for key in order:
+        out_lines.extend(_index_group_lines(key, groups[key], args.limit))
+    print("\n".join(out_lines).rstrip("\n"))
 
 
 def cmd_detail(args):
@@ -1299,20 +1350,19 @@ def regenerate_index(report_dir, repo_root_filter=None):
     batches -- used by the repo-local default (change 1), where `report_dir` is that repo's own
     `.claude/cfq/reports/` and cross-repo entries have no business being listed there; omitted
     (`None`) for the shared-`reportDir` collected-tree mode, which lists every repo on purpose.
-    Existence check and `href` both route through `resolve_html_path()` -- the one place that
-    decides the on-disk layout -- rather than hard-coding the shared-`reportDir` shape here too,
-    which would disagree with it exactly when the layout differs (the repo-local case)."""
-    rows, meta = build_index_rows()
+    `rendered` and the resolved absolute path both come from `build_index_rows()` now -- the one
+    place that calls `resolve_html_path()`, the one place that decides the on-disk layout -- this
+    function only turns that absolute path into one relative to `report_dir`, rather than
+    re-resolving the layout itself a second time."""
+    rows, _meta = build_index_rows()
     if repo_root_filter:
         norm = repo_root_filter.rstrip("/")
         rows = [r for r in rows if r["repo"].rstrip("/") == norm]
 
     groups = {}
     for row in rows:
-        m = next((mm for mm in meta if mm["repo"] == row["repo"] and mm["name"] == row["batch"]), None)
-        resolved = resolve_html_path(os.path.dirname(m["path"])) if m is not None else None
-        rendered = resolved is not None and os.path.isfile(resolved)
-        href = os.path.relpath(resolved, report_dir) if rendered else ""
+        rendered = row["rendered"]
+        href = os.path.relpath(row["href"], report_dir) if rendered else ""
         repo_base = os.path.basename(row["repo"])
         enriched = {**row, "repoBase": repo_base, "rendered": rendered, "href": href}
         groups.setdefault(repo_base, []).append(enriched)
@@ -1368,6 +1418,11 @@ def build_parser():
     p.add_argument("--repo", default="")
     p.add_argument("--batch", default="")
     p.add_argument("--any", dest="any_filter", default="")
+    p.add_argument(
+        "--limit", type=int, default=10,
+        help="rows per repo group in --text mode, 0 for no limit; ignored in JSON mode, "
+             "which is never truncated",
+    )
     p.add_argument("--text", action="store_true")
     p.set_defaults(func=cmd_index)
 
@@ -1389,7 +1444,7 @@ def main(argv):
             f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "
             f"summary <batch-dir> | html <batch-dir> | "
-            f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text] | "
+            f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text] | "
             f"detail <batch-dir>"
         )
     func(args)

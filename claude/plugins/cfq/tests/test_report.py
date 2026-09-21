@@ -223,16 +223,20 @@ class TestReport(CfqTestCase):
         # once, regardless of how many report-bearing batches exist. cfq_report.py resolves its
         # own SCRIPT_DIR from its own path, so the stub has to be invoked directly by path --
         # this is the one case in this file that cannot go through bin/cfq, since the dispatcher
-        # would always exec the real, unstubbed scripts/ directory.
+        # would always exec the real, unstubbed scripts/ directory. `build_index_rows` now calls
+        # `resolve_html_path`/`settings_get` for every row (phase 06's `rendered`/`href` fields),
+        # which shells out to `bin/cfq settings get` -- so this double copies the whole `scripts/`
+        # tree plus `bin/`, preserving the real `bin/../scripts` layout (the same rule every other
+        # filename-shadowing test double in this suite already follows), rather than the three
+        # files that sufficed before that call existed.
         scan_calls = self._repos_dir / "scan-call-count"
-        stub_dir = self._repos_dir / "stub-scripts"
-        stub_dir.mkdir()
         scripts_dir = PLUGIN_ROOT / "scripts"
-        (stub_dir / "cfq_report.py").write_bytes((scripts_dir / "cfq_report.py").read_bytes())
-        (stub_dir / "cfq_brief.py").write_bytes((scripts_dir / "cfq_brief.py").read_bytes())
-        shutil.copytree(scripts_dir / "cfq_lib", stub_dir / "cfq_lib")
+        stub_root = self._repos_dir / "stub-cfq"
+        stub_scripts = stub_root / "scripts"
+        shutil.copytree(scripts_dir, stub_scripts)
+        shutil.copytree(PLUGIN_ROOT / "bin", stub_root / "bin")
         scan_calls.write_text("")
-        stub_scan = stub_dir / "cfq_scan.py"
+        stub_scan = stub_scripts / "cfq_scan.py"
         stub_scan.write_text(f"""#!/usr/bin/env python3
 import pathlib, subprocess, sys
 with open({str(scan_calls)!r}, "a") as fh:
@@ -243,7 +247,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
 
         # Direct invocation of the stubbed copy, matching the Bash original.
         proc = subprocess.run(
-            ["python3", str(stub_dir / "cfq_report.py"), "index"],
+            ["python3", str(stub_scripts / "cfq_report.py"), "index"],
             capture_output=True, text=True,
             env={**self._base_env(), "HOME": str(self.home), "CFQ_SCAN_ROOTS": str(self._repos_dir)},
         )
@@ -285,13 +289,16 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertEqual(len(idx_any), 1, f"--any filter did not narrow to 1: {idx_any}")
 
         # --text is additive, not a substitute: same fixture, JSON above is untouched, and
-        # RED/MIXED show up visibly marked. Deep render coverage (zero-cost dash, no-HTML-entity)
-        # lives in test_render.py, not duplicated here.
+        # RED/MIXED show up as glyphs, not words -- phase 06 replaces the bold-word status column
+        # with the shape-coded glyph. Deep render coverage (grouping, --limit, the blank-line
+        # separator regression) lives in TestIndexText below, not duplicated here.
         idx_text = self.run_cfq(
             "report", "index", "--text", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
         ).stdout
-        self.assertIn("**RED**", idx_text, "--text missing marked RED row")
-        self.assertIn("**MIXED**", idx_text, "--text missing marked MIXED row")
+        self.assertIn("❌", idx_text, "--text missing the RED glyph")
+        self.assertIn("⚠️", idx_text, "--text missing the MIXED glyph")
+        self.assertNotIn("RED", idx_text, "--text still carries the word RED")
+        self.assertNotIn("MIXED", idx_text, "--text still carries the word MIXED")
 
         # detail on a batch with no report.json -> clear not-found result, no crash
         noreport_batch = repo_p / ".claude" / "cfq" / "impl" / "nope"
@@ -701,6 +708,171 @@ M
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
         expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
+
+
+# ---- phase 06: `report index --text` -- one section per repo, newest first, limited, the status
+# column shape-coded (glyph, not word), and the regression test for the pasted defect: a table
+# row must never be directly followed by a non-blank line.
+
+class TestIndexText(CfqTestCase):
+    def setUp(self):
+        super().setUp()
+        # fmt_short goes through datetime.astimezone(), which reads the machine's local timezone
+        # -- pinned to UTC so the expected short-date strings below are portable.
+        self._orig_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+    def tearDown(self):
+        if self._orig_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._orig_tz
+        time.tzset()
+        super().tearDown()
+
+    def _batch(self, repo, name, phases, started="2026-05-01T08:00:00+00:00"):
+        d = self._repos_dir / repo / ".claude" / "cfq" / "impl" / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "report.json").write_text(json.dumps({
+            "repo": str(self._repos_dir / repo), "batch": name, "started": started, "phases": phases,
+        }))
+        return d
+
+    def _phase(self, slug, status, finished=None, telemetry_until=None):
+        p = {
+            "phase": slug, "status": status, "summary": "ok",
+            "deviations": [], "errors": [], "verification": "PASS", "commit": "",
+        }
+        if finished is not None:
+            p["finished"] = finished
+        if telemetry_until is not None:
+            p["telemetry"] = {"until": telemetry_until, "totals": {"output": 0, "turns": 0}}
+        return p
+
+    def _run_text(self, *extra_args):
+        return self.run_cfq(
+            "report", "index", "--text", *extra_args, env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ).stdout
+
+    def test_two_repos_grouped_newest_group_first_and_rows_date_descending(self):
+        self._batch("repo-a", "2026-05-01-one", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")])
+        self._batch("repo-a", "2026-05-02-two", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")])
+        self._batch("repo-a", "2026-05-03-three", [self._phase("01-a", "green", "2026-05-03T09:00:00+00:00")])
+        self._batch("repo-b", "2026-05-10-later", [self._phase("01-a", "green", "2026-05-10T09:00:00+00:00")])
+
+        text = self._run_text()
+        self.assertEqual(text.count("### "), 2, f"expected two group headers:\n{text}")
+        # repo-b's only batch is the newest overall -> its group comes first.
+        self.assertLess(
+            text.index("### repo-b"), text.index("### repo-a"), f"groups not newest-first:\n{text}",
+        )
+        # within repo-a, rows are newest-first: three, two, one.
+        pos_three = text.index("2026-05-03-three")
+        pos_two = text.index("2026-05-02-two")
+        pos_one = text.index("2026-05-01-one")
+        self.assertTrue(pos_three < pos_two < pos_one, f"rows not date-descending within group:\n{text}")
+
+    def test_blank_line_after_every_group_table(self):
+        # The regression test for the pasted defect: a Markdown renderer reads a table row
+        # directly followed by a non-blank line as a further row of that same table.
+        self._batch("repo-a", "2026-05-01-one", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")])
+        self._batch("repo-b", "2026-05-02-two", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")])
+        text = self._run_text()
+        lines = text.split("\n")
+        # Only the rows following the `|---|` separator are data rows -- the header line above it
+        # also starts with `| `, and its very next line (the separator itself) is on purpose not
+        # blank, so it must not be mistaken for the row this test actually checks.
+        in_table = False
+        checked = 0
+        for i, line in enumerate(lines):
+            if line.startswith("|---"):
+                in_table = True
+                continue
+            if in_table:
+                if line.startswith("| "):
+                    continue
+                self.assertEqual(
+                    line, "", f"no blank line after the last table row of a group:\n{text}",
+                )
+                checked += 1
+                in_table = False
+        self.assertEqual(checked, 2, f"expected to check both groups' tables:\n{text}")
+
+    def test_limit_per_repo_group(self):
+        for i in range(1, 4):
+            self._batch(
+                "repo-a", f"2026-05-0{i}-b{i}", [self._phase("01-a", "green", f"2026-05-0{i}T09:00:00+00:00")],
+            )
+
+        default_text = self._run_text()
+        self.assertEqual(
+            default_text.count("| 2026-05-0"), 3, f"default limit truncated a 3-batch repo:\n{default_text}",
+        )
+        self.assertNotIn("more", default_text, f"default limit printed a spurious 'more' hint:\n{default_text}")
+
+        limited = self._run_text("--limit", "2")
+        self.assertEqual(limited.count("| 2026-05-0"), 2, f"--limit 2 did not truncate to 2 rows:\n{limited}")
+        self.assertIn(
+            "… 1 more · --limit 0 shows all", limited, f"--limit 2 missing the 'more' hint:\n{limited}",
+        )
+
+        unlimited = self._run_text("--limit", "0")
+        self.assertEqual(unlimited.count("| 2026-05-0"), 3, f"--limit 0 truncated:\n{unlimited}")
+        self.assertNotIn("more", unlimited, f"--limit 0 printed a spurious 'more' hint:\n{unlimited}")
+
+    def test_glyphs_replace_status_words(self):
+        self._batch("repo-a", "2026-05-01-green", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")])
+        self._batch("repo-a", "2026-05-02-red", [self._phase("01-a", "red", "2026-05-02T09:00:00+00:00")])
+        self._batch("repo-a", "2026-05-03-mixed", [
+            self._phase("01-a", "red", "2026-05-03T09:00:00+00:00"),
+            self._phase("01-a", "green", "2026-05-03T10:00:00+00:00"),
+        ])
+        text = self._run_text()
+        self.assertIn("✅", text, f"missing the GREEN glyph:\n{text}")
+        self.assertIn("❌", text, f"missing the RED glyph:\n{text}")
+        self.assertIn("⚠️", text, f"missing the MIXED glyph:\n{text}")
+        self.assertNotIn("GREEN", text, f"status word GREEN still present:\n{text}")
+        self.assertNotIn("RED", text, f"status word RED still present:\n{text}")
+        self.assertNotIn("MIXED", text, f"status word MIXED still present:\n{text}")
+
+    def test_rendered_marker_column_and_no_file_url(self):
+        self._batch(
+            "repo-a", "2026-05-01-rendered", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-unrendered", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")],
+        )
+        html_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports"
+        html_dir.mkdir(parents=True)
+        (html_dir / "2026-05-01-rendered.html").write_text("<html></html>")
+
+        text = self._run_text()
+        self.assertNotIn("file://", text, f"a file:// line leaked into the listing:\n{text}")
+        rows = [l for l in text.split("\n") if l.startswith("| 2026-05-0")]
+        rendered_row = next(l for l in rows if "2026-05-01-rendered" in l)
+        unrendered_row = next(l for l in rows if "2026-05-02-unrendered" in l)
+        rendered_cells = [c.strip() for c in rendered_row.strip("|").split("|")]
+        unrendered_cells = [c.strip() for c in unrendered_row.strip("|").split("|")]
+        self.assertEqual(rendered_cells[-1], "✓", f"rendered row missing its marker: {rendered_row!r}")
+        self.assertEqual(unrendered_cells[-1], "", f"unrendered row should have an empty marker: {unrendered_row!r}")
+
+    def test_date_is_the_phase_finish_not_the_batch_start(self):
+        self._batch(
+            "repo-a", "2026-05-01-untilphase",
+            [self._phase("01-a", "green", telemetry_until="2026-05-01T15:30:00+00:00")],
+            started="2026-04-01T08:00:00+00:00",
+        )
+        text = self._run_text()
+        self.assertIn("01.05 15:30", text, f"date cell is not the phase's telemetry.until:\n{text}")
+        self.assertNotIn("01.04", text, f"date cell fell back to the batch's started:\n{text}")
+
+    def test_no_reports_sentence_unchanged(self):
+        text = self._run_text().rstrip("\n")
+        self.assertEqual(
+            text,
+            "No batch has a report yet — reports have existed only since v0.2, so older batches never got one.",
+        )
 
 
 # ---- phase 01: derivation helpers cfq_report.py's html/detail/index rendering all funnel
