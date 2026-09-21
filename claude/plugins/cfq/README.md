@@ -322,8 +322,12 @@ detailed HTML report. The HTML is regenerated fresh on every request and can be 
 ## Telemetry
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
-by kind, broken down by model, reasoning effort, skill, plugin, tool, and the subagent share —
-plus the skills the plan recommended for that phase.
+by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the subagent share
+— plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or `classic`,
+empty for a planning record) derived from what actually ran, not from the `orchestratorMode`
+setting. `subagent` counts the sub-agents' own turns — read from each phase worker's own
+`subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own; the two are not to
+be added blindly.
 
 What's deliberately **not** recorded: no prompt text, no responses, no tool arguments, no file
 contents. Numbers, timestamps and names only.
