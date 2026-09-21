@@ -115,12 +115,14 @@ skill gets invoked — natural language, or as part of Step A's flow.)
 `QUEUES`' `Reports` column and its `ACTIONS` entry both point at `/rfq` (`report-for-queue`) for
 reading what a finished batch produced — the dashboard itself never renders a report.
 
-The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request.
+The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request, in
+one `bin/cfq note sweep` call rather than per card.
 
 ## Step C — Management (on request, always confirm before writing)
 
 Six actions, exclusively in the current repository: flag/unflag priority, delete a batch, archive
-a batch, clean the registry, set/remove a dependency, work off `todo/` entries. Each follows the
+a batch, clean the registry, set/remove a dependency, work off `todo/` entries in one
+`bin/cfq note sweep` call rather than per card. Each follows the
 same shared flow — a deterministic check (already available from `.repos`/`.thisRepo`) → present →
 confirm → mutate → report under an `ACTION` header. Full per-action detail in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`.

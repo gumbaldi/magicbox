@@ -48,7 +48,11 @@ the phase summary — both modes, no `AskUserQuestion`, no second attempt.
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:
-<shell-command>` line (exit `0` means done). Plus `## Origin`, same as above.
+<shell-command>` line (exit `0` means done). Plus `## Origin`, same as above. `bin/cfq note sweep`
+is what executes those `check:` lines and closes the green cards — never a hand-run shell command.
+Write a `check:` that asserts the *outcome*, not a count of files that happen to hold it today: the
+card asserting that four `SKILL.md` files contain a clause has been unfalsifiably red since that
+clause moved into `<plugin-root>/references/output-format.md`, even though the work is long done.
 
 For the merge case, don't hand-compose the card: `"<plugin-root>/bin/cfq" note merge-todo
 "<repo-root>" "<branch>"` writes it, title, ready-to-run merge command and `check:` line together,
