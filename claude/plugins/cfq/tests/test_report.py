@@ -1082,5 +1082,161 @@ class TestOverview(unittest.TestCase):
             self.assertIn("<h3>Non-Goals</h3>", out)
 
 
+# ---- phase 05: `triggers`/`filesTouched`/`parkedPlanEntries` sections in phase_html, plus the
+# `security` block -- recorded data report.json already carries but the HTML never rendered.
+
+class TestPhaseExtras(unittest.TestCase):
+    def _phase(self, **overrides):
+        base = {"phase": "01-a", "status": "green"}
+        base.update(overrides)
+        return base
+
+    def test_all_five_arrays_populated_render_in_order(self):
+        phase = self._phase(
+            triggers=["omitted"],
+            deviations=["did X instead of Y"],
+            errors=["boom"],
+            filesTouched=["src/widget.py"],
+            parkedPlanEntries=["plan/2026-09-21-followup.md"],
+        )
+        html = cfq_report.phase_html(phase, {})
+        headings = re.findall(r"<h4>([^<]*)</h4>", html)
+        self.assertEqual(
+            headings,
+            ["Triggers", "Deviations", "Errors", "Files touched", "Parked plan entries"],
+        )
+
+    def test_triggers_empty_absent_and_null_render_no_heading(self):
+        for label, kwargs in (("empty", {"triggers": []}), ("absent", {}), ("null", {"triggers": None})):
+            with self.subTest(label=label):
+                phase = self._phase(
+                    deviations=["d"], errors=["e"], filesTouched=["f"], parkedPlanEntries=["p"], **kwargs,
+                )
+                html = cfq_report.phase_html(phase, {})
+                self.assertNotIn("<h4>Triggers</h4>", html)
+                self.assertIn("<h4>Deviations</h4>", html)
+                self.assertIn("<h4>Errors</h4>", html)
+                self.assertIn("<h4>Files touched</h4>", html)
+                self.assertIn("<h4>Parked plan entries</h4>", html)
+
+    def test_files_touched_empty_absent_and_null_render_no_heading(self):
+        for label, kwargs in (("empty", {"filesTouched": []}), ("absent", {}), ("null", {"filesTouched": None})):
+            with self.subTest(label=label):
+                phase = self._phase(
+                    triggers=["t"], deviations=["d"], errors=["e"], parkedPlanEntries=["p"], **kwargs,
+                )
+                html = cfq_report.phase_html(phase, {})
+                self.assertNotIn("<h4>Files touched</h4>", html)
+                self.assertIn("<h4>Triggers</h4>", html)
+                self.assertIn("<h4>Deviations</h4>", html)
+                self.assertIn("<h4>Errors</h4>", html)
+                self.assertIn("<h4>Parked plan entries</h4>", html)
+
+    def test_parked_plan_entries_empty_absent_and_null_render_no_heading(self):
+        for label, kwargs in (
+            ("empty", {"parkedPlanEntries": []}), ("absent", {}), ("null", {"parkedPlanEntries": None}),
+        ):
+            with self.subTest(label=label):
+                phase = self._phase(
+                    triggers=["t"], deviations=["d"], errors=["e"], filesTouched=["f"], **kwargs,
+                )
+                html = cfq_report.phase_html(phase, {})
+                self.assertNotIn("<h4>Parked plan entries</h4>", html)
+                self.assertIn("<h4>Triggers</h4>", html)
+                self.assertIn("<h4>Deviations</h4>", html)
+                self.assertIn("<h4>Errors</h4>", html)
+                self.assertIn("<h4>Files touched</h4>", html)
+
+    def test_files_touched_entries_wrapped_in_code_triggers_are_not(self):
+        phase = self._phase(triggers=["dependency"], filesTouched=["src/widget.py"])
+        html = cfq_report.phase_html(phase, {})
+        self.assertIn("<li><code>src/widget.py</code></li>", html)
+        self.assertIn("<li>dependency</li>", html)
+
+    def test_entry_with_markup_is_escaped(self):
+        phase = self._phase(triggers=["<b>x</b>"], filesTouched=["<b>x</b>"])
+        html = cfq_report.phase_html(phase, {})
+        self.assertIn("&lt;b&gt;", html)
+        self.assertNotIn("<b>x</b>", html)
+
+
+class TestSecuritySection(unittest.TestCase):
+    def setUp(self):
+        # fmt_datetime goes through datetime.astimezone(), which reads the machine's local
+        # timezone -- pinned to UTC so the snapshot timestamp below is portable.
+        self._orig_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+    def tearDown(self):
+        if self._orig_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._orig_tz
+        time.tzset()
+
+    def test_available_false_with_hint_renders_one_muted_line_no_counts_grid(self):
+        data = {"security": [{
+            "available": False, "counts": {}, "findings": [],
+            "hint": "Dependabot and code scanning return nothing for this repo",
+            "at": "2026-09-21T15:02:00+02:00",
+        }]}
+        html = cfq_report.security_html(data)
+        self.assertIn('<section class="security">', html)
+        self.assertEqual(html.count("<p"), 1)
+        self.assertIn("Dependabot and code scanning return nothing for this repo", html)
+        self.assertNotIn('<dl class="meta">', html)
+
+    def test_available_true_with_counts_and_two_findings_renders_grid_and_list(self):
+        data = {"security": [{
+            "available": True,
+            "counts": {"critical": 1, "high": 2, "low": 0},
+            "findings": [
+                {"severity": "high", "title": "Outdated dependency"},
+                "A bare-string finding",
+            ],
+        }]}
+        html = cfq_report.security_html(data)
+        self.assertIn('<dl class="meta">', html)
+        self.assertEqual(html.count("<li"), 2)
+        self.assertIn("A bare-string finding", html)
+
+    def test_available_true_empty_counts_and_findings_is_nothing_to_show(self):
+        data = {"security": [{"available": True, "counts": {}, "findings": []}]}
+        html = cfq_report.security_html(data)
+        self.assertNotIn("<ul>", html)
+        self.assertNotIn('<dl class="meta">', html)
+
+    def test_missing_or_empty_security_key_returns_empty_string_and_no_section(self):
+        for data in ({}, {"security": []}):
+            self.assertEqual(cfq_report.security_html(data), "")
+        with tempfile.TemporaryDirectory() as td:
+            doc = cfq_report.render_report_html({"batch": "x", "phases": []}, {}, td)
+        self.assertNotIn('<section class="security">', doc)
+
+    def test_last_entry_used_when_multiple_snapshots(self):
+        data = {"security": [
+            {"available": False, "hint": "first"},
+            {"available": True, "counts": {"critical": 3}, "findings": []},
+        ]}
+        html = cfq_report.security_html(data)
+        self.assertIn('<dl class="meta">', html)
+        self.assertNotIn("first", html)
+
+    def test_section_placed_between_phase_table_and_main(self):
+        data = {
+            "batch": "x",
+            "security": [{"available": True, "counts": {"critical": 1}, "findings": []}],
+            "phases": [{"phase": "01-a", "status": "green"}],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            doc = cfq_report.render_report_html(data, {}, td)
+        table_idx = doc.index('<section class="phase-table">')
+        security_idx = doc.index('<section class="security">')
+        main_idx = doc.index("<main>")
+        self.assertLess(table_idx, security_idx, "security section must come after the phase table")
+        self.assertLess(security_idx, main_idx, "security section must come before <main>")
+
+
 if __name__ == "__main__":
     unittest.main()

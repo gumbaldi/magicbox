@@ -83,6 +83,9 @@ section.phase.green{border-left-color:var(--ok)}
 section.phase.red{border-left-color:var(--bad)}
 section.phase .num{color:var(--fg-faint);margin-right:.25rem}
 section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem}
+.phase ul{margin:.2rem 0 .8rem;padding-left:1.1rem}
+.phase li{margin:.15rem 0}
+.phase li code{font-size:.8rem;background:none;padding:0;color:var(--fg-muted)}
 .goal{color:var(--fg-muted);font-style:italic;border-left:2px solid var(--border);
   padding-left:.75rem}
 .tele{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem 1.5rem;
@@ -97,6 +100,9 @@ section.overview{background:var(--surface);border:1px solid var(--border);border
 .overview li{margin:.2rem 0}
 .overview p{margin:.3rem 0 .9rem}
 .overview li strong{color:var(--fg)}
+section.security{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem;margin:1.25rem 0}
+.muted{color:var(--fg-muted)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .tscroll{overflow-x:auto}
 .phase-table table{border-collapse:collapse;width:100%;font-size:.85rem}
@@ -831,6 +837,80 @@ def section_list(items, title):
     return f"<h4>{title}</h4><ul>{lis}</ul>"
 
 
+def section_list_code(items, title):
+    """section_list for entries that are paths or identifiers -- same empty-list contract, each
+    item wrapped in <code>."""
+    items = render.jq_alt(items, [])
+    if not isinstance(items, list) or len(items) == 0:
+        return ""
+    lis = "".join(f"<li><code>{esc(x)}</code></li>" for x in items)
+    return f"<h4>{title}</h4><ul>{lis}</ul>"
+
+
+# ---- phase 05: the Security section -- the planning-time snapshot `report security` writes,
+# rendered once at batch level between the phase table and the phase list.
+
+def _finding_html(finding):
+    """A finding renders from the keys it actually has: `severity` and `title` first (joined with
+    a space), everything else folded into a muted trailing clause. A bare string renders as
+    itself -- both shapes `/pfq`'s Security Check snapshot can carry."""
+    if isinstance(finding, str):
+        return f"<li>{esc(finding)}</li>"
+    if not isinstance(finding, dict):
+        return ""
+    head = " ".join(esc(finding[k]) for k in ("severity", "title") if finding.get(k) not in (None, ""))
+    rest_keys = sorted(k for k in finding.keys() if k not in ("severity", "title"))
+    rest = ", ".join(f"{esc(k)}: {esc(finding[k])}" for k in rest_keys)
+    if head and rest:
+        return f'<li>{head} <span class="muted">({rest})</span></li>'
+    if head:
+        return f"<li>{head}</li>"
+    if rest:
+        return f'<li><span class="muted">{rest}</span></li>'
+    return "<li></li>"
+
+
+_SEVERITY_ORDER = ["critical", "high", "moderate", "low"]
+
+
+def security_html(data):
+    """The **last** snapshot in `data["security"]` -- a batch can accumulate more than one, from
+    planning time onward. Missing key or empty list -> "", no section (same empty-section rule as
+    `section_list`). `available: false`, or `available: true` with nothing in `counts` or
+    `findings`, both render as one muted line; `available: true` with something to show renders
+    `counts` as the header's `<dl class="meta">` grid, then `findings` as a list (or one muted
+    "No findings." line when the list itself is empty but counts are not)."""
+    entries = render.jq_alt(data.get("security") if isinstance(data, dict) else None, [])
+    if not isinstance(entries, list) or not entries:
+        return ""
+    entry = entries[-1]
+    if not isinstance(entry, dict):
+        return ""
+    counts = entry.get("counts") if isinstance(entry.get("counts"), dict) else {}
+    findings = entry.get("findings") if isinstance(entry.get("findings"), list) else []
+    available = bool(entry.get("available"))
+
+    if not available or (not counts and not findings):
+        hint = render.jq_alt(entry.get("hint"), "")
+        at = fmt_datetime(entry.get("at"))
+        when = f" ({at})" if at else ""
+        return (
+            '<section class="security"><h2>Security</h2>'
+            f'<p class="muted">Not available{when} — {esc(hint)}</p></section>'
+        )
+
+    keys = [k for k in _SEVERITY_ORDER if k in counts] + sorted(k for k in counts if k not in _SEVERITY_ORDER)
+    counts_html = "".join(
+        f"<div><dt>{esc(k.capitalize())}</dt><dd>{esc(fmt_int(counts[k]))}</dd></div>" for k in keys
+    )
+    grid = f'<dl class="meta">{counts_html}</dl>' if counts_html else ""
+    if findings:
+        body = f'<ul>{"".join(_finding_html(f) for f in findings)}</ul>'
+    else:
+        body = '<p class="muted">No findings.</p>'
+    return f'<section class="security"><h2>Security</h2>{grid}{body}</section>'
+
+
 def skills_str(t):
     by_skill = t.get("by_skill") if isinstance(t, dict) else None
     if not isinstance(by_skill, dict):
@@ -907,8 +987,11 @@ def phase_html(phase, goals):
     if summary:
         parts.append(f'<p>{esc(summary)}</p>')
     parts.append(telemetry_html(phase))
+    parts.append(section_list(phase.get("triggers"), "Triggers"))
     parts.append(section_list(phase.get("deviations"), "Deviations"))
     parts.append(section_list(phase.get("errors"), "Errors"))
+    parts.append(section_list_code(phase.get("filesTouched"), "Files touched"))
+    parts.append(section_list_code(phase.get("parkedPlanEntries"), "Parked plan entries"))
     verification = render.jq_alt(phase.get("verification"), "")
     if verification != "":
         parts.append(f'<p class="verification"><code>{esc(phase.get("verification"))}</code></p>')
@@ -984,6 +1067,7 @@ def render_report_html(data, goals, dir_):
         + header
         + overview_html(dir_)
         + phase_table_html(phases)
+        + security_html(data)
         + '<main>' + body + '</main>'
         + '</body></html>'
     )
