@@ -149,9 +149,15 @@ class FinishTest(CfqTestCase):
 
         proc = self.run_cfq("finish", str(repo), str(batch), "v0.1-htmlon", home=home, check=True)
         self.json_out(proc)
+        # Default reportDir (empty) now renders into the repo-local reports/ dir, not next to
+        # report.json inside the moved batch directory -- see phase 03 of batch 032.
         self.assertTrue(
-            (repo / ".claude/cfq/impl/done/2026-01-01-htmlon/report.html").is_file(),
-            "htmlReport=true should auto-render report.html",
+            (repo / ".claude/cfq/reports/2026-01-01-htmlon.html").is_file(),
+            "htmlReport=true should auto-render into .claude/cfq/reports/",
+        )
+        self.assertFalse(
+            (repo / ".claude/cfq/impl/done/2026-01-01-htmlon/report.html").exists(),
+            "report.html must no longer land inside the batch directory by default",
         )
 
     def test_html_report_default_off(self):

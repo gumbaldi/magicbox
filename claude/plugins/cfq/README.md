@@ -133,6 +133,9 @@ batch.
   todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
     <YYYY-MM-DD>-<slug>.md
     done/
+  reports/               # rendered HTML reports, default reportDir — rfq renders on request
+    <batch>.html
+    index.html           # regenerated on every render, this repo's batches only
   telemetry.jsonl        # one record per planning session and per phase
   .lock                  # held by the running ifq session
   .maintenance           # marker for the periodic maintenance run
@@ -316,8 +319,11 @@ the batch into `done/` and is covered by the same `.git/info/exclude` entry as t
 queue.
 
 Run `/rfq` for a compact terminal table across all repos, or drill into a single batch for the
-detailed HTML report. The HTML is regenerated fresh on every request and can be deleted freely —
-`report.json` is the source of truth.
+detailed HTML report. By default it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
+an `index.html` regenerated alongside it listing that repo's own batches; set `reportDir` for the
+collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). The
+HTML is regenerated fresh on every request and can be deleted freely — `report.json` is the source
+of truth, and a batch whose HTML hasn't been rendered yet is still listed, just without a link.
 
 ## Telemetry
 

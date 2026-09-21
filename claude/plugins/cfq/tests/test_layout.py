@@ -42,6 +42,7 @@ class LayoutTest(CfqTestCase):
             ".claude/cfq/settings.json\n", text, msg="settings.json must not be excluded"
         )
         self.assertIn(".claude/cfq/plan/\n", text, msg="plan/ missing from exclude block")
+        self.assertIn(".claude/cfq/reports/\n", text, msg="reports/ missing from exclude block")
 
         # 3. Idempotent: ensure again -> still exactly one block, byte-identical exclude file
         before = exclude_file.read_text()

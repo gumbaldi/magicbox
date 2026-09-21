@@ -79,8 +79,9 @@ and go straight to **Detail**'s detail view.
 ```
 
 Same filters as **Collect** — another cheap single-scan call, this time rendered. Print its output
-exactly as returned (the table plus one `file://` line per row, already pointing into the collected
-tree when `reportDir` is configured) — no rebuilding the table from **Collect**'s JSON by hand.
+exactly as returned: the table plus one `file://` line per row whose HTML has already been
+rendered. A row with no rendered HTML yet is listed without one — that's the cue to render it in
+**Detail** below, not a broken link. No rebuilding the table from **Collect**'s JSON by hand.
 
 ## 3. Detail
 

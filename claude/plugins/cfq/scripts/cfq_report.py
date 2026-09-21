@@ -106,14 +106,22 @@ def settings_get(repo_root, key):
 
 def resolve_html_path(dir_):
     """Path report.html lives (or would live) at for a batch directory, honoring the reportDir
-    setting when configured -- same resolution `html` and `index --text`'s file:// lines both
-    need. Read-only: a caller that's about to write creates the directory itself."""
+    setting when configured -- same resolution `html`, `index --text`'s file:// lines and
+    `regenerate_index()` all need. Read-only: a caller that's about to write creates the directory
+    itself. Three branches: an explicit absolute `reportDir` keeps the shared cross-repo layout
+    unchanged; an empty/`"null"` `reportDir` with a derivable repo root now lands under that
+    repo's own `.claude/cfq/reports/`, flat, one file per batch; a batch directory that isn't
+    nested under a `.claude/cfq/impl(/done)/` at all (repo root not derivable -- true only for
+    synthetic fixtures, never a real batch) falls back to the historical per-batch-directory
+    path so that case degrades exactly as it always has."""
     dir_ = dir_.rstrip("/")
     repo_root = repo_root_of(dir_)
     report_dir = settings_get(repo_root, "reportDir")
-    if report_dir in ("", "null"):
-        return f"{dir_}/report.html"
-    return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
+    if report_dir not in ("", "null"):
+        return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
+    if repo_root:
+        return f"{repo_root}/.claude/cfq/reports/{os.path.basename(dir_)}.html"
+    return f"{dir_}/report.html"
 
 
 def ensure_report(dir_):
@@ -432,6 +440,22 @@ def telemetry_html(phase):
         ("Effort", ", ".join(sorted(by_effort.keys()))),
         ("Skills", skills_str(t)),
     ]
+    # Additive, same rule as `report summary`'s fields 12-15: a record with no `mode` (every one
+    # written before phase 02) must render exactly as it did before -- no empty "Mode" column, no
+    # "None". `mode` can be "" for a planning-only record, which stays omitted too.
+    mode = render.jq_alt(t.get("mode"), "")
+    if mode:
+        pairs.append(("Mode", mode))
+    subagent = t.get("subagent") if isinstance(t.get("subagent"), dict) else {}
+    sub_turns = render.jq_alt(subagent.get("turns"), 0)
+    sub_output = render.jq_alt(subagent.get("output"), 0)
+    if sub_turns or sub_output:
+        orch_turns = render.jq_alt(totals.get("turns"), 0) - sub_turns
+        orch_output = render.jq_alt(totals.get("output"), 0) - sub_output
+        pairs.append((
+            "Split",
+            f"{orch_turns}/{sub_turns} Turns, {orch_output}/{sub_output} out (orchestrator/worker)",
+        ))
     body = " · ".join(kv(label, value) for label, value in pairs)
     return f'<p class="telemetry">{body}</p>'
 
@@ -512,11 +536,13 @@ def cmd_html(args):
     repo_root = repo_root_of(dir_)
     report_dir = settings_get(repo_root, "reportDir")
     out = resolve_html_path(dir_)
-    if report_dir not in ("", "null"):
-        try:
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-        except OSError:
-            errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
+    # Unconditional: resolve_html_path() alone decides *where*, this only ensures it exists --
+    # the repo-local default (change 1) points at a directory that may not exist yet on the
+    # first render, same as the collected-tree case always did.
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+    except OSError:
+        errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
 
     goals = extract_goals(dir_, data)
     html_doc = render_report_html(data, goals)
@@ -525,9 +551,13 @@ def cmd_html(args):
     os.replace(tmp, out)
     print(out)
 
-    # Collected-tree mode also regenerates the directory-of-everything index.
+    # Collected-tree mode regenerates the cross-repo index; the repo-local default regenerates
+    # its own repo-scoped index into the same reports/ directory, once a repo root exists to
+    # scope it to (a batch with no derivable repo root has no reports/ dir to index into).
     if report_dir not in ("", "null"):
         regenerate_index(report_dir)
+    elif repo_root:
+        regenerate_index(f"{repo_root}/.claude/cfq/reports", repo_root_filter=repo_root)
 
 
 # ---- verbs: index / detail -------------------------------------------------------------------
@@ -623,8 +653,13 @@ def cmd_index(args):
     print("\n".join(lines))
     for r in rows:
         m = next((mm for mm in meta if mm["repo"] == r["repo"] and mm["name"] == r["batch"]), None)
-        if m is not None:
-            print(f"file://{resolve_html_path(os.path.dirname(m['path']))}")
+        if m is None:
+            continue
+        path = resolve_html_path(os.path.dirname(m["path"]))
+        # Missing file -> the row above stays listed, just without this link -- printing a
+        # file:// line unconditionally is exactly the defect this check removes.
+        if os.path.isfile(path):
+            print(f"file://{path}")
 
 
 def cmd_detail(args):
@@ -694,7 +729,7 @@ def cmd_detail(args):
 def row_html(row):
     status = row.get("status") or ""
     if row.get("rendered"):
-        batch_html = f'<a href="{esc(row["repoBase"])}/{esc(row["batch"])}.html">{esc(row["batch"])}</a>'
+        batch_html = f'<a href="{esc(row["href"])}">{esc(row["batch"])}</a>'
     else:
         batch_html = esc(row["batch"])
     out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
@@ -713,13 +748,27 @@ def repo_section_html(items):
     return f'<section class="repo"><h2>{esc(items[0]["repoBase"])}</h2><ul>{lis}</ul></section>'
 
 
-def regenerate_index(report_dir):
-    rows, _ = build_index_rows()
+def regenerate_index(report_dir, repo_root_filter=None):
+    """Writes `<report_dir>/index.html`. `repo_root_filter` scopes the listing to one repo's own
+    batches -- used by the repo-local default (change 1), where `report_dir` is that repo's own
+    `.claude/cfq/reports/` and cross-repo entries have no business being listed there; omitted
+    (`None`) for the shared-`reportDir` collected-tree mode, which lists every repo on purpose.
+    Existence check and `href` both route through `resolve_html_path()` -- the one place that
+    decides the on-disk layout -- rather than hard-coding the shared-`reportDir` shape here too,
+    which would disagree with it exactly when the layout differs (the repo-local case)."""
+    rows, meta = build_index_rows()
+    if repo_root_filter:
+        norm = repo_root_filter.rstrip("/")
+        rows = [r for r in rows if r["repo"].rstrip("/") == norm]
+
     groups = {}
     for row in rows:
+        m = next((mm for mm in meta if mm["repo"] == row["repo"] and mm["name"] == row["batch"]), None)
+        resolved = resolve_html_path(os.path.dirname(m["path"])) if m is not None else None
+        rendered = resolved is not None and os.path.isfile(resolved)
+        href = os.path.relpath(resolved, report_dir) if rendered else ""
         repo_base = os.path.basename(row["repo"])
-        rendered = os.path.isfile(os.path.join(report_dir, repo_base, f'{row["batch"]}.html'))
-        enriched = {**row, "repoBase": repo_base, "rendered": rendered}
+        enriched = {**row, "repoBase": repo_base, "rendered": rendered, "href": href}
         groups.setdefault(repo_base, []).append(enriched)
 
     sections = [repo_section_html(groups[key]) for key in sorted(groups.keys())]
