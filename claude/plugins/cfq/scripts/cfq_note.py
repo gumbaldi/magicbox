@@ -11,7 +11,7 @@ supplies only the title (raw, pre-normalisation) and the body text. Never append
 an existing entry; the caller picks a different slug instead.
 
 `plan --framework` is for findings about cfq itself rather than the repo under work: it always
-writes into the global framework inbox (`$HOME/.claude/code-for-queue/framework-inbox/`) unless
+writes into the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) unless
 the target repo is `frameworkRepo` itself, in which case it writes the ordinary `plan/` entry --
 no session ever writes into a second repo. `import <repo-root>` is the inverse, run inside the
 framework repo: it moves every inbox entry into that repo's own `plan/`, and is a no-op unless
@@ -63,7 +63,7 @@ def normalise_slug(raw):
 def _inbox_dir():
     # Not a repo-local path -- outside every repo, next to repos.json/settings.json/state.json --
     # so it does not belong in cfq_lib/paths.py (repo-local path helpers only).
-    return home_dir() / ".claude" / "code-for-queue" / "framework-inbox"
+    return home_dir() / ".claude" / "cfq" / "framework-inbox"
 
 
 def _resolve_framework_repo():

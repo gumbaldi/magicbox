@@ -42,7 +42,7 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
 
-Scripts write to `$HOME/.claude/code-for-queue/`. Always run them against a throwaway HOME so the
+Scripts write to `$HOME/.claude/cfq/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
 
 ```bash
@@ -135,8 +135,9 @@ the `mv` into `impl/done/`. Anything that changes the layout must change `cfq_sc
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
-**Three state files, all outside any repo**, in `$HOME/.claude/code-for-queue/` (the global store's
-own path — unrelated to and not renamed by the repo-local `.claude/cfq/` layout above): `repos.json`
+**Three state files, all outside any repo**, in `$HOME/.claude/cfq/` (the global store's own
+path — same directory name as the repo-local `.claude/cfq/` layout above, rooted at `$HOME` rather
+than inside any repo, and otherwise unrelated to it): `repos.json`
 (registry of repos that ever had a queue, written by `cfq_registry.py add` from both worker skills),
 `settings.json` (the global settings tier, `cfq_settings.py`), and `state.json` (schema-less runtime
 state such as `setupDone`, `cfq_settings.py state get/set`). `cfq_scan.py` unions the registry with a

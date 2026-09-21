@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_registry.py add <repo-root> | prune | list
-"""Manages ~/.claude/code-for-queue/repos.json -- the registry of known repos.
+"""Manages ~/.claude/cfq/repos.json -- the registry of known repos.
 
 Ported from cfq-registry.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 text output, exit codes) is the invariant this file preserves, including behavior nobody would
@@ -23,7 +23,7 @@ PROG = "cfq_registry.py"
 
 
 def registry_dir():
-    return home_dir() / ".claude" / "code-for-queue"
+    return home_dir() / ".claude" / "cfq"
 
 
 def registry_file():

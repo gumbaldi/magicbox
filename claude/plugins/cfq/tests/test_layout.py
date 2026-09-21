@@ -122,7 +122,7 @@ class LayoutTest(CfqTestCase):
         # or SKILL.md files — permitted only in the retired shell test fixtures (pre-Python-port
         # names, kept in ALLOWED_LAYOUT_FILES above though the files themselves are long gone) and
         # README.md's historical migration note, which explicitly documents the retired layout
-        # rather than using it. The global `$HOME/.claude/code-for-queue/` store is a different,
+        # rather than using it. The global `$HOME/.claude/cfq/` store is a different,
         # still-current path — any line naming HOME/home/~ is that, not this.
         proc = subprocess.run(
             [

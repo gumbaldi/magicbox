@@ -333,7 +333,7 @@ class ParkTest(CfqTestCase):
         )
         exclude = (self.parkrepo / ".git/info/exclude").read_text()
         self.assertIn(".claude/cfq/impl/\n", exclude, "git exclude entry missing")
-        repos_json = (self.park_home / ".claude/code-for-queue/repos.json").read_text()
+        repos_json = (self.park_home / ".claude/cfq/repos.json").read_text()
         self.assertIn(str(self.parkrepo), repos_json, "repo not registered")
 
         # no dependsOn entries -> no file; normal priority -> no .priority file either

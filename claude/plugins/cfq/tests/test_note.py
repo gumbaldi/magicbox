@@ -33,7 +33,7 @@ class NoteTest(CfqTestCase):
         self.assertEqual(out, str(expected))
         self.assertEqual(expected.read_text(), "# Finding\n\nsomething noticed\n")
 
-        inbox = self.home / ".claude" / "code-for-queue" / "framework-inbox"
+        inbox = self.home / ".claude" / "cfq" / "framework-inbox"
         self.assertFalse(
             inbox.exists(), "note plan without --framework must never create the inbox directory"
         )
@@ -84,7 +84,7 @@ class NoteTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "a missing body file must fail")
 
     def _inbox_dir(self):
-        return self.home / ".claude" / "code-for-queue" / "framework-inbox"
+        return self.home / ".claude" / "cfq" / "framework-inbox"
 
     # frameworkRepo unset: --framework always lands in the global inbox, never the repo's own
     # plan/.

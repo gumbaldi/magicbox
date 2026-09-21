@@ -33,7 +33,7 @@ Upgrading from a `gumbaclaude` marketplace install: the GitHub repo was renamed 
 `gumbaldi/gumbaclaude` to `gumbaldi/magicbox` (it now hosts skills for other AI providers too, not
 just Claude Code plugins), and the marketplace name changed to match. Remove the old marketplace
 entry and reinstall: `/plugin marketplace remove gumbaclaude`, then run the two commands above.
-Settings and the repo registry live in `~/.claude/code-for-queue/` and are kept.
+Settings and the repo registry live in `~/.claude/cfq/` and are kept.
 
 Upgrading from 0.1.x: the plugin itself was also renamed from `code-for-queue` to `cfq` so its skills
 show up as `cfq:plan-for-queue`. Claude Code treats that as a different plugin, so remove the old one
@@ -157,7 +157,7 @@ still on the old layout needs an older plugin version to run the migration first
   the phase it was working; `pfq` offers those as topics at the start of its next session. A
   finding about cfq itself, rather than about the repo under work, is written with `note plan
   --framework` instead: it lands in the global framework inbox
-  (`~/.claude/code-for-queue/framework-inbox/`), outside every repo, and only `note import`, run by
+  (`~/.claude/cfq/framework-inbox/`), outside every repo, and only `note import`, run by
   `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`.
 - `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
   look later: an unmerged branch, a language-drift finding, a check that could not be automated.
@@ -174,7 +174,7 @@ flowchart TB
     todo["todo/ — leftovers"]
     rset["settings.json — repo overrides"]
   end
-  subgraph home["~/.claude/code-for-queue/"]
+  subgraph home["~/.claude/cfq/"]
     reg["repos.json — repo registry"]
     set["settings.json — global settings"]
   end
@@ -223,7 +223,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
-| `registry` | The cross-repo repo list in `~/.claude/code-for-queue/repos.json`. |
+| `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
 | `report` | The per-phase telemetry ledger (`report.json`) — `append`, `set-commit`, `skills`, `summary`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
@@ -252,7 +252,7 @@ half-written batch in the queue:
   path, and easy to miss because no other interview depth touches them.
 
 Everything else `cfq` writes — the changelog, the registry, `report.json`, `.priority`,
-`.dependsOn`, the global state store under `$HOME/.claude/code-for-queue/` — goes through cfq's own
+`.dependsOn`, the global state store under `$HOME/.claude/cfq/` — goes through cfq's own
 scripts over `Bash` and is never seen by a `Write`/`Edit` hook.
 
 Renaming the queue layout means updating every external guard hook too. That coupling is invisible

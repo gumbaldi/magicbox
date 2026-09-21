@@ -6,7 +6,7 @@
 #        cfq_settings.py describe [<key>]
 #        cfq_settings.py migrate <repo-root>
 #        cfq_settings.py state get <key> | state set <key> <value>
-"""Manages cfq settings: $HOME/.claude/code-for-queue/settings.json (global) and, per repo,
+"""Manages cfq settings: $HOME/.claude/cfq/settings.json (global) and, per repo,
 <repo>/.claude/cfq/settings.json (repo-scoped overrides).
 
 Ported from cfq-settings.sh — a port, not a redesign: exit codes, stdout shapes and error
@@ -69,7 +69,7 @@ SCHEMA = {
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
 
-GLOBAL_DIR = f"{home_dir()}/.claude/code-for-queue"
+GLOBAL_DIR = f"{home_dir()}/.claude/cfq"
 GLOBAL_SETTINGS_FILE = f"{GLOBAL_DIR}/settings.json"
 STATE_FILE = f"{GLOBAL_DIR}/state.json"
 
@@ -143,7 +143,7 @@ def merge_tier_file(base, file_path):
 
 def merged_tiers(repo_path):
     """Three tiers below env, highest wins: <repo>/.claude/cfq/settings.json (if repo_path
-    given) > $HOME/.claude/code-for-queue/settings.json > schema default."""
+    given) > $HOME/.claude/cfq/settings.json > schema default."""
     base = merge_tier_file(DEFAULTS, GLOBAL_SETTINGS_FILE)
     if repo_path:
         base = merge_tier_file(base, paths.repo_settings_file(repo_path))
