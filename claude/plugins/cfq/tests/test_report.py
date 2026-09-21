@@ -7,9 +7,11 @@ the index/detail surface.
 import contextlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
@@ -29,9 +31,9 @@ class TestReport(CfqTestCase):
         return json.loads((batch / "report.json").read_text())
 
     def test_extract_goal_matches_parse_phase_body_equivalent(self):
-        # Pins extract_goal's current output (first two non-empty lines after `## Context`, each
-        # followed by one space, cut to 220 chars) as a literal before refactoring it to reuse
-        # cfq_brief.parse_phase_body -- both must keep producing this exact string.
+        # extract_goal is parse_phase_body's "context" field run through truncate_words at a
+        # 320-char budget (raised from 220, which used to cut mid-sentence with no ellipsis) --
+        # this pins the combined result as a literal, word-truncated with a trailing ellipsis.
         planfile = self._repos_dir / "phase-for-extract-goal.md"
         planfile.write_text(
             "# Phase 01 — Something\n\n"
@@ -51,9 +53,9 @@ class TestReport(CfqTestCase):
         expected = (
             "This is the first context line and it is reasonably long to help push us toward "
             "the two hundred and twenty character truncation boundary for testing purposes "
-            "here now. This is the second context line, also fairly long, t"
+            "here now. This is the second context line, also fairly long, to make sure the "
+            "combined length of both lines together comfortably exceeds two hundred twenty…"
         )
-        self.assertEqual(len(expected), 220)
         self.assertEqual(cfq_report.extract_goal(str(planfile)), expected)
 
     def test_extract_goal_missing_file_returns_empty_string(self):
@@ -209,7 +211,7 @@ class TestReport(CfqTestCase):
             "phases": [
                 {"phase": "01-a", "status": "red", "finished": "2026-02-03T09:00:00+01:00", "summary": "first try failed",
                  "deviations": [], "errors": ["err"], "verification": "FAIL", "commit": ""},
-                {"phase": "01-a", "status": "green", "finished": "2026-02-03T10:00:00+01:00", "summary": "fixed",
+                {"phase": "01-a", "status": "green", "finished": "2026-02-03T10:00:00+01:00", "implemented": "fixed",
                  "deviations": [], "errors": [], "verification": "PASS", "commit": "ccc3333"},
             ],
         }))
@@ -299,6 +301,9 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertTrue(det["found"], "detail found = false for gamma")
         self.assertEqual(det["status"], "MIXED", f"detail status = {det['status']}")
         self.assertEqual(len(det["phases"]), 2, "detail phases length != 2")
+        # gamma's second attempt carries `implemented`, not `summary` -- proves cmd_detail's
+        # "summary" field is wired to phase_summary(), not a raw `summary` key read.
+        self.assertEqual(det["phases"][1]["summary"], "fixed", f"detail summary via `implemented` = {det['phases'][1]}")
 
         # detail's verification-excerpt bound: a long verification log must not be dumped in full
         long_batch = repo_p / ".claude" / "cfq" / "impl" / "2026-02-04-longlog"
@@ -614,6 +619,173 @@ M
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
         expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
+
+
+# ---- phase 01: derivation helpers cfq_report.py's html/detail/index rendering all funnel
+# through -- pure functions over a phase dict, no batch directory, no subprocess.
+
+class TestDerivations(unittest.TestCase):
+    def setUp(self):
+        # fmt_datetime/fmt_short go through datetime.astimezone(), which reads the machine's
+        # local timezone -- pinned to UTC for the run so the expected strings below are portable.
+        self._orig_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+    def tearDown(self):
+        if self._orig_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._orig_tz
+        time.tzset()
+
+    # -- phase_summary --------------------------------------------------------------------
+
+    def test_phase_summary_only_implemented(self):
+        self.assertEqual(cfq_report.phase_summary({"implemented": "built X"}), "built X")
+
+    def test_phase_summary_only_summary(self):
+        self.assertEqual(cfq_report.phase_summary({"summary": "did Y"}), "did Y")
+
+    def test_phase_summary_both_implemented_wins(self):
+        self.assertEqual(
+            cfq_report.phase_summary({"implemented": "built X", "summary": "did Y"}), "built X",
+        )
+
+    def test_phase_summary_neither_is_empty_string_not_none(self):
+        self.assertEqual(cfq_report.phase_summary({}), "")
+
+    # -- phase_finished / batch_finished ---------------------------------------------------
+
+    def test_phase_finished_prefers_finished_field(self):
+        self.assertEqual(
+            cfq_report.phase_finished({"finished": "2026-01-01T10:00:00+01:00"}),
+            "2026-01-01T10:00:00+01:00",
+        )
+
+    def test_phase_finished_falls_back_to_telemetry_until(self):
+        self.assertEqual(
+            cfq_report.phase_finished({"telemetry": {"until": "2026-01-01T11:00:00Z"}}),
+            "2026-01-01T11:00:00Z",
+        )
+
+    def test_phase_finished_neither_is_empty_string(self):
+        self.assertEqual(cfq_report.phase_finished({}), "")
+
+    def test_batch_finished_is_the_maximum_not_the_last_element(self):
+        # Written out of time order: 01-a's retry (latest) sits in the middle of the array.
+        data = {
+            "started": "2026-01-01T00:00:00+01:00",
+            "phases": [
+                {"phase": "02-b", "finished": "2026-01-01T09:00:00+01:00"},
+                {"phase": "01-a", "finished": "2026-01-01T12:00:00+01:00"},
+                {"phase": "03-c", "finished": "2026-01-01T10:00:00+01:00"},
+            ],
+        }
+        self.assertEqual(cfq_report.batch_finished(data), "2026-01-01T12:00:00+01:00")
+
+    def test_batch_finished_falls_back_to_started_with_no_timestamps(self):
+        data = {
+            "started": "2026-01-02T00:00:00+01:00",
+            "phases": [{"phase": "01-a"}, {"phase": "02-b"}],
+        }
+        self.assertEqual(cfq_report.batch_finished(data), "2026-01-02T00:00:00+01:00")
+
+    # -- parse_ts / fmt_* -------------------------------------------------------------------
+
+    def test_parse_ts_z_with_fractional_seconds(self):
+        self.assertEqual(cfq_report.fmt_datetime("2026-09-21T13:16:49.329Z"), "2026-09-21 13:16")
+        self.assertEqual(cfq_report.fmt_short("2026-09-21T13:16:49.329Z"), "21.09 13:16")
+
+    def test_parse_ts_offset_timestamp(self):
+        self.assertEqual(cfq_report.fmt_datetime("2026-01-01T10:30:00+02:00"), "2026-01-01 08:30")
+
+    def test_parse_ts_empty_string_returns_none_and_empty_display(self):
+        self.assertIsNone(cfq_report.parse_ts(""))
+        self.assertEqual(cfq_report.fmt_datetime(""), "")
+        self.assertEqual(cfq_report.fmt_short(""), "")
+
+    def test_parse_ts_malformed_returns_none_not_an_exception(self):
+        self.assertIsNone(cfq_report.parse_ts("not-a-date"))
+        self.assertEqual(cfq_report.fmt_datetime("not-a-date"), "")
+        self.assertEqual(cfq_report.fmt_short("not-a-date"), "")
+
+    def test_fmt_duration_minutes_and_hours(self):
+        self.assertEqual(cfq_report.fmt_duration(46), "0:46")
+        self.assertEqual(cfq_report.fmt_duration(73), "1:13")
+        self.assertEqual(cfq_report.fmt_duration(3723), "1:02:03")
+
+    def test_fmt_duration_zero_and_none_are_dash(self):
+        self.assertEqual(cfq_report.fmt_duration(0), "–")
+        self.assertEqual(cfq_report.fmt_duration(None), "–")
+
+    def test_fmt_int_groups_and_degrades(self):
+        self.assertEqual(cfq_report.fmt_int(1582736), "1,582,736")
+        self.assertEqual(cfq_report.fmt_int(0), "0")
+        self.assertEqual(cfq_report.fmt_int(None), "–")
+        self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
+
+    # -- phase_topic --------------------------------------------------------------------------
+
+    def test_phase_topic_leading_number(self):
+        self.assertEqual(cfq_report.phase_topic("01-widget-loader"), "Widget loader")
+
+    def test_phase_topic_two_digit_number_and_short_words(self):
+        self.assertEqual(cfq_report.phase_topic("10-a-b-c"), "A b c")
+
+    def test_phase_topic_no_leading_number(self):
+        self.assertEqual(cfq_report.phase_topic("no-number-here"), "No number here")
+
+    # -- phase_row ----------------------------------------------------------------------------
+
+    def test_phase_row_full_record(self):
+        phase = {
+            "phase": "01-note-sweep-verb", "status": "green", "commit": "9f2b46a2",
+            "telemetry": {
+                "wallclock_s": 73,
+                "until": "2026-09-21T15:16:00+02:00",
+                "totals": {"turns": 23, "output": 11610, "billable_in": 87111, "cache_read": 1582736},
+            },
+        }
+        row = cfq_report.phase_row(phase)
+        self.assertEqual(row["slug"], "01-note-sweep-verb")
+        self.assertEqual(row["nr"], "01")
+        self.assertEqual(row["topic"], "Note sweep verb")
+        self.assertEqual(row["status"], "green")
+        self.assertEqual(row["glyph"], "✅")
+        self.assertEqual(row["finished"], "2026-09-21T15:16:00+02:00")
+        self.assertEqual(row["duration_s"], 73)
+        self.assertEqual(row["duration_disp"], "1:13")
+        self.assertEqual(row["turns"], 23)
+        self.assertEqual(row["out"], 11610)
+        self.assertEqual(row["billable_in"], 87111)
+        self.assertEqual(row["cache_read"], 1582736)
+        self.assertEqual(row["commit"], "9f2b46a2")
+
+    def test_phase_row_without_telemetry_yields_zeros_not_none(self):
+        row = cfq_report.phase_row({"phase": "02-x", "status": "red"})
+        self.assertEqual(row["duration_s"], 0)
+        self.assertEqual(row["duration_disp"], "–")
+        self.assertEqual(row["turns"], 0)
+        self.assertEqual(row["out"], 0)
+        self.assertEqual(row["billable_in"], 0)
+        self.assertEqual(row["cache_read"], 0)
+        self.assertEqual(row["finished"], "")
+        self.assertEqual(row["finished_disp"], "")
+        self.assertEqual(row["commit"], "")
+
+    # -- truncate_words -------------------------------------------------------------------------
+
+    def test_truncate_words_shorter_than_limit_unchanged(self):
+        self.assertEqual(cfq_report.truncate_words("short text", 320), "short text")
+
+    def test_truncate_words_cuts_at_space_before_limit(self):
+        self.assertEqual(
+            cfq_report.truncate_words("one two three four five", 15), "one two three…",
+        )
+
+    def test_truncate_words_single_token_longer_than_limit_hard_cuts(self):
+        self.assertEqual(cfq_report.truncate_words("a" * 30, 10), "a" * 10 + "…")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -315,8 +316,7 @@ def cmd_summary(args):
         if isinstance(d, list):
             deviations += len(d)
 
-    last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-    date = render.jq_alt(render.jq_alt(last_finished, data.get("started")), "")
+    date = batch_finished(data)
 
     planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
     planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -373,16 +373,187 @@ def _tsv_field(v):
     return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
 
 
+# ---- report derivations: status glyph, summary, timestamps, formatting, topic, row ---------
+#
+# Everything phases 02-07 render is derived here, once, from a phase dict -- pure functions, no
+# I/O, so they're testable without a batch directory or a subprocess (see tests/test_report.py's
+# TestDerivations).
+
+# The cfq icon set from references/output-format.md -- shape-coded, not colour-coded, so the
+# status survives a colourblind reader and a monochrome print alike.
+STATUS_GLYPH = {"green": "✅", "red": "❌", "mixed": "⚠️"}
+
+
+def status_glyph(status):
+    """`STATUS_GLYPH[status.lower()]`, or "" for an unknown/missing status -- never raises,
+    because `outcome()` returns upper-case ("GREEN") while a raw `phase["status"]` is lower-case
+    ("green"), and both call sites exist."""
+    if not isinstance(status, str):
+        return ""
+    return STATUS_GLYPH.get(status.lower(), "")
+
+
+def phase_summary(phase):
+    """The one-clause "what was built": `implemented` (current worker schema) then `summary`
+    (classic-mode / pre-orchestrator records) -- two generations of the same field, both still on
+    disk. "" (not "None") for a record that carries neither."""
+    phase = phase if isinstance(phase, dict) else {}
+    return render.jq_alt(phase.get("implemented"), phase.get("summary"), "")
+
+
+def phase_finished(phase):
+    """A single phase record's own finish timestamp: `finished` (old records) falling back to
+    `telemetry.until` (current records), or "" when neither is present."""
+    phase = phase if isinstance(phase, dict) else {}
+    tel = phase.get("telemetry") if isinstance(phase.get("telemetry"), dict) else {}
+    return render.jq_alt(phase.get("finished"), tel.get("until"), "")
+
+
+def batch_finished(data):
+    """The batch's own finish timestamp: the **maximum** `phase_finished` over every phase --
+    never `phases[-1]`, because a red phase re-run appends a later record for an earlier phase
+    number, so the array is in write order, not time order. Falls back to `data["started"]` when
+    no phase has a timestamp, and to "" when that is missing too."""
+    phases = data.get("phases", []) if isinstance(data, dict) else []
+    candidates = [phase_finished(p) for p in phases if isinstance(p, dict)]
+    candidates = [t for t in candidates if t]
+    parsed = [(parse_ts(t), t) for t in candidates]
+    parsed = [(dt, t) for dt, t in parsed if dt is not None]
+    if parsed:
+        return max(parsed, key=lambda pair: pair[0])[1]
+    if candidates:
+        return max(candidates)
+    return render.jq_alt(data.get("started") if isinstance(data, dict) else None, "")
+
+
+_FRACTIONAL_SECONDS_RE = re.compile(r"\.\d+")
+
+
+def parse_ts(iso):
+    """`2026-09-21T13:16:49.329Z` / `...+02:00` -> an aware datetime in local time, or None.
+    Python 3.8's fromisoformat rejects a `Z` suffix and is picky about fractional digits, so
+    both are normalised away before parsing. Any failure returns None -- a malformed timestamp
+    must degrade to an empty cell, never take the report down."""
+    if not isinstance(iso, str) or not iso:
+        return None
+    s = _FRACTIONAL_SECONDS_RE.sub("", iso)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt.astimezone()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def fmt_datetime(iso):
+    """`"2026-09-21T13:16:49.329Z"` -> `"2026-09-21 15:16"` (local time) -- the HTML report's
+    format. "" when `parse_ts` fails."""
+    dt = parse_ts(iso)
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+
+
+def fmt_short(iso):
+    """Same source as `fmt_datetime`, the terminal table's compact format: `"21.09 15:16"`."""
+    dt = parse_ts(iso)
+    return dt.strftime("%d.%m %H:%M") if dt else ""
+
+
+def fmt_duration(seconds):
+    """`"0:46"`, `"1:13"`, `"1:02:03"` -- `m:ss` under an hour, `h:mm:ss` at or above.
+    `0`/`None`/a non-numeric value -> "–" (en dash), the same placeholder `cmd_index` already
+    uses for a missing cost."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not seconds:
+        return "–"
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def fmt_int(n):
+    """`1582736` -> `"1,582,736"` -- English grouping, since `codeLanguage` is `en` and the
+    report's labels are English. `None`/non-numeric -> "–"."""
+    if isinstance(n, bool) or not isinstance(n, (int, float)):
+        return "–"
+    return f"{int(n):,}"
+
+
+_LEADING_NUMBER_RE = re.compile(r"^\d+-")
+_LEADING_DIGITS_RE = re.compile(r"^(\d+)")
+
+
+def phase_topic(phase_id):
+    """`"01-note-sweep-verb"` -> `"Note sweep verb"`. Strips a leading `NN-`, replaces `-` with
+    spaces, uppercases the first character only -- deliberately not title case, so `"cfq"` and
+    `"rfq"` stay lowercase mid-sentence. An id with no leading number is used as-is after the
+    hyphen replacement."""
+    if not isinstance(phase_id, str):
+        return ""
+    rest = _LEADING_NUMBER_RE.sub("", phase_id, count=1)
+    words = rest.replace("-", " ")
+    if not words:
+        return ""
+    return words[0].upper() + words[1:]
+
+
+def phase_row(phase):
+    """The single row object phases 04 and 06 both build their tables from. Every numeric field
+    goes through `_totals_field` (or its `render.jq_alt` equivalent) so a phase without telemetry
+    yields zeros rather than None, exactly as `build_index_rows` already treats them."""
+    phase = phase if isinstance(phase, dict) else {}
+    phase_id = render.jq_alt(phase.get("phase"), "")
+    status = render.jq_alt(phase.get("status"), "")
+    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
+    nr = m.group(1) if m else ""
+    tel = phase.get("telemetry") if isinstance(phase.get("telemetry"), dict) else {}
+    totals = tel.get("totals") if isinstance(tel.get("totals"), dict) else {}
+    finished = phase_finished(phase)
+    duration_s = int(render.jq_alt(tel.get("wallclock_s"), 0))
+    return {
+        "slug": phase_id,
+        "nr": nr,
+        "topic": phase_topic(phase_id),
+        "status": status,
+        "glyph": status_glyph(status),
+        "finished": finished,
+        "finished_disp": fmt_datetime(finished),
+        "duration_s": duration_s,
+        "duration_disp": fmt_duration(duration_s),
+        "turns": _totals_field(totals, "turns"),
+        "out": _totals_field(totals, "output"),
+        "billable_in": _totals_field(totals, "billable_in"),
+        "cache_read": _totals_field(totals, "cache_read"),
+        "commit": render.jq_alt(phase.get("commit"), ""),
+    }
+
+
+def truncate_words(text, limit):
+    """Cut at the last space at or before `limit` and append a horizontal ellipsis. Text that
+    already fits is returned unchanged, without an ellipsis. A `limit`-length prefix with no
+    space in it falls back to a hard cut at `limit` plus the ellipsis, so a long unbroken token
+    cannot return an empty string."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    idx = text.rfind(" ", 0, limit)
+    cut = idx if idx != -1 else limit
+    return text[:cut] + "…"
+
+
 # ---- verb: html -----------------------------------------------------------------------------
 
 def extract_goal(planfile):
-    """First two non-empty lines after a `## Context` heading, truncated to 220 chars -- same
-    extraction as cfq_brief.py's `parse_phase_body`."""
+    """First two non-empty lines after a `## Context` heading, word-truncated to 320 chars --
+    same extraction as cfq_brief.py's `parse_phase_body`. Budget raised from 220 (which cut
+    mid-sentence with no ellipsis) so two full sentences of context fit."""
     try:
         text = pathlib.Path(planfile).read_text()
     except OSError:
         return ""
-    return parse_phase_body(text)["context"][:220]
+    return truncate_words(parse_phase_body(text)["context"], 320)
 
 
 def extract_goals(dir_, data):
@@ -470,7 +641,9 @@ def phase_html(phase, goals):
     ]
     if goal:
         parts.append(f'<p class="goal">{esc(goal)}</p>')
-    parts.append(f'<p>{esc(phase.get("summary"))}</p>')
+    summary = phase_summary(phase)
+    if summary:
+        parts.append(f'<p>{esc(summary)}</p>')
     parts.append(telemetry_html(phase))
     parts.append(section_list(phase.get("deviations"), "Deviations"))
     parts.append(section_list(phase.get("errors"), "Errors"))
@@ -604,8 +777,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
             if isinstance(d, list):
                 deviations += len(d)
-        last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-        date = render.jq_alt(render.jq_alt(last_finished, data.get("started") if isinstance(data, dict) else None), "")
+        date = batch_finished(data)
 
         planning = data.get("planning") if isinstance(data, dict) else None
         planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -700,7 +872,7 @@ def cmd_detail(args):
         out_phases.append({
             "phase": p.get("phase"),
             "status": p.get("status"),
-            "summary": render.jq_alt(p.get("summary"), ""),
+            "summary": phase_summary(p),
             "deviations": render.jq_alt(p.get("deviations"), []),
             "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
