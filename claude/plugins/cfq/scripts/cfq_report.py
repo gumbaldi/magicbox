@@ -97,6 +97,21 @@ section.overview{background:var(--surface);border:1px solid var(--border);border
 .overview li{margin:.2rem 0}
 .overview p{margin:.3rem 0 .9rem}
 .overview li strong{color:var(--fg)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.tscroll{overflow-x:auto}
+.phase-table table{border-collapse:collapse;width:100%;font-size:.85rem}
+.phase-table th,.phase-table td{padding:.4rem .6rem;border-bottom:1px solid var(--border);
+  text-align:left;white-space:nowrap}
+.phase-table thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
+  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-strong)}
+.phase-table td.n,.phase-table th.n{text-align:right;font-variant-numeric:tabular-nums;
+  font-family:var(--mono)}
+.phase-table td.c,.phase-table th.c{text-align:center}
+.phase-table tbody tr:hover{background:var(--surface-2)}
+.phase-table tfoot td,.phase-table tfoot th{border-top:1px solid var(--border-strong);
+  border-bottom:none;color:var(--fg-muted);font-weight:600}
+.phase-table td a{color:var(--accent);text-decoration:none}
+.phase-table td a:hover{text-decoration:underline}
 .verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 section.repo{margin:1.5rem 0}
 @media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
@@ -717,6 +732,66 @@ def overview_html(dir_):
     return '<section class="overview"><h2>Overview</h2>' + "".join(body_parts) + "</section>"
 
 
+# ---- phase 04: the phase table -- one row per report.json phase record ----------------------
+#
+# `phases` is an append log, not a set: a phase that went red and was re-run appends a second
+# record for the same phase number (`append_phase`, `outcome()`). Every attempt gets its own row,
+# in record order, so a red attempt followed by a green one is visible rather than overwritten.
+
+def phase_table_html(phases):
+    """A table over every phase record's `phase_row()` -- full token balance, one row per
+    attempt. Returns "" for an empty phase list (a batch whose only report.json content is the
+    planning security snapshot gets no empty table)."""
+    rows = [phase_row(p) for p in phases if isinstance(p, dict)]
+    if not rows:
+        return ""
+
+    body_rows = []
+    tot_duration = tot_turns = tot_out = tot_in = tot_cache = 0
+    for row in rows:
+        tot_duration += row["duration_s"]
+        tot_turns += row["turns"]
+        tot_out += row["out"]
+        tot_in += row["billable_in"]
+        tot_cache += row["cache_read"]
+        finished_disp = row["finished_disp"] or "–"
+        body_rows.append(
+            f'<tr class="{esc(row["status"])}">'
+            f'<td class="c">{esc(row["glyph"])}</td><td class="c">{esc(row["nr"])}</td>'
+            f'<td><a href="#p-{esc(row["slug"])}">{esc(row["topic"])}</a></td>'
+            f'<td>{esc(finished_disp)}</td>'
+            f'<td class="n">{esc(row["duration_disp"])}</td>'
+            f'<td class="n">{esc(fmt_int(row["turns"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["out"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["billable_in"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["cache_read"]))}</td>'
+            '</tr>'
+        )
+
+    tfoot = (
+        '<tfoot><tr>'
+        '<td class="c"></td><td class="c"></td><th scope="row">Total</th><td></td>'
+        f'<td class="n">{esc(fmt_duration(tot_duration))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_turns))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_out))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_in))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_cache))}</td>'
+        '</tr></tfoot>'
+    )
+
+    return (
+        '<section class="phase-table"><h2>Phases</h2><div class="tscroll"><table>'
+        '<thead><tr>'
+        '<th class="c"><span class="sr">Status</span>·</th><th class="c">#</th><th>Topic</th>'
+        '<th>Finished</th><th class="n">Duration</th><th class="n">Turns</th>'
+        '<th class="n">Out</th><th class="n">In</th><th class="n">Cache</th>'
+        '</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody>'
+        f'{tfoot}'
+        '</table></div></section>'
+    )
+
+
 # ---- verb: html -----------------------------------------------------------------------------
 
 def extract_goal(planfile):
@@ -908,8 +983,7 @@ def render_report_html(data, goals, dir_):
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
         + header
         + overview_html(dir_)
-        # Phase 04 replaces this with phase_table_html(rows).
-        + '<!-- phase-table -->'
+        + phase_table_html(phases)
         + '<main>' + body + '</main>'
         + '</body></html>'
     )

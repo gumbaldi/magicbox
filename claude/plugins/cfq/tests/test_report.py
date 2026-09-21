@@ -362,7 +362,10 @@ M
         # slot renders empty and neither the placeholder comment nor the section survives.
         self.assertNotIn("<!-- overview -->", html_x, "overview placeholder not filled in")
         self.assertNotIn('<section class="overview">', html_x, "overview section rendered despite no .batch-context.md")
-        self.assertIn("<!-- phase-table -->", html_x, "report.html missing the phase-table insertion point")
+        # phase 04 fills the phase-table placeholder in; this batch has one phase, so the section
+        # renders and the placeholder comment no longer survives.
+        self.assertNotIn("<!-- phase-table -->", html_x, "phase-table placeholder not filled in")
+        self.assertIn('<section class="phase-table">', html_x, "report.html missing the rendered phase table")
         self.assertNotIn("Dauer", html_x, "report.html still carries the German Dauer label")
         self.assertNotIn("Implementierung", html_x, "report.html still carries the German Implementierung label")
         index_html = (rd / "index.html").read_text()
@@ -444,7 +447,10 @@ M
         # slot renders empty and neither the placeholder comment nor the section survives.
         self.assertNotIn("<!-- overview -->", html_y, "overview placeholder not filled in")
         self.assertNotIn('<section class="overview">', html_y, "overview section rendered despite no .batch-context.md")
-        self.assertIn("<!-- phase-table -->", html_y, "report.html missing the phase-table insertion point")
+        # phase 04 fills the phase-table placeholder in; this batch has one phase, so the section
+        # renders and the placeholder comment no longer survives.
+        self.assertNotIn("<!-- phase-table -->", html_y, "phase-table placeholder not filled in")
+        self.assertIn('<section class="phase-table">', html_y, "report.html missing the rendered phase table")
         self.assertNotIn("Dauer", html_y, "report.html still carries the German Dauer label")
         self.assertNotIn("Implementierung", html_y, "report.html still carries the German Implementierung label")
 
@@ -862,6 +868,103 @@ class TestDerivations(unittest.TestCase):
 
     def test_truncate_words_single_token_longer_than_limit_hard_cuts(self):
         self.assertEqual(cfq_report.truncate_words("a" * 30, 10), "a" * 10 + "…")
+
+
+# ---- phase 04: the phase table -- one row per report.json phase record, including every retry
+# attempt. Pure function over literal `phases` lists / report.json dicts, no project-specific
+# nouns, no cfq verbs in the data.
+
+class TestPhaseTable(unittest.TestCase):
+    def setUp(self):
+        # fmt_datetime goes through datetime.astimezone(), which reads the machine's local
+        # timezone -- pinned to UTC so timestamps in the fixtures below are portable.
+        self._orig_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+    def tearDown(self):
+        if self._orig_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._orig_tz
+        time.tzset()
+
+    def test_routine_two_green_phases_full_telemetry(self):
+        phases = [
+            {
+                "phase": "01-widget-loader", "status": "green",
+                "telemetry": {
+                    "wallclock_s": 73, "until": "2026-09-21T15:16:00+02:00",
+                    "totals": {"turns": 23, "output": 11610, "billable_in": 87111, "cache_read": 1582736},
+                },
+            },
+            {
+                "phase": "02-widget-saver", "status": "green",
+                "telemetry": {
+                    "wallclock_s": 46, "until": "2026-09-21T15:30:00+02:00",
+                    "totals": {"turns": 12, "output": 8868, "billable_in": 20475, "cache_read": 1027912},
+                },
+            },
+        ]
+        html = cfq_report.phase_table_html(phases)
+        self.assertEqual(html.count("<tr class="), 2, "expected exactly one <tr> per phase")
+        self.assertEqual(html.count("✅"), 2, "expected the green glyph in both status cells")
+        self.assertIn('href="#p-01-widget-loader"', html, "topic cell missing anchor to phase 01")
+        self.assertIn('href="#p-02-widget-saver"', html, "topic cell missing anchor to phase 02")
+        # tfoot sums turns/out across both rows: 23+12=35 turns, 11610+8868=20478 out.
+        self.assertIn(">35<", html, "tfoot turns total incorrect")
+        self.assertIn(">20,478<", html, "tfoot out total incorrect")
+
+    def test_retry_three_records_two_phase_numbers(self):
+        # A phase that went red and was re-run appends a second record for the same phase number
+        # -- every attempt gets its own row, in record order.
+        phases = [
+            {"phase": "01-widget-loader", "status": "red",
+             "telemetry": {"wallclock_s": 30, "totals": {"turns": 5, "output": 1000, "billable_in": 2000, "cache_read": 3000}}},
+            {"phase": "01-widget-loader", "status": "green",
+             "telemetry": {"wallclock_s": 40, "totals": {"turns": 6, "output": 1500, "billable_in": 2500, "cache_read": 3500}}},
+            {"phase": "02-widget-saver", "status": "green",
+             "telemetry": {"wallclock_s": 50, "totals": {"turns": 7, "output": 2000, "billable_in": 3000, "cache_read": 4000}}},
+        ]
+        html = cfq_report.phase_table_html(phases)
+        self.assertEqual(html.count("<tr class="), 3, "red-then-green retry must not collapse to two rows")
+        self.assertEqual(html.count('<tr class="red">'), 1)
+        self.assertEqual(html.count('<tr class="green">'), 2)
+        self.assertIn(">18<", html, "tfoot turns total must sum all three attempts (5+6+7)")
+        self.assertIn(">4,500<", html, "tfoot out total must sum all three attempts (1000+1500+2000)")
+
+    def test_missing_telemetry_renders_dash_and_zero_without_raising(self):
+        phases = [{"phase": "03-widget-mover", "status": "green"}]
+        html = cfq_report.phase_table_html(phases)
+        self.assertIn("<td>–</td>", html, "Finished cell should show a dash, not a blank cell")
+        self.assertIn('<td class="n">–</td>', html, "Duration cell should show a dash for zero duration")
+        # 4 zero-derived cells (turns/out/in/cache) in the body row, and the same 4 in the tfoot
+        # total -- the single row's own totals -- for 8 occurrences overall.
+        self.assertEqual(html.count('<td class="n">0</td>'), 8, "turns/out/in/cache should each render 0, not raise")
+        # The footer total is unaffected by the missing telemetry -- it degrades the same way.
+        self.assertIn('<td class="n">–</td><td class="n">0</td><td class="n">0</td>'
+                       '<td class="n">0</td><td class="n">0</td></tr></tfoot>', html)
+
+    def test_empty_phase_list_returns_empty_string(self):
+        self.assertEqual(cfq_report.phase_table_html([]), "")
+        with tempfile.TemporaryDirectory() as td:
+            doc = cfq_report.render_report_html({"batch": "x", "phases": []}, {}, td)
+        self.assertNotIn('<section class="phase-table">', doc, "empty phase list must render no table section")
+        self.assertNotIn("<!-- phase-table -->", doc, "placeholder must not survive into the rendered document")
+
+    def test_anchor_contract_hrefs_match_ids_in_document(self):
+        phases = [
+            {"phase": "01-widget-loader", "status": "green",
+             "telemetry": {"wallclock_s": 30, "totals": {"turns": 5, "output": 1000, "billable_in": 2000, "cache_read": 3000}}},
+            {"phase": "02-widget-saver", "status": "red",
+             "telemetry": {"wallclock_s": 40, "totals": {"turns": 6, "output": 1500, "billable_in": 2500, "cache_read": 3500}}},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            doc = cfq_report.render_report_html({"batch": "x", "phases": phases}, {}, td)
+        hrefs = set(re.findall(r'href="#(p-[^"]+)"', doc))
+        ids = set(re.findall(r'id="(p-[^"]+)"', doc))
+        self.assertTrue(hrefs, "no phase-table anchors found in the rendered document")
+        self.assertEqual(hrefs, ids, "every phase-table href must have a matching section.phase id, and vice versa")
 
 
 # ---- phase 03: the Markdown subset renderer for .batch-context.md -> the report's Overview
