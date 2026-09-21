@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -151,7 +152,7 @@ class TestReport(CfqTestCase):
         self.assertIn("01-a", html, "report.html missing 01-a")
         self.assertIn("02-b", html, "report.html missing 02-b")
         self.assertIn("1 Test &lt;failed&gt;", html, "error text not HTML-escaped")
-        self.assertEqual(html.count('class="telemetry"'), 0, "report.html has telemetry markup despite no telemetry data")
+        self.assertEqual(html.count('class="tele"'), 0, "report.html has telemetry markup despite no telemetry data")
 
         lf = self.json_out(self.run_cfq("report", "last-failure", str(batch), "02-b"))
         self.assertTrue(lf["found"], f"last-failure should find 02-b's red entry: {lf}")
@@ -352,6 +353,13 @@ M
         self.assertTrue((rd / "index.html").is_file(), "index.html not created")
         html_x = (rd / "repo-x" / f"{batch_x_name}.html").read_text()
         self.assertIn("This phase adds the goal-extraction test", html_x, "report.html missing phase goal text")
+        self.assertIn('<header class="batch">', html_x, "report.html missing the header block")
+        self.assertIn("<dt>Repo</dt>", html_x, "report.html header missing the Repo pair")
+        self.assertIn("<dt>Started</dt>", html_x, "report.html header missing the Started pair")
+        self.assertIn("<!-- overview -->", html_x, "report.html missing the overview insertion point")
+        self.assertIn("<!-- phase-table -->", html_x, "report.html missing the phase-table insertion point")
+        self.assertNotIn("Dauer", html_x, "report.html still carries the German Dauer label")
+        self.assertNotIn("Implementierung", html_x, "report.html still carries the German Implementierung label")
         index_html = (rd / "index.html").read_text()
         self.assertIn(batch_x_name, index_html, f"index.html missing batch {batch_x_name}")
         n_links = index_html.count("<a href=")
@@ -423,6 +431,15 @@ M
         self.assertTrue(expected_path.is_file(), "repo-local report.html not created")
         self.assertFalse((batch_y / "report.html").exists(), "report.html must not also land in the batch dir")
 
+        html_y = expected_path.read_text()
+        self.assertIn('<header class="batch">', html_y, "report.html missing the header block")
+        self.assertIn("<dt>Repo</dt>", html_y, "report.html header missing the Repo pair")
+        self.assertIn("<dt>Started</dt>", html_y, "report.html header missing the Started pair")
+        self.assertIn("<!-- overview -->", html_y, "report.html missing the overview insertion point")
+        self.assertIn("<!-- phase-table -->", html_y, "report.html missing the phase-table insertion point")
+        self.assertNotIn("Dauer", html_y, "report.html still carries the German Dauer label")
+        self.assertNotIn("Implementierung", html_y, "report.html still carries the German Implementierung label")
+
         # change 3: the repo-local default also regenerates index.html in that same reports/
         # directory, with a flat href -- not the shared-reportDir <repoBase>/<batch>.html shape,
         # since the reports/ dir is already repo-local.
@@ -476,9 +493,9 @@ M
         out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
         self.assertEqual(out, str(batch / "report.html"), f"html path (default reportDir) = {out}")
         html = (batch / "report.html").read_text()
-        self.assertIn('>Mode <b>orchestrator</b>', html, "mode not rendered")
+        self.assertIn('<dt>Mode</dt><dd>orchestrator</dd>', html, "mode not rendered")
         self.assertIn(
-            '>Split <b>4/6 Turns, 300/700 out (orchestrator/worker)</b>', html,
+            '<dt>Orchestrator / worker</dt><dd>4/6 turns · 300/700 out</dd>', html,
             "orchestrator/worker split not rendered correctly",
         )
 
@@ -498,8 +515,59 @@ M
         out2 = self.run_clean(str(CFQ_BIN), "report", "html", str(batch2)).stdout.strip()
         self.assertEqual(out2, str(batch2 / "report.html"), f"html path (default reportDir) = {out2}")
         html2 = (batch2 / "report.html").read_text()
-        self.assertNotIn('>Mode <b>', html2, "Mode column rendered despite no mode field")
-        self.assertNotIn('>Split <b>', html2, "Split column rendered despite no subagent activity")
+        self.assertNotIn('<dt>Mode</dt>', html2, "Mode column rendered despite no mode field")
+        self.assertNotIn('<dt>Orchestrator / worker</dt>', html2, "Split column rendered despite no subagent activity")
+
+        # A third fixture whose by_skill holds only "-" must omit the Skills pair entirely,
+        # rather than rendering an empty value (the "-" sentinel is skills_str's own "unknown").
+        batch3 = self._batch("2026-05-03-only-dash-skill")
+        cfq_report.append_phase(
+            str(batch3),
+            json.dumps({
+                "phase": "01-a", "status": "green", "finished": "2026-05-03T10:00:00+01:00",
+                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
+                "commit": "5550000",
+                "telemetry": {
+                    "totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {},
+                    "by_skill": {"-": 3},
+                },
+            }),
+            record_telemetry=False,
+        )
+        self.run_clean(str(CFQ_BIN), "report", "html", str(batch3))
+        html3 = (batch3 / "report.html").read_text()
+        self.assertNotIn('<dt>Skills</dt>', html3, "Skills pair rendered despite by_skill holding only '-'")
+
+    def test_html_stylesheet_defines_every_colour_on_root(self):
+        # A colour must never get its only definition inside a @media block -- dark mode and the
+        # print stylesheet only redefine tokens the bare :root block already declares.
+        batch = self._batch("2026-06-01-stylecheck")
+        cfq_report.append_phase(
+            str(batch),
+            '{"phase":"01-a","status":"green","finished":"2026-06-01T10:00:00+01:00","summary":"ok",'
+            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"6660000"}',
+            record_telemetry=False,
+        )
+        self.run_clean(str(CFQ_BIN), "report", "html", str(batch))
+        html = (batch / "report.html").read_text()
+
+        style_match = re.search(r"<style>(.*?)</style>", html, re.S)
+        self.assertIsNotNone(style_match, "no <style> block found in report.html")
+        css = style_match.group(1)
+
+        root_match = re.search(r":root\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(root_match, "no bare :root block found in the stylesheet")
+        root_props = set(re.findall(r"(--[\w-]+)\s*:", root_match.group(1)))
+        self.assertGreater(len(root_props), 0, "bare :root block defines no custom properties")
+
+        media_root_blocks = re.findall(r"@media[^{]*\{\s*:root\s*\{([^}]*)\}\s*\}", css, re.S)
+        self.assertGreater(len(media_root_blocks), 0, "no @media :root override block found (dark mode / print)")
+        for block in media_root_blocks:
+            for prop in re.findall(r"(--[\w-]+)\s*:", block):
+                self.assertIn(
+                    prop, root_props,
+                    f"custom property {prop} is redefined inside a @media block but never defined on bare :root",
+                )
 
     # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
     # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------

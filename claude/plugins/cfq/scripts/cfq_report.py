@@ -37,26 +37,73 @@ PROG = "cfq_report.py"
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
 # Shared by html's per-batch report and its collected index.html -- one visual language, not two.
-REPORT_STYLE_CSS = """body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
-@media (prefers-color-scheme: dark){body{color:#e8e8e8;background:#1a1a1a}code{background:#2a2a2a}}
-.meta,.summary{color:#666}section.phase{border-left:4px solid #999;padding:0.5rem 1rem;margin:1rem 0}
-section.phase.green{border-color:#2a8f4a}section.phase.red{border-color:#c0392b}
-.badge{display:inline-block;padding:0.1rem 0.5rem;border-radius:0.3rem;font-size:0.8rem;color:#fff}
-.badge.green{background:#2a8f4a}.badge.red{background:#c0392b}.badge.mixed{background:#c98a1b}
-code{background:#f0f0f0;padding:0.1rem 0.3rem;border-radius:0.2rem}
-.telemetry{color:#666;font-size:0.85rem}.kv{margin-right:0.4rem}
-.goal{color:#666;font-style:italic}
-section.repo{margin:1.5rem 0}"""
+# Every colour is a custom property defined on bare :root; the dark-mode and print @media blocks
+# only ever redefine tokens that already exist there (tests/test_report.py asserts this
+# structurally) -- no colour gets its only definition inside a media query.
+REPORT_STYLE_CSS = """:root{
+  --bg:#ffffff;--surface:#f7f8fa;--surface-2:#eceff4;
+  --fg:#16181d;--fg-muted:#545c6b;--fg-faint:#767e8c;
+  --border:#d5dae2;--border-strong:#aeb6c2;
+  --ok:#1a7f45;--ok-bg:#e4f3ea;--bad:#b32d1f;--bad-bg:#fae9e6;
+  --warn:#8a5b00;--warn-bg:#fbf1d6;--accent:#2f5fd0;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:8px;--gap:1rem;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14161a;--surface:#1b1e24;--surface-2:#232830;
+  --fg:#e7eaf0;--fg-muted:#a3abba;--fg-faint:#848d9c;
+  --border:#2e343e;--border-strong:#454d5a;
+  --ok:#5cc98b;--ok-bg:#16301f;--bad:#f0857a;--bad-bg:#331b18;
+  --warn:#e0b45a;--warn-bg:#2e2512;--accent:#8fb0ff;
+}}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);max-width:64rem;margin:0 auto;
+  padding:2rem 1rem;line-height:1.55}
+h1{font-size:1.6rem;margin:0}
+h2{font-size:1.2rem}
+h3{font-size:1.05rem}
+h4{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
+code{background:var(--surface-2);font-family:var(--mono);font-size:0.875em;padding:0.1rem 0.3rem;
+  border-radius:0.2rem}
+header.batch{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem}
+header.batch .ident{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.4rem 1.5rem}
+.meta dt{color:var(--fg-faint);text-transform:uppercase;font-size:.72rem}
+.meta dd{margin:0}
+.badge{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .6rem;border-radius:999px;
+  font-size:.78rem;font-weight:600;letter-spacing:.03em;border:1px solid}
+.badge.green{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
+.badge.red{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
+.badge.mixed{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+section.phase{background:var(--surface);border:1px solid var(--border);
+  border-left:4px solid var(--border-strong);border-radius:var(--r);padding:1rem 1.25rem;
+  margin:1.25rem 0}
+section.phase.green{border-left-color:var(--ok)}
+section.phase.red{border-left-color:var(--bad)}
+section.phase .num{color:var(--fg-faint);margin-right:.25rem}
+section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem}
+.goal{color:var(--fg-muted);font-style:italic;border-left:2px solid var(--border);
+  padding-left:.75rem}
+.tele{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem 1.5rem;
+  font-size:.82rem;background:var(--surface-2);border-radius:var(--r);padding:.6rem .8rem;
+  margin:.75rem 0}
+.tele dt{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem}
+.tele dd{margin:0}
+.verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+section.repo{margin:1.5rem 0}
+@media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
+@media print{
+  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f2f2;--fg:#000;--fg-muted:#333;--border:#999;}
+  body{max-width:none;padding:0;font-size:10pt}
+  section.phase{break-inside:avoid}
+  a{text-decoration:none;color:inherit}
+}"""
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
 
 # ---- jq-semantics helpers -----------------------------------------------------------------
-
-def jq_add(values):
-    """Mirrors jq's `add`: sum of the list, or null (None) for an empty list."""
-    return sum(values) if values else None
-
 
 def jq_round(x):
     """Mirrors jq's `round` (round-half-away-from-zero), not Python's round-half-to-even."""
@@ -582,15 +629,20 @@ def section_list(items, title):
     return f"<h4>{title}</h4><ul>{lis}</ul>"
 
 
-def kv(label, value):
-    return f'<span class="kv">{label} <b>{html_escape_jq(render.tostring(value))}</b></span>'
-
-
 def skills_str(t):
     by_skill = t.get("by_skill") if isinstance(t, dict) else None
     if not isinstance(by_skill, dict):
         return "-"
     return ", ".join(sorted(k for k in by_skill.keys() if k != "-"))
+
+
+def _tele_pair(label, value):
+    """One `<dl class="tele">`/`<dl class="meta">` row, or "" when `value` is empty/the `-`
+    sentinel -- the one rule both the header and the per-phase telemetry grid share: a pair with
+    nothing to say is not rendered, never shown as an empty `<dd>`."""
+    if value in ("", "-"):
+        return ""
+    return f"<div><dt>{esc(label)}</dt><dd>{esc(value)}</dd></div>"
 
 
 def telemetry_html(phase):
@@ -600,16 +652,14 @@ def telemetry_html(phase):
     totals = t.get("totals") if isinstance(t.get("totals"), dict) else {}
     by_model = t.get("by_model") if isinstance(t.get("by_model"), dict) else {}
     by_effort = t.get("by_effort") if isinstance(t.get("by_effort"), dict) else {}
-    duration = f"{math.floor(render.jq_alt(t.get('wallclock_s'), 0))} s"
     pairs = [
-        ("Turns", totals.get("turns")),
-        ("Out", totals.get("output")),
-        ("In", render.jq_alt(totals.get("billable_in"), 0)),
-        ("Cache", render.jq_alt(totals.get("cache_read"), 0)),
-        ("Dauer", duration),
+        ("Turns", fmt_int(_totals_field(totals, "turns"))),
+        ("Duration", fmt_duration(render.jq_alt(t.get("wallclock_s"), 0))),
+        ("Out", fmt_int(_totals_field(totals, "output"))),
+        ("In", fmt_int(_totals_field(totals, "billable_in"))),
+        ("Cache read", fmt_int(_totals_field(totals, "cache_read"))),
         ("Model", ", ".join(sorted(by_model.keys()))),
         ("Effort", ", ".join(sorted(by_effort.keys()))),
-        ("Skills", skills_str(t)),
     ]
     # Additive, same rule as `report summary`'s fields 12-15: a record with no `mode` (every one
     # written before phase 02) must render exactly as it did before -- no empty "Mode" column, no
@@ -617,6 +667,7 @@ def telemetry_html(phase):
     mode = render.jq_alt(t.get("mode"), "")
     if mode:
         pairs.append(("Mode", mode))
+    pairs.append(("Skills", skills_str(t)))
     subagent = t.get("subagent") if isinstance(t.get("subagent"), dict) else {}
     sub_turns = render.jq_alt(subagent.get("turns"), 0)
     sub_output = render.jq_alt(subagent.get("output"), 0)
@@ -624,20 +675,29 @@ def telemetry_html(phase):
         orch_turns = render.jq_alt(totals.get("turns"), 0) - sub_turns
         orch_output = render.jq_alt(totals.get("output"), 0) - sub_output
         pairs.append((
-            "Split",
-            f"{orch_turns}/{sub_turns} Turns, {orch_output}/{sub_output} out (orchestrator/worker)",
+            "Orchestrator / worker",
+            f"{fmt_int(orch_turns)}/{fmt_int(sub_turns)} turns · "
+            f"{fmt_int(orch_output)}/{fmt_int(sub_output)} out",
         ))
-    body = " · ".join(kv(label, value) for label, value in pairs)
-    return f'<p class="telemetry">{body}</p>'
+    rows = "".join(_tele_pair(label, value) for label, value in pairs)
+    if not rows:
+        return ""
+    return f'<dl class="tele">{rows}</dl>'
 
 
 def phase_html(phase, goals):
     status = phase.get("status") or ""
     phase_id = phase.get("phase")
+    glyph = status_glyph(status)
+    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
+    nr = m.group(1) if m else ""
+    topic = phase_topic(phase_id)
     goal = goals.get(phase_id or "", "")
     parts = [
-        f'<section class="phase {status}">',
-        f'<h3><span class="badge {status}">{html_escape_jq(status.upper())}</span> {esc(phase_id)}</h3>',
+        f'<section class="phase {status}" id="p-{esc(phase_id)}">',
+        f'<h3><span class="badge {status}">{esc(glyph)} {html_escape_jq(status.upper())}</span> '
+        f'<span class="num">{esc(nr)}</span> {esc(topic)}</h3>',
+        f'<p class="slug">{esc(phase_id)}</p>',
     ]
     if goal:
         parts.append(f'<p class="goal">{esc(goal)}</p>')
@@ -663,38 +723,67 @@ def render_report_html(data, goals):
     green_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
     red_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
 
+    status = outcome(phases)
+    header_badge = (
+        f'<span class="badge {status.lower()}">{esc(status_glyph(status))} '
+        f'{html_escape_jq(status)}</span>'
+    )
+
+    repo = render.jq_alt(data.get("repo"), "")
+    repo_base = os.path.basename(repo.rstrip("/")) if repo else ""
+    started = fmt_datetime(data.get("started"))
+    finished = fmt_datetime(batch_finished(data))
+
+    meta_rows = [f'<div><dt>Repo</dt><dd title="{esc(repo)}">{esc(repo_base)}</dd></div>']
+    meta_rows.append(_tele_pair("Started", started))
+    meta_rows.append(_tele_pair("Finished", finished))
+    meta_rows.append(_tele_pair("Phases", f"{len(phases)} · {green_n} green · {red_n} red"))
+
     planning = data.get("planning")
-    planning_block = ""
     if planning is not None:
         totals = planning.get("totals") if isinstance(planning, dict) else None
         by_model = planning.get("by_model") if isinstance(planning, dict) else None
         model_join = ", ".join(sorted(by_model.keys())) if isinstance(by_model, dict) else ""
-        impl_outputs = []
-        for p in phases:
-            tel = p.get("telemetry") if isinstance(p, dict) else None
-            impl_outputs.append(_totals_field(tel.get("totals") if isinstance(tel, dict) else None, "output"))
-        impl_total = jq_add(impl_outputs)
-        planning_block = (
-            '<p class="summary">Planning: '
-            + render.tostring(totals.get("output") if isinstance(totals, dict) else None)
-            + ' out · '
-            + render.tostring(totals.get("turns") if isinstance(totals, dict) else None)
-            + ' Turns · ' + model_join
-            + ' · Implementierung: ' + render.tostring(impl_total) + ' out</p>'
+        planning_val = (
+            f"{fmt_int(_totals_field(totals, 'output'))} out · "
+            f"{fmt_int(_totals_field(totals, 'turns'))} turns"
         )
+        if model_join:
+            planning_val += f" · {model_join}"
+        meta_rows.append(_tele_pair("Planning", planning_val))
+
+    impl_outputs, impl_turns, impl_models = [], [], set()
+    for p in phases:
+        tel = p.get("telemetry") if isinstance(p, dict) else None
+        totals = tel.get("totals") if isinstance(tel, dict) else None
+        impl_outputs.append(_totals_field(totals, "output"))
+        impl_turns.append(_totals_field(totals, "turns"))
+        by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
+        if isinstance(by_model, dict):
+            impl_models.update(by_model.keys())
+    impl_out_total, impl_turns_total = sum(impl_outputs), sum(impl_turns)
+    if impl_out_total or impl_turns_total or impl_models:
+        impl_val = f"{fmt_int(impl_out_total)} out · {fmt_int(impl_turns_total)} turns"
+        if impl_models:
+            impl_val += f" · {', '.join(sorted(impl_models))}"
+        meta_rows.append(_tele_pair("Implementation", impl_val))
+
+    header = (
+        '<header class="batch"><div class="ident">'
+        f'<h1>{esc(batch)}</h1> {header_badge}</div>'
+        f'<dl class="meta">{"".join(meta_rows)}</dl></header>'
+    )
 
     body = "".join(phase_html(p, goals) for p in phases if isinstance(p, dict))
 
     return (
         '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(batch) + ' report</title>'
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        '<h1>' + esc(batch) + '</h1>'
-        '<p class="meta">Repo: ' + esc(data.get("repo")) + ' · Started: ' + esc(data.get("started")) + '</p>'
-        '<p class="summary">Phases: ' + str(len(phases))
-        + ' · Green: ' + str(green_n)
-        + ' · Red: ' + str(red_n) + '</p>'
-        + planning_block
-        + body
+        + header
+        # Phase 03 replaces this with overview_html(dir_), phase 04 with phase_table_html(rows).
+        + '<!-- overview -->'
+        + '<!-- phase-table -->'
+        + '<main>' + body + '</main>'
         + '</body></html>'
     )
 
