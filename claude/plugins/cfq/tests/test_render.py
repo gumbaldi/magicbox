@@ -125,10 +125,10 @@ class TestRender(CfqTestCase):
 
         with self.subTest(mode="text"):
             self.assertIn(
-                "| repo-a | 0 | 0 | 1/0 |", text, f"repo-a row missing/wrong in QUEUES:\n{text}",
+                "| repo-a | 0 | 0 | 1/0 | 0 |", text, f"repo-a row missing/wrong in QUEUES:\n{text}",
             )
             self.assertIn(
-                "| repo-b | 0 | 0 | 0/0 | OK |", text, f"repo-b row missing/wrong in QUEUES:\n{text}",
+                "| repo-b | 0 | 0 | 0/0 | 0 | OK |", text, f"repo-b row missing/wrong in QUEUES:\n{text}",
             )
 
         # Equivalence: render and the JSON default agree on repo count for the same fixture.
