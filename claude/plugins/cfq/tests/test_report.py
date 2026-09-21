@@ -8,10 +8,12 @@ import contextlib
 import io
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -356,7 +358,10 @@ M
         self.assertIn('<header class="batch">', html_x, "report.html missing the header block")
         self.assertIn("<dt>Repo</dt>", html_x, "report.html header missing the Repo pair")
         self.assertIn("<dt>Started</dt>", html_x, "report.html header missing the Started pair")
-        self.assertIn("<!-- overview -->", html_x, "report.html missing the overview insertion point")
+        # phase 03 fills the overview placeholder in; this batch has no .batch-context.md, so the
+        # slot renders empty and neither the placeholder comment nor the section survives.
+        self.assertNotIn("<!-- overview -->", html_x, "overview placeholder not filled in")
+        self.assertNotIn('<section class="overview">', html_x, "overview section rendered despite no .batch-context.md")
         self.assertIn("<!-- phase-table -->", html_x, "report.html missing the phase-table insertion point")
         self.assertNotIn("Dauer", html_x, "report.html still carries the German Dauer label")
         self.assertNotIn("Implementierung", html_x, "report.html still carries the German Implementierung label")
@@ -435,7 +440,10 @@ M
         self.assertIn('<header class="batch">', html_y, "report.html missing the header block")
         self.assertIn("<dt>Repo</dt>", html_y, "report.html header missing the Repo pair")
         self.assertIn("<dt>Started</dt>", html_y, "report.html header missing the Started pair")
-        self.assertIn("<!-- overview -->", html_y, "report.html missing the overview insertion point")
+        # phase 03 fills the overview placeholder in; this batch has no .batch-context.md, so the
+        # slot renders empty and neither the placeholder comment nor the section survives.
+        self.assertNotIn("<!-- overview -->", html_y, "overview placeholder not filled in")
+        self.assertNotIn('<section class="overview">', html_y, "overview section rendered despite no .batch-context.md")
         self.assertIn("<!-- phase-table -->", html_y, "report.html missing the phase-table insertion point")
         self.assertNotIn("Dauer", html_y, "report.html still carries the German Dauer label")
         self.assertNotIn("Implementierung", html_y, "report.html still carries the German Implementierung label")
@@ -854,6 +862,121 @@ class TestDerivations(unittest.TestCase):
 
     def test_truncate_words_single_token_longer_than_limit_hard_cuts(self):
         self.assertEqual(cfq_report.truncate_words("a" * 30, 10), "a" * 10 + "…")
+
+
+# ---- phase 03: the Markdown subset renderer for .batch-context.md -> the report's Overview
+# section. Pure functions over literal strings, no files, no project-specific nouns.
+
+class TestMarkdownSubset(unittest.TestCase):
+    # -- md_min: routine / structural cases --------------------------------------------------
+
+    def test_routine_heading_paragraph_and_list(self):
+        out = cfq_report.md_min(
+            "## Heading\n\nA paragraph.\n\n- one\n- two\n- three\n"
+        )
+        self.assertIn("<h3>Heading</h3>", out)
+        self.assertIn("<p>A paragraph.</p>", out)
+        self.assertEqual(out.count("<li>"), 3)
+        self.assertIn("<li>one</li>", out)
+        self.assertIn("<li>two</li>", out)
+        self.assertIn("<li>three</li>", out)
+
+    def test_wrapped_bullet_continuation_stays_one_li_not_a_paragraph(self):
+        out = cfq_report.md_min("- first line of the item\n  wraps onto this line\n")
+        self.assertEqual(out.count("<li>"), 1)
+        self.assertNotIn("<p>", out)
+        self.assertIn("<li>first line of the item wraps onto this line</li>", out)
+
+    # -- md_inline -----------------------------------------------------------------------------
+
+    def test_inline_bold_and_code(self):
+        self.assertEqual(cfq_report.md_inline("**bold**"), "<strong>bold</strong>")
+        self.assertEqual(cfq_report.md_inline("`code`"), "<code>code</code>")
+
+    def test_inline_backtick_span_wins_over_bold_inside_it(self):
+        out = cfq_report.md_inline("`a **b** c`")
+        self.assertNotIn("<strong>", out)
+        self.assertEqual(out, "<code>a **b** c</code>")
+
+    # -- escaping --------------------------------------------------------------------------------
+
+    def test_escaping_happens_before_this_function_is_reached(self):
+        # md_min escapes each emitted value itself (via esc()) -- feeding it raw HTML must come
+        # out neutralised, never as a literal live tag.
+        out = cfq_report.md_min("A line with <script>alert(1)</script> in it.")
+        self.assertIn("&lt;script&gt;", out)
+        self.assertNotIn("<script", out)
+
+    # -- edge cases ------------------------------------------------------------------------------
+
+    def test_empty_string_returns_empty(self):
+        self.assertEqual(cfq_report.md_min(""), "")
+
+    def test_only_blank_lines_returns_empty(self):
+        self.assertEqual(cfq_report.md_min("\n\n\n"), "")
+
+    def test_single_hash_title_alone_is_skipped_entirely(self):
+        out = cfq_report.md_min("# Batch Context\n")
+        self.assertEqual(out, "")
+
+    # -- fall-through: outside the documented subset ------------------------------------------
+
+    def test_blockquote_and_table_line_fall_back_to_paragraph_text(self):
+        out = cfq_report.md_min("> a quote\n\n| a | table |\n")
+        self.assertNotIn("<blockquote", out)
+        self.assertNotIn("<table", out)
+        self.assertIn("<p>", out)
+        self.assertIn("&gt; a quote", out)
+        self.assertIn("| a | table |", out)
+
+
+class TestOverview(unittest.TestCase):
+    def _dir_with_context(self, tmp_path, body):
+        (tmp_path).mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".batch-context.md").write_text(body)
+        return str(tmp_path)
+
+    def test_all_five_sections_renders_only_goal_decisions_non_goals(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = self._dir_with_context(pathlib.Path(td), (
+                "# Batch Context\n\n"
+                "## Goal\n\nMake it work.\n\n"
+                "## Decisions\n\n- **One.** Do the thing.\n\n"
+                "## Invariants\n\n- Never break this.\n\n"
+                "## Cross-Phase Contracts\n\n- Phase 01 -> all.\n\n"
+                "## Non-Goals\n\n- Not doing that.\n"
+            ))
+            out = cfq_report.overview_html(d)
+            self.assertIn('<section class="overview">', out)
+            self.assertIn("<h3>Goal</h3>", out)
+            self.assertIn("<h3>Decisions</h3>", out)
+            self.assertIn("<h3>Non-Goals</h3>", out)
+            self.assertNotIn("Invariants", out)
+            self.assertNotIn("Cross-Phase Contracts", out)
+
+    def test_only_goal_present_no_empty_headings_for_the_rest(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = self._dir_with_context(pathlib.Path(td), "# Batch Context\n\n## Goal\n\nJust this.\n")
+            out = cfq_report.overview_html(d)
+            self.assertIn("<h3>Goal</h3>", out)
+            self.assertNotIn("<h3>Decisions</h3>", out)
+            self.assertNotIn("<h3>Non-Goals</h3>", out)
+
+    def test_no_batch_context_file_returns_empty_and_html_has_no_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = str(pathlib.Path(td))
+            self.assertEqual(cfq_report.overview_html(d), "")
+            doc = cfq_report.render_report_html(
+                {"batch": "x", "phases": []}, {}, d,
+            )
+            self.assertNotIn('<section class="overview">', doc)
+            self.assertIn("<!doctype html>", doc)
+
+    def test_lowercase_heading_still_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = self._dir_with_context(pathlib.Path(td), "# Batch Context\n\n## non-goals\n\n- x\n")
+            out = cfq_report.overview_html(d)
+            self.assertIn("<h3>Non-Goals</h3>", out)
 
 
 if __name__ == "__main__":

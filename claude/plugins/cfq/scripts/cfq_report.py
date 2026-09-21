@@ -90,6 +90,13 @@ section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem
   margin:.75rem 0}
 .tele dt{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem}
 .tele dd{margin:0}
+section.overview{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem;margin:1.25rem 0}
+.overview h3{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
+.overview ul{margin:.3rem 0 .9rem;padding-left:1.1rem}
+.overview li{margin:.2rem 0}
+.overview p{margin:.3rem 0 .9rem}
+.overview li strong{color:var(--fg)}
 .verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 section.repo{margin:1.5rem 0}
 @media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
@@ -590,6 +597,126 @@ def truncate_words(text, limit):
     return text[:cut] + "…"
 
 
+# ---- markdown subset: .batch-context.md -> the report's Overview section -------------------
+#
+# Not a general Markdown renderer (see the batch's Non-Goals) -- headings, one level of bullets,
+# paragraphs, `**bold**` and `` `code` `` only. Everything else (blockquotes, tables, links,
+# nested lists) falls through to paragraph text on purpose, since `.batch-context.md`'s own format
+# never uses them.
+
+_INLINE_RE = re.compile(r"`([^`]*)`|\*\*([^*]*?)\*\*")
+
+
+def md_inline(escaped_text):
+    """Operates on text that has already been through `esc`/`html_escape_jq`. One pass, one
+    regex: inline code and bold are matched as alternatives at each position so a `**` inside a
+    backtick span is consumed as part of the code match and never seen by the bold alternative --
+    doing this as two sequential substitutions would let a later bold pass reach back inside an
+    already-emitted `<code>` span."""
+    def repl(m):
+        if m.group(1) is not None:
+            return f"<code>{m.group(1)}</code>"
+        return f"<strong>{m.group(2)}</strong>"
+    return _INLINE_RE.sub(repl, escaped_text)
+
+
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_MD_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
+
+
+def md_min(text):
+    """A line-driven state machine over `text.splitlines()`. No nesting, no look-ahead -- nested
+    bullets are deliberately flattened to one level, since `.batch-context.md`'s format has none.
+    Every emitted text value goes through `md_inline(esc(value))`, never raw."""
+    parts = []
+    in_list = False
+    list_items = []
+    para_lines = []
+
+    def flush_para():
+        if para_lines:
+            parts.append(f"<p>{md_inline(esc(' '.join(para_lines)))}</p>")
+            para_lines.clear()
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            lis = "".join(f"<li>{it}</li>" for it in list_items)
+            parts.append(f"<ul>{lis}</ul>")
+            in_list = False
+            list_items.clear()
+
+    for raw in text.splitlines():
+        if raw.strip() == "":
+            close_list()
+            flush_para()
+            continue
+        m = _MD_HEADING_RE.match(raw)
+        if m:
+            close_list()
+            flush_para()
+            level = len(m.group(1))
+            if level == 1:
+                continue  # the document title, not content
+            tag = "h3" if level == 2 else "h4"
+            parts.append(f"<{tag}>{md_inline(esc(m.group(2).strip()))}</{tag}>")
+            continue
+        m = _MD_BULLET_RE.match(raw)
+        if m:
+            flush_para()
+            in_list = True
+            list_items.append(md_inline(esc(m.group(1).strip())))
+            continue
+        if in_list and list_items and raw[:1] in (" ", "\t"):
+            list_items[-1] += " " + md_inline(esc(raw.strip()))
+            continue
+        para_lines.append(raw.strip())
+
+    close_list()
+    flush_para()
+    return "".join(parts)
+
+
+_MD_SECTION_RE = re.compile(r"^##\s+(.*)$", re.M)
+
+
+def read_batch_context(dir_):
+    """`<dir_>/.batch-context.md` -> `{heading_lowercased: body_text}`, split on `^## ` headings.
+    Missing file or unreadable -> `{}`. Text before the first `## ` heading (the `# Batch Context`
+    title) is discarded. Heading lookup is case-insensitive and whitespace-stripped."""
+    try:
+        text = pathlib.Path(dir_, ".batch-context.md").read_text()
+    except OSError:
+        return {}
+    matches = list(_MD_SECTION_RE.finditer(text))
+    sections = {}
+    for i, m in enumerate(matches):
+        heading = m.group(1).strip().lower()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        sections[heading] = text[m.end():end].strip("\n")
+    return sections
+
+
+OVERVIEW_SECTIONS = [("goal", "Goal"), ("decisions", "Decisions"), ("non-goals", "Non-Goals")]
+
+
+def overview_html(dir_):
+    """`## Invariants` and `## Cross-Phase Contracts` are deliberately excluded -- they are
+    instructions to the implementer, and the report is read after the implementation is done.
+    Returns "" when the file is missing or none of the three sections has content, so a batch
+    predating `.batch-context.md` gets no overview section at all, not an empty box."""
+    sections = read_batch_context(dir_)
+    body_parts = []
+    for key, label in OVERVIEW_SECTIONS:
+        body = sections.get(key, "")
+        if not body:
+            continue
+        body_parts.append(f"<h3>{label}</h3>{md_min(body)}")
+    if not body_parts:
+        return ""
+    return '<section class="overview"><h2>Overview</h2>' + "".join(body_parts) + "</section>"
+
+
 # ---- verb: html -----------------------------------------------------------------------------
 
 def extract_goal(planfile):
@@ -717,7 +844,7 @@ def phase_html(phase, goals):
     return "".join(parts)
 
 
-def render_report_html(data, goals):
+def render_report_html(data, goals, dir_):
     batch = data.get("batch")
     phases = data.get("phases", [])
     green_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
@@ -780,8 +907,8 @@ def render_report_html(data, goals):
         '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(batch) + ' report</title>'
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
         + header
-        # Phase 03 replaces this with overview_html(dir_), phase 04 with phase_table_html(rows).
-        + '<!-- overview -->'
+        + overview_html(dir_)
+        # Phase 04 replaces this with phase_table_html(rows).
         + '<!-- phase-table -->'
         + '<main>' + body + '</main>'
         + '</body></html>'
@@ -807,7 +934,7 @@ def cmd_html(args):
         errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
 
     goals = extract_goals(dir_, data)
-    html_doc = render_report_html(data, goals)
+    html_doc = render_report_html(data, goals, dir_)
     tmp = f"{out}.tmp"
     pathlib.Path(tmp).write_text(html_doc + "\n")
     os.replace(tmp, out)
