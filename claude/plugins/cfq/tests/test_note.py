@@ -303,5 +303,92 @@ class NoteTest(CfqTestCase):
         self.assertFalse(inbox.exists(), "importing must not create the inbox directory")
 
 
+class NoteListTest(CfqTestCase):
+    """Behavior tests for `bin/cfq note list` -- renders the plan/ inbox without consuming it,
+    see phase 05's .batch-context.md and .claude/cfq/impl/.../05-plan-inbox-list-and-consume.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.plan_dir = self.repo / ".claude" / "cfq" / "plan"
+
+    def _write_entry(self, filename, content):
+        self.plan_dir.mkdir(parents=True, exist_ok=True)
+        f = self.plan_dir / filename
+        f.write_text(content)
+        return f
+
+    def test_three_entries_mixed_creation_order_sorted_output(self):
+        # Written out of filename order on purpose -- the listing must sort by filename, not by
+        # creation order.
+        self._write_entry("2026-01-03-third.md", "# Third\n\nbody\n")
+        self._write_entry("2026-01-01-first.md", "# First\n\nbody\n")
+        self._write_entry("2026-01-02-second.md", "# Second\n\nbody\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual(
+            [e["filename"] for e in out],
+            ["2026-01-01-first.md", "2026-01-02-second.md", "2026-01-03-third.md"],
+        )
+        self.assertEqual(out[0]["date"], "2026-01-01")
+        self.assertEqual(out[0]["slug"], "first")
+        self.assertEqual(out[0]["title"], "First")
+        self.assertEqual(out[0]["path"], str(self.plan_dir / "2026-01-01-first.md"))
+
+    def test_entry_with_no_heading_falls_back_to_first_non_empty_line(self):
+        self._write_entry("2026-01-01-noheading.md", "\nJust a plain first line.\n\nMore body.\n")
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["title"], "Just a plain first line.")
+        self.assertEqual(out[0]["excerpt"], "More body.")
+
+    def test_single_long_paragraph_excerpt_is_truncated_with_ellipsis(self):
+        long_line = " ".join(f"word{i}" for i in range(60))
+        self.assertGreater(len(long_line), 200)
+        self._write_entry("2026-01-01-long.md", f"# Long finding\n\n{long_line}\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        excerpt = out[0]["excerpt"]
+        self.assertLessEqual(len(excerpt), 201, f"excerpt too long: {excerpt!r}")
+        self.assertTrue(excerpt.endswith("…"), f"excerpt must end in an ellipsis: {excerpt!r}")
+        self.assertTrue(long_line.startswith(excerpt[:-1].rstrip()), f"cut text must be a prefix: {excerpt!r}")
+
+    def test_plan_done_entry_is_not_listed(self):
+        self._write_entry("2026-01-01-visible.md", "# Visible\n\nbody\n")
+        done_dir = self.plan_dir / "done"
+        done_dir.mkdir(parents=True)
+        (done_dir / "2026-01-01-consumed.md").write_text("# Consumed\n\nbody\n")
+
+        out = self.json_out(self.run_cfq("note", "list", str(self.repo), check=True))
+        self.assertEqual([e["filename"] for e in out], ["2026-01-01-visible.md"])
+
+    def test_empty_plan_dir_returns_empty_list(self):
+        self.plan_dir.mkdir(parents=True)
+        proc = self.run_cfq("note", "list", str(self.repo))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc), [])
+
+    def test_missing_plan_dir_returns_empty_list(self):
+        self.assertFalse(self.plan_dir.exists())
+        proc = self.run_cfq("note", "list", str(self.repo))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc), [])
+
+    def test_text_rendering_lists_date_title_and_excerpt(self):
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nsomething noticed here.\n")
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--text", check=True,
+        ).stdout
+        self.assertIn("2026-01-01  First finding  something noticed here.", out.splitlines())
+        self.assertNotIn("&nbsp;", out, "padding must use real spaces, never HTML entities")
+
+    def test_text_rendering_empty_inbox(self):
+        self.plan_dir.mkdir(parents=True)
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--text", check=True,
+        ).stdout
+        self.assertIn("No planning requests waiting in the queue.", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -371,5 +371,83 @@ class ParkTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "invalid priority should exit non-zero")
 
 
+class ParkFromPlanTest(CfqTestCase):
+    """`park ... --from-plan <path>` consumes the plan-inbox entry `cfq note list` showed --
+    see phase 05's .batch-context.md and
+    .claude/cfq/impl/.../05-plan-inbox-list-and-consume.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.park_home = self._repos_dir / "parkhome-fromplan"
+        self.park_home.mkdir()
+        self.parkrepo = self.make_repo("parkrepo-fromplan")
+        self.plan_dir = self.parkrepo / ".claude" / "cfq" / "plan"
+        self.plan_dir.mkdir(parents=True)
+        self.entry = self.plan_dir / "2026-01-01-finding.md"
+        self.entry.write_text("# Finding\n\nsomething\n")
+
+    def _park(self, batch, from_plan=None, priority="normal"):
+        args = ["park", str(self.parkrepo), batch, priority]
+        if from_plan is not None:
+            args += ["--from-plan", str(from_plan)]
+        return self.run_cfq(*args, home=self.park_home)
+
+    def test_normal_move_into_plan_done(self):
+        proc = self._park("2026-02-01-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        moved = self.plan_dir / "done" / self.entry.name
+        self.assertTrue(moved.is_file(), "entry should have moved into plan/done/")
+        self.assertFalse(self.entry.exists(), "entry should no longer be at its original path")
+        self.assertEqual(moved.read_text(), "# Finding\n\nsomething\n")
+
+    def test_rerun_of_the_same_call_is_a_noop(self):
+        self._park("2026-02-01-batch", from_plan=self.entry)
+        moved = self.plan_dir / "done" / self.entry.name
+        before = moved.read_text()
+
+        proc = self._park("2026-02-01-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, f"re-run must be a no-op, not an error: {proc.stderr}")
+        self.assertEqual(moved.read_text(), before, "already-consumed entry must stay unchanged")
+
+    def test_path_outside_plan_dir_is_rejected(self):
+        outside = self._repos_dir / "outside.md"
+        outside.write_text("not a plan entry\n")
+
+        proc = self._park("2026-02-02-batch", from_plan=outside)
+        self.assertNotEqual(proc.returncode, 0, "a path outside plan/ must be rejected")
+        self.assertTrue(outside.exists(), "the outside file must be left untouched")
+        self.assertFalse(
+            (self.plan_dir / "done").exists(), "nothing should be moved on a rejected path",
+        )
+
+    def test_missing_plan_done_dir_is_created(self):
+        done_dir = self.plan_dir / "done"
+        self.assertFalse(done_dir.exists())
+        proc = self._park("2026-02-03-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(done_dir.is_dir())
+
+    def test_name_collision_in_plan_done_is_an_error(self):
+        done_dir = self.plan_dir / "done"
+        done_dir.mkdir(parents=True)
+        collision = done_dir / self.entry.name
+        collision.write_text("already parked\n")
+
+        proc = self._park("2026-02-04-batch", from_plan=self.entry)
+        self.assertNotEqual(proc.returncode, 0, "a name collision in plan/done/ must be an error")
+        self.assertIn(str(self.entry), proc.stderr, f"source path missing from error: {proc.stderr}")
+        self.assertIn(str(collision), proc.stderr, f"target path missing from error: {proc.stderr}")
+        self.assertTrue(self.entry.exists(), "source must be left in place on collision")
+        self.assertEqual(
+            collision.read_text(), "already parked\n", "existing plan/done/ entry must not be overwritten",
+        )
+
+    def test_park_without_the_flag_is_unaffected(self):
+        proc = self._park("2026-02-05-batch")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.plan_dir / "done").exists(), "no --from-plan means no move at all")
+        self.assertTrue(self.entry.exists(), "the plan entry must be left untouched")
+
+
 if __name__ == "__main__":
     unittest.main()

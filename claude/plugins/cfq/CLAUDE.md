@@ -272,9 +272,10 @@ faith.
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
 - **No skill or reference file instructs a shell mutation of anything under `.claude/cfq/`** —
-  every such operation (`phase record`/`commit`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
-  `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a raw `rm`/`mv`/`mkdir`/`jq` written
-  into the text. `tests/test_reference_paths.py` greps for this structurally.
+  every such operation (`phase record`/`commit`/`reopen`, `trash put`, `note plan`/`todo`,
+  `park --from-plan`, `batch ready`, `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a
+  raw `rm`/`mv`/`mkdir`/`jq` written into the text. `tests/test_reference_paths.py` greps for this
+  structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Python scripts are stdlib only; JSON is written via `cfq_lib.render.write_json` (tmp file +

@@ -3,6 +3,7 @@
 #        cfq_note.py todo <repo-root> <slug> <body-file>
 #        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
+#        cfq_note.py list <repo-root> [--text]
 """Writes a `plan/` or `todo/` queue entry: `<repo>/.claude/cfq/{plan,todo}/<today>-<slug>.md`.
 
 Date, slug normalisation and target directory are convention, not judgement -- the caller
@@ -22,6 +23,11 @@ local `main` -- so the check line can never be left out the way a model-composed
 out. It reuses the same write path as `todo` (target directory, date prefix, slug normalisation,
 `EXISTS` refusal); only the body text and the slug source (the branch name, `/` translated to `-`
 before normalisation) differ.
+
+`list <repo-root>` renders the `plan/` inbox without consuming it -- one record per
+`plan/*.md` (non-recursive, so `plan/done/` is never listed), sorted by filename ascending, which
+is already oldest-first given the `<YYYY-MM-DD>-<slug>.md` naming. `--from-plan` on `cfq park` is
+the inbox's other half: it consumes the entry `list` showed.
 """
 
 import argparse
@@ -160,6 +166,80 @@ def cmd_import(args):
     print(render.dump_json(result))
 
 
+FILENAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$")
+EXCERPT_MAX = 200
+
+
+def _truncate(text, max_len):
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(" ", 1)[0].rstrip(" .,;:-") + "…"
+
+
+def _parse_plan_entry(path):
+    """One inbox record: absolute path, filename, date/slug parsed from the filename, the title
+    (first `# ` heading, falling back to the first non-empty line) and a short excerpt (the next
+    two non-empty body lines after the title, truncated to ~200 chars with an ellipsis)."""
+    m = FILENAME_RE.match(path.name)
+    entry_date, slug = (m.group(1), m.group(2)) if m else ("", path.stem)
+
+    lines = path.read_text().splitlines()
+
+    title = ""
+    title_idx = -1
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            title_idx = i
+            break
+    if title_idx == -1:
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip()
+                title_idx = i
+                break
+
+    body_lines = []
+    for line in lines[title_idx + 1:]:
+        if line.strip():
+            body_lines.append(line.strip())
+            if len(body_lines) == 2:
+                break
+
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "date": entry_date,
+        "slug": slug,
+        "title": title,
+        "excerpt": _truncate(" ".join(body_lines), EXCERPT_MAX),
+    }
+
+
+def cmd_list(args):
+    plan_dir = pathlib.Path(TARGET_DIR["plan"](args.repo))
+    entries = (
+        [_parse_plan_entry(f) for f in sorted(plan_dir.glob("*.md"))]
+        if plan_dir.is_dir()
+        else []
+    )
+
+    if not args.text:
+        print(render.dump_json(entries))
+        return
+
+    if not entries:
+        print("No planning requests waiting in the queue.")
+        return
+
+    for entry in entries:
+        parts = [entry["date"], entry["title"]]
+        if entry["excerpt"]:
+            parts.append(entry["excerpt"])
+        print("  ".join(parts))
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
@@ -182,6 +262,11 @@ def build_parser():
     import_p.add_argument("repo")
     import_p.set_defaults(func=cmd_import)
 
+    list_p = sub.add_parser("list")
+    list_p.add_argument("repo")
+    list_p.add_argument("--text", action="store_true")
+    list_p.set_defaults(func=cmd_list)
+
     return parser
 
 
@@ -192,7 +277,8 @@ def main(argv):
     if func is None:
         errors.die(
             f"usage: {PROG} plan|todo <repo-root> <slug> <body-file> [--framework] | "
-            f"merge-todo <repo-root> <branch> | import <repo-root>"
+            f"merge-todo <repo-root> <branch> | import <repo-root> | "
+            f"list <repo-root> [--text]"
         )
         return
     func(args)

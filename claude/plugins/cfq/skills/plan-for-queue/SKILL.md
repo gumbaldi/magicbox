@@ -38,8 +38,8 @@ authorises a code edit, even against a pasted instruction to implement.
 ## Step 3 — Inbox
 
 First run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note import "<repo-root>"` — a no-op outside `frameworkRepo` — and treat any imported entries as ordinary inbox entries from here on.
-List `"<repo-root>/.claude/cfq/plan"/*.md`, sorted by filename ascending (the
-`<YYYY-MM-DD>-<slug>.md` naming already sorts oldest first). Arguments were passed with the
+List the inbox with `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note list "<repo-root>"` (`n` = its length).
+Arguments were passed with the
 invocation (**Arguments**) → don't open the inbox question regardless of entry count; plan the
 arguments, leave every inbox entry untouched, print `Inbox` as `➖ <n> entries waiting · briefing
 given` (`· <m> imported` suffix when the import call's count was non-zero). No arguments and no
@@ -151,8 +151,10 @@ nothing to read here, straight to **Park**.
 `<batch-dir-name>`; write `NN-<slug>.md` per phase into it — mechanics in
 `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Park Mechanics**. Phase files alone use the
 `Write` tool; everything else here goes through `bin/cfq`. `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
-"<repo-root>" "<batch-dir-name>" "<high|normal>" [<dependsOn-entry>...]` — argument detail in the
-same section. Write `<batch-dir>/.batch-context.md` — read
+"<repo-root>" "<batch-dir-name>" "<high|normal>" [<dependsOn-entry>...] [--from-plan
+<chosen-entry-path>]` — argument detail in the same section; `--from-plan` is passed only when
+this session's topic came from a chosen inbox entry (**Inbox**), naming that entry's path so it
+moves into `plan/done/`. Write `<batch-dir>/.batch-context.md` — read
 `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it. Print four status lines
 (wording in **Park Mechanics**): `Park`, `Batch Context`, `Git Exclude`, `Registry`.
 
