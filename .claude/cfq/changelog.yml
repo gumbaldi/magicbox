@@ -955,3 +955,10 @@
     - phase: "06-rename-global-state-dir"
       status: "green"
       summary: ""
+- batchNumber: 33
+  batch: 033-2026-09-21-todo-queue-sweep
+  branch: cfq/033-2026-09-21-todo-queue-sweep
+  base: main
+  started: 2026-09-21
+  status: in-progress
+  legacy: false
