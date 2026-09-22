@@ -1041,8 +1041,13 @@
   branch: cfq/036-2026-09-22-repair-todo-card-checks
   base: cfq/035-2026-09-22-ifq-batch-gate-and-output-design
   started: 2026-09-22
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-todo-check-repair-and-note-warning"
+      status: "green"
+      summary: ""
 - batchNumber: 37
   batch: 037-2026-09-22-phase-push-upstream-and-inbox-overview
   status: parked
