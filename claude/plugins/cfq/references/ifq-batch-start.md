@@ -17,6 +17,13 @@ Print the `Model Gate` status line either way, naming which list was matched.
 preflight itself already excludes blocked/planning/other-in-progress batches from
 `selection.selectable`; this section only covers the wording each case needs.
 
+`selection.queueText` is the aligned `QUEUE · <n> open` listing rendered from those same fields —
+every open batch, selectable, blocked and planning alike, each row naming why a non-selectable one
+can't be picked. It rides on every status this preflight can return, the four early-return ones
+(`MULTIPLE_IN_PROGRESS`, `SELECT_UNAVAILABLE`, `BLOCKED`, `NO_BATCH`) included, `null` only when the
+queue itself is empty. Print it exactly as returned — no rewording, no re-deriving it from the raw
+`selectable`/`blocked`/`planning` arrays.
+
 **Blocked** batches (`selection.blocked`, each `{name, dependsOn, unknownDeps}`) are never offered.
 If `status` is `BLOCKED`, print the wait list (batch → waiting on `dependsOn`) and end — never fall
 back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is shown at selection time

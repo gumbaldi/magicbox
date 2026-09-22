@@ -21,7 +21,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import queue as cfq_queue, render  # noqa: E402
+from cfq_lib import queue as cfq_queue, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
@@ -40,6 +40,53 @@ EMPTY_SELECTION_TEMPLATE = {
 
 def project(batch, keys):
     return {k: batch[k] for k in keys}
+
+
+def render_queue_text(selectable, blocked, planning, in_progress, chosen):
+    """The `QUEUE · <n> open` block the ifq start gate (a later phase) prints: one row per open
+    batch across `selectable` (already sorted flagged-first-then-name, per its own caller),
+    `blocked` and `planning`, the latter two appended after in name order. Status resolution is
+    first-match-wins: in progress, then planning, then blocked (with its wait list and any
+    unknown dependency folded into the same cell), then selected, then plain ready -- a `high`
+    priority entry gets that whole cell prefixed with `high · `. Empty input -> "" (never a bare
+    header) -- see references/ifq-batch-start.md for the field this rides on."""
+    blocked_by_name = {b["name"]: b for b in blocked}
+    planning_set = set(planning)
+    combined = (
+        list(selectable)
+        + sorted(blocked, key=lambda b: b["name"])
+        + [{"name": n} for n in sorted(planning)]
+    )
+    if not combined:
+        return ""
+
+    rows = []
+    for entry in combined:
+        name = entry["name"]
+        if name == in_progress:
+            status = "in progress"
+        elif name in planning_set:
+            status = "planning"
+        elif name in blocked_by_name:
+            dep = blocked_by_name[name]
+            status = f"blocked → waits on {', '.join(dep.get('dependsOn') or [])}"
+            unknown = dep.get("unknownDeps") or []
+            if unknown:
+                status += f" ⚠️ unknown: {', '.join(unknown)}"
+        elif name == chosen:
+            status = "ready · selected"
+        else:
+            status = "ready"
+        if entry.get("priority") == "high":
+            status = f"high · {status}"
+
+        parsed = text.parse_batch_name(name)
+        number = name.split("-", 1)[0] if parsed["number"] is not None else name
+        rows.append([number, parsed["date"] or "", parsed["slug"], status])
+
+    lines = [f"QUEUE · {len(rows)} open"]
+    lines += text.table(rows, headers=["#", "Date", "Topic", "Status"])
+    return "\n".join(lines)
 
 
 def cmd_preflight(args):
@@ -86,6 +133,23 @@ def cmd_preflight(args):
     ]
     eligible = [b for b in candidates if b["name"] not in blocked_names and b["name"] not in planning_names]
 
+    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
+
+    def project_selectable(b):
+        entry = project(b, ["name", "priority", "open", "done", "consistency"])
+        entry["goal"] = cfq_queue.read_goal(qdir / b["name"], 120)
+        return entry
+
+    # Every open, non-blocked, non-planning batch -- the in-progress one included -- projected
+    # and sorted flagged-first-then-name. Feeds render_queue_text's `selectable` argument on
+    # every return path below, independent of `selection.selectable` itself (which still excludes
+    # a lone in-progress batch, unchanged from before this phase) so the queue block always shows
+    # that row too, marked `in progress` rather than dropped.
+    queue_rows = sorted(
+        (project_selectable(b) for b in eligible),
+        key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
+    )
+
     inprogress_names = [b["name"] for b in eligible if b["inProgress"]]
     inprogress_count = len(inprogress_names)
 
@@ -95,6 +159,7 @@ def cmd_preflight(args):
             "selection": {
                 "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
                 "inProgress": inprog, "multipleInProgress": multi,
+                "queueText": render_queue_text(queue_rows, blocked_json, planning_names, inprog or "", "") or None,
             },
             **EMPTY_SELECTION_TEMPLATE,
         })
@@ -103,22 +168,12 @@ def cmd_preflight(args):
         print(empty_result("MULTIPLE_IN_PROGRESS", [], None, inprogress_names))
         return
 
-    qdir = pathlib.Path(repo) / ".claude" / "cfq" / "impl"
-
-    def project_selectable(b):
-        entry = project(b, ["name", "priority", "open", "done", "consistency"])
-        entry["goal"] = cfq_queue.read_goal(qdir / b["name"], 120)
-        return entry
-
     if inprogress_count == 1:
         inprogress_name = inprogress_names[0]
-        selectable = [project_selectable(b) for b in eligible if b["name"] != inprogress_name]
+        selectable = [b for b in queue_rows if b["name"] != inprogress_name]
     else:
         inprogress_name = ""
-        selectable = sorted(
-            (project_selectable(b) for b in eligible),
-            key=lambda b: (0 if b["priority"] == "high" else 1, b["name"]),
-        )
+        selectable = queue_rows
 
     if select_batch and not any(b["name"] == select_batch for b in eligible):
         print(empty_result("SELECT_UNAVAILABLE", selectable, None, []))
@@ -186,6 +241,7 @@ def cmd_preflight(args):
         "selection": {
             "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
             "inProgress": inprogress_name or None, "multipleInProgress": [],
+            "queueText": render_queue_text(queue_rows, blocked_json, planning_names, inprogress_name, chosen) or None,
         },
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],

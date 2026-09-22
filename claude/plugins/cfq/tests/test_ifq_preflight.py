@@ -7,10 +7,15 @@ Python in batch `017` phase 09 (see batch `014` phase 02 for the shadowing patte
 
 import json
 import shutil
+import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cfq_lib import text  # noqa: E402
 
 
 class IfqPreflightTest(CfqTestCase):
@@ -481,6 +486,154 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self._run_pf(str(repo8))
         changed = self.run_clean("find", str(repo8), "-newer", str(marker)).stdout
         self.assertEqual(changed, "", msg=f"run modified files under the fixture repo: {changed}")
+
+    # ---- selection.queueText (batch 035 phase 03) --------------------------------------------
+
+    def test_queue_text_three_open_batches(self):
+        repo = self._setup_repo("queue-three")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "035-2026-09-22-ifq-batch-gate").mkdir(parents=True)
+        (qdir / "035-2026-09-22-ifq-batch-gate" / "01-a.md").touch()
+        (qdir / "036-2026-09-22-render-cleanup").mkdir(parents=True)
+        (qdir / "036-2026-09-22-render-cleanup" / "01-b.md").touch()
+        (qdir / "036-2026-09-22-render-cleanup" / ".dependsOn").write_text(
+            "035-2026-09-22-ifq-batch-gate\n"
+        )
+        (qdir / "037-2026-09-23-cleanup-pass").mkdir(parents=True)
+        (qdir / "037-2026-09-23-cleanup-pass" / "01-c.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".planning").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["batch"]["name"], "035-2026-09-22-ifq-batch-gate", msg=f"chosen batch = {out}"
+        )
+
+        rows = [
+            ["035", "2026-09-22", "ifq-batch-gate", "ready · selected"],
+            ["036", "2026-09-22", "render-cleanup",
+             "blocked → waits on 035-2026-09-22-ifq-batch-gate"],
+            ["037", "2026-09-23", "cleanup-pass", "planning"],
+        ]
+        expected = "QUEUE · 3 open\n" + "\n".join(
+            text.table(rows, headers=["#", "Date", "Topic", "Status"])
+        )
+        self.assertEqual(
+            out["selection"]["queueText"], expected,
+            msg=f"queueText = {out['selection']['queueText']!r}",
+        )
+
+    def test_queue_text_unknown_dependency_shown_in_same_cell(self):
+        repo = self._setup_repo("queue-unknown-dep")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text(
+            "2026-01-01-alpha\ndoes-not-exist\n"
+        )
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            [b["name"] for b in out["selection"]["blocked"]], ["2026-01-02-blocked"],
+            msg=f"blocked list = {out}",
+        )
+        qtext = out["selection"]["queueText"]
+        lines = qtext.splitlines()
+        self.assertEqual(lines[0], "QUEUE · 2 open", msg=f"header = {lines[0]!r}; row count changed")
+        blocked_line = next(l for l in lines if "2026-01-02-blocked" in l)
+        self.assertIn(
+            "blocked → waits on 2026-01-01-alpha, does-not-exist ⚠️ unknown: does-not-exist",
+            blocked_line, msg=f"blocked line = {blocked_line!r}",
+        )
+
+    def test_queue_text_high_priority_prefixed_and_sorted_first(self):
+        repo = self._setup_repo("queue-high-priority")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+        (qdir / "2026-01-02-beta" / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"chosen = {out}")
+        lines = out["selection"]["queueText"].splitlines()
+        data_lines = lines[2:]
+        self.assertIn(
+            "2026-01-02-beta", data_lines[0], msg=f"flagged batch not sorted first: {data_lines}"
+        )
+        self.assertIn(
+            "high · ready · selected", data_lines[0], msg=f"flagged status wrong: {data_lines[0]!r}"
+        )
+
+    def test_queue_text_in_progress_not_marked_selected(self):
+        repo = self._setup_repo("queue-inprogress")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-02-01-inprog" / "done").mkdir(parents=True)
+        (qdir / "2026-02-01-inprog" / "done" / "00-x.md").touch()
+        (qdir / "2026-02-01-inprog" / "01-y.md").touch()
+        (qdir / "2026-02-02-other").mkdir(parents=True)
+        (qdir / "2026-02-02-other" / "01-z.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["selection"]["inProgress"], "2026-02-01-inprog", msg=f"inProgress = {out}"
+        )
+        self.assertEqual(out["batch"]["name"], "2026-02-01-inprog", msg=f"chosen = {out}")
+        lines = out["selection"]["queueText"].splitlines()
+        self.assertEqual(lines[0], "QUEUE · 2 open", msg=f"header = {lines[0]!r}")
+        inprog_line = next(l for l in lines if "2026-02-01-inprog" in l)
+        self.assertIn("in progress", inprog_line, msg=f"in-progress row wrong: {inprog_line!r}")
+        self.assertNotIn(
+            "selected", inprog_line, msg=f"in-progress row wrongly marked selected: {inprog_line!r}"
+        )
+
+    def test_queue_text_present_on_no_batch_and_blocked(self):
+        empty_repo = self._setup_repo("queue-empty")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertIn("queueText", out["selection"], msg=f"queueText key missing: {out}")
+        self.assertIsNone(
+            out["selection"]["queueText"], msg=f"empty queue queueText should be null: {out}"
+        )
+
+        blocked_repo = self._setup_repo("queue-blocked-only")
+        qdir = blocked_repo / ".claude" / "cfq" / "impl"
+        # a 0/0 directory (no .md files) is never a candidate itself, but its mere existence
+        # still blocks a real dependent -- see test_zero_zero_batch_alone_is_no_batch.
+        (qdir / "2026-01-01-a").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-a\n")
+
+        out = self.json_out(self._run_pf(str(blocked_repo)))
+        self.assertEqual(out["status"], "BLOCKED", msg=f"status = {out}")
+        self.assertIn("queueText", out["selection"], msg=f"queueText key missing: {out}")
+        qtext = out["selection"]["queueText"]
+        self.assertIsNotNone(qtext, msg=f"BLOCKED queueText should be non-empty: {out}")
+        self.assertTrue(qtext.startswith("QUEUE · 1 open"), msg=f"queueText = {qtext!r}")
+
+    def test_queue_text_legacy_unnumbered_batch(self):
+        repo = self._setup_repo("queue-legacy")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-legacy-slug").mkdir(parents=True)
+        (qdir / "2026-01-01-legacy-slug" / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        qtext = out["selection"]["queueText"]
+        self.assertNotIn("None", qtext, msg=f"queueText contains a raw None: {qtext!r}")
+
+        expected_row = text.table(
+            [["2026-01-01-legacy-slug", "", "2026-01-01-legacy-slug", "ready · selected"]],
+            headers=["#", "Date", "Topic", "Status"],
+        )[-1]
+        self.assertIn(expected_row, qtext, msg=f"legacy row = {qtext!r}")
 
 
 if __name__ == "__main__":
