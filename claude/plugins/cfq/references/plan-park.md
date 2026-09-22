@@ -20,6 +20,14 @@ snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`
 
 ## Final Report Fields
 
+The `RESULT · plan-for-queue` header is preceded by the batch overview block — `bin/cfq brief
+"<batch-dir>" --overview`, printed exactly as returned, no rewording, one blank line between it
+and the header. Above the header, not below: the overview is what the user reads to check the plan
+just written, the `RESULT` list that follows is only the handoff metadata. This is printed at
+**Final Report**, after **Plan Lint** has gone clean — a batch whose lint still has findings is not
+yet the plan the user gets, and the `.planning` marker is only removed once lint passes; the block
+is never printed earlier, at **Park**.
+
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
 `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its

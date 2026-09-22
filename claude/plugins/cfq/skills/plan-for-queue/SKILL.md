@@ -183,5 +183,5 @@ the final report. Print `Telemetry`.
 
 ## Step 19 — Final Report
 
-A `RESULT · plan-for-queue` header — field list in
-`${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**.
+Print `bin/cfq brief "<batch-dir>" --overview` as returned, then a `RESULT · plan-for-queue`
+header — field list in `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**.

@@ -179,17 +179,23 @@ def check_dashboard_todo_delegates(root):
     return fails
 
 
-# 9. Added by Phase 04 (batch 035): `implement-for-queue/SKILL.md` must keep its pointer to
-#    `ifq-batch-start.md`'s **Start Gate** section reachable -- a later edit that drops the
-#    mention would silently remove the gate from the session's read path while the reference
-#    section itself stays in place, undetected by any other check.
-def check_ifq_start_gate_mentioned(root):
+# 9. Added by Phase 04 (batch 035), extended by Phase 05: `implement-for-queue/SKILL.md` must keep
+#    its pointer to `ifq-batch-start.md`'s **Start Gate** section reachable, and
+#    `plan-for-queue/SKILL.md` must keep its pointer to the `--overview` call that precedes its
+#    `RESULT` header -- a later edit that drops either mention would silently remove it from the
+#    session's read path while the reference section itself stays in place, undetected by any
+#    other check. One shared assertion over both files, not two copies.
+def check_start_gate_and_overview_mentioned(root):
     fails = []
-    f = root / "skills" / "implement-for-queue" / "SKILL.md"
-    if not f.is_file():
-        return fails
-    if "Start Gate" not in f.read_text():
-        fails.append(f"FAIL: {f} no longer mentions the Start Gate section")
+    checks = (
+        (root / "skills" / "implement-for-queue" / "SKILL.md", "Start Gate"),
+        (root / "skills" / "plan-for-queue" / "SKILL.md", "--overview"),
+    )
+    for f, needle in checks:
+        if not f.is_file():
+            continue
+        if needle not in f.read_text():
+            fails.append(f"FAIL: {f} no longer mentions {needle!r}")
     return fails
 
 
@@ -203,7 +209,7 @@ def run_all(root):
     fails += check_settings_documented(root)
     fails += check_skill_line_budget(root)
     fails += check_dashboard_todo_delegates(root)
-    fails += check_ifq_start_gate_mentioned(root)
+    fails += check_start_gate_and_overview_mentioned(root)
     return fails
 
 
@@ -399,26 +405,44 @@ class ReferencePathsTest(CfqTestCase):
             out, [], msg=f"check 8 self-test false-flagged a delegating dashboard.md: {out}"
         )
 
-    def test_ifq_start_gate_mentioned(self):
+    def test_start_gate_and_overview_mentioned(self):
         tmp = self._repos_dir / "f9"
         (tmp / "skills" / "implement-for-queue").mkdir(parents=True)
+        (tmp / "skills" / "plan-for-queue").mkdir(parents=True)
         (tmp / "skills" / "implement-for-queue" / "SKILL.md").write_text(
             "no pointer to the gate here\n"
         )
+        (tmp / "skills" / "plan-for-queue" / "SKILL.md").write_text(
+            "no pointer to the overview call here\n"
+        )
 
-        out = check_ifq_start_gate_mentioned(tmp)
-        self.assertTrue(
-            out, msg="check 9 self-test did not catch a missing Start Gate mention"
+        out = check_start_gate_and_overview_mentioned(tmp)
+        joined = "\n".join(out)
+        self.assertIn(
+            "implement-for-queue",
+            joined,
+            msg="check 9 self-test did not catch a missing Start Gate mention",
+        )
+        self.assertIn(
+            "plan-for-queue",
+            joined,
+            msg="check 9 self-test did not catch a missing --overview mention",
         )
 
         good = self._repos_dir / "f9-good"
         (good / "skills" / "implement-for-queue").mkdir(parents=True)
+        (good / "skills" / "plan-for-queue").mkdir(parents=True)
         (good / "skills" / "implement-for-queue" / "SKILL.md").write_text(
             "read ...ifq-batch-start.md's **Start Gate** section...\n"
         )
-        out = check_ifq_start_gate_mentioned(good)
+        (good / "skills" / "plan-for-queue" / "SKILL.md").write_text(
+            'print `bin/cfq brief "<batch-dir>" --overview` as returned...\n'
+        )
+        out = check_start_gate_and_overview_mentioned(good)
         self.assertEqual(
-            out, [], msg=f"check 9 self-test false-flagged a SKILL.md that mentions Start Gate: {out}"
+            out,
+            [],
+            msg=f"check 9 self-test false-flagged SKILL.md files that mention both: {out}",
         )
 
     def test_real_plugin_tree_passes(self):
