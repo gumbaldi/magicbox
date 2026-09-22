@@ -1053,5 +1053,16 @@
   branch: cfq/037-2026-09-22-phase-push-upstream-and-inbox-overview
   base: cfq/036-2026-09-22-repair-todo-card-checks
   started: 2026-09-22
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-commit-push-own-upstream"
+      status: "green"
+      summary: ""
+    - phase: "02-note-list-overview"
+      status: "green"
+      summary: ""
+    - phase: "03-inbox-overview-in-pfq-ifq"
+      status: "green"
+      summary: ""
