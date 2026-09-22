@@ -1050,4 +1050,8 @@
       summary: ""
 - batchNumber: 37
   batch: 037-2026-09-22-phase-push-upstream-and-inbox-overview
-  status: parked
+  branch: cfq/037-2026-09-22-phase-push-upstream-and-inbox-overview
+  base: cfq/036-2026-09-22-repair-todo-card-checks
+  started: 2026-09-22
+  status: in-progress
+  legacy: false
