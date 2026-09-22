@@ -9,7 +9,9 @@ post-checkout re-confirm on new-mode) stay explicit skill-level steps, never hid
 `branch` field below comes from cfq_resume.py's own internal cfq_branch.py call (one process
 invocation total on the continue/off path), not a second direct call.
 
-Ported from cfq-ifq-preflight.sh -- a port, not a redesign: every output key is frozen.
+Ported from cfq-ifq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
+addition (batch 037 phase 03's `inbox` object) is not a break of that rule, only a removal or
+rename would be.
 """
 
 import argparse
@@ -36,6 +38,20 @@ GATE_LINE_RE = re.compile(
 EMPTY_SELECTION_TEMPLATE = {
     "batch": None, "nextPhase": None, "branch": None, "resume": None, "contextGate": None,
 }
+
+INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
+
+
+def inbox_count_from_overview(overview_text):
+    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
+    entries[ · <k> framework not imported]` or `INBOX  empty`) -- the same helper
+    `cfq_pfq_preflight.py` carries, kept as its own copy here rather than a shared import since
+    `/ifq` never imports and calls `note list --overview` alone (no `note import` alongside it)."""
+    first_line = overview_text.splitlines()[0] if overview_text else ""
+    if first_line == "INBOX  empty":
+        return 0
+    m = INBOX_HEADER_RE.match(first_line)
+    return int(m.group(1)) if m else 0
 
 
 def project(batch, keys):
@@ -155,6 +171,9 @@ def cmd_preflight(args):
         policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
 
+    inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
+    inbox = {"count": inbox_count_from_overview(inbox_overview), "overview": inbox_overview}
+
     scan_data = json.loads(cfq_run("scan").stdout)
     candidates = []
     for r in scan_data.get("repos", []):
@@ -203,6 +222,7 @@ def cmd_preflight(args):
     def empty_result(status, selectable, inprog, multi):
         return render.dump_json({
             "status": status, "repo": {"root": repo}, "policy": policy, "reporting": reporting,
+            "inbox": inbox,
             "selection": {
                 "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
                 "inProgress": inprog, "multipleInProgress": multi,
@@ -286,6 +306,7 @@ def cmd_preflight(args):
         "repo": {"root": repo},
         "policy": policy,
         "reporting": reporting,
+        "inbox": inbox,
         "selection": {
             "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
             "inProgress": inprogress_name or None, "multipleInProgress": [],

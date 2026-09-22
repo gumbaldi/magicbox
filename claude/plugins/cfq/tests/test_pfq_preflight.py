@@ -213,7 +213,10 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.run_clean("git", "init", "-q", cwd=reg)
 
         out = self.json_out(self._run_pf(str(reg)))
-        self.assertEqual(out["inbox"], {"count": 0, "imported": 0}, msg=f"inbox = {out['inbox']}")
+        self.assertEqual(
+            out["inbox"], {"count": 0, "imported": 0, "overview": "INBOX  empty"},
+            msg=f"inbox = {out['inbox']}",
+        )
         line = next(e for e in out["statusLines"] if e["label"] == "Inbox")
         self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
         self.assertEqual(line["detail"], "0 entries waiting", msg=f"line = {line}")
@@ -227,6 +230,42 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         line = next(e for e in out["statusLines"] if e["label"] == "Inbox")
         self.assertEqual(line["icon"], "done", msg=f"line = {line}")
         self.assertEqual(line["detail"], "1 entries waiting", msg=f"line = {line}")
+
+    # ---- inbox.overview (batch 037 phase 03) --------------------------------------------------
+
+    def test_inbox_overview_matches_real_note_list_call(self):
+        reg = self._repos_dir / "inbox-overview-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+        plan_dir = reg / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-first.md").write_text("# First\n\nDo it.\n")
+        (plan_dir / "2026-01-02-second.md").write_text("# Second\n\nDo it too.\n")
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["count"], 2, msg=f"inbox = {out['inbox']}")
+        direct = self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_note.py"), "list", str(reg), "--overview",
+            env={"HOME": str(self.home)},
+        ).stdout.rstrip("\n")
+        self.assertEqual(
+            out["inbox"]["overview"], direct,
+            msg=f"inbox.overview = {out['inbox']['overview']!r}, direct call = {direct!r}",
+        )
+
+    def test_inbox_overview_empty_plan_dir(self):
+        reg = self._repos_dir / "inbox-overview-empty"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
+        self.assertEqual(out["inbox"]["count"], 0, msg=f"inbox = {out['inbox']}")
+
+    def test_no_repo_has_no_inbox_key(self):
+        out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
+        self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
+        self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
 
     def _make_bindir_without(self, excluded):
         # Symlink farm of the real PATH minus the given commands, so the rest of the toolchain

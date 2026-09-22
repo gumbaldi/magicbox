@@ -7,12 +7,15 @@ cfq_settings.py covering every policy/language key at once. Security (Step 8) st
 call on purpose -- this only reports capability (a security backend reachable at all), never live
 finding counts, which need a network round-trip.
 
-Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen.
+Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
+addition (batch 037 phase 03's `inbox` object) is not a break of that rule, only a removal or
+rename would be.
 """
 
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import sys
 
@@ -22,6 +25,20 @@ from cfq_lib import render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
+
+INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
+
+
+def inbox_count_from_overview(overview_text):
+    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
+    entries[ · <k> framework not imported]` or `INBOX  empty`) instead of a second `note list`
+    JSON call -- one subprocess call covers both the printable block and the count, and `plan/`
+    is never parsed twice in the same preflight run."""
+    first_line = overview_text.splitlines()[0] if overview_text else ""
+    if first_line == "INBOX  empty":
+        return 0
+    m = INBOX_HEADER_RE.match(first_line)
+    return int(m.group(1)) if m else 0
 
 
 def model_check_line(allow_any_model):
@@ -86,7 +103,8 @@ def cmd_preflight(args):
 
     import_result = json.loads(cfq_run("note", "import", repo).stdout)
     imported_n = len(import_result.get("imported", []))
-    inbox_n = len(json.loads(cfq_run("note", "list", repo).stdout))
+    inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
+    inbox_n = inbox_count_from_overview(inbox_overview)
 
     print(render.dump_json({
         "status": "OK",
@@ -110,7 +128,7 @@ def cmd_preflight(args):
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
-        "inbox": {"count": inbox_n, "imported": imported_n},
+        "inbox": {"count": inbox_n, "imported": imported_n, "overview": inbox_overview},
         "statusLines": [
             model_check_line(settings["allowAnyModel"]),
             inbox_line(inbox_n, imported_n),

@@ -155,11 +155,14 @@ still on the old layout needs an older plugin version to run the migration first
 
 - `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
-  the phase it was working; `pfq` offers those as topics at the start of its next session. A
-  finding about cfq itself, rather than about the repo under work, is written with `note plan
-  --framework` instead: it lands in the global framework inbox
+  the phase it was working; `pfq` offers those as topics at the start of its next session. Both
+  `/pfq` and `/ifq` print the inbox overview (`note list --overview` — date and title, one line
+  per entry) at the start of every session, not only when `/pfq` opens the inbox question; `/ifq`
+  only ever reads it, never imports. A finding about cfq itself, rather than about the repo under
+  work, is written with `note plan --framework` instead: it lands in the global framework inbox
   (`~/.claude/cfq/framework-inbox/`), outside every repo, and only `note import`, run by
-  `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`.
+  `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`
+  — so a framework finding only ever shows up in that repo's own overview, never any other repo's.
 - `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
   look later: an unmerged branch, a language-drift finding, a check that could not be automated.
   `ifq` writes them, `/cfq` works them off for the current repo via `note sweep` (runs the `check:`

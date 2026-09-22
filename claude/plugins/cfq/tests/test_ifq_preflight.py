@@ -70,6 +70,42 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
     def test_no_repo(self):
         out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
         self.assertEqual(out["status"], "NO_REPO", msg=f"non-git status = {out}")
+        self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
+
+    # ---- inbox.overview (batch 037 phase 03) --------------------------------------------------
+
+    def test_inbox_overview_matches_real_note_list_call(self):
+        repo = self._setup_repo("inbox-overview-reg")
+        plan_dir = repo / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-first.md").write_text("# First\n\nDo it.\n")
+        (plan_dir / "2026-01-02-second.md").write_text("# Second\n\nDo it too.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["inbox"]["count"], 2, msg=f"inbox = {out['inbox']}")
+        direct = self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_note.py"), "list", str(repo), "--overview",
+        ).stdout.rstrip("\n")
+        self.assertEqual(
+            out["inbox"]["overview"], direct,
+            msg=f"inbox.overview = {out['inbox']['overview']!r}, direct call = {direct!r}",
+        )
+
+    def test_inbox_overview_empty_plan_dir(self):
+        repo = self._setup_repo("inbox-overview-empty")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
+        self.assertEqual(out["inbox"]["count"], 0, msg=f"inbox = {out['inbox']}")
+
+    def test_inbox_present_on_empty_result_path(self):
+        # empty_result path (NO_BATCH, no open batch at all) -- the inbox key must still be
+        # present here, since that is exactly when the user wants to see what still needs
+        # planning.
+        repo = self._setup_repo("inbox-no-open-batch")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertIn("inbox", out, msg=f"inbox key missing on empty_result path: {out}")
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
 
     def test_continue_mode_calls_branch_once(self):
         repo1 = self._setup_repo("continue-repo")

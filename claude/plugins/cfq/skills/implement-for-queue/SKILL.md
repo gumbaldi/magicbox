@@ -47,9 +47,11 @@ Print the `PRECHECKS` header, then one call:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
-`status: "NO_REPO"` → abort, report, end. Otherwise this one call already resolved the model gate,
-plugin boundaries and batch selection together — read its fields below, no further calls needed
-for those three steps. **Model Gate**: print as returned; cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
+`status: "NO_REPO"` → abort, report, end. Otherwise, print `inbox.overview` verbatim right here —
+always, before Model Gate, the start gate or any lock, read-only, no import, no question, even when
+no batch ends up selectable. This one call already resolved the model gate, plugin boundaries and
+batch selection together — read its fields below, no further calls needed for those three steps.
+**Model Gate**: print as returned; cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
 
 **Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
