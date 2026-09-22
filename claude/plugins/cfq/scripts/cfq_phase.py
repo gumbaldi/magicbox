@@ -29,9 +29,27 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, render, text  # noqa: E402
 
 PROG = "cfq_phase.py"
+
+
+def commit_status_line(result):
+    """`references/ifq-phase.md`'s **Commit Result Rendering** branch table (`OK`/`NOTHING_STAGED`/
+    `COMMIT_FAILED`/`RECORD_FAILED`), rendered here instead of re-derived by the skill every
+    session -- the branch condition (`result["status"]`) already lives right where the result
+    itself is built."""
+    status = result.get("status")
+    if status == "OK":
+        detail = result["branch"] + (" · pushed" if result["pushed"] else " · not pushed")
+        icon = "done" if result["pushed"] else "warn"
+        sub = [result["pushError"]] if result.get("pushError") else []
+        return text.status_entry("Commit", icon, detail, sub=sub)
+    if status == "NOTHING_STAGED":
+        return text.status_entry("Commit", "warn", "nothing staged")
+    if status in ("COMMIT_FAILED", "RECORD_FAILED"):
+        return text.status_entry("Commit", "fail", result.get("detail") or status)
+    return text.status_entry("Commit", "fail", status or "unknown")
 
 
 def cmd_record(args):
@@ -136,7 +154,9 @@ def cmd_commit(args):
         errors.die(f"{PROG} commit: {dir_} is not inside a git repository")
 
     if _git(repo_root, "diff", "--cached", "--quiet").returncode == 0:
-        print(render.dump_json({"status": "NOTHING_STAGED"}))
+        result = {"status": "NOTHING_STAGED"}
+        result["statusLines"] = [commit_status_line(result)]
+        print(render.dump_json(result))
         sys.exit(1)
 
     batch = pathlib.Path(dir_).name
@@ -147,9 +167,9 @@ def cmd_commit(args):
         ["git", "-C", repo_root, "commit", "-F", "-"], input=message, capture_output=True, text=True,
     )
     if commit.returncode != 0:
-        print(render.dump_json({
-            "status": "COMMIT_FAILED", "detail": _last_stderr_line(commit.stderr),
-        }))
+        result = {"status": "COMMIT_FAILED", "detail": _last_stderr_line(commit.stderr)}
+        result["statusLines"] = [commit_status_line(result)]
+        print(render.dump_json(result))
         sys.exit(1)
 
     done_path = pathlib.Path(dir_) / "done" / f"{phase_id}.md"
@@ -159,7 +179,9 @@ def cmd_commit(args):
         cfq_report.append_phase(dir_, phase_json, record_telemetry=True)
     except (OSError, SystemExit) as e:
         sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
-        print(render.dump_json({"status": "RECORD_FAILED", "sha": sha, "detail": str(e)}))
+        result = {"status": "RECORD_FAILED", "sha": sha, "detail": str(e)}
+        result["statusLines"] = [commit_status_line(result)]
+        print(render.dump_json(result))
         sys.exit(1)
 
     sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
@@ -176,6 +198,7 @@ def cmd_commit(args):
     result = {"status": "OK", "sha": sha, "pushed": push.returncode == 0, "branch": branch}
     if push.returncode != 0:
         result["pushError"] = _last_stderr_line(push.stderr)
+    result["statusLines"] = [commit_status_line(result)]
     print(render.dump_json(result))
 
 

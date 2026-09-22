@@ -18,10 +18,36 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import render  # noqa: E402
+from cfq_lib import render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
+
+
+def model_check_line(allow_any_model):
+    """The `Model Check` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
+    `model_gate_line`. The actual substring match against the running model's name stays with the
+    skill (`references/interview-depth.md`'s **Model Gate**), since only the session itself knows
+    its own model, from its own system prompt."""
+    if allow_any_model:
+        return text.status_entry("Model Check", "skip", "skipped · allowAnyModel")
+    return text.status_entry("Model Check", "done", "checked against planModels")
+
+
+def plugin_boundaries_line(blocked):
+    if not blocked:
+        return text.status_entry("Plugin Boundaries", "skip", "none blocked")
+    return text.status_entry(
+        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
+    )
+
+
+def inbox_line(count, imported):
+    icon = "skip" if count == 0 else "done"
+    detail = f"{count} entries waiting"
+    if imported:
+        detail += f" · {imported} imported"
+    return text.status_entry("Inbox", icon, detail)
 
 
 def cmd_preflight(args):
@@ -58,6 +84,10 @@ def cmd_preflight(args):
 
     sec_available = bool(shutil.which("gh") or shutil.which("tea"))
 
+    import_result = json.loads(cfq_run("note", "import", repo).stdout)
+    imported_n = len(import_result.get("imported", []))
+    inbox_n = len(json.loads(cfq_run("note", "list", repo).stdout))
+
     print(render.dump_json({
         "status": "OK",
         "repo": {"root": repo, "known": known},
@@ -80,6 +110,12 @@ def cmd_preflight(args):
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
+        "inbox": {"count": inbox_n, "imported": imported_n},
+        "statusLines": [
+            model_check_line(settings["allowAnyModel"]),
+            inbox_line(inbox_n, imported_n),
+            plugin_boundaries_line(settings["planBlockedPlugins"]),
+        ],
     }))
 
 

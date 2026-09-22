@@ -8,7 +8,9 @@ true` → skip this check, otherwise it must match one of `policy.implModels` (s
 `policy.orchestratorModels` instead (already carries the fallback to `implModels` when empty, no
 extra logic here). No match → **stop immediately**, touch nothing, report the allowed models, that
 `/model <x>` then `/ifq` is the way forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list.
-Print the `Model Gate` status line either way, naming which list was matched.
+Print `Model Gate` — the preflight's own `statusLines` entry — either way, before this check runs:
+it already resolved which list applies (or that `allowAnyModel` skips the check entirely); the
+actual match needs the running model's name, which only the session itself knows.
 
 ## Batch Selection Rules
 
@@ -48,28 +50,25 @@ in this same `MULTIPLE_IN_PROGRESS` check like any other in-progress batch.
 **Multiple selectable batches.** When `selection.inProgress` is `null` and `selection.selectable`
 has more than one entry, the preflight already picked `selection.selectable[0]` (sorted
 flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
-for it, no question. Print `Batch` as `<name> · next in order · <n> phases` (prefix `high · ` when
-flagged, suffix `⚠️ divergent` when `consistency` is `"divergent"`). Arguments naming a specific
-batch re-run the preflight with `--select <batch>` instead of taking the ordered default.
-`status: "SELECT_UNAVAILABLE"` means the named batch isn't selectable (blocked, still planning, or
-unknown) — report why, from `selection`, and end; never falls back to the ordered default. **Never
-two batches in the same session**, not even once the first finishes and context is still free —
-different plans belong in separate context windows.
+for it, no question. Arguments naming a specific batch re-run the preflight with `--select <batch>`
+instead of taking the ordered default. `status: "SELECT_UNAVAILABLE"` means the named batch isn't
+selectable (blocked, still planning, or unknown) — report why, from `selection`, and end; never
+falls back to the ordered default. **Never two batches in the same session**, not even once the
+first finishes and context is still free — different plans belong in separate context windows.
 
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
-`branch`/`resume`/`contextGate` are already resolved for it) — print `Batch` as `resumed <name> ·
-<done>/<done+open> phases done · mode=orchestrator|classic` (prefix `high · ` if flagged), straight
-to **Batch Briefing**. `nextPhase: null` here means every phase already moved to `done/` but
-`bin/cfq finish` never ran — **Batch Briefing** still acquires the lock and resolves the branch as
-usual, then skips ahead straight to **Batch Done**. `selection.inProgress` null and
-`selection.selectable` non-empty → the preflight already picked `selection.selectable[0]` (sorted
-flagged-first-then-name) — same pre-resolved fields, no question — print `Batch` as `<name> · next
-in order · <n> phases · mode=orchestrator|classic` (prefix `high · ` if flagged), or `<name> · only
-open batch · <n> phases · mode=orchestrator|classic` when `selectable` has exactly one entry,
-straight to **Batch Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
+`branch`/`resume`/`contextGate` are already resolved for it) — straight to **Batch Briefing**.
+`nextPhase: null` here means every phase already moved to `done/` but `bin/cfq finish` never ran —
+**Batch Briefing** still acquires the lock and resolves the branch as usual, then skips ahead
+straight to **Batch Done**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
 selectable) → report why, from `selection` (blocked / still planning / not found), end — never
 falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
 `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
+
+Print `Batch` in every outcome above that reaches **Batch Briefing** — the preflight's own
+`statusLines` entry, already the right one of its four wordings (`--select` given, in-progress
+resumed, the lone selectable batch, or the ordered pick among several), printed exactly as
+returned — the distinguishing condition lives in the script, not here.
 
 ## Batch Briefing
 

@@ -618,6 +618,100 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertIsNotNone(qtext, msg=f"BLOCKED queueText should be non-empty: {out}")
         self.assertTrue(qtext.startswith("QUEUE · 1 open"), msg=f"queueText = {qtext!r}")
 
+    # ---- statusLines (batch 035 phase 08) -----------------------------------------------------
+
+    def test_status_lines_shape(self):
+        repo = self._setup_repo("statuslines-shape")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(
+            labels, ["Model Gate", "Plugin Boundaries", "Batch"], msg=f"labels = {labels}"
+        )
+
+        # empty_result path (NO_BATCH) still carries the first two, generically shaped, no Batch
+        empty_repo = self._setup_repo("statuslines-shape-empty")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        self.assertEqual(
+            [e["label"] for e in out["statusLines"]], ["Model Gate", "Plugin Boundaries"],
+            msg=f"labels = {out['statusLines']}",
+        )
+
+    def test_model_gate_and_plugin_boundaries_lines(self):
+        repo = self._setup_repo("model-gate-lines")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        gate = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+        self.assertEqual(gate["icon"], "done", msg=f"gate = {gate}")
+        # orchestratorMode defaults to true (test_orchestrator_policy_present_and_true_by_default)
+        # -> the applicable list is orchestratorModels, not implModels.
+        self.assertEqual(gate["detail"], "checked against orchestratorModels", msg=f"gate = {gate}")
+        boundaries = next(e for e in out["statusLines"] if e["label"] == "Plugin Boundaries")
+        self.assertEqual(boundaries["icon"], "done", msg=f"boundaries = {boundaries}")
+
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_ALLOW_ANY_MODEL": "1"}))
+        gate = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+        self.assertEqual(gate["icon"], "skip", msg=f"gate = {gate}")
+        self.assertEqual(gate["detail"], "skipped · allowAnyModel", msg=f"gate = {gate}")
+
+    def test_batch_line_four_phrasings(self):
+        # single selectable
+        repo = self._setup_repo("batch-line-single")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-solo").mkdir(parents=True)
+        (qdir / "2026-01-01-solo" / "01-a.md").touch()
+        out = self.json_out(self._run_pf(str(repo)))
+        entry = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry["detail"], "2026-01-01-solo · only open batch · 1 phases · mode=orchestrator",
+            msg=f"single-selectable Batch detail = {entry}",
+        )
+
+        # multiple selectable -- order-picked default
+        repo2 = self._setup_repo("batch-line-multi")
+        qdir2 = repo2 / ".claude" / "cfq" / "impl"
+        (qdir2 / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir2 / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir2 / "2026-01-02-beta").mkdir(parents=True)
+        (qdir2 / "2026-01-02-beta" / "01-b.md").touch()
+        out2 = self.json_out(self._run_pf(str(repo2)))
+        entry2 = next(e for e in out2["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry2["detail"], "2026-01-01-alpha · next in order · 1 phases · mode=orchestrator",
+            msg=f"multiple-selectable Batch detail = {entry2}",
+        )
+
+        # --select explicit
+        out3 = self.json_out(self._run_pf(str(repo2), "--select", "2026-01-02-beta"))
+        entry3 = next(e for e in out3["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry3["detail"], "2026-01-02-beta · selected by argument · 1 phases · mode=orchestrator",
+            msg=f"--select Batch detail = {entry3}",
+        )
+
+        # in-progress resume
+        repo3 = self._setup_repo("batch-line-resume")
+        qdir3 = repo3 / ".claude" / "cfq" / "impl"
+        (qdir3 / "2026-01-01-inprog" / "done").mkdir(parents=True)
+        (qdir3 / "2026-01-01-inprog" / "done" / "00-x.md").touch()
+        (qdir3 / "2026-01-01-inprog" / "01-a.md").touch()
+        out4 = self.json_out(self._run_pf(str(repo3)))
+        entry4 = next(e for e in out4["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry4["detail"], "resumed 2026-01-01-inprog · 1/2 phases done · mode=orchestrator",
+            msg=f"resumed Batch detail = {entry4}",
+        )
+
     def test_queue_text_legacy_unnumbered_batch(self):
         repo = self._setup_repo("queue-legacy")
         qdir = repo / ".claude" / "cfq" / "impl"

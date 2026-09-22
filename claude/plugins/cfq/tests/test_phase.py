@@ -9,6 +9,49 @@ import unittest
 
 from cfq_testlib import CfqTestCase
 
+import cfq_phase  # noqa: E402
+
+
+class CommitStatusLineTest(unittest.TestCase):
+    """Pure-function coverage for cfq_phase.py's `commit_status_line` (batch 035 phase 08) --
+    `references/ifq-phase.md`'s **Commit Result Rendering** branch table, one function per branch."""
+
+    def test_ok_pushed(self):
+        line = cfq_phase.commit_status_line({"status": "OK", "branch": "main", "pushed": True})
+        self.assertEqual(line["icon"], "done")
+        self.assertEqual(line["detail"], "main · pushed")
+
+    def test_ok_not_pushed_carries_push_error_as_sub(self):
+        line = cfq_phase.commit_status_line({
+            "status": "OK", "branch": "main", "pushed": False, "pushError": "connection refused",
+        })
+        self.assertEqual(line["icon"], "warn")
+        self.assertEqual(line["detail"], "main · not pushed")
+        self.assertEqual(line["sub"], ["connection refused"])
+
+    def test_nothing_staged(self):
+        line = cfq_phase.commit_status_line({"status": "NOTHING_STAGED"})
+        self.assertEqual(line["icon"], "warn")
+        self.assertEqual(line["detail"], "nothing staged")
+
+    def test_commit_failed(self):
+        line = cfq_phase.commit_status_line({"status": "COMMIT_FAILED", "detail": "hook rejected"})
+        self.assertEqual(line["icon"], "fail")
+        self.assertEqual(line["detail"], "hook rejected")
+
+    def test_record_failed(self):
+        line = cfq_phase.commit_status_line({
+            "status": "RECORD_FAILED", "sha": "abc123", "detail": "disk full",
+        })
+        self.assertEqual(line["icon"], "fail")
+        self.assertEqual(line["detail"], "disk full")
+
+    def test_nothing_staged_differs_from_ok(self):
+        ok_line = cfq_phase.commit_status_line({"status": "OK", "branch": "main", "pushed": True})
+        staged_line = cfq_phase.commit_status_line({"status": "NOTHING_STAGED"})
+        self.assertNotEqual(ok_line["text"], staged_line["text"])
+        self.assertNotEqual(ok_line["icon"], staged_line["icon"])
+
 
 class TestPhase(CfqTestCase):
     def _batch(self, name):
@@ -217,6 +260,9 @@ class TestPhase(CfqTestCase):
         self.assertTrue(body["pushed"], f"push should succeed against the bare remote: {body}")
         self.assertEqual(body["branch"], "main")
         self.assertTrue(body["sha"], "sha should be non-empty")
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(body["statusLines"][0]["label"], "Commit")
+        self.assertEqual(body["statusLines"][0]["icon"], "done")
 
         done_path = batch / "done" / "01-a.md"
         self.assertTrue(done_path.is_file(), "green commit should move the .md file into done/")
@@ -270,6 +316,16 @@ class TestPhase(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "commit with nothing staged should fail")
         body = self.json_out(proc)
         self.assertEqual(body["status"], "NOTHING_STAGED")
+        self.assert_status_lines_shape(body["statusLines"])
+        commit_line = body["statusLines"][0]
+        self.assertEqual(commit_line["label"], "Commit")
+        self.assertEqual(commit_line["detail"], "nothing staged")
+        self.assertNotEqual(
+            commit_line["text"], cfq_phase.commit_status_line(
+                {"status": "OK", "branch": "main", "pushed": True},
+            )["text"],
+            msg="NOTHING_STAGED's rendered Commit line must differ from OK's",
+        )
         self.assertTrue((batch / "01-a.md").is_file(), "phase file must stay in place")
         self.assertEqual(self._report_json(batch)["phases"], [], "no ledger entry should be written")
         self.assertEqual(self._head_sha(repo), before_sha, "no commit should have been made")

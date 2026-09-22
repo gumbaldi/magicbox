@@ -4,27 +4,23 @@
 
 `bin/cfq finish` moves the batch into `impl/done/`, registers the repo, runs the
 language/maintenance/security/changelog/telemetry sequence and releases the lock unconditionally (a
-`trap`, so a mid-sequence failure can never leave the repo locked), and prints one JSON object,
-rendered field by field:
+`trap`, so a mid-sequence failure can never leave the repo locked), and prints one JSON object whose
+`statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/`Changelog`/
+`Telemetry`/`Lock` rendered from that same object's fields — print each entry as returned, in
+order; `Security Diff` is entirely absent from the array on an older batch with no planning
+snapshot to diff against, rather than printed empty. Any `.errors` entry (`"<step>: <message>"`)
+already arrives attached as a `sub` line under its matching entry above — the sequence still
+completed, no separate error line to compose.
 
-- `Language`: `.lang.issues` is the structural count (`missing`/`stray`/`unfiled`); judge
-  `.lang.prose.sample` for prose, comments, identifiers and commit messages not in `codeLanguage` —
-  any language, never hardcode one to look for. `i18nExcludePatterns` keeps locale/translation
-  resources out of the sample by default; a line that lands anyway (custom naming the patterns
-  miss) from an evident translation resource isn't a `codeLanguage` violation — expected
-  multi-language content, not a policy breach. `.lang.prose.truncated: true` means the sample is
-  exactly that, a sample, so the status line says so (`⚠️ 2 issues · sampled`); an empty sample (no
-  git repo, unknown ref) is `➖`, not a finding. Either source finding → `⚠️` with the combined
-  count, details as `   └ ` lines; nothing found → `✅ no issues`. No repair here — every finding
-  becomes a `todo/` entry per **Follow-Up** in `queue-entries.md`.
-- `Maintenance` from `.maintenance`: `➖ off` · `➖ not due (<n> commits)` · `⚠️ due (<n> commits) ·
-  run /pfq`.
-- `Security Diff` from `.security.new` — the difference only, no repeat of the overall count, no
-  new planning, no automatic fix; an empty `.security` block (older batch, no planning snapshot)
-  → skip without comment.
-- `Changelog` from `.changelog` as-is.
-- `Telemetry` from `.telemetry`, `Lock` from `.lock`.
-- Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
+One addition the aggregator cannot make on its own: `Language`'s line covers only the structural
+count (`.lang.issues`, `missing`/`stray`/`unfiled`); still judge `.lang.prose.sample` yourself for
+prose, comments, identifiers and commit messages not in `codeLanguage` — any language, never
+hardcode one to look for. `i18nExcludePatterns` keeps locale/translation resources out of the
+sample by default; a line that lands anyway from an evident translation resource isn't a
+`codeLanguage` violation. If that judgment finds something the structural count didn't, add one
+more `   └ ` sub-line of your own to the printed `Language` line — an addition, never a reword of
+what the aggregator already rendered. No repair here either way — every finding becomes a `todo/`
+entry per **Follow-Up** in `queue-entries.md`.
 
 Render the HTML report (`bin/cfq report html "<repo-root>/.claude/cfq/impl/done/<batch>"`),
 printing `Report` as `rendered`, unless `htmlReport` is `false` — then skip it, printing `➖ off ·

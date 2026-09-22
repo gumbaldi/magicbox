@@ -89,6 +89,53 @@ def render_queue_text(selectable, blocked, planning, in_progress, chosen):
     return "\n".join(lines)
 
 
+def model_gate_line(policy):
+    """The `Model Gate` status line's deterministic half -- which list the running model will be
+    checked against. The actual substring match against the running model's name (only known to
+    the session itself, from its own system prompt -- see `references/ifq-batch-start.md`'s
+    **Model Gate Stop**) stays with the skill; this line is printed either way, before that check
+    runs."""
+    if policy["allowAnyModel"]:
+        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
+    list_name = "orchestratorModels" if policy["orchestratorMode"] else "implModels"
+    return text.status_entry("Model Gate", "done", f"checked against {list_name}")
+
+
+def plugin_boundaries_line(policy):
+    blocked = policy["implBlockedPlugins"]
+    if not blocked:
+        return text.status_entry("Plugin Boundaries", "skip", "none blocked")
+    return text.status_entry(
+        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
+    )
+
+
+def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resume_only, orchestrator_mode):
+    """The four `Batch` phrasings `references/ifq-batch-start.md` used to spell out by hand --
+    the distinguishing condition (`--select` given, in-progress set, `selectable` length) already
+    lives right here, so the branch and the wording move together."""
+    flagged = cand["priority"] == "high"
+    divergent = cand.get("consistency") == "divergent"
+    prefix = "high · " if flagged else ""
+    suffix = " ⚠️ divergent" if divergent else ""
+    mode = "orchestrator" if orchestrator_mode else "classic"
+    n_open = cand["open"]
+    if select_batch and chosen == select_batch:
+        detail = f"{prefix}{cand['name']} · selected by argument · {n_open} phases · mode={mode}{suffix}"
+    elif inprogress_name and chosen == inprogress_name:
+        done_n = len(resume_only.get("phasesDone") or [])
+        open_n = len(resume_only.get("phasesOpen") or [])
+        detail = (
+            f"{prefix}resumed {cand['name']} · {done_n}/{done_n + open_n} phases done · "
+            f"mode={mode}{suffix}"
+        )
+    elif len(selectable) == 1:
+        detail = f"{prefix}{cand['name']} · only open batch · {n_open} phases · mode={mode}{suffix}"
+    else:
+        detail = f"{prefix}{cand['name']} · next in order · {n_open} phases · mode={mode}{suffix}"
+    return text.status_entry("Batch", "done", detail)
+
+
 def cmd_preflight(args):
     repo = args.repo_root
     select_batch = args.select or ""
@@ -161,6 +208,7 @@ def cmd_preflight(args):
                 "inProgress": inprog, "multipleInProgress": multi,
                 "queueText": render_queue_text(queue_rows, blocked_json, planning_names, inprog or "", "") or None,
             },
+            "statusLines": [model_gate_line(policy), plugin_boundaries_line(policy)],
             **EMPTY_SELECTION_TEMPLATE,
         })
 
@@ -252,6 +300,14 @@ def cmd_preflight(args):
         "branch": branch_json,
         "resume": resume_only,
         "contextGate": gate_json,
+        "statusLines": [
+            model_gate_line(policy), plugin_boundaries_line(policy),
+            batch_line(
+                select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
+                chosen=chosen, cand=cand, resume_only=resume_only,
+                orchestrator_mode=policy["orchestratorMode"],
+            ),
+        ],
     }))
 
 

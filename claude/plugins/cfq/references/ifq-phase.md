@@ -158,11 +158,12 @@ SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git pus
 registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq resume`'s
 commit fields are never left empty by a forgotten follow-up call.
 
-Render `Commit` from that JSON: `status: "OK"` → branch and whether it pushed, `⚠️` with
-`pushError` when `pushed: false` (the phase still closed, just not pushed — a later `git push`
-catches it up); `status: "NOTHING_STAGED"` → `git add` the phase's changes and retry the same call
-once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` → treat as a red phase (print `❌ red` with
-the JSON's `detail`), don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
+Print `Commit` — the JSON's own `statusLines` entry, printed as returned; the branch/push state
+(`status: "OK"`, `⚠️` with `pushError` when `pushed: false` — the phase still closed, just not
+pushed, a later `git push` catches it up) is already resolved in its `text`. Two statuses still
+drive what happens next, beyond just printing the line: `status: "NOTHING_STAGED"` → `git add` the
+phase's changes and retry the same call once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` →
+treat as a red phase, don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
 `bin/cfq batch verify` to reconcile later, since the commit itself succeeded and is never undone.
 
 ## Phase Commit Trailers

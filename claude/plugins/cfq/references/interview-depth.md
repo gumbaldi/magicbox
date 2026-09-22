@@ -2,10 +2,11 @@
 
 ## Model Gate
 
-Read `planningPolicy.planModels`/`.allowAnyModel` from the preflight result. `allowAnyModel: true`
-→ skip, `Model Check` is `➖ allowAnyModel`. Otherwise substring-match the running model (from the
-system prompt) against `planModels`, like `ifq`'s gate — no match → warn naming the model and the
-list, and continue; this never blocks, unlike `ifq`.
+Print `Model Check` — the preflight's own `statusLines` entry, printed as returned: it already
+resolved whether `allowAnyModel` skips the check, or which list applies otherwise. The match
+itself still needs the running model's name (from the system prompt, not the preflight) — substring
+it against `planModels` yourself, like `ifq`'s gate; no match → add one more warning naming the
+model and the list, and continue regardless — this never blocks, unlike `ifq`.
 
 Read when weighing which `AskUserQuestion` option to recommend at **Start Block** — the option text itself
 only needs one clause, the reasoning for *why* it's recommended lives here.

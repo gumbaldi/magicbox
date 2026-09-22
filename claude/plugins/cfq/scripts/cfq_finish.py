@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, render  # noqa: E402
+from cfq_lib import paths, render, text as cfq_text  # noqa: E402
 from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
 
 PROG = "cfq_finish.py"
@@ -30,6 +30,98 @@ def load_json_or(text, default):
         return json.loads(text)
     except json.JSONDecodeError:
         return default
+
+
+# ---- status-line rendering (batch 035 phase 08) --------------------------------------------
+# Each line below renders exactly the field `references/ifq-batch-end.md`'s **Batch-Done Report
+# Fields** section already names for it -- the aggregator resolves the structural half
+# deterministically; a source that needs judgment (the `lang.prose` sample) stays the model's own
+# addition on top, documented there rather than re-derived here.
+
+def language_line(lang_json):
+    issues = lang_json.get("issues", 0)
+    if issues == 0:
+        return cfq_text.status_entry("Language", "done", "no issues")
+    detail = f"{issues} issues"
+    if (lang_json.get("prose") or {}).get("truncated"):
+        detail += " · sampled"
+    return cfq_text.status_entry("Language", "warn", detail, sub=lang_json.get("findings") or [])
+
+
+def maintenance_line(maintenance):
+    parts = maintenance.split()
+    status = parts[0] if parts else ""
+    n = parts[1] if len(parts) > 1 else None
+    if status == "OFF":
+        return cfq_text.status_entry("Maintenance", "skip", "off")
+    if status == "NOT_DUE":
+        return cfq_text.status_entry("Maintenance", "skip", f"not due ({n} commits)")
+    if status == "DUE":
+        return cfq_text.status_entry("Maintenance", "warn", f"due ({n} commits) · run /pfq")
+    return cfq_text.status_entry("Maintenance", "warn", maintenance or "unknown")
+
+
+def security_diff_line(security):
+    planning = security.get("planning") or {}
+    now = security.get("now") or {}
+    if not planning and not now:
+        return None  # no planning snapshot to diff against -- skip without comment
+    new = security.get("new") or {}
+    if not new:
+        return cfq_text.status_entry("Security Diff", "done", "no new findings")
+    detail = ", ".join(f"{k}: +{v}" for k, v in new.items())
+    return cfq_text.status_entry("Security Diff", "warn", detail)
+
+
+def changelog_line(changelog):
+    if changelog == "changelogFile empty":
+        return cfq_text.status_entry("Changelog", "skip", "changelogFile empty")
+    if changelog == "error":
+        return cfq_text.status_entry("Changelog", "fail", "error")
+    return cfq_text.status_entry("Changelog", "done", changelog)
+
+
+def telemetry_line(telemetry, ok):
+    return cfq_text.status_entry("Telemetry", "done" if ok else "warn", telemetry)
+
+
+def lock_line(lock):
+    return cfq_text.status_entry("Lock", "done", lock)
+
+
+STEP_LABEL = {
+    "lang": "Language", "maintenance": "Maintenance", "security": "Security Diff",
+    "changelog": "Changelog", "telemetry": "Telemetry",
+}
+
+
+def attach_errors(status_lines, errs):
+    """Each `.errors` entry (`"<step>: <message>"`) attaches as a `sub` line under its matching
+    entry above rather than becoming a new `statusLines` entry of its own -- the sequence step
+    already has a line, the error is detail on it. A step whose own line was skipped entirely (e.g.
+    `security` with no planning snapshot to diff) gets a fresh `⚠️` line created here instead, so a
+    genuine failure is never hidden behind an omitted line. A step with no matching label at all
+    (e.g. `registry`, which never gets a status line of its own) is left in `errors` only,
+    unchanged. Mutates `status_lines` in place, `None` placeholders included -- the caller filters
+    those out once every error has been attached."""
+    by_label = {line["label"]: line for line in status_lines if line is not None}
+    for e in errs:
+        step, _, _ = e.partition(":")
+        label = STEP_LABEL.get(step.strip())
+        if label is None:
+            continue
+        line = by_label.get(label)
+        if line is None:
+            line = cfq_text.status_entry(label, "warn", "failed")
+            status_lines.append(line)
+            by_label[label] = line
+        else:
+            line["icon"] = "warn" if line["icon"] == "done" else line["icon"]
+        line["sub"].append(e)
+        line["text"] = "\n".join(
+            [cfq_text.status_line(line["icon"], line["label"], line["detail"])]
+            + [cfq_text.sub_line(s) for s in line["sub"]]
+        )
 
 
 def cmd_finish(args):
@@ -154,10 +246,21 @@ def cmd_finish(args):
             if cfq_run("report", "html", str(batch_dir)).returncode != 0:
                 print(f"{PROG}: html report render failed for {batch_dir}", file=sys.stderr)
 
+        status_lines = [
+            language_line(lang_json),
+            maintenance_line(maintenance),
+            security_diff_line({"planning": planning_json, "now": now_json, "new": new_json}),
+            changelog_line(changelog),
+            telemetry_line(telemetry, tel_proc.returncode == 0),
+            lock_line("released"),
+        ]
+        attach_errors(status_lines, errs)
+
         print(render.dump_json({
             "moved": str(batch_dir), "lang": lang_json, "maintenance": maintenance,
             "security": {"planning": planning_json, "now": now_json, "new": new_json},
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
+            "statusLines": [line for line in status_lines if line is not None],
         }))
     finally:
         subprocess.run(cfq_argv("lock", "release", str(repo_root)), capture_output=True, text=True)

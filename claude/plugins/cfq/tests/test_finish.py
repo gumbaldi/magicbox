@@ -13,6 +13,62 @@ import unittest
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
+import cfq_finish  # noqa: E402
+
+
+class StatusLineRenderingTest(unittest.TestCase):
+    """Pure-function coverage for cfq_finish.py's line renderers (batch 035 phase 08) -- no
+    subprocess, no fixture repo, since none of these read anything beyond the dict they're handed."""
+
+    def test_language_line_no_issues(self):
+        line = cfq_finish.language_line({"issues": 0, "findings": []})
+        self.assertEqual(line["icon"], "done")
+        self.assertEqual(line["detail"], "no issues")
+
+    def test_language_line_with_issues_and_sampled_prose(self):
+        line = cfq_finish.language_line({
+            "issues": 2, "findings": ["missing: x"], "prose": {"truncated": True},
+        })
+        self.assertEqual(line["icon"], "warn")
+        self.assertEqual(line["detail"], "2 issues · sampled")
+        self.assertEqual(line["sub"], ["missing: x"])
+
+    def test_maintenance_line_variants(self):
+        self.assertEqual(cfq_finish.maintenance_line("OFF")["detail"], "off")
+        self.assertEqual(cfq_finish.maintenance_line("NOT_DUE 5")["detail"], "not due (5 commits)")
+        due = cfq_finish.maintenance_line("DUE 12")
+        self.assertEqual(due["icon"], "warn")
+        self.assertEqual(due["detail"], "due (12 commits) · run /pfq")
+
+    def test_security_diff_line_skips_without_snapshot(self):
+        self.assertIsNone(cfq_finish.security_diff_line({"planning": {}, "now": {}, "new": {}}))
+
+    def test_security_diff_line_reports_the_delta_only(self):
+        line = cfq_finish.security_diff_line({
+            "planning": {"high": 1}, "now": {"high": 3}, "new": {"high": 2},
+        })
+        self.assertEqual(line["icon"], "warn")
+        self.assertEqual(line["detail"], "high: +2")
+
+    def test_changelog_line_variants(self):
+        self.assertEqual(cfq_finish.changelog_line("changelogFile empty")["icon"], "skip")
+        self.assertEqual(cfq_finish.changelog_line("error")["icon"], "fail")
+        self.assertEqual(cfq_finish.changelog_line("2026-01-01-x done · 3 phases")["icon"], "done")
+
+    def test_attach_errors_creates_a_line_when_none_existed(self):
+        lines = [cfq_finish.language_line({"issues": 0, "findings": []}), None]
+        cfq_finish.attach_errors(lines, ["security: cfq_security.py failed"])
+        present = [line for line in lines if line is not None]
+        security_line = next(line for line in present if line["label"] == "Security Diff")
+        self.assertEqual(security_line["icon"], "warn")
+        self.assertIn("security: cfq_security.py failed", security_line["sub"])
+
+    def test_attach_errors_downgrades_a_done_line_to_warn(self):
+        lines = [cfq_finish.changelog_line("2026-01-01-x done · 3 phases")]
+        cfq_finish.attach_errors(lines, ["changelog: git commit/push failed"])
+        self.assertEqual(lines[0]["icon"], "warn")
+        self.assertIn("changelog: git commit/push failed", lines[0]["sub"])
+
 
 class FinishTest(CfqTestCase):
     def _new_repo(self, name):
@@ -244,6 +300,67 @@ class FinishTest(CfqTestCase):
         lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
         self.assertEqual(
             lockstatus, "FREE", f"lock not released after a hard failure: {lockstatus}",
+        )
+
+    def test_status_lines_shape_and_labels(self):
+        home = self._repos_dir / "home-statuslines"
+        home.mkdir()
+        repo = self._new_repo("repo-statuslines")
+        batch = self._new_batch(repo, "2026-01-01-statuslines")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-statuslines", home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "v0.1-statuslines", home=home, check=True)
+        )
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        # No `origin` remote and no `package.json` on this fixture -> cfq_security.py's `counts`
+        # comes back `{}` on both sides of the diff, so `Security Diff` is the one line correctly
+        # omitted here (no planning snapshot, nothing to compare) -- see security_diff_line.
+        self.assertEqual(
+            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Lock"],
+            msg=f"labels = {labels}",
+        )
+        lock = next(e for e in out["statusLines"] if e["label"] == "Lock")
+        self.assertEqual(lock["icon"], "done", msg=f"lock = {lock}")
+        self.assertEqual(lock["detail"], "released", msg=f"lock = {lock}")
+
+    def test_errors_attach_as_sub_lines_not_new_entries(self):
+        home = self._repos_dir / "home-erroraslsub"
+        (home / ".claude/cfq").mkdir(parents=True)
+        repo = self._new_repo("repo-erroraslsub")
+        batch = self._new_batch(repo, "2026-01-01-erroraslsub")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-erroraslsub", home=home, check=True)
+
+        readonlydir = repo / "readonlydir"
+        readonlydir.mkdir()
+        (home / ".claude/cfq/settings.json").write_text(
+            json.dumps({"changelogFile": "readonlydir/changelog.yml"})
+        )
+        readonlydir.chmod(0o555)
+        try:
+            out = self.json_out(
+                self.run_cfq(
+                    "finish", str(repo), str(batch), "v0.1-erroraslsub", home=home, check=True,
+                )
+            )
+        finally:
+            readonlydir.chmod(0o755)
+
+        self.assertGreater(len(out["errors"]), 0, f"errors should be non-empty: {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(
+            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Lock"],
+            msg=f"a changelog error must not add a new statusLines entry: {labels}",
+        )
+        changelog_line = next(e for e in out["statusLines"] if e["label"] == "Changelog")
+        self.assertTrue(
+            any(sub.startswith("changelog:") for sub in changelog_line["sub"]),
+            msg=f"changelog error should appear as a sub line: {changelog_line}",
+        )
+        self.assertNotEqual(
+            changelog_line["icon"], "done", msg=f"an errored step must not stay 'done': {changelog_line}",
         )
 
     def test_nine_subcalls_run_in_expected_order(self):

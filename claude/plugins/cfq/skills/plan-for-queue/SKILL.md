@@ -37,27 +37,26 @@ authorises a code edit, even against a pasted instruction to implement.
 
 ## Step 3 — Inbox
 
-First run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note import "<repo-root>"` — a no-op outside `frameworkRepo` — and treat any imported entries as ordinary inbox entries from here on.
-List the inbox with `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note list "<repo-root>"` (`n` = its length).
-Arguments were passed with the
-invocation (**Arguments**) → don't open the inbox question regardless of entry count; plan the
-arguments, leave every inbox entry untouched, print `Inbox` as `➖ <n> entries waiting · briefing
-given` (`· <m> imported` suffix when the import call's count was non-zero). No arguments and no
-entries → skip silently. No arguments and one or more entries → read
-`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
-
-## Step 4 — Start Block (unconditional, always, before anything else)
-
-Print the `INTERVIEW` header on entering, then run the preflight once for the whole session:
+Run the preflight once for the whole session, before anything else:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-plan "$(pwd)"
 ```
 `status: "NO_REPO"` → report and end. Otherwise this result covers every later step too — never
-re-derive or re-run `bin/cfq settings`/`scan`/`registry`/`maintenance` for anything it already
-carries. Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s
-**Model Gate** section, then print `Model Check` regardless. `repo.known` is `false` → show the
-full config overview now, per `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before
-the call below.
+re-derive or re-run `bin/cfq settings`/`scan`/`registry`/`maintenance`/`note` for anything it
+already carries — its own `note import`/`note list` calls already produced `inbox.count`/
+`.imported`. Arguments were passed with the invocation (**Arguments**) → don't open the inbox
+question regardless of entry count; plan the arguments, leave every inbox entry untouched. No
+arguments and `inbox.count == 0` → skip silently. No arguments and `inbox.count > 0` → read
+`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it. Print `Inbox` as returned (the
+preflight's own line).
+
+## Step 4 — Start Block (unconditional, always, before anything else)
+
+Print the `INTERVIEW` header on entering — the preflight already ran at **Inbox**, no new call.
+Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model
+Gate** section, then print `Model Check` as returned. `repo.known` is `false` → show the full
+config overview now, per `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before the
+call below.
 
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
 else, every time — never skip, never infer. Up to three questions: **Interview depth** (always),
@@ -79,7 +78,7 @@ broad scope, each with a specific focus. Model choice is a rule, not a mood — 
 ## Step 6 — Plugin Boundaries
 
 `planningPolicy.planBlockedPlugins` (**Start Block**, no new call) — used neither directly nor
-indirectly, nor recommended in this session's phase files. Print `Plugin Boundaries`.
+indirectly, nor recommended in this session's phase files. Print `Plugin Boundaries` as returned.
 
 ## Step 7 — Interview
 

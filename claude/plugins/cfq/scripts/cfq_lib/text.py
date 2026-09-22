@@ -49,6 +49,18 @@ def sub_line(text_):
     return f"   └ {text_}"
 
 
+def status_entry(label, icon, detail, sub=None):
+    """One `statusLines` entry, the shape every read-only aggregator that pre-renders its own
+    status lines (`cfq_ifq_preflight.py`, `cfq_pfq_preflight.py`, `cfq_finish.py`, `cfq_phase.py`)
+    returns: `label`/`icon`/`detail`/`sub` are what a test asserts against without string-matching
+    padding, `text` is the same line already run through `status_line`/`sub_line` -- what a caller
+    prints verbatim, one sub-line per `sub` entry, never re-padded or re-worded. `sub` defaults to
+    `[]`, never `None`, so a caller can always iterate it without a null check."""
+    sub = list(sub or [])
+    lines = [status_line(icon, label, detail)] + [sub_line(s) for s in sub]
+    return {"label": label, "icon": icon, "detail": detail, "sub": sub, "text": "\n".join(lines)}
+
+
 def wrap(text_, width, indent="", max_lines=None):
     """Collapses whitespace, wraps on word boundaries to `width`, and prefixes every resulting
     line with `indent`. When `max_lines` is given and the text would wrap past it, the output is
