@@ -899,7 +899,7 @@ class TestIndexText(CfqTestCase):
         }))
         return d
 
-    def _phase(self, slug, status, finished=None, telemetry_until=None):
+    def _phase(self, slug, status, finished=None, telemetry_until=None, turns=0, output=0, billable_in=None):
         p = {
             "phase": slug, "status": status, "summary": "ok",
             "deviations": [], "errors": [], "verification": "PASS", "commit": "",
@@ -907,7 +907,13 @@ class TestIndexText(CfqTestCase):
         if finished is not None:
             p["finished"] = finished
         if telemetry_until is not None:
-            p["telemetry"] = {"until": telemetry_until, "totals": {"output": 0, "turns": 0}}
+            totals = {"output": output, "turns": turns}
+            # `billable_in` only goes into `totals` when a caller passes it -- omitting it here is
+            # exactly what a report written before phase 06 looks like on disk, no separate fixture
+            # shape needed for that case.
+            if billable_in is not None:
+                totals["billable_in"] = billable_in
+            p["telemetry"] = {"until": telemetry_until, "totals": totals}
         return p
 
     def _run_text(self, *extra_args):
@@ -1033,6 +1039,68 @@ class TestIndexText(CfqTestCase):
             text,
             "No batch has a report yet — reports have existed only since v0.2, so older batches never got one.",
         )
+
+    def test_turns_and_in_columns_present_between_out_and_marker(self):
+        self._batch(
+            "repo-a", "2026-05-01-cols",
+            [self._phase(
+                "01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00",
+                turns=7, output=12345, billable_in=6789,
+            )],
+        )
+        text = self._run_text()
+        header = next(l for l in text.split("\n") if l.startswith("| Batch"))
+        cols = [c.strip() for c in header.strip("|").split("|")]
+        self.assertEqual(cols.index("Turns"), cols.index("Out") + 1, f"Turns not right after Out:\n{header}")
+        self.assertEqual(cols.index("In"), cols.index("Turns") + 1, f"In not right after Turns:\n{header}")
+        self.assertEqual(cols.index("📄"), cols.index("In") + 1, f"the marker column moved:\n{header}")
+
+        row = next(l for l in text.split("\n") if "2026-05-01-cols" in l)
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        self.assertEqual(cells[cols.index("Turns")], "7", f"Turns cell wrong:\n{row}")
+        self.assertEqual(cells[cols.index("In")], "7k", f"In cell not fmt_tokens-formatted:\n{row}")
+
+    def test_pre_phase_06_report_in_renders_dash_not_zero(self):
+        self._batch(
+            "repo-a", "2026-05-01-preexisting",
+            [self._phase("01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00", turns=3, output=500)],
+        )
+        text = self._run_text()
+        header = next(l for l in text.split("\n") if l.startswith("| Batch"))
+        cols = [c.strip() for c in header.strip("|").split("|")]
+        row = next(l for l in text.split("\n") if "2026-05-01-preexisting" in l)
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        self.assertEqual(
+            cells[cols.index("In")], "–", f"pre-phase-06 report must render '–' for In, not 0:\n{row}",
+        )
+        self.assertEqual(len(cells), len(cols), f"row column count drifted from header:\n{row}")
+
+    def test_every_row_column_count_matches_header(self):
+        # Three distinct fixture shapes at once, so a ragged row from any one of them cannot slip
+        # through: a phase-06 report, a pre-phase-06 report, and a phase with no telemetry totals
+        # key at all.
+        self._batch(
+            "repo-a", "2026-05-01-full",
+            [self._phase(
+                "01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00",
+                turns=1, output=100, billable_in=200,
+            )],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-legacy",
+            [self._phase("01-a", "green", telemetry_until="2026-05-02T09:00:00+00:00", turns=2, output=200)],
+        )
+        self._batch("repo-a", "2026-05-03-notelemetry", [self._phase("01-a", "green")])
+        text = self._run_text()
+        lines = text.split("\n")
+        header = next(l for l in lines if l.startswith("| Batch"))
+        expected_cols = len(header.strip("|").split("|"))
+        data_rows = [l for l in lines if l.startswith("| 2026-05-0")]
+        self.assertEqual(len(data_rows), 3, f"expected all three fixture rows:\n{text}")
+        for row in data_rows:
+            self.assertEqual(
+                len(row.strip("|").split("|")), expected_cols, f"ragged row, column count drifted:\n{row}",
+            )
 
 
 # ---- phase 01: derivation helpers cfq_report.py's html/detail/index rendering all funnel

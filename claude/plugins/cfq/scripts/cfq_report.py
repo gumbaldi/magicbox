@@ -1191,12 +1191,14 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
         planning_totals = planning.get("totals") if isinstance(planning, dict) else None
         planning_output = _totals_field(planning_totals, "output")
         planning_turns = _totals_field(planning_totals, "turns")
-        phase_outputs, phase_turns = [], []
+        planning_billable_in = _totals_field(planning_totals, "billable_in")
+        phase_outputs, phase_turns, phase_billable_in = [], [], []
         for p in phases:
             tel = p.get("telemetry") if isinstance(p, dict) else None
             totals = tel.get("totals") if isinstance(tel, dict) else None
             phase_outputs.append(_totals_field(totals, "output"))
             phase_turns.append(_totals_field(totals, "turns"))
+            phase_billable_in.append(_totals_field(totals, "billable_in"))
 
         # `rendered`/`href` used to be computed a second time, independently, inside
         # regenerate_index() -- both call sites now share this one `resolve_html_path()` answer
@@ -1218,6 +1220,13 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             "cost": {
                 "outputTokens": planning_output + sum(phase_outputs),
                 "turns": planning_turns + sum(phase_turns),
+                # Mirrors outputTokens/turns above (planning's own share folded in, not kept
+                # apart) -- a report predating phase 06 has no `billable_in` anywhere, so this
+                # sums to 0 via `_totals_field`'s own default, and `fmt_tokens(0)` already
+                # renders that as "-", the same placeholder a genuine zero would get. No separate
+                # "unavailable" tracking is needed: zero and unknown render identically here, by
+                # the same convention `outputTokens` already relies on.
+                "inputTokens": planning_billable_in + sum(phase_billable_in),
             },
         })
 
@@ -1233,15 +1242,23 @@ def _index_group_lines(repo_key, group_rows, limit):
     total_out = sum(r["cost"]["outputTokens"] for r in group_rows)
     shown = group_rows if limit <= 0 else group_rows[:limit]
     lines = [f"### {repo_key} · {len(group_rows)} batches · {fmt_tokens(total_out)} out", ""]
-    lines.append("| Batch | · | Devs | Date | Out | 📄 |")
-    lines.append("|---|---|---|---|---|---|")
+    lines.append("| Batch | · | Devs | Date | Out | Turns | In | 📄 |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     for r in shown:
         devs_disp = "" if not r["deviations"] else str(r["deviations"])
         date_disp = fmt_short(r["date"]) or "–"
         out_disp = fmt_tokens(r["cost"]["outputTokens"])
+        turns_disp = fmt_int(r["cost"]["turns"])
+        # `fmt_tokens` -- same rounding as `out_disp` above, and the same "0/negative -> -"
+        # convention already covers a report predating phase 06 (no `billable_in` anywhere sums
+        # to 0 in build_index_rows), so a missing figure and a genuine zero render identically,
+        # exactly as `Out` already does.
+        in_disp = fmt_tokens(r["cost"]["inputTokens"])
         rendered_disp = "✓" if r["rendered"] else ""
         lines.append(
-            "| " + " | ".join([r["batch"], r["glyph"], devs_disp, date_disp, out_disp, rendered_disp]) + " |"
+            "| " + " | ".join(
+                [r["batch"], r["glyph"], devs_disp, date_disp, out_disp, turns_disp, in_disp, rendered_disp]
+            ) + " |"
         )
     lines.append("")
     remaining = len(group_rows) - len(shown)

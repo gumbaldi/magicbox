@@ -94,9 +94,10 @@ On request for a single batch, print the `POSTCHECKS` header, then call:
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report detail "<batch-dir>"
 ```
 
-and render its `phases` in prose — status, summary, deviations, errors, and, if present, the
-phase's model, effort, and the skills actually used (`.phases[].telemetry`); verification excerpts
-are already bounded, render as-is. `found: false` → say plainly there is no report for this batch.
+and render its `phases` in prose — status, summary, deviations, errors, turns, tokens, and, if
+present, the phase's model, effort, and the skills actually used (`.phases[].telemetry`);
+verification excerpts are already bounded, render as-is. `found: false` → say plainly there is no
+report for this batch.
 
 For the HTML view:
 
