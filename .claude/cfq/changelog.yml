@@ -1038,7 +1038,11 @@
       summary: ""
 - batchNumber: 36
   batch: 036-2026-09-22-repair-todo-card-checks
-  status: parked
+  branch: cfq/036-2026-09-22-repair-todo-card-checks
+  base: cfq/035-2026-09-22-ifq-batch-gate-and-output-design
+  started: 2026-09-22
+  status: in-progress
+  legacy: false
 - batchNumber: 37
   batch: 037-2026-09-22-phase-push-upstream-and-inbox-overview
   status: parked
