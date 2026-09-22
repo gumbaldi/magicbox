@@ -3,7 +3,7 @@
 #        cfq_note.py todo <repo-root> <slug> <body-file>
 #        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
-#        cfq_note.py list <repo-root> [--text]
+#        cfq_note.py list <repo-root> [--text | --overview]
 #        cfq_note.py sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S]
 #                           [--close <filename>]...
 """Writes a `plan/` or `todo/` queue entry: `<repo>/.claude/cfq/{plan,todo}/<today>-<slug>.md`.
@@ -29,7 +29,12 @@ before normalisation) differ.
 `list <repo-root>` renders the `plan/` inbox without consuming it -- one record per
 `plan/*.md` (non-recursive, so `plan/done/` is never listed), sorted by filename ascending, which
 is already oldest-first given the `<YYYY-MM-DD>-<slug>.md` naming. `--from-plan` on `cfq park` is
-the inbox's other half: it consumes the entry `list` showed.
+the inbox's other half: it consumes the entry `list` showed. `--overview` (mutually exclusive with
+`--text`) is the one-line-per-topic block `pfq`/`ifq` print verbatim at session start: date + title
+only, no excerpt. In `frameworkRepo` it additionally lists the global framework inbox's still-unimported
+entries, tagged `framework` and counted separately in the header -- elsewhere those entries are
+never written into `plan/` in the first place, so there is nothing extra to show. Read-only either
+way: it never imports and never moves anything.
 
 `sweep <repo-root>` runs every `todo/*.md` card's `check:` line (first match wins; further
 `check:` lines are counted into `extraChecks` and never executed) and classifies each card
@@ -55,6 +60,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import proc as cfq_lib_proc  # noqa: E402
+from cfq_lib import text as cfq_lib_text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
 PROG = "cfq_note.py"
@@ -128,7 +134,19 @@ def cmd_note(args, kind):
     else:
         target_dir = TARGET_DIR[kind](args.repo)
 
-    _write_entry(target_dir, args.slug, body_file.read_text())
+    body_text = body_file.read_text()
+
+    if kind == "todo":
+        # Same detector, same line.strip() treatment, that _sweep_card later applies -- so the
+        # warning fires on exactly the lines sweep would execute, never a second regex that drifts.
+        if not any(CHECK_RE.match(line.strip()) for line in body_text.splitlines()):
+            print(
+                "warning: no `check:` line -- `cfq note sweep` can never close this card "
+                "automatically (see references/queue-entries.md)",
+                file=sys.stderr,
+            )
+
+    _write_entry(target_dir, args.slug, body_text)
 
 
 def cmd_merge_todo(args):
@@ -238,6 +256,10 @@ def cmd_list(args):
         else []
     )
 
+    if args.overview:
+        _print_overview(args, entries)
+        return
+
     if not args.text:
         print(render.dump_json(entries))
         return
@@ -251,6 +273,33 @@ def cmd_list(args):
         if entry["excerpt"]:
             parts.append(entry["excerpt"])
         print("  ".join(parts))
+
+
+def _print_overview(args, entries):
+    """The one-line-per-topic block `pfq`/`ifq` print verbatim at session start: date + title
+    only, no excerpt. Read-only -- never imports, never moves anything. `frameworkRepo` is
+    resolved only here, never on the plain `list`/`--text` paths, so those gain no extra
+    `settings get` subprocess."""
+    framework_entries = []
+    if _is_framework_repo(args.repo, _resolve_framework_repo()):
+        inbox = _inbox_dir()
+        if inbox.is_dir():
+            framework_entries = [_parse_plan_entry(f) for f in sorted(inbox.glob("*.md"))]
+
+    total = len(entries) + len(framework_entries)
+    if total == 0:
+        print("INBOX  empty")
+        return
+
+    header = f"INBOX  {total} entries"
+    if framework_entries:
+        header += f" · {len(framework_entries)} framework not imported"
+    print(header)
+
+    rows = [[e["date"], e["title"]] for e in entries]
+    rows += [[e["date"], e["title"], "framework"] for e in framework_entries]
+    for line in cfq_lib_text.table(rows):
+        print(line)
 
 
 CHECK_RE = re.compile(r"^check:\s*(.+)$")
@@ -425,7 +474,9 @@ def build_parser():
 
     list_p = sub.add_parser("list")
     list_p.add_argument("repo")
-    list_p.add_argument("--text", action="store_true")
+    list_group = list_p.add_mutually_exclusive_group()
+    list_group.add_argument("--text", action="store_true")
+    list_group.add_argument("--overview", action="store_true")
     list_p.set_defaults(func=cmd_list)
 
     sweep_p = sub.add_parser("sweep")
@@ -448,7 +499,7 @@ def main(argv):
         errors.die(
             f"usage: {PROG} plan|todo <repo-root> <slug> <body-file> [--framework] | "
             f"merge-todo <repo-root> <branch> | import <repo-root> | "
-            f"list <repo-root> [--text] | "
+            f"list <repo-root> [--text | --overview] | "
             f"sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S] "
             f"[--close <filename>]..."
         )

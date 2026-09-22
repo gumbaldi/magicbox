@@ -2,6 +2,7 @@
 # Usage: cfq_telemetry.py record <batch-dir> planning|phase [<phase-slug>]
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
+#        cfq_telemetry.py show <repo-root> [--session]
 """Telemetry for cfq. Aggregates the running session's transcript into the batch report and a
 repo-local JSONL. Numbers, timestamps and names only -- never prompt text, never tool arguments.
 
@@ -26,7 +27,10 @@ from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_telemetry.py"
 
-USAGE = f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>]"
+USAGE = (
+    f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>] | "
+    "show <repo-root> [--session]"
+)
 
 # The phase worker's plugin-namespaced agent name -- the one place it is defined is
 # agents/cfq-phase-worker.md, which resolves to this form (references/orchestrator.md,
@@ -57,6 +61,14 @@ def jqor(value, default):
 def transcript_path():
     # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter.
     return cfq_run("runtime", "transcript-path").stdout.strip()
+
+
+def session_identity():
+    """(transcript_path, session_id) for the running session -- the exact `transcript_path()`
+    call and `CLAUDE_CODE_SESSION_ID` extraction `cmd_record_phase_or_planning` needs, factored
+    into one helper so `telemetry show --session` reuses it verbatim instead of re-deriving
+    session identity a second time."""
+    return transcript_path(), os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
 
 def subagent_dir():
@@ -204,6 +216,13 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
     mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
 
+    # subagent_worker/subagent_explore partition the same `sub` list `subagent` sums as a whole,
+    # on the same attribution name `by_agent` already buckets by: WORKER_AGENT turns are phase-worker
+    # activity, everything else (Explore included) is exploration. `subagent` itself stays the
+    # unchanged sum of both, so nothing that reads it today breaks.
+    worker_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") == WORKER_AGENT]
+    explore_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") != WORKER_AGENT]
+
     return {
         "schema": 1,
         "kind": kind,
@@ -225,6 +244,8 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
         "by_agent": by_agent,
         "tools": tools,
         "subagent": sums(sub),
+        "subagent_worker": sums(worker_sub),
+        "subagent_explore": sums(explore_sub),
         "skills_recommended": recommended,
     }
 
@@ -272,14 +293,13 @@ def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
 
 
 def cmd_record_phase_or_planning(dir_, kind, phase):
-    tf = transcript_path()
+    tf, sid = session_identity()
     if not tf or not os.path.isfile(tf):
         print(f"{PROG}: no transcript found — skipped", file=sys.stderr)
         return
 
     repo = git_toplevel(dir_)
     jsonl = cfq_lib_paths.telemetry_log(repo)
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
     since = ""
     if os.path.isfile(jsonl) and sid:
@@ -306,7 +326,7 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
     totals = rec["totals"]
     print(
         f"telemetry: {totals['turns']} turns, {totals['output']} out / "
-        f"{totals['input'] + totals['cache_read'] + totals['cache_creation']} in"
+        f"{totals['billable_in']} in ({totals['cache_read']} cached)"
     )
 
 
@@ -378,6 +398,74 @@ def cmd_sync(rest):
         print(f"telemetry sync: +{added} written to {target_file}, git step failed (non-fatal)", file=sys.stderr)
 
 
+def aggregate_show(records):
+    """One JSON object out of a list of parsed telemetry.jsonl records -- the numbers `pfq`'s
+    `Cost` line needs (turns, output, billable_in, cache_read, models, efforts) plus
+    subagent_explore, so a planning session's own Explore-agent usage stops being invisible. Skips
+    anything that isn't a `planning`/`phase` record structurally (a bootstrap entry has no
+    `totals`) rather than raising on it."""
+    turns = output = billable_in = cache_read = 0
+    explore_turns = explore_output = 0
+    model_keys, effort_keys = [], []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        totals = r.get("totals") if isinstance(r.get("totals"), dict) else None
+        if totals:
+            turns += _totals_field(totals, "turns")
+            output += _totals_field(totals, "output")
+            billable_in += _totals_field(totals, "billable_in")
+            cache_read += _totals_field(totals, "cache_read")
+        by_model = r.get("by_model")
+        if isinstance(by_model, dict):
+            model_keys.extend(by_model.keys())
+        by_effort = r.get("by_effort")
+        if isinstance(by_effort, dict):
+            effort_keys.extend(by_effort.keys())
+        explore = r.get("subagent_explore")
+        if isinstance(explore, dict):
+            explore_turns += _totals_field(explore, "turns")
+            explore_output += _totals_field(explore, "output")
+    return {
+        "turns": turns,
+        "output": output,
+        "billable_in": billable_in,
+        "cache_read": cache_read,
+        "models": ",".join(sorted(set(model_keys))),
+        "efforts": ",".join(sorted(set(effort_keys))),
+        "subagent_explore": {"turns": explore_turns, "output": explore_output},
+    }
+
+
+def _totals_field(totals, key):
+    return jqor(totals.get(key) if isinstance(totals, dict) else None, 0)
+
+
+def cmd_show(rest):
+    if not rest:
+        errors.die(f"usage: {PROG} show <repo-root> [--session]")
+    repo_root, session_only = rest[0], "--session" in rest[1:]
+
+    jsonl = cfq_lib_paths.telemetry_log(repo_root)
+    records = []
+    if os.path.isfile(jsonl):
+        with open(jsonl) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    continue
+
+    if session_only:
+        _, sid = session_identity()
+        records = [r for r in records if isinstance(r, dict) and r.get("session_id") == sid]
+
+    print(render.dump_json(aggregate_show(records)))
+
+
 def main(argv):
     cmd = argv[0] if argv else ""
     rest = argv[1:]
@@ -385,6 +473,8 @@ def main(argv):
         cmd_record(rest)
     elif cmd == "sync":
         cmd_sync(rest)
+    elif cmd == "show":
+        cmd_show(rest)
     else:
         errors.die(USAGE)
 

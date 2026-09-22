@@ -65,7 +65,9 @@ noticing, which is the point.
 Scripts call each other through `bin/cfq <noun>`, never by filename — the same rule that applies
 to skills and references. `scripts/cfq_lib/` is the one exception — shared Python with no CLI and
 no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` holds the canonical
-path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers). Two further
+path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers; `cfq_lib/text.py`
+holds the shared terminal-rendering helpers — padding, wrapping, aligned columns, icon lookup).
+Two further
 exceptions stay direct filename calls, each commented at its call site:
 - **Inner-loop calls** (`cfq_batch_id.py`'s per-pair rename and per-orphan reserve,
   `cfq_scan.py`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
@@ -204,6 +206,10 @@ transcript (`cfq_runtime.py`'s path resolution, reused rather than reinvented) �
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
 `tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
+A record's sub-agent turns are further split by the `WORKER_AGENT` attribution name into
+`subagent_worker` and `subagent_explore` (the unchanged `subagent` field stays the sum of both), so
+a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
+downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker split.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and

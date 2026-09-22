@@ -48,7 +48,9 @@ the phase summary — both modes, no `AskUserQuestion`, no second attempt.
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 
 Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:
-<shell-command>` line (exit `0` means done). Plus `## Origin`, same as above. `bin/cfq note sweep`
+<shell-command>` line (exit `0` means done). `note todo` prints a non-fatal stderr warning when the
+body carries no `check:` line — the card is still written, the warning only names that `note sweep`
+can never close it. Plus `## Origin`, same as above. `bin/cfq note sweep`
 is what executes those `check:` lines and closes the green cards — never a hand-run shell command.
 Write a `check:` that asserts the *outcome*, not a count of files that happen to hold it today: the
 card asserting that four `SKILL.md` files contain a clause has been unfalsifiably red since that

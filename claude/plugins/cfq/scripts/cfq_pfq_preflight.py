@@ -7,21 +7,64 @@ cfq_settings.py covering every policy/language key at once. Security (Step 8) st
 call on purpose -- this only reports capability (a security backend reachable at all), never live
 finding counts, which need a network round-trip.
 
-Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen.
+Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
+addition (batch 037 phase 03's `inbox` object) is not a break of that rule, only a removal or
+rename would be.
 """
 
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import render  # noqa: E402
+from cfq_lib import render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
+
+INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
+
+
+def inbox_count_from_overview(overview_text):
+    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
+    entries[ · <k> framework not imported]` or `INBOX  empty`) instead of a second `note list`
+    JSON call -- one subprocess call covers both the printable block and the count, and `plan/`
+    is never parsed twice in the same preflight run."""
+    first_line = overview_text.splitlines()[0] if overview_text else ""
+    if first_line == "INBOX  empty":
+        return 0
+    m = INBOX_HEADER_RE.match(first_line)
+    return int(m.group(1)) if m else 0
+
+
+def model_check_line(allow_any_model):
+    """The `Model Check` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
+    `model_gate_line`. The actual substring match against the running model's name stays with the
+    skill (`references/interview-depth.md`'s **Model Gate**), since only the session itself knows
+    its own model, from its own system prompt."""
+    if allow_any_model:
+        return text.status_entry("Model Check", "skip", "skipped · allowAnyModel")
+    return text.status_entry("Model Check", "done", "checked against planModels")
+
+
+def plugin_boundaries_line(blocked):
+    if not blocked:
+        return text.status_entry("Plugin Boundaries", "skip", "none blocked")
+    return text.status_entry(
+        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
+    )
+
+
+def inbox_line(count, imported):
+    icon = "skip" if count == 0 else "done"
+    detail = f"{count} entries waiting"
+    if imported:
+        detail += f" · {imported} imported"
+    return text.status_entry("Inbox", icon, detail)
 
 
 def cmd_preflight(args):
@@ -58,6 +101,11 @@ def cmd_preflight(args):
 
     sec_available = bool(shutil.which("gh") or shutil.which("tea"))
 
+    import_result = json.loads(cfq_run("note", "import", repo).stdout)
+    imported_n = len(import_result.get("imported", []))
+    inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
+    inbox_n = inbox_count_from_overview(inbox_overview)
+
     print(render.dump_json({
         "status": "OK",
         "repo": {"root": repo, "known": known},
@@ -80,6 +128,12 @@ def cmd_preflight(args):
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
+        "inbox": {"count": inbox_n, "imported": imported_n, "overview": inbox_overview},
+        "statusLines": [
+            model_check_line(settings["allowAnyModel"]),
+            inbox_line(inbox_n, imported_n),
+            plugin_boundaries_line(settings["planBlockedPlugins"]),
+        ],
     }))
 
 

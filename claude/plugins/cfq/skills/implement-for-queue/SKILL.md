@@ -23,7 +23,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 
 | Section | Steps | Contents |
 |---|---|---|
-| PRECHECKS | 1-7 | Preflight, Model Check, Batch, Size Gate |
+| PRECHECKS | 1-7 | Preflight, Model Check, Batch, Start Gate, Size Gate |
 | IMPLEMENTATION | 8-9 | per phase: announcement, result, Commit |
 | POSTCHECKS | 10-12 | Context Check, Telemetry, Lock, Batch Done |
 
@@ -47,15 +47,15 @@ Print the `PRECHECKS` header, then one call:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
-`status: "NO_REPO"` → abort, report, end. Otherwise this one call already resolved the model gate,
-plugin boundaries and batch selection together — read its fields below, no further calls needed
-for those three steps.
-
-**Model Gate.** cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
+`status: "NO_REPO"` → abort, report, end. Otherwise, print `inbox.overview` verbatim right here —
+always, before Model Gate, the start gate or any lock, read-only, no import, no question, even when
+no batch ends up selectable. This one call already resolved the model gate, plugin boundaries and
+batch selection together — read its fields below, no further calls needed for those three steps.
+**Model Gate**: print as returned; cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
 
 **Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
-ignored. Print the `Plugin Boundaries` status line.
+ignored. Print `Plugin Boundaries` as returned (the preflight's own line).
 
 **Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. Every other outcome's wording — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules** section on first use each session and apply it here.
 
@@ -66,8 +66,8 @@ phase files in full here, that's **Implementation**'s job. `contextGate.verdict`
 `batch.consistency == "divergent"` — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings** section on first use each session and apply it here. Present `batch.briefText` compactly (already the full
 per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size
-and context excerpt), then start directly — invoking `/ifq` is itself the intent to start, no
-confirmation question:
+and context excerpt), then show the batch overview and the queue listing and ask before starting —
+cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
 
 Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`

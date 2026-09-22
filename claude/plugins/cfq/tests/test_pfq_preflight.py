@@ -177,6 +177,96 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         changed = self.run_clean("find", str(reg), "-newer", str(marker)).stdout
         self.assertEqual(changed, "", msg=f"run modified files under the fixture repo: {changed}")
 
+    # ---- statusLines (batch 035 phase 08) -----------------------------------------------------
+
+    def test_status_lines_shape_and_labels(self):
+        reg = self._repos_dir / "statuslines-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(
+            labels, ["Model Check", "Inbox", "Plugin Boundaries"], msg=f"labels = {labels}"
+        )
+
+    def test_model_check_line(self):
+        reg = self._repos_dir / "model-check-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        self.assertEqual(line["icon"], "done", msg=f"line = {line}")
+        self.assertEqual(line["detail"], "checked against planModels", msg=f"line = {line}")
+
+        out = self.json_out(self._run_pf(str(reg), env={"CFQ_ALLOW_ANY_MODEL": "1"}))
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
+        self.assertEqual(line["detail"], "skipped · allowAnyModel", msg=f"line = {line}")
+
+    def test_inbox_line_reflects_entry_count(self):
+        reg = self._repos_dir / "inbox-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(
+            out["inbox"], {"count": 0, "imported": 0, "overview": "INBOX  empty"},
+            msg=f"inbox = {out['inbox']}",
+        )
+        line = next(e for e in out["statusLines"] if e["label"] == "Inbox")
+        self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
+        self.assertEqual(line["detail"], "0 entries waiting", msg=f"line = {line}")
+
+        plan_dir = reg / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-something.md").write_text("# Something\n\nDo it.\n")
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["count"], 1, msg=f"inbox = {out['inbox']}")
+        line = next(e for e in out["statusLines"] if e["label"] == "Inbox")
+        self.assertEqual(line["icon"], "done", msg=f"line = {line}")
+        self.assertEqual(line["detail"], "1 entries waiting", msg=f"line = {line}")
+
+    # ---- inbox.overview (batch 037 phase 03) --------------------------------------------------
+
+    def test_inbox_overview_matches_real_note_list_call(self):
+        reg = self._repos_dir / "inbox-overview-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+        plan_dir = reg / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-first.md").write_text("# First\n\nDo it.\n")
+        (plan_dir / "2026-01-02-second.md").write_text("# Second\n\nDo it too.\n")
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["count"], 2, msg=f"inbox = {out['inbox']}")
+        direct = self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_note.py"), "list", str(reg), "--overview",
+            env={"HOME": str(self.home)},
+        ).stdout.rstrip("\n")
+        self.assertEqual(
+            out["inbox"]["overview"], direct,
+            msg=f"inbox.overview = {out['inbox']['overview']!r}, direct call = {direct!r}",
+        )
+
+    def test_inbox_overview_empty_plan_dir(self):
+        reg = self._repos_dir / "inbox-overview-empty"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
+        self.assertEqual(out["inbox"]["count"], 0, msg=f"inbox = {out['inbox']}")
+
+    def test_no_repo_has_no_inbox_key(self):
+        out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
+        self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
+        self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
+
     def _make_bindir_without(self, excluded):
         # Symlink farm of the real PATH minus the given commands, so the rest of the toolchain
         # (bash, jq, git, coreutils, ...) stays reachable while the excluded commands' presence

@@ -7,10 +7,15 @@ Python in batch `017` phase 09 (see batch `014` phase 02 for the shadowing patte
 
 import json
 import shutil
+import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cfq_lib import text  # noqa: E402
 
 
 class IfqPreflightTest(CfqTestCase):
@@ -65,6 +70,42 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
     def test_no_repo(self):
         out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
         self.assertEqual(out["status"], "NO_REPO", msg=f"non-git status = {out}")
+        self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
+
+    # ---- inbox.overview (batch 037 phase 03) --------------------------------------------------
+
+    def test_inbox_overview_matches_real_note_list_call(self):
+        repo = self._setup_repo("inbox-overview-reg")
+        plan_dir = repo / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-first.md").write_text("# First\n\nDo it.\n")
+        (plan_dir / "2026-01-02-second.md").write_text("# Second\n\nDo it too.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["inbox"]["count"], 2, msg=f"inbox = {out['inbox']}")
+        direct = self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_note.py"), "list", str(repo), "--overview",
+        ).stdout.rstrip("\n")
+        self.assertEqual(
+            out["inbox"]["overview"], direct,
+            msg=f"inbox.overview = {out['inbox']['overview']!r}, direct call = {direct!r}",
+        )
+
+    def test_inbox_overview_empty_plan_dir(self):
+        repo = self._setup_repo("inbox-overview-empty")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
+        self.assertEqual(out["inbox"]["count"], 0, msg=f"inbox = {out['inbox']}")
+
+    def test_inbox_present_on_empty_result_path(self):
+        # empty_result path (NO_BATCH, no open batch at all) -- the inbox key must still be
+        # present here, since that is exactly when the user wants to see what still needs
+        # planning.
+        repo = self._setup_repo("inbox-no-open-batch")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertIn("inbox", out, msg=f"inbox key missing on empty_result path: {out}")
+        self.assertEqual(out["inbox"]["overview"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
 
     def test_continue_mode_calls_branch_once(self):
         repo1 = self._setup_repo("continue-repo")
@@ -481,6 +522,248 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self._run_pf(str(repo8))
         changed = self.run_clean("find", str(repo8), "-newer", str(marker)).stdout
         self.assertEqual(changed, "", msg=f"run modified files under the fixture repo: {changed}")
+
+    # ---- selection.queueText (batch 035 phase 03) --------------------------------------------
+
+    def test_queue_text_three_open_batches(self):
+        repo = self._setup_repo("queue-three")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "035-2026-09-22-ifq-batch-gate").mkdir(parents=True)
+        (qdir / "035-2026-09-22-ifq-batch-gate" / "01-a.md").touch()
+        (qdir / "036-2026-09-22-render-cleanup").mkdir(parents=True)
+        (qdir / "036-2026-09-22-render-cleanup" / "01-b.md").touch()
+        (qdir / "036-2026-09-22-render-cleanup" / ".dependsOn").write_text(
+            "035-2026-09-22-ifq-batch-gate\n"
+        )
+        (qdir / "037-2026-09-23-cleanup-pass").mkdir(parents=True)
+        (qdir / "037-2026-09-23-cleanup-pass" / "01-c.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".planning").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["batch"]["name"], "035-2026-09-22-ifq-batch-gate", msg=f"chosen batch = {out}"
+        )
+
+        rows = [
+            ["035", "2026-09-22", "ifq-batch-gate", "ready · selected"],
+            ["036", "2026-09-22", "render-cleanup",
+             "blocked → waits on 035-2026-09-22-ifq-batch-gate"],
+            ["037", "2026-09-23", "cleanup-pass", "planning"],
+        ]
+        expected = "QUEUE · 3 open\n" + "\n".join(
+            text.table(rows, headers=["#", "Date", "Topic", "Status"])
+        )
+        self.assertEqual(
+            out["selection"]["queueText"], expected,
+            msg=f"queueText = {out['selection']['queueText']!r}",
+        )
+
+    def test_queue_text_unknown_dependency_shown_in_same_cell(self):
+        repo = self._setup_repo("queue-unknown-dep")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text(
+            "2026-01-01-alpha\ndoes-not-exist\n"
+        )
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            [b["name"] for b in out["selection"]["blocked"]], ["2026-01-02-blocked"],
+            msg=f"blocked list = {out}",
+        )
+        qtext = out["selection"]["queueText"]
+        lines = qtext.splitlines()
+        self.assertEqual(lines[0], "QUEUE · 2 open", msg=f"header = {lines[0]!r}; row count changed")
+        blocked_line = next(l for l in lines if "2026-01-02-blocked" in l)
+        self.assertIn(
+            "blocked → waits on 2026-01-01-alpha, does-not-exist ⚠️ unknown: does-not-exist",
+            blocked_line, msg=f"blocked line = {blocked_line!r}",
+        )
+
+    def test_queue_text_high_priority_prefixed_and_sorted_first(self):
+        repo = self._setup_repo("queue-high-priority")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+        (qdir / "2026-01-02-beta" / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"chosen = {out}")
+        lines = out["selection"]["queueText"].splitlines()
+        data_lines = lines[2:]
+        self.assertIn(
+            "2026-01-02-beta", data_lines[0], msg=f"flagged batch not sorted first: {data_lines}"
+        )
+        self.assertIn(
+            "high · ready · selected", data_lines[0], msg=f"flagged status wrong: {data_lines[0]!r}"
+        )
+
+    def test_queue_text_in_progress_not_marked_selected(self):
+        repo = self._setup_repo("queue-inprogress")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-02-01-inprog" / "done").mkdir(parents=True)
+        (qdir / "2026-02-01-inprog" / "done" / "00-x.md").touch()
+        (qdir / "2026-02-01-inprog" / "01-y.md").touch()
+        (qdir / "2026-02-02-other").mkdir(parents=True)
+        (qdir / "2026-02-02-other" / "01-z.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["selection"]["inProgress"], "2026-02-01-inprog", msg=f"inProgress = {out}"
+        )
+        self.assertEqual(out["batch"]["name"], "2026-02-01-inprog", msg=f"chosen = {out}")
+        lines = out["selection"]["queueText"].splitlines()
+        self.assertEqual(lines[0], "QUEUE · 2 open", msg=f"header = {lines[0]!r}")
+        inprog_line = next(l for l in lines if "2026-02-01-inprog" in l)
+        self.assertIn("in progress", inprog_line, msg=f"in-progress row wrong: {inprog_line!r}")
+        self.assertNotIn(
+            "selected", inprog_line, msg=f"in-progress row wrongly marked selected: {inprog_line!r}"
+        )
+
+    def test_queue_text_present_on_no_batch_and_blocked(self):
+        empty_repo = self._setup_repo("queue-empty")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertIn("queueText", out["selection"], msg=f"queueText key missing: {out}")
+        self.assertIsNone(
+            out["selection"]["queueText"], msg=f"empty queue queueText should be null: {out}"
+        )
+
+        blocked_repo = self._setup_repo("queue-blocked-only")
+        qdir = blocked_repo / ".claude" / "cfq" / "impl"
+        # a 0/0 directory (no .md files) is never a candidate itself, but its mere existence
+        # still blocks a real dependent -- see test_zero_zero_batch_alone_is_no_batch.
+        (qdir / "2026-01-01-a").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-a\n")
+
+        out = self.json_out(self._run_pf(str(blocked_repo)))
+        self.assertEqual(out["status"], "BLOCKED", msg=f"status = {out}")
+        self.assertIn("queueText", out["selection"], msg=f"queueText key missing: {out}")
+        qtext = out["selection"]["queueText"]
+        self.assertIsNotNone(qtext, msg=f"BLOCKED queueText should be non-empty: {out}")
+        self.assertTrue(qtext.startswith("QUEUE · 1 open"), msg=f"queueText = {qtext!r}")
+
+    # ---- statusLines (batch 035 phase 08) -----------------------------------------------------
+
+    def test_status_lines_shape(self):
+        repo = self._setup_repo("statuslines-shape")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(
+            labels, ["Model Gate", "Plugin Boundaries", "Batch"], msg=f"labels = {labels}"
+        )
+
+        # empty_result path (NO_BATCH) still carries the first two, generically shaped, no Batch
+        empty_repo = self._setup_repo("statuslines-shape-empty")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assert_status_lines_shape(out["statusLines"])
+        self.assertEqual(
+            [e["label"] for e in out["statusLines"]], ["Model Gate", "Plugin Boundaries"],
+            msg=f"labels = {out['statusLines']}",
+        )
+
+    def test_model_gate_and_plugin_boundaries_lines(self):
+        repo = self._setup_repo("model-gate-lines")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        gate = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+        self.assertEqual(gate["icon"], "done", msg=f"gate = {gate}")
+        # orchestratorMode defaults to true (test_orchestrator_policy_present_and_true_by_default)
+        # -> the applicable list is orchestratorModels, not implModels.
+        self.assertEqual(gate["detail"], "checked against orchestratorModels", msg=f"gate = {gate}")
+        boundaries = next(e for e in out["statusLines"] if e["label"] == "Plugin Boundaries")
+        self.assertEqual(boundaries["icon"], "done", msg=f"boundaries = {boundaries}")
+
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_ALLOW_ANY_MODEL": "1"}))
+        gate = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+        self.assertEqual(gate["icon"], "skip", msg=f"gate = {gate}")
+        self.assertEqual(gate["detail"], "skipped · allowAnyModel", msg=f"gate = {gate}")
+
+    def test_batch_line_four_phrasings(self):
+        # single selectable
+        repo = self._setup_repo("batch-line-single")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-solo").mkdir(parents=True)
+        (qdir / "2026-01-01-solo" / "01-a.md").touch()
+        out = self.json_out(self._run_pf(str(repo)))
+        entry = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry["detail"], "2026-01-01-solo · only open batch · 1 phases · mode=orchestrator",
+            msg=f"single-selectable Batch detail = {entry}",
+        )
+
+        # multiple selectable -- order-picked default
+        repo2 = self._setup_repo("batch-line-multi")
+        qdir2 = repo2 / ".claude" / "cfq" / "impl"
+        (qdir2 / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir2 / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir2 / "2026-01-02-beta").mkdir(parents=True)
+        (qdir2 / "2026-01-02-beta" / "01-b.md").touch()
+        out2 = self.json_out(self._run_pf(str(repo2)))
+        entry2 = next(e for e in out2["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry2["detail"], "2026-01-01-alpha · next in order · 1 phases · mode=orchestrator",
+            msg=f"multiple-selectable Batch detail = {entry2}",
+        )
+
+        # --select explicit
+        out3 = self.json_out(self._run_pf(str(repo2), "--select", "2026-01-02-beta"))
+        entry3 = next(e for e in out3["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry3["detail"], "2026-01-02-beta · selected by argument · 1 phases · mode=orchestrator",
+            msg=f"--select Batch detail = {entry3}",
+        )
+
+        # in-progress resume
+        repo3 = self._setup_repo("batch-line-resume")
+        qdir3 = repo3 / ".claude" / "cfq" / "impl"
+        (qdir3 / "2026-01-01-inprog" / "done").mkdir(parents=True)
+        (qdir3 / "2026-01-01-inprog" / "done" / "00-x.md").touch()
+        (qdir3 / "2026-01-01-inprog" / "01-a.md").touch()
+        out4 = self.json_out(self._run_pf(str(repo3)))
+        entry4 = next(e for e in out4["statusLines"] if e["label"] == "Batch")
+        self.assertEqual(
+            entry4["detail"], "resumed 2026-01-01-inprog · 1/2 phases done · mode=orchestrator",
+            msg=f"resumed Batch detail = {entry4}",
+        )
+
+    def test_queue_text_legacy_unnumbered_batch(self):
+        repo = self._setup_repo("queue-legacy")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-legacy-slug").mkdir(parents=True)
+        (qdir / "2026-01-01-legacy-slug" / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        qtext = out["selection"]["queueText"]
+        self.assertNotIn("None", qtext, msg=f"queueText contains a raw None: {qtext!r}")
+
+        expected_row = text.table(
+            [["2026-01-01-legacy-slug", "", "2026-01-01-legacy-slug", "ready · selected"]],
+            headers=["#", "Date", "Topic", "Status"],
+        )[-1]
+        self.assertIn(expected_row, qtext, msg=f"legacy row = {qtext!r}")
 
 
 if __name__ == "__main__":

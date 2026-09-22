@@ -33,10 +33,10 @@ def read_priority(batch_dir):
     return "high" if f.read_text().strip() == "high" else ""
 
 
-def read_goal(batch_dir, max_len):
-    """The batch's `## Goal` from `.batch-context.md`, its non-empty lines joined by single
-    spaces, cut to max_len at the last word boundary with a trailing '…'. None if the file is
-    absent, has no `## Goal` heading, or the section is empty."""
+def read_goal_full(batch_dir):
+    """The batch's whole `## Goal` section body from `.batch-context.md`, its non-empty lines
+    joined by single spaces -- unwrapped and untruncated, unlike `read_goal` below. None if the
+    file is absent, has no `## Goal` heading, or the section is empty."""
     f = batch_dir / ".batch-context.md"
     if not f.is_file():
         return None
@@ -51,7 +51,15 @@ def read_goal(batch_dir, max_len):
         if in_goal and line.strip():
             lines.append(line.strip())
     goal = " ".join(lines)
-    if not goal:
+    return goal if goal else None
+
+
+def read_goal(batch_dir, max_len):
+    """The batch's `## Goal` from `.batch-context.md`, cut to max_len at the last word boundary
+    with a trailing '…'. None if the file is absent, has no `## Goal` heading, or the section is
+    empty -- see `read_goal_full` for the same read without the cut."""
+    goal = read_goal_full(batch_dir)
+    if goal is None:
         return None
     if len(goal) > max_len:
         goal = goal[:max_len].rsplit(" ", 1)[0].rstrip(" .,;:-") + "…"

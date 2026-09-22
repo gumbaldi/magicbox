@@ -11,6 +11,7 @@ import time
 import unittest
 
 from cfq_testlib import CfqTestCase
+from cfq_lib import text as cfq_text
 
 
 class NoteTest(CfqTestCase):
@@ -83,6 +84,47 @@ class NoteTest(CfqTestCase):
         missing = self._repos_dir / "does-not-exist.md"
         proc = self.run_cfq("note", "plan", str(self.repo), "whatever", str(missing))
         self.assertNotEqual(proc.returncode, 0, "a missing body file must fail")
+
+    # `note todo` with no `check:` line: still writes, still exits 0, still prints the path --
+    # only stderr gains a warning that `note sweep` can never close this card automatically.
+    def test_todo_with_no_check_line_warns_on_stderr_but_still_writes(self):
+        body = self._body_file("# Do the thing\n\none sentence, no check line.\n")
+        proc = self.run_cfq("note", "todo", str(self.repo), "no check", str(body))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-no-check.md"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+        self.assertEqual(expected.read_text(), "# Do the thing\n\none sentence, no check line.\n")
+        self.assertIn("no `check:` line", proc.stderr)
+
+    # Inverted: a body that does carry a check: line prints no warning at all.
+    def test_todo_with_check_line_has_no_warning(self):
+        body = self._body_file("# Do the thing\n\none sentence.\n\ncheck: true\n")
+        proc = self.run_cfq("note", "todo", str(self.repo), "has check", str(body), check=True)
+        self.assertEqual(proc.stderr, "")
+
+    # Edge case: an indented check: line must still be recognised -- the warning has to match
+    # what _sweep_card actually executes, which strips the line before matching CHECK_RE.
+    def test_todo_with_indented_check_line_has_no_warning(self):
+        body = self._body_file("# Do the thing\n\none sentence.\n\n    check: true\n")
+        proc = self.run_cfq(
+            "note", "todo", str(self.repo), "indented check", str(body), check=True,
+        )
+        self.assertEqual(proc.stderr, "")
+
+    # Should-not-fire: note merge-todo always composes its own check: line, so cmd_merge_todo's
+    # direct _write_entry call must never trip the cmd_note warning.
+    def test_merge_todo_never_warns(self):
+        proc = self.run_cfq(
+            "note", "merge-todo", str(self.repo), "cfq/030-2026-09-20-some-slug", check=True,
+        )
+        self.assertEqual(proc.stderr, "")
+
+    # Should-not-fire: plan/ entries have no check: convention at all -- the warning is todo-only.
+    def test_plan_with_no_check_line_has_no_warning(self):
+        body = self._body_file("# Finding\n\nsomething noticed, no check line.\n")
+        proc = self.run_cfq("note", "plan", str(self.repo), "a finding", str(body), check=True)
+        self.assertEqual(proc.stderr, "")
 
     def _inbox_dir(self):
         return self.home / ".claude" / "cfq" / "framework-inbox"
@@ -389,6 +431,90 @@ class NoteListTest(CfqTestCase):
             "note", "list", str(self.repo), "--text", check=True,
         ).stdout
         self.assertIn("No planning requests waiting in the queue.", out)
+
+    def _inbox_dir(self):
+        return self.home / ".claude" / "cfq" / "framework-inbox"
+
+    # Routine: two plan/ entries, no frameworkRepo configured -- header counts only them, one
+    # row per entry (date + title, no excerpt), rows in filename order (oldest first).
+    def test_overview_two_entries_no_excerpt_oldest_first(self):
+        self._write_entry("2026-01-02-second.md", "# Second finding\n\nsome body text.\n")
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nsome body text.\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table(
+            [["2026-01-01", "First finding"], ["2026-01-02", "Second finding"]]
+        )
+        self.assertEqual(
+            out.splitlines(), ["INBOX  2 entries"] + expected_rows,
+        )
+        self.assertNotIn("some body text", out, "the overview must never carry the excerpt")
+
+    # Edge, empty: no plan/ dir at all (and no frameworkRepo configured) -- exactly one line.
+    def test_overview_empty_inbox_is_a_single_line(self):
+        self.assertFalse(self.plan_dir.exists())
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+        self.assertEqual(out, "INBOX  empty\n")
+
+    # Edge, framework repo: repo is frameworkRepo, one plan/ entry plus one file in the global
+    # framework inbox -- the header counts both, names the framework count, the framework row
+    # carries the `framework` tag, and the inbox file is untouched afterwards (read-only).
+    def test_overview_in_framework_repo_lists_framework_inbox_too(self):
+        self.run_cfq(
+            "settings", "set", "frameworkRepo", str(self.repo), home=self.home, check=True,
+        )
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nbody\n")
+
+        inbox = self._inbox_dir()
+        inbox.mkdir(parents=True)
+        fw_file = inbox / "2026-01-02-fw-finding.md"
+        fw_file.write_text("# FW finding\n\nabout cfq itself\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table([
+            ["2026-01-01", "First finding"],
+            ["2026-01-02", "FW finding", "framework"],
+        ])
+        self.assertEqual(
+            out.splitlines(),
+            ["INBOX  2 entries · 1 framework not imported"] + expected_rows,
+        )
+        self.assertTrue(fw_file.exists(), "--overview must never move or consume the entry")
+        self.assertEqual(fw_file.read_text(), "# FW finding\n\nabout cfq itself\n")
+
+    # Fallback, other repo: same global framework-inbox file, this repo is not frameworkRepo --
+    # the framework entry never shows up and the header has no framework part.
+    def test_overview_in_non_framework_repo_hides_framework_inbox(self):
+        other = self.make_repo("framework-repo")
+        self.run_cfq("settings", "set", "frameworkRepo", str(other), home=self.home, check=True)
+
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nbody\n")
+        inbox = self._inbox_dir()
+        inbox.mkdir(parents=True)
+        (inbox / "2026-01-02-fw-finding.md").write_text("# FW finding\n\nabout cfq itself\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table([["2026-01-01", "First finding"]])
+        self.assertEqual(out.splitlines(), ["INBOX  1 entries"] + expected_rows)
+        self.assertNotIn("framework", out)
+        self.assertNotIn("FW finding", out)
+
+    # --overview and --text are mutually exclusive: passing both is a usage error, not a silent
+    # pick of one over the other.
+    def test_overview_and_text_together_is_a_usage_error(self):
+        proc = self.run_cfq("note", "list", str(self.repo), "--overview", "--text")
+        self.assertNotEqual(proc.returncode, 0)
 
 
 class NoteSweepTest(CfqTestCase):

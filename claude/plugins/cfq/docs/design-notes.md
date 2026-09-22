@@ -10,6 +10,17 @@ A batch that is both blocked and in-progress could in principle auto-resume, sin
 work started. It doesn't: auto-resuming would restart work whose dependency reappeared after the
 batch was started, so it waits like any other blocked batch instead.
 
+## ifq: why the start gate was added
+
+`SKILL.md` used to state plainly that invoking `/ifq` is itself the intent to start a batch, no
+confirmation question — a deliberate choice, made to keep the session moving without an extra
+round trip on every run. It was reversed on the user's request: the session now shows the batch
+overview and the full queue and asks before touching anything, because "just start" gave no
+chance to pick a different batch, or to notice a wrong one was about to be worked, before the lock
+and branch were already committed to. A future reader finding the gate should not read it as
+leftover caution to be trimmed back to the old behaviour — it replaced a decision that was tried
+and explicitly walked back.
+
 ## ifq: why the WARN phase-announcement options changed
 
 The three-option WARN prompt (Go/Handoff/Cancel) replaced an earlier version whose effective choice

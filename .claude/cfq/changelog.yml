@@ -1000,3 +1000,69 @@
     - phase: "07-report-index-and-default"
       status: "green"
       summary: ""
+- batchNumber: 35
+  batch: 035-2026-09-22-ifq-batch-gate-and-output-design
+  branch: cfq/035-2026-09-22-ifq-batch-gate-and-output-design
+  base: main
+  started: 2026-09-22
+  status: done
+  legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-shared-text-renderer"
+      status: "green"
+      summary: ""
+    - phase: "02-batch-overview-block"
+      status: "green"
+      summary: ""
+    - phase: "03-queue-overview-block"
+      status: "green"
+      summary: ""
+    - phase: "04-ifq-start-gate"
+      status: "green"
+      summary: ""
+    - phase: "05-pfq-final-overview"
+      status: "green"
+      summary: ""
+    - phase: "06-telemetry-cost-fields"
+      status: "green"
+      summary: ""
+    - phase: "07-cost-rendering"
+      status: "green"
+      summary: ""
+    - phase: "08-aggregator-status-lines"
+      status: "green"
+      summary: ""
+    - phase: "09-dash-on-shared-renderer"
+      status: "green"
+      summary: ""
+- batchNumber: 36
+  batch: 036-2026-09-22-repair-todo-card-checks
+  branch: cfq/036-2026-09-22-repair-todo-card-checks
+  base: cfq/035-2026-09-22-ifq-batch-gate-and-output-design
+  started: 2026-09-22
+  status: done
+  legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-todo-check-repair-and-note-warning"
+      status: "green"
+      summary: ""
+- batchNumber: 37
+  batch: 037-2026-09-22-phase-push-upstream-and-inbox-overview
+  branch: cfq/037-2026-09-22-phase-push-upstream-and-inbox-overview
+  base: cfq/036-2026-09-22-repair-todo-card-checks
+  started: 2026-09-22
+  status: done
+  legacy: false
+  finished: 2026-09-22
+  phases:
+    - phase: "01-commit-push-own-upstream"
+      status: "green"
+      summary: ""
+    - phase: "02-note-list-overview"
+      status: "green"
+      summary: ""
+    - phase: "03-inbox-overview-in-pfq-ifq"
+      status: "green"
+      summary: ""

@@ -4,6 +4,7 @@ Self-test for scripts/cfq_brief.py (batch listing plus --phase announcement mode
 scripts/cfq_park.py (batch directory creation, .priority/.dependsOn, Git exclude registration).
 """
 
+import json
 import subprocess
 import textwrap
 import unittest
@@ -307,6 +308,149 @@ class BriefOrchestratorGateTest(CfqTestCase):
             proc.returncode, 0, f"unresolvable repo root must never gate: {proc.stderr}",
         )
         self.assertIn("PHASE 01 · First phase", proc.stdout, f"announcement missing: {proc.stdout}")
+
+
+class BriefOverviewTest(CfqTestCase):
+    """`bin/cfq brief <batch-dir> --overview` -- the shared batch-overview block `ifq`'s start
+    gate (phase 04) and `pfq`'s final report (phase 05) both render, see
+    .claude/cfq/impl/035-.../02-batch-overview-block.md."""
+
+    def _phase(self, batch, filename, title, size=None):
+        body = f"# {title}\n"
+        if size is not None:
+            body += f"\n## Size\n\n{size}\n"
+        body += "\n## Affected Files\n"
+        (batch / filename).write_text(body)
+
+    def test_overview_mixed_batch_counts_done_red_and_open(self):
+        batch = self._repos_dir / "007-2026-02-01-overview"
+        done_dir = batch / "done"
+        done_dir.mkdir(parents=True)
+        self._phase(batch, "done/01-first.md", "First phase", "S")
+        self._phase(batch, "02-second.md", "Second phase", "M")
+        self._phase(batch, "03-third.md", "Third phase", "L")
+        (batch / "report.json").write_text(json.dumps({
+            "phases": [{"phase": "02-second", "status": "red"}],
+        }))
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 007 · 2026-02-01 · overview",
+            "3 phases planned · 1 done · 1 red",
+            "  #   Phase         Size  Status",
+            "  01  First phase   S     done",
+            "  02  Second phase  M     red",
+            "  03  Third phase   L     open",
+        ])
+        self.assertEqual(out, expected, f"mixed overview block wrong: {out}")
+
+    def test_overview_all_open_no_report_json_omits_red_clause(self):
+        batch = self._repos_dir / "008-2026-02-02-noreport"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-alpha.md", "Alpha phase")
+        self._phase(batch, "02-beta.md", "Beta phase", "S")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 008 · 2026-02-02 · noreport",
+            "2 phases planned · 0 done",
+            "  #   Phase        Size  Status",
+            "  01  Alpha phase  M     open",
+            "  02  Beta phase   S     open",
+        ])
+        self.assertEqual(
+            out, expected,
+            f"no-report.json overview block wrong (must not raise, must omit red clause): {out}",
+        )
+
+    def test_overview_missing_batch_context_omits_goal_paragraph(self):
+        batch = self._repos_dir / "009-2026-02-03-nogoal"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-only.md", "Only phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "BATCH 009 · 2026-02-03 · nogoal", f"header wrong: {out}")
+        self.assertEqual(lines[1], "1 phases planned · 0 done", f"count line wrong: {out}")
+        self.assertEqual(
+            lines[2], "  #   Phase       Size  Status",
+            f"table must start right after the count line, no goal paragraph or blank lines: {out}",
+        )
+
+    def test_overview_long_goal_wraps_to_six_lines_with_ellipsis(self):
+        batch = self._repos_dir / "010-2026-02-04-longgoal"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-x.md", "X phase")
+        long_goal = " ".join(f"word{i}" for i in range(80))
+        (batch / ".batch-context.md").write_text(
+            f"# Batch Context\n\n## Goal\n\n{long_goal}\n\n## Decisions\n\n- irrelevant\n"
+        )
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 010 · 2026-02-04 · longgoal",
+            "1 phases planned · 0 done",
+            "",
+            "  word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10",
+            "  word11 word12 word13 word14 word15 word16 word17 word18 word19",
+            "  word20 word21 word22 word23 word24 word25 word26 word27 word28",
+            "  word29 word30 word31 word32 word33 word34 word35 word36 word37",
+            "  word38 word39 word40 word41 word42 word43 word44 word45 word46",
+            "  word47 word48 word49 word50 word51 word52 word53 word54 word55…",
+            "",
+            "  #   Phase    Size  Status",
+            "  01  X phase  M     open",
+        ])
+        self.assertEqual(out, expected, f"long-goal overview block wrong: {out}")
+        self.assertNotIn(
+            "## Decisions", out, f"## Decisions must not leak into the overview block: {out}",
+        )
+
+    def test_overview_legacy_unnumbered_batch_name(self):
+        batch = self._repos_dir / "2026-01-06-legacyoverview"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-y.md", "Y phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 2026-01-06-legacyoverview",
+            "1 phases planned · 0 done",
+            "  #   Phase    Size  Status",
+            "  01  Y phase  M     open",
+        ])
+        self.assertEqual(out, expected, f"legacy unnumbered overview block wrong: {out}")
+        self.assertNotIn("None", out, f"legacy header must never print 'None': {out}")
+
+    def test_overview_red_then_green_ledger_entry_never_shows_red(self):
+        batch = self._repos_dir / "011-2026-02-05-redthengreen"
+        batch.mkdir(parents=True)
+        self._phase(batch, "04-x.md", "X phase")
+        (batch / "report.json").write_text(json.dumps({
+            "phases": [
+                {"phase": "04-x", "status": "red"},
+                {"phase": "04-x", "status": "green"},
+            ],
+        }))
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 011 · 2026-02-05 · redthengreen",
+            "1 phases planned · 0 done",
+            "  #   Phase    Size  Status",
+            "  04  X phase  M     open",
+        ])
+        self.assertEqual(
+            out, expected,
+            f"a phase whose latest ledger entry is green must never render as red: {out}",
+        )
+
+    def test_overview_and_with_done_are_mutually_exclusive(self):
+        batch = self._repos_dir / "012-2026-02-06-mutex"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-a.md", "A phase")
+
+        proc = self.run_cfq("brief", str(batch), "--overview", "--with-done")
+        self.assertNotEqual(proc.returncode, 0, "--overview and --with-done together should exit non-zero")
 
 
 class ParkTest(CfqTestCase):

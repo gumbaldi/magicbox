@@ -8,7 +8,9 @@ true` → skip this check, otherwise it must match one of `policy.implModels` (s
 `policy.orchestratorModels` instead (already carries the fallback to `implModels` when empty, no
 extra logic here). No match → **stop immediately**, touch nothing, report the allowed models, that
 `/model <x>` then `/ifq` is the way forward, and that `CFQ_IMPL_MODELS`/`cfq` changes the list.
-Print the `Model Gate` status line either way, naming which list was matched.
+Print `Model Gate` — the preflight's own `statusLines` entry — either way, before this check runs:
+it already resolved which list applies (or that `allowAnyModel` skips the check entirely); the
+actual match needs the running model's name, which only the session itself knows.
 
 ## Batch Selection Rules
 
@@ -16,6 +18,13 @@ Print the `Model Gate` status line either way, naming which list was matched.
 `multipleInProgress` — the filters and stop conditions applied before any picker runs. The
 preflight itself already excludes blocked/planning/other-in-progress batches from
 `selection.selectable`; this section only covers the wording each case needs.
+
+`selection.queueText` is the aligned `QUEUE · <n> open` listing rendered from those same fields —
+every open batch, selectable, blocked and planning alike, each row naming why a non-selectable one
+can't be picked. It rides on every status this preflight can return, the four early-return ones
+(`MULTIPLE_IN_PROGRESS`, `SELECT_UNAVAILABLE`, `BLOCKED`, `NO_BATCH`) included, `null` only when the
+queue itself is empty. Print it exactly as returned — no rewording, no re-deriving it from the raw
+`selectable`/`blocked`/`planning` arrays.
 
 **Blocked** batches (`selection.blocked`, each `{name, dependsOn, unknownDeps}`) are never offered.
 If `status` is `BLOCKED`, print the wait list (batch → waiting on `dependsOn`) and end — never fall
@@ -41,28 +50,25 @@ in this same `MULTIPLE_IN_PROGRESS` check like any other in-progress batch.
 **Multiple selectable batches.** When `selection.inProgress` is `null` and `selection.selectable`
 has more than one entry, the preflight already picked `selection.selectable[0]` (sorted
 flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
-for it, no question. Print `Batch` as `<name> · next in order · <n> phases` (prefix `high · ` when
-flagged, suffix `⚠️ divergent` when `consistency` is `"divergent"`). Arguments naming a specific
-batch re-run the preflight with `--select <batch>` instead of taking the ordered default.
-`status: "SELECT_UNAVAILABLE"` means the named batch isn't selectable (blocked, still planning, or
-unknown) — report why, from `selection`, and end; never falls back to the ordered default. **Never
-two batches in the same session**, not even once the first finishes and context is still free —
-different plans belong in separate context windows.
+for it, no question. Arguments naming a specific batch re-run the preflight with `--select <batch>`
+instead of taking the ordered default. `status: "SELECT_UNAVAILABLE"` means the named batch isn't
+selectable (blocked, still planning, or unknown) — report why, from `selection`, and end; never
+falls back to the ordered default. **Never two batches in the same session**, not even once the
+first finishes and context is still free — different plans belong in separate context windows.
 
 `selection.inProgress` non-null → that batch was auto-selected already (`batch`/`nextPhase`/
-`branch`/`resume`/`contextGate` are already resolved for it) — print `Batch` as `resumed <name> ·
-<done>/<done+open> phases done · mode=orchestrator|classic` (prefix `high · ` if flagged), straight
-to **Batch Briefing**. `nextPhase: null` here means every phase already moved to `done/` but
-`bin/cfq finish` never ran — **Batch Briefing** still acquires the lock and resolves the branch as
-usual, then skips ahead straight to **Batch Done**. `selection.inProgress` null and
-`selection.selectable` non-empty → the preflight already picked `selection.selectable[0]` (sorted
-flagged-first-then-name) — same pre-resolved fields, no question — print `Batch` as `<name> · next
-in order · <n> phases · mode=orchestrator|classic` (prefix `high · ` if flagged), or `<name> · only
-open batch · <n> phases · mode=orchestrator|classic` when `selectable` has exactly one entry,
-straight to **Batch Briefing**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
+`branch`/`resume`/`contextGate` are already resolved for it) — straight to **Batch Briefing**.
+`nextPhase: null` here means every phase already moved to `done/` but `bin/cfq finish` never ran —
+**Batch Briefing** still acquires the lock and resolves the branch as usual, then skips ahead
+straight to **Batch Done**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
 selectable) → report why, from `selection` (blocked / still planning / not found), end — never
 falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
 `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
+
+Print `Batch` in every outcome above that reaches **Batch Briefing** — the preflight's own
+`statusLines` entry, already the right one of its four wordings (`--select` given, in-progress
+resumed, the lone selectable batch, or the ordered pick among several), printed exactly as
+returned — the distinguishing condition lives in the script, not here.
 
 ## Batch Briefing
 
@@ -76,6 +82,12 @@ incomplete plan is worth showing, not worth aborting over. The `goal:` line is t
 shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
 with no `goal:` line.
 
+`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
+later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
+count with done/red breakdown, the wrapped `## Goal` paragraph, then the phase table with a
+`done`/`open`/`red` status column. `--with-done` stays exactly as described above for any caller
+that still wants the old flat listing.
+
 ## Briefing Warnings
 
 `contextGate.verdict` is `WARN` → print one warning line *above* the briefing, naming the reason in
@@ -84,6 +96,48 @@ at 89% against a 70% threshold); state plainly that this is a budget warning, no
 that the phase runs normally if started — wording per `<plugin-root>/references/ifq-phase.md`'s
 **Phase Announcement**; `batch.consistency == "divergent"` adds one more such line naming the
 repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
+
+## Start Gate
+
+Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is
+printed, in order: the briefing warnings **Briefing Warnings** already defines, then `bin/cfq
+brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from **Batch
+Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
+rendered exactly as returned — no rewording, nothing between them but a blank line.
+
+**The question**, two-stage, because `AskUserQuestion` caps at four options and a repo may hold
+more than two other open batches:
+
+- First call, three options: **Start** (recommended, listed first) — proceed to **Lock
+  Acquisition** for the batch just briefed; **Pick a different batch** — opens the second call
+  below; **Cancel** — end the session, nothing touched, no lock taken, no branch checked out.
+  Print `Start Gate` as `➖ cancelled by user` and stop.
+- Second call, only when the user picked the middle option: one option per entry in
+  `selection.selectable` other than the batch already briefed, each labelled with its number and
+  slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
+  **not** offered — they are already visible in `queueText` with their own reason and stay
+  non-selectable. More than four such entries → offer the first three, in the same
+  flagged-first-then-name order `selectable` already carries, and say in the question text that
+  the rest are in the listing above and reachable by typing the number as free text. A free-text
+  answer naming a batch that is not in `selection.selectable` is reported against `queueText`'s
+  own reason for that batch and the question is asked once more; a second miss ends the session
+  without touching anything, mirroring **Branch and Changelog on Go-Ahead**'s free-text
+  resolution for the `ambiguous` base-branch question — point at that paragraph, don't repeat it.
+- On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
+  <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
+  second time for the freshly chosen batch, because choosing it *was* the confirmation.
+
+**When it fires**: always. A resumed in-progress batch, a batch named explicitly as an argument,
+and orchestrator mode are all included — one behaviour, no exception, even though each of the
+three reads like a natural exemption.
+
+**The one case it does not fire**: `selection.selectable` is empty and there is no in-progress
+batch, i.e. the session is already ending via `NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those
+paths end before a batch is ever resolved, so there is nothing left to confirm.
+
+Print `Start Gate` either way: `✅ confirmed · <batch>` (Start chosen), `✅ switched to <batch>`
+(a different batch chosen on the second call), or `➖ cancelled by user` (Cancel, or a second
+free-text miss on the second call).
 
 ## Lock Acquisition
 
@@ -183,11 +237,16 @@ on `mode` to read any of the three.
   — before the checkout runs, and use its `ref` as `<baseRef>` and `<name>` as `<base>` below. Then:
 
 ```bash
-git checkout -b "<branch>" "<baseRef>"
+git checkout --no-track -b "<branch>" "<baseRef>"
 "<plugin-root>/bin/cfq" changelog init "<repo-root>" "<branch>" "<base>" "<batch>"
 "<plugin-root>/bin/cfq" changelog commit "<repo-root>" "Start <branch> batch in the changelog"
 "<plugin-root>/bin/cfq" branch plan "<repo-root>" "<batch>"
 ```
+
+`--no-track` matters: `<baseRef>` is a remote-tracking ref, and without it git's own
+`branch.autoSetupMerge` default would set `<branch>`'s upstream to the *base* branch instead of
+itself — the first `cfq phase commit` on this batch is what sets the upstream to
+`origin/<branch>`, via its own `push -u` fallback.
 
 `changelog init` keeps receiving `<base>` (the plain branch name), not `<baseRef>` — the changelog
 records which branch the work builds on, not which ref was used to cut it. `changelog commit` is a

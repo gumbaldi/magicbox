@@ -143,7 +143,10 @@ class TestReport(CfqTestCase):
         )
 
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t"
+        # 1-11 as before, then the always-appended tail (fields 12-15 are absent here since
+        # neither phase has any telemetry at all, let alone worker activity): total_billable_in,
+        # planning_turns, planning_billable_in, explore_turns, explore_output, all zero.
+        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, f"summary = {s}")
 
         out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
@@ -667,7 +670,11 @@ M
     # ---- summary orchestrator/worker split (phase 05: `report summary` surfaces the subagent
     # token split cfq_telemetry.py already computes, additive so a classic-mode report is unaffected)
 
-    def test_summary_splits_orchestrator_and_worker_when_subagent_sums_present(self):
+    def test_summary_falls_back_to_collapsed_subagent_when_subagent_worker_key_is_absent(self):
+        # A report written before this phase has no `subagent_worker` key at all -- the phase's
+        # own compatibility shim, for data already on disk (never for code): fields 12-15 fall
+        # back to the old collapsed `subagent` value instead of raising or silently dropping the
+        # split.
         batch = self._batch("2026-01-08-orchestrator")
         (batch / "report.json").write_text(json.dumps({
             "repo": "", "batch": "2026-01-08-orchestrator", "started": "2026-01-08T10:00:00+01:00",
@@ -696,10 +703,134 @@ M
         self.assertEqual(fields[:6], [batch.name, "2", "2", "0", "0", "2026-01-08T12:00:00+01:00"])
         total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
         self.assertEqual((total_output, planning_output, total_turns), ("1500", "0", "15"))
-        # new fields 12-15: orchestrator_turns, orchestrator_output, worker_turns, worker_output
-        self.assertEqual(fields[11:], ["9", "800", "6", "700"])
+        # fields 12-15: orchestrator_turns, orchestrator_output, worker_turns, worker_output --
+        # then the always-appended tail (total_billable_in, planning_turns, planning_billable_in,
+        # explore_turns, explore_output), all zero since this old-style fixture carries none of
+        # billable_in/planning/subagent_explore.
+        self.assertEqual(fields[11:], ["9", "800", "6", "700", "0", "0", "0", "0", "0"])
         self.assertEqual(int(fields[11]) + int(fields[13]), int(total_turns), "orchestrator + worker turns must add up to the existing total")
         self.assertEqual(int(fields[12]) + int(fields[14]), int(total_output), "orchestrator + worker output must add up to the existing total")
+
+    def test_summary_uses_subagent_worker_and_explore_when_present(self):
+        # Post-change data: subagent_worker/subagent_explore are both populated. Fields 12-15
+        # must be sourced from subagent_worker only -- the Explore turns must not leak into the
+        # worker split, and the new tail fields (total_billable_in, planning_turns,
+        # planning_billable_in, explore_turns, explore_output) must reflect real numbers.
+        batch = self._batch("2026-01-11-worker-and-explore")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-11-worker-and-explore",
+            "started": "2026-01-11T10:00:00+01:00",
+            "planning": {
+                "totals": {"turns": 4, "output": 400, "billable_in": 150, "cache_read": 5},
+            },
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-11T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 10, "output": 1000, "billable_in": 600},
+                        "subagent": {"turns": 8, "output": 750},
+                        "subagent_worker": {"turns": 6, "output": 700},
+                        "subagent_explore": {"turns": 2, "output": 50},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
+        self.assertEqual((total_output, planning_output, total_turns), ("1400", "400", "14"))
+        # 12-15: worker split sourced from subagent_worker (6/700), not the collapsed subagent (8/750)
+        self.assertEqual(fields[11:15], ["8", "700", "6", "700"])
+        # tail: total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output
+        self.assertEqual(fields[15:], ["600", "4", "150", "2", "50"])
+
+    def test_summary_explore_only_phase_is_not_counted_as_worker(self):
+        # The regression from Context, reproduced directly: a phase whose only sub-agent activity
+        # is an Explore agent must not trip the `worker_output > 0 or worker_turns > 0` gate --
+        # fields 12-15 stay absent, exactly as a phase with no sub-agent activity at all.
+        batch = self._batch("2026-01-12-explore-only")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-12-explore-only", "started": "2026-01-12T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-12T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 5, "output": 500, "billable_in": 300},
+                        "subagent": {"turns": 3, "output": 200},
+                        "subagent_worker": {"turns": 0, "output": 0},
+                        "subagent_explore": {"turns": 3, "output": 200},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        # fields 1-11 as normal, no 12-15 worker block, then the always-appended tail
+        self.assertEqual(len(fields), 16, f"expected no fields 12-15, got row {fields}")
+        self.assertEqual(fields[6:11], ["500", "0", "5", "", ""])
+        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200"])
+
+    def test_summary_orchestrator_worker_invariant_never_negative(self):
+        # The regression case from Context, asserted directly: a fixture reproducing batch 034's
+        # shape -- a classic-mode batch whose phases ran Explore agents but no phase worker --
+        # must yield orchestrator_turns >= 0. Checked over several representative fixtures so no
+        # future change can silently reintroduce a negative turn count.
+        fixtures = [
+            # batch 034's shape: heavy Explore usage, no phase worker at all.
+            {
+                "repo": "", "batch": "2026-01-13-classic-heavy-explore", "started": "2026-01-13T10:00:00+01:00",
+                "phases": [
+                    {
+                        "phase": f"0{i}-a", "status": "green", "finished": f"2026-01-13T1{i}:00:00+01:00",
+                        "telemetry": {
+                            "totals": {"turns": 5, "output": 500},
+                            "subagent": {"turns": 40, "output": 4000},
+                            "subagent_worker": {"turns": 0, "output": 0},
+                            "subagent_explore": {"turns": 40, "output": 4000},
+                            "by_model": {}, "by_effort": {},
+                        },
+                    }
+                    for i in range(1, 4)
+                ],
+            },
+            # a genuine orchestrator-mode batch.
+            {
+                "repo": "", "batch": "2026-01-14-orchestrator", "started": "2026-01-14T10:00:00+01:00",
+                "phases": [
+                    {
+                        "phase": "01-a", "status": "green", "finished": "2026-01-14T11:00:00+01:00",
+                        "telemetry": {
+                            "totals": {"turns": 10, "output": 1000},
+                            "subagent": {"turns": 6, "output": 700},
+                            "subagent_worker": {"turns": 6, "output": 700},
+                            "subagent_explore": {"turns": 0, "output": 0},
+                            "by_model": {}, "by_effort": {},
+                        },
+                    },
+                ],
+            },
+        ]
+        for report in fixtures:
+            batch = self._batch(report["batch"])
+            (batch / "report.json").write_text(json.dumps(report))
+            s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+            fields = s.split("\t")
+            total_turns = int(fields[8])
+            if len(fields) == 16:
+                # No phase worker ever ran (subagent_worker is zero on every phase) -- the
+                # heavy-Explore batch-034 shape. Fields 12-15 must be absent entirely, which is
+                # itself the fix: a negative number can never be printed for a split that isn't
+                # emitted.
+                continue
+            orchestrator_turns, worker_turns = int(fields[11]), int(fields[13])
+            self.assertGreaterEqual(orchestrator_turns, 0, f"{report['batch']}: orchestrator_turns went negative")
+            self.assertGreaterEqual(worker_turns, 0, f"{report['batch']}: worker_turns went negative")
+            self.assertEqual(
+                orchestrator_turns + worker_turns, total_turns,
+                f"{report['batch']}: orchestrator_turns + worker_turns must sum back to total_turns",
+            )
 
     def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
         batch = self._batch("2026-01-09-classic")
@@ -717,7 +848,10 @@ M
             ],
         }))
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        expected = f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
+        # Fields 1-11 stay exactly as before; fields 12-15 are still absent (no worker activity);
+        # the always-appended tail (total_billable_in, planning_turns, planning_billable_in,
+        # explore_turns, explore_output) is all zero since this fixture carries none of them.
+        expected = f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
 
         # A report predating this feature -- no `subagent` key at all -- must degrade the same way.
@@ -732,7 +866,7 @@ M
             ],
         }))
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
-        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t"
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
 
 
@@ -765,7 +899,7 @@ class TestIndexText(CfqTestCase):
         }))
         return d
 
-    def _phase(self, slug, status, finished=None, telemetry_until=None):
+    def _phase(self, slug, status, finished=None, telemetry_until=None, turns=0, output=0, billable_in=None):
         p = {
             "phase": slug, "status": status, "summary": "ok",
             "deviations": [], "errors": [], "verification": "PASS", "commit": "",
@@ -773,7 +907,13 @@ class TestIndexText(CfqTestCase):
         if finished is not None:
             p["finished"] = finished
         if telemetry_until is not None:
-            p["telemetry"] = {"until": telemetry_until, "totals": {"output": 0, "turns": 0}}
+            totals = {"output": output, "turns": turns}
+            # `billable_in` only goes into `totals` when a caller passes it -- omitting it here is
+            # exactly what a report written before phase 06 looks like on disk, no separate fixture
+            # shape needed for that case.
+            if billable_in is not None:
+                totals["billable_in"] = billable_in
+            p["telemetry"] = {"until": telemetry_until, "totals": totals}
         return p
 
     def _run_text(self, *extra_args):
@@ -899,6 +1039,68 @@ class TestIndexText(CfqTestCase):
             text,
             "No batch has a report yet — reports have existed only since v0.2, so older batches never got one.",
         )
+
+    def test_turns_and_in_columns_present_between_out_and_marker(self):
+        self._batch(
+            "repo-a", "2026-05-01-cols",
+            [self._phase(
+                "01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00",
+                turns=7, output=12345, billable_in=6789,
+            )],
+        )
+        text = self._run_text()
+        header = next(l for l in text.split("\n") if l.startswith("| Batch"))
+        cols = [c.strip() for c in header.strip("|").split("|")]
+        self.assertEqual(cols.index("Turns"), cols.index("Out") + 1, f"Turns not right after Out:\n{header}")
+        self.assertEqual(cols.index("In"), cols.index("Turns") + 1, f"In not right after Turns:\n{header}")
+        self.assertEqual(cols.index("📄"), cols.index("In") + 1, f"the marker column moved:\n{header}")
+
+        row = next(l for l in text.split("\n") if "2026-05-01-cols" in l)
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        self.assertEqual(cells[cols.index("Turns")], "7", f"Turns cell wrong:\n{row}")
+        self.assertEqual(cells[cols.index("In")], "7k", f"In cell not fmt_tokens-formatted:\n{row}")
+
+    def test_pre_phase_06_report_in_renders_dash_not_zero(self):
+        self._batch(
+            "repo-a", "2026-05-01-preexisting",
+            [self._phase("01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00", turns=3, output=500)],
+        )
+        text = self._run_text()
+        header = next(l for l in text.split("\n") if l.startswith("| Batch"))
+        cols = [c.strip() for c in header.strip("|").split("|")]
+        row = next(l for l in text.split("\n") if "2026-05-01-preexisting" in l)
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        self.assertEqual(
+            cells[cols.index("In")], "–", f"pre-phase-06 report must render '–' for In, not 0:\n{row}",
+        )
+        self.assertEqual(len(cells), len(cols), f"row column count drifted from header:\n{row}")
+
+    def test_every_row_column_count_matches_header(self):
+        # Three distinct fixture shapes at once, so a ragged row from any one of them cannot slip
+        # through: a phase-06 report, a pre-phase-06 report, and a phase with no telemetry totals
+        # key at all.
+        self._batch(
+            "repo-a", "2026-05-01-full",
+            [self._phase(
+                "01-a", "green", telemetry_until="2026-05-01T09:00:00+00:00",
+                turns=1, output=100, billable_in=200,
+            )],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-legacy",
+            [self._phase("01-a", "green", telemetry_until="2026-05-02T09:00:00+00:00", turns=2, output=200)],
+        )
+        self._batch("repo-a", "2026-05-03-notelemetry", [self._phase("01-a", "green")])
+        text = self._run_text()
+        lines = text.split("\n")
+        header = next(l for l in lines if l.startswith("| Batch"))
+        expected_cols = len(header.strip("|").split("|"))
+        data_rows = [l for l in lines if l.startswith("| 2026-05-0")]
+        self.assertEqual(len(data_rows), 3, f"expected all three fixture rows:\n{text}")
+        for row in data_rows:
+            self.assertEqual(
+                len(row.strip("|").split("|")), expected_cols, f"ragged row, column count drifted:\n{row}",
+            )
 
 
 # ---- phase 01: derivation helpers cfq_report.py's html/detail/index rendering all funnel

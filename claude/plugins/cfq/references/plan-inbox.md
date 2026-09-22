@@ -1,20 +1,16 @@
 # Plan Inbox: Choosing an Entry
 
 Only read when `/pfq` was invoked without arguments and **Inbox** finds at least one entry in
-`<repo-root>/.claude/cfq/plan/`.
+`<repo-root>/.claude/cfq/plan/`. The list itself was already printed verbatim by **Inbox**
+(`inbox.overview`) — nothing to render again here.
 
-First render the entries as a short list — one line per entry with date, title and excerpt — from:
+Ask one `AskUserQuestion`, "There are N planning requests waiting in the queue. How do you want to
+proceed?" (N = `inbox.count`):
 
-```bash
-"<plugin-root>/bin/cfq" note list "<repo-root>" --text
-```
-
-Show that list, then ask one `AskUserQuestion`, "There are N planning requests waiting in the
-queue. How do you want to proceed?":
-
-- **Start with the oldest** (recommended, name it and its title/excerpt from the list above)
+- **Start with the oldest** (recommended, name it and its title from the overview above)
 - **Choose a different one** (a second `AskUserQuestion`, entries as options, label = filename
-  slug, description = date + title/excerpt from the same list)
+  slug, description = date + title from `bin/cfq note list "<repo-root>"` JSON — one call, only in
+  this branch)
 - **Skip — plan something else** (this session's topic comes from the user instead, exactly as if
   the inbox were empty)
 

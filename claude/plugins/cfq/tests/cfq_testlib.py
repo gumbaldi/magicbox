@@ -9,6 +9,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -16,6 +17,9 @@ TESTS_DIR = pathlib.Path(__file__).resolve().parent
 PLUGIN_ROOT = TESTS_DIR.parent
 SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+from cfq_lib import text as cfq_text  # noqa: E402
 
 
 class CfqTestCase(unittest.TestCase):
@@ -72,6 +76,21 @@ class CfqTestCase(unittest.TestCase):
             env=run_env,
             check=check,
         )
+
+    def assert_status_lines_shape(self, entries):
+        """Generic contract check for a `statusLines` array (batch 035 phase 08): every entry
+        carries exactly the five keys `status_entry` produces, and `text` is `status_line`
+        (plus one `sub_line` per `sub` entry) applied to that same entry's own fields -- covers a
+        newly added line automatically, no per-line test needed."""
+        for entry in entries:
+            self.assertEqual(
+                set(entry.keys()), {"label", "icon", "detail", "sub", "text"},
+                msg=f"statusLines entry has the wrong key set: {entry}",
+            )
+            expected = cfq_text.status_line(entry["icon"], entry["label"], entry["detail"])
+            if entry["sub"]:
+                expected = "\n".join([expected] + [cfq_text.sub_line(s) for s in entry["sub"]])
+            self.assertEqual(entry["text"], expected, msg=f"text mismatch for entry: {entry}")
 
     def json_out(self, proc):
         try:

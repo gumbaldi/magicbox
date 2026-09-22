@@ -57,8 +57,9 @@ clarifies open points, proposes a phase split, and parks numbered plan files. Ne
 
 ### `/ifq`
 
-Gates on the model, picks the next batch in order (or the one named) and briefs it, then starts
-immediately — no confirmation question — takes a repo lock, creates the batch branch, works one
+Gates on the model, picks the next batch in order (or the one named) and briefs it, then shows the
+batch overview and the full queue and asks — Start, pick a different batch, or cancel — before
+touching anything. Once confirmed, it takes a repo lock, creates the batch branch, works one
 phase at a time, commits and pushes every
 green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
@@ -154,11 +155,14 @@ still on the old layout needs an older plugin version to run the migration first
 
 - `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
-  the phase it was working; `pfq` offers those as topics at the start of its next session. A
-  finding about cfq itself, rather than about the repo under work, is written with `note plan
-  --framework` instead: it lands in the global framework inbox
+  the phase it was working; `pfq` offers those as topics at the start of its next session. Both
+  `/pfq` and `/ifq` print the inbox overview (`note list --overview` — date and title, one line
+  per entry) at the start of every session, not only when `/pfq` opens the inbox question; `/ifq`
+  only ever reads it, never imports. A finding about cfq itself, rather than about the repo under
+  work, is written with `note plan --framework` instead: it lands in the global framework inbox
   (`~/.claude/cfq/framework-inbox/`), outside every repo, and only `note import`, run by
-  `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`.
+  `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`
+  — so a framework finding only ever shows up in that repo's own overview, never any other repo's.
 - `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
   look later: an unmerged branch, a language-drift finding, a check that could not be automated.
   `ifq` writes them, `/cfq` works them off for the current repo via `note sweep` (runs the `check:`
@@ -218,7 +222,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
-| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; `list` renders the `plan/` inbox without consuming it; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
+| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
 | `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
 | `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |

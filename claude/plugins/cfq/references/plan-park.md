@@ -20,11 +20,28 @@ snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`
 
 ## Final Report Fields
 
+The `RESULT · plan-for-queue` header is preceded by the batch overview block — `bin/cfq brief
+"<batch-dir>" --overview`, printed exactly as returned, no rewording, one blank line between it
+and the header. Above the header, not below: the overview is what the user reads to check the plan
+just written, the `RESULT` list that follows is only the handoff metadata. This is printed at
+**Final Report**, after **Plan Lint** has gone clean — a batch whose lint still has findings is not
+yet the plan the user gets, and the `.planning` marker is only removed once lint passes; the block
+is never printed earlier, at **Park**.
+
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
 `Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
-reason, omit when none) · `Cost` (interview depth, turns, tokens, model, effort) · `Security`
-(count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first implModels>` →
-`/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra `Inbox` line, not a
-second `RESULT` block. Phase file structure is unchanged from the template — see
-`<plugin-root>/references/phase-quality.md`'s closing section.
+reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
+`Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
+implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
+`Inbox` line, not a second `RESULT` block. Phase file structure is unchanged from the template —
+see `<plugin-root>/references/phase-quality.md`'s closing section.
+
+`Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
+and render its own fields, field by field: `turns`, `billable_in` as "in", `output` as "out",
+`cache_read` named separately, `models`, `efforts`. When `subagent_explore.turns` is non-zero, add
+one further clause naming the Explore sub-agent's own `turns`/`output` share — a planning session
+that delegated research to an Explore agent must not have that activity vanish into the top-level
+numbers. Interview depth is the one part of this line that stays prose, not a script field — it is
+a fact about this session, not something the script can see. If the call itself fails or returns
+nothing usable, the whole line reads `⚠️ unavailable` — never a guessed number in its place.
