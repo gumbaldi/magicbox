@@ -23,7 +23,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 
 | Section | Steps | Contents |
 |---|---|---|
-| PRECHECKS | 1-7 | Preflight, Model Check, Batch, Size Gate |
+| PRECHECKS | 1-7 | Preflight, Model Check, Batch, Start Gate, Size Gate |
 | IMPLEMENTATION | 8-9 | per phase: announcement, result, Commit |
 | POSTCHECKS | 10-12 | Context Check, Telemetry, Lock, Batch Done |
 
@@ -66,8 +66,8 @@ phase files in full here, that's **Implementation**'s job. `contextGate.verdict`
 `batch.consistency == "divergent"` — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings** section on first use each session and apply it here. Present `batch.briefText` compactly (already the full
 per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size
-and context excerpt), then start directly — invoking `/ifq` is itself the intent to start, no
-confirmation question:
+and context excerpt), then show the batch overview and the queue listing and ask before starting —
+cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
 
 Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`

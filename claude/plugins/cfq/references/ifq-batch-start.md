@@ -98,6 +98,48 @@ that the phase runs normally if started — wording per `<plugin-root>/reference
 **Phase Announcement**; `batch.consistency == "divergent"` adds one more such line naming the
 repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
 
+## Start Gate
+
+Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is
+printed, in order: the briefing warnings **Briefing Warnings** already defines, then `bin/cfq
+brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from **Batch
+Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
+rendered exactly as returned — no rewording, nothing between them but a blank line.
+
+**The question**, two-stage, because `AskUserQuestion` caps at four options and a repo may hold
+more than two other open batches:
+
+- First call, three options: **Start** (recommended, listed first) — proceed to **Lock
+  Acquisition** for the batch just briefed; **Pick a different batch** — opens the second call
+  below; **Cancel** — end the session, nothing touched, no lock taken, no branch checked out.
+  Print `Start Gate` as `➖ cancelled by user` and stop.
+- Second call, only when the user picked the middle option: one option per entry in
+  `selection.selectable` other than the batch already briefed, each labelled with its number and
+  slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
+  **not** offered — they are already visible in `queueText` with their own reason and stay
+  non-selectable. More than four such entries → offer the first three, in the same
+  flagged-first-then-name order `selectable` already carries, and say in the question text that
+  the rest are in the listing above and reachable by typing the number as free text. A free-text
+  answer naming a batch that is not in `selection.selectable` is reported against `queueText`'s
+  own reason for that batch and the question is asked once more; a second miss ends the session
+  without touching anything, mirroring **Branch and Changelog on Go-Ahead**'s free-text
+  resolution for the `ambiguous` base-branch question — point at that paragraph, don't repeat it.
+- On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
+  <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
+  second time for the freshly chosen batch, because choosing it *was* the confirmation.
+
+**When it fires**: always. A resumed in-progress batch, a batch named explicitly as an argument,
+and orchestrator mode are all included — one behaviour, no exception, even though each of the
+three reads like a natural exemption.
+
+**The one case it does not fire**: `selection.selectable` is empty and there is no in-progress
+batch, i.e. the session is already ending via `NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those
+paths end before a batch is ever resolved, so there is nothing left to confirm.
+
+Print `Start Gate` either way: `✅ confirmed · <batch>` (Start chosen), `✅ switched to <batch>`
+(a different batch chosen on the second call), or `➖ cancelled by user` (Cancel, or a second
+free-text miss on the second call).
+
 ## Lock Acquisition
 
 Exit ≠ 0 (`LOCKED`) → **end immediately**, touch nothing, name holder/batch/time, note the

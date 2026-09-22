@@ -26,7 +26,8 @@ Exact steps: [`skills/plan-for-queue/SKILL.md`](../skills/plan-for-queue/SKILL.m
 Works off one batch from the current repo's queue, phase by phase, committing and pushing every
 green phase. Gates hard on the running model — `implModels`, or `orchestratorModels` when
 orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
-rather than warns. Starts immediately once briefed, no confirmation question. By default
+rather than warns. Shows the batch overview and the full queue and asks — start, pick a different
+batch, or cancel — before touching anything. By default
 (`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
