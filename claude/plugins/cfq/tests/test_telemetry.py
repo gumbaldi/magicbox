@@ -82,8 +82,10 @@ class TelemetryTest(CfqTestCase):
     def test_record_and_sync(self):
         # 1. First record call
         proc = self._record(str(self.batch), "phase", "01-foo")
+        # billable_in = input + cache_creation (500 + 5 = 505), excluding cache_read (50) --
+        # cache_read is shown in its own clause instead of silently folding into "in".
         self.assertEqual(
-            proc.stdout.strip(), "telemetry: 4 turns, 210 out / 555 in",
+            proc.stdout.strip(), "telemetry: 4 turns, 210 out / 505 in (50 cached)",
             msg=f"unexpected record output: {proc.stdout!r}",
         )
 
@@ -112,16 +114,22 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(rec1["subagent"]["turns"], 0, msg="subagent.turns, want 0 (no subagents/ dir)")
         self.assertEqual(rec1["by_agent"], {}, msg="by_agent empty with no subagents/ dir")
         self.assertEqual(rec1["mode"], "classic", msg="mode classic with no worker-attributed turns")
+        self.assertEqual(rec1["subagent_worker"]["turns"], 0, msg="subagent_worker.turns, want 0 (no subagents/ dir)")
+        self.assertEqual(rec1["subagent_explore"]["turns"], 0, msg="subagent_explore.turns, want 0 (no subagents/ dir)")
 
         # No prompt/tool-argument text ever reaches the stored record.
         n = self.jsonl.read_text().count("GEHEIMER_PROMPT_TEXT")
         self.assertEqual(n, 0, msg=f"telemetry.jsonl leaked prompt text ({n} hits)")
 
         # Structural whitelist: every leaf field name must be one we deliberately added.
+        # subagent_worker/subagent_explore are additive top-level fields introduced by this
+        # phase -- listed here even though their own leaf values (turns/output/...) already
+        # existed in `subagent`'s shape, so no genuinely new leaf name rides in unnoticed.
         allowed = {
             "schema", "kind", "repo", "batch", "phase", "mode", "session_id", "branch",
             "cc_version", "from", "until", "wallclock_s", "turns", "input", "output",
             "cache_read", "cache_creation", "billable_in", "Bash",
+            "subagent_worker", "subagent_explore",
         }
         leaves = set(_leaf_keys(rec1))
         extra = leaves - allowed
@@ -188,6 +196,17 @@ class TelemetryTest(CfqTestCase):
         out = proc.stdout + proc.stderr
         self.assertEqual(out.strip(), "telemetry sync: nothing new", msg=f"second sync = {out!r}")
 
+    def test_whitelist_rejects_unknown_leaf_field(self):
+        # The structural guard's rejection path, asserted directly rather than only ever
+        # exercised via acceptance: a stray leaf field must show up as `extra`, not disappear.
+        allowed = {"turns", "output"}
+        bad_record = {"turns": 1, "output": 2, "prompt_text": "this must never land on disk"}
+        leaves = set(_leaf_keys(bad_record))
+        extra = leaves - allowed
+        self.assertEqual(
+            extra, {"prompt_text"}, msg="whitelist check failed to flag an unknown leaf field",
+        )
+
     def _subagent_dir(self):
         d = self.tdir / "testsid" / "subagents"
         d.mkdir(parents=True, exist_ok=True)
@@ -205,6 +224,8 @@ class TelemetryTest(CfqTestCase):
         self.assertIn("cfq:cfq-phase-worker", rec["by_agent"], msg="by_agent missing the worker")
         self.assertEqual(rec["mode"], "orchestrator")
         self.assertEqual(rec["totals"]["turns"], 4, msg="totals stays the orchestrator's own session")
+        self.assertEqual(rec["subagent_worker"]["turns"], 2, msg="subagent_worker.turns, want 2")
+        self.assertEqual(rec["subagent_explore"]["turns"], 0, msg="subagent_explore.turns, want 0")
 
     def test_subagent_explore_only_stays_classic_mode(self):
         subdir = self._subagent_dir()
@@ -221,6 +242,35 @@ class TelemetryTest(CfqTestCase):
             msg="Explore-only sub-agent usage must not be read as orchestrator mode",
         )
         self.assertEqual(rec["totals"]["turns"], 4, msg="totals stays the orchestrator's own session")
+        self.assertEqual(rec["subagent_worker"]["turns"], 0, msg="subagent_worker.turns, want 0")
+        self.assertEqual(rec["subagent_explore"]["turns"], 1, msg="subagent_explore.turns, want 1")
+
+    def test_subagent_worker_and_explore_split_do_not_bleed(self):
+        # The regression from Context: a window with both a phase worker and an Explore agent
+        # must partition cleanly -- neither field counts the other's turns, and `subagent` (the
+        # unchanged collapsed sum) still equals their total.
+        subdir = self._subagent_dir()
+        (subdir / "agent-1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:15.000Z", "cfq:cfq-phase-worker") + "\n"
+            + _sub_line("2026-08-13T10:00:30.000Z", "cfq:cfq-phase-worker") + "\n"
+        )
+        (subdir / "agent-2.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:45.000Z", "Explore") + "\n"
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["subagent"]["turns"], 3, msg="subagent.turns, want 3 (2 worker + 1 explore)")
+        self.assertEqual(rec["subagent_worker"]["turns"], 2, msg="subagent_worker.turns, want 2")
+        self.assertEqual(rec["subagent_explore"]["turns"], 1, msg="subagent_explore.turns, want 1")
+        self.assertEqual(
+            rec["subagent_worker"]["turns"] + rec["subagent_explore"]["turns"], rec["subagent"]["turns"],
+            msg="subagent_worker + subagent_explore must sum back to subagent",
+        )
+        self.assertEqual(
+            rec["subagent_worker"]["output"] + rec["subagent_explore"]["output"], rec["subagent"]["output"],
+            msg="subagent_worker + subagent_explore output must sum back to subagent",
+        )
+        self.assertEqual(rec["mode"], "orchestrator", msg="a phase worker present still means orchestrator mode")
 
     def test_subagent_entries_outside_window_excluded(self):
         subdir = self._subagent_dir()
@@ -253,6 +303,19 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(rec["mode"], "", msg="mode is empty on planning records, like phase")
         self.assertEqual(rec["by_agent"], {})
 
+    def test_planning_record_populates_subagent_explore(self):
+        # pfq delegates to Explore agents; that usage must not stay invisible just because a
+        # planning session has no orchestrator `mode` to attach it to.
+        subdir = self._subagent_dir()
+        (subdir / "agent-1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "Explore") + "\n"
+        )
+        self._record(str(self.batch), "planning")
+        rec = self._last_record()
+        self.assertEqual(rec["mode"], "", msg="mode stays empty on planning records")
+        self.assertEqual(rec["subagent_explore"]["turns"], 1, msg="planning subagent_explore.turns, want 1")
+        self.assertGreater(rec["subagent_explore"]["output"], 0, msg="planning subagent_explore.output, want > 0")
+
     def test_bootstrap_kind(self):
         proc = self.run_cfq(
             "telemetry", "record", str(self.batch), "bootstrap", "implement-for-queue", "3", "420",
@@ -284,6 +347,74 @@ class TelemetryTest(CfqTestCase):
             "notanumber", "420",
         )
         self.assertNotEqual(proc.returncode, 0, msg="bootstrap accepted a non-numeric callCount")
+
+
+class TelemetryShowTest(CfqTestCase):
+    """`telemetry show <repo-root> [--session]` -- the read verb pfq's Cost line needs instead of
+    estimating its own token usage."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self._repos_dir / "repo"
+        self.repo.mkdir()
+        self.run_clean("git", "init", "-q", cwd=self.repo)
+        self.jsonl_dir = self.repo / ".claude" / "cfq"
+        self.jsonl_dir.mkdir(parents=True)
+        self.jsonl = self.jsonl_dir / "telemetry.jsonl"
+
+        rec_a = {
+            "schema": 1, "kind": "phase", "session_id": "sess-a",
+            "totals": {"turns": 3, "output": 300, "billable_in": 250, "cache_read": 10},
+            "by_model": {"claude-sonnet-5": {}}, "by_effort": {"high": {}},
+            "subagent_explore": {"turns": 1, "output": 50},
+        }
+        rec_b = {
+            "schema": 1, "kind": "phase", "session_id": "sess-b",
+            "totals": {"turns": 5, "output": 500, "billable_in": 400, "cache_read": 20},
+            "by_model": {"claude-opus-5": {}}, "by_effort": {"medium": {}},
+            "subagent_explore": {"turns": 2, "output": 80},
+        }
+        self.jsonl.write_text(json.dumps(rec_a) + "\n" + json.dumps(rec_b) + "\n")
+
+    def test_show_whole_file_aggregates_every_session(self):
+        proc = self.run_cfq("telemetry", "show", str(self.repo), check=True)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["turns"], 8, msg=f"turns = {out}")
+        self.assertEqual(out["output"], 800, msg=f"output = {out}")
+        self.assertEqual(out["billable_in"], 650, msg=f"billable_in = {out}")
+        self.assertEqual(out["cache_read"], 30, msg=f"cache_read = {out}")
+        self.assertEqual(out["models"], "claude-opus-5,claude-sonnet-5", msg=f"models = {out}")
+        self.assertEqual(out["efforts"], "high,medium", msg=f"efforts = {out}")
+        self.assertEqual(out["subagent_explore"], {"turns": 3, "output": 130}, msg=f"subagent_explore = {out}")
+
+    def test_show_session_filters_to_current_session_only(self):
+        # The `(verbatim)` check: same session-id extraction cmd_record already uses, now reused
+        # by `show --session` -- this is the one case that distinguishes it from a whole-file read.
+        proc = self.run_cfq(
+            "telemetry", "show", str(self.repo), "--session",
+            env={"CLAUDE_CODE_SESSION_ID": "sess-a"}, check=True,
+        )
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["turns"], 3, msg=f"turns = {out}")
+        self.assertEqual(out["output"], 300, msg=f"output = {out}")
+        self.assertEqual(out["billable_in"], 250, msg=f"billable_in = {out}")
+        self.assertEqual(out["cache_read"], 10, msg=f"cache_read = {out}")
+        self.assertEqual(out["models"], "claude-sonnet-5", msg=f"models = {out}")
+        self.assertEqual(out["efforts"], "high", msg=f"efforts = {out}")
+        self.assertEqual(out["subagent_explore"], {"turns": 1, "output": 50}, msg=f"subagent_explore = {out}")
+
+    def test_show_missing_jsonl_returns_zeros_not_an_error(self):
+        empty_repo = self._repos_dir / "repo-empty"
+        empty_repo.mkdir()
+        proc = self.run_cfq("telemetry", "show", str(empty_repo), check=True)
+        out = json.loads(proc.stdout)
+        self.assertEqual(
+            out, {
+                "turns": 0, "output": 0, "billable_in": 0, "cache_read": 0,
+                "models": "", "efforts": "", "subagent_explore": {"turns": 0, "output": 0},
+            },
+            msg=f"missing telemetry.jsonl should aggregate to all zeros, got {out}",
+        )
 
 
 def _leaf_keys(obj):

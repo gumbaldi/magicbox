@@ -206,6 +206,10 @@ transcript (`cfq_runtime.py`'s path resolution, reused rather than reinvented) â
 own estimate of its token usage. Only numbers, timestamps and names are carried into a record;
 `tests/test_telemetry.py` asserts this structurally (every leaf field name against a whitelist) so
 that adding a field which happens to carry free text fails the test on purpose, not by omission.
+A record's sub-agent turns are further split by the `WORKER_AGENT` attribution name into
+`subagent_worker` and `subagent_explore` (the unchanged `subagent` field stays the sum of both), so
+a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
+downstream aggregate that reads it â€” including `bin/cfq report summary`'s orchestrator/worker split.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and

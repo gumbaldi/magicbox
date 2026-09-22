@@ -398,24 +398,38 @@ def cmd_summary(args):
     planning_totals = planning.get("totals") if isinstance(planning, dict) else None
     planning_output = _totals_field(planning_totals, "output")
     planning_turns = _totals_field(planning_totals, "turns")
+    planning_billable_in = _totals_field(planning_totals, "billable_in")
 
     phase_outputs, phase_turns = [], []
     model_keys, effort_keys = [], []
     worker_output, worker_turns = 0, 0
+    total_billable_in = 0
+    explore_turns, explore_output = 0, 0
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
         totals = tel.get("totals") if isinstance(tel, dict) else None
         phase_outputs.append(_totals_field(totals, "output"))
         phase_turns.append(_totals_field(totals, "turns"))
+        total_billable_in += _totals_field(totals, "billable_in")
         by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
         by_effort = render.jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
         if isinstance(by_model, dict):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
-        subagent = render.jq_alt(tel.get("subagent") if isinstance(tel, dict) else None, None)
-        worker_output += _totals_field(subagent, "output")
-        worker_turns += _totals_field(subagent, "turns")
+        # subagent_worker is the corrected, worker-only split; a report written before this
+        # change carries no such key at all (None here), and only then do we fall back to the
+        # old collapsed `subagent` value -- a compatibility shim for data already on disk, never
+        # for code. A record that *does* carry `subagent_worker` (even an all-zero one, e.g. a
+        # phase that only ran Explore agents) is used as-is, no fallback.
+        subagent_worker = tel.get("subagent_worker") if isinstance(tel, dict) else None
+        if subagent_worker is None:
+            subagent_worker = tel.get("subagent") if isinstance(tel, dict) else None
+        worker_output += _totals_field(subagent_worker, "output")
+        worker_turns += _totals_field(subagent_worker, "turns")
+        subagent_explore = tel.get("subagent_explore") if isinstance(tel, dict) else None
+        explore_turns += _totals_field(subagent_explore, "turns")
+        explore_output += _totals_field(subagent_explore, "output")
 
     planning_by_model = render.jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
     planning_by_effort = render.jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
@@ -432,9 +446,14 @@ def cmd_summary(args):
     row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
     # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
     # an old or classic-mode report with no subagent turns/output must render byte-identical to the
-    # row above, not grow a meaningless zero split.
+    # row above, not grow a meaningless zero split. Sourced from subagent_worker (with the
+    # subagent fallback above), never the collapsed subagent, so a phase that only ran Explore
+    # agents no longer counts as a worker here (the mislabelling this phase fixes).
     if worker_output > 0 or worker_turns > 0:
         row += [total_turns - worker_turns, total_output - worker_output, worker_turns, worker_output]
+    # Additive fields, always appended after the optional 12-15 block above: total_billable_in,
+    # planning_turns, planning_billable_in, explore_turns, explore_output.
+    row += [total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output]
     print("\t".join(_tsv_field(v) for v in row))
 
 
