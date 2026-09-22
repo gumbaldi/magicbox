@@ -26,8 +26,8 @@ rendered field by field:
 - `Telemetry` from `.telemetry`, `Lock` from `.lock`.
 - Any `.errors` entries → `⚠️` lines naming the failed step; the sequence still completed.
 
-Render the HTML report only when `htmlReport` is `true` (`bin/cfq report html
-"<repo-root>/.claude/cfq/impl/done/<batch>"`), printing `Report` as `rendered`; else `➖ off ·
+Render the HTML report (`bin/cfq report html "<repo-root>/.claude/cfq/impl/done/<batch>"`),
+printing `Report` as `rendered`, unless `htmlReport` is `false` — then skip it, printing `➖ off ·
 /rfq renders on demand` and no `file://` line in **Closing Reports**.
 
 ## Closing Report Fields (full format)

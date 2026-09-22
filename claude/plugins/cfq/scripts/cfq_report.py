@@ -5,7 +5,7 @@
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
 #        cfq_report.py summary <batch-dir>
 #        cfq_report.py html <batch-dir>
-#        cfq_report.py index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]
+#        cfq_report.py index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text]
 #        cfq_report.py detail <batch-dir>
 """Implementation reports per batch. The report lives in the batch directory and travels with it.
 
@@ -24,6 +24,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -36,26 +37,102 @@ PROG = "cfq_report.py"
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
 # Shared by html's per-batch report and its collected index.html -- one visual language, not two.
-REPORT_STYLE_CSS = """body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
-@media (prefers-color-scheme: dark){body{color:#e8e8e8;background:#1a1a1a}code{background:#2a2a2a}}
-.meta,.summary{color:#666}section.phase{border-left:4px solid #999;padding:0.5rem 1rem;margin:1rem 0}
-section.phase.green{border-color:#2a8f4a}section.phase.red{border-color:#c0392b}
-.badge{display:inline-block;padding:0.1rem 0.5rem;border-radius:0.3rem;font-size:0.8rem;color:#fff}
-.badge.green{background:#2a8f4a}.badge.red{background:#c0392b}.badge.mixed{background:#c98a1b}
-code{background:#f0f0f0;padding:0.1rem 0.3rem;border-radius:0.2rem}
-.telemetry{color:#666;font-size:0.85rem}.kv{margin-right:0.4rem}
-.goal{color:#666;font-style:italic}
-section.repo{margin:1.5rem 0}"""
+# Every colour is a custom property defined on bare :root; the dark-mode and print @media blocks
+# only ever redefine tokens that already exist there (tests/test_report.py asserts this
+# structurally) -- no colour gets its only definition inside a media query.
+REPORT_STYLE_CSS = """:root{
+  --bg:#ffffff;--surface:#f7f8fa;--surface-2:#eceff4;
+  --fg:#16181d;--fg-muted:#545c6b;--fg-faint:#767e8c;
+  --border:#d5dae2;--border-strong:#aeb6c2;
+  --ok:#1a7f45;--ok-bg:#e4f3ea;--bad:#b32d1f;--bad-bg:#fae9e6;
+  --warn:#8a5b00;--warn-bg:#fbf1d6;--accent:#2f5fd0;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:8px;--gap:1rem;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14161a;--surface:#1b1e24;--surface-2:#232830;
+  --fg:#e7eaf0;--fg-muted:#a3abba;--fg-faint:#848d9c;
+  --border:#2e343e;--border-strong:#454d5a;
+  --ok:#5cc98b;--ok-bg:#16301f;--bad:#f0857a;--bad-bg:#331b18;
+  --warn:#e0b45a;--warn-bg:#2e2512;--accent:#8fb0ff;
+}}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);max-width:64rem;margin:0 auto;
+  padding:2rem 1rem;line-height:1.55}
+h1{font-size:1.6rem;margin:0}
+h2{font-size:1.2rem}
+h3{font-size:1.05rem}
+h4{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
+code{background:var(--surface-2);font-family:var(--mono);font-size:0.875em;padding:0.1rem 0.3rem;
+  border-radius:0.2rem}
+header.batch{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem}
+header.batch .ident{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.4rem 1.5rem}
+.meta dt{color:var(--fg-faint);text-transform:uppercase;font-size:.72rem}
+.meta dd{margin:0}
+.badge{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .6rem;border-radius:999px;
+  font-size:.78rem;font-weight:600;letter-spacing:.03em;border:1px solid}
+.badge.green{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
+.badge.red{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
+.badge.mixed{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+section.phase{background:var(--surface);border:1px solid var(--border);
+  border-left:4px solid var(--border-strong);border-radius:var(--r);padding:1rem 1.25rem;
+  margin:1.25rem 0}
+section.phase.green{border-left-color:var(--ok)}
+section.phase.red{border-left-color:var(--bad)}
+section.phase .num{color:var(--fg-faint);margin-right:.25rem}
+section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem}
+.phase ul{margin:.2rem 0 .8rem;padding-left:1.1rem}
+.phase li{margin:.15rem 0}
+.phase li code{font-size:.8rem;background:none;padding:0;color:var(--fg-muted)}
+.goal{color:var(--fg-muted);font-style:italic;border-left:2px solid var(--border);
+  padding-left:.75rem}
+.tele{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem 1.5rem;
+  font-size:.82rem;background:var(--surface-2);border-radius:var(--r);padding:.6rem .8rem;
+  margin:.75rem 0}
+.tele dt{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem}
+.tele dd{margin:0}
+section.overview{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem;margin:1.25rem 0}
+.overview h3{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
+.overview ul{margin:.3rem 0 .9rem;padding-left:1.1rem}
+.overview li{margin:.2rem 0}
+.overview p{margin:.3rem 0 .9rem}
+.overview li strong{color:var(--fg)}
+section.security{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:1.25rem;margin:1.25rem 0}
+.muted{color:var(--fg-muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.tscroll{overflow-x:auto}
+.phase-table table,.repo table{border-collapse:collapse;width:100%;font-size:.85rem}
+.phase-table th,.phase-table td,.repo th,.repo td{padding:.4rem .6rem;
+  border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.phase-table thead th,.repo thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
+  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-strong)}
+.phase-table td.n,.phase-table th.n,.repo td.n,.repo th.n{text-align:right;
+  font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.phase-table td.c,.phase-table th.c,.repo td.c,.repo th.c{text-align:center}
+.phase-table tbody tr:hover,.repo tbody tr:hover{background:var(--surface-2)}
+.phase-table tfoot td,.phase-table tfoot th{border-top:1px solid var(--border-strong);
+  border-bottom:none;color:var(--fg-muted);font-weight:600}
+.phase-table td a,.repo td a{color:var(--accent);text-decoration:none}
+.phase-table td a:hover,.repo td a:hover{text-decoration:underline}
+.verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+section.repo{margin:1.5rem 0}
+.repo h2 .count{font-weight:400;font-size:.8rem;color:var(--fg-faint);margin-left:.5rem}
+@media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
+@media print{
+  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f2f2;--fg:#000;--fg-muted:#333;--border:#999;}
+  body{max-width:none;padding:0;font-size:10pt}
+  section.phase{break-inside:avoid}
+  a{text-decoration:none;color:inherit}
+}"""
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
 
 # ---- jq-semantics helpers -----------------------------------------------------------------
-
-def jq_add(values):
-    """Mirrors jq's `add`: sum of the list, or null (None) for an empty list."""
-    return sum(values) if values else None
-
 
 def jq_round(x):
     """Mirrors jq's `round` (round-half-away-from-zero), not Python's round-half-to-even."""
@@ -315,8 +392,7 @@ def cmd_summary(args):
         if isinstance(d, list):
             deviations += len(d)
 
-    last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-    date = render.jq_alt(render.jq_alt(last_finished, data.get("started")), "")
+    date = batch_finished(data)
 
     planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
     planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -373,16 +449,380 @@ def _tsv_field(v):
     return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
 
 
+# ---- report derivations: status glyph, summary, timestamps, formatting, topic, row ---------
+#
+# Everything phases 02-07 render is derived here, once, from a phase dict -- pure functions, no
+# I/O, so they're testable without a batch directory or a subprocess (see tests/test_report.py's
+# TestDerivations).
+
+# The cfq icon set from references/output-format.md -- shape-coded, not colour-coded, so the
+# status survives a colourblind reader and a monochrome print alike.
+STATUS_GLYPH = {"green": "✅", "red": "❌", "mixed": "⚠️"}
+
+
+def status_glyph(status):
+    """`STATUS_GLYPH[status.lower()]`, or "" for an unknown/missing status -- never raises,
+    because `outcome()` returns upper-case ("GREEN") while a raw `phase["status"]` is lower-case
+    ("green"), and both call sites exist."""
+    if not isinstance(status, str):
+        return ""
+    return STATUS_GLYPH.get(status.lower(), "")
+
+
+def phase_summary(phase):
+    """The one-clause "what was built": `implemented` (current worker schema) then `summary`
+    (classic-mode / pre-orchestrator records) -- two generations of the same field, both still on
+    disk. "" (not "None") for a record that carries neither."""
+    phase = phase if isinstance(phase, dict) else {}
+    return render.jq_alt(phase.get("implemented"), phase.get("summary"), "")
+
+
+def phase_finished(phase):
+    """A single phase record's own finish timestamp: `finished` (old records) falling back to
+    `telemetry.until` (current records), or "" when neither is present."""
+    phase = phase if isinstance(phase, dict) else {}
+    tel = phase.get("telemetry") if isinstance(phase.get("telemetry"), dict) else {}
+    return render.jq_alt(phase.get("finished"), tel.get("until"), "")
+
+
+def batch_finished(data):
+    """The batch's own finish timestamp: the **maximum** `phase_finished` over every phase --
+    never `phases[-1]`, because a red phase re-run appends a later record for an earlier phase
+    number, so the array is in write order, not time order. Falls back to `data["started"]` when
+    no phase has a timestamp, and to "" when that is missing too."""
+    phases = data.get("phases", []) if isinstance(data, dict) else []
+    candidates = [phase_finished(p) for p in phases if isinstance(p, dict)]
+    candidates = [t for t in candidates if t]
+    parsed = [(parse_ts(t), t) for t in candidates]
+    parsed = [(dt, t) for dt, t in parsed if dt is not None]
+    if parsed:
+        return max(parsed, key=lambda pair: pair[0])[1]
+    if candidates:
+        return max(candidates)
+    return render.jq_alt(data.get("started") if isinstance(data, dict) else None, "")
+
+
+_FRACTIONAL_SECONDS_RE = re.compile(r"\.\d+")
+
+
+def parse_ts(iso):
+    """`2026-09-21T13:16:49.329Z` / `...+02:00` -> an aware datetime in local time, or None.
+    Python 3.8's fromisoformat rejects a `Z` suffix and is picky about fractional digits, so
+    both are normalised away before parsing. Any failure returns None -- a malformed timestamp
+    must degrade to an empty cell, never take the report down."""
+    if not isinstance(iso, str) or not iso:
+        return None
+    s = _FRACTIONAL_SECONDS_RE.sub("", iso)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt.astimezone()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def fmt_datetime(iso):
+    """`"2026-09-21T13:16:49.329Z"` -> `"2026-09-21 15:16"` (local time) -- the HTML report's
+    format. "" when `parse_ts` fails."""
+    dt = parse_ts(iso)
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+
+
+def fmt_short(iso):
+    """Same source as `fmt_datetime`, the terminal table's compact format: `"21.09 15:16"`."""
+    dt = parse_ts(iso)
+    return dt.strftime("%d.%m %H:%M") if dt else ""
+
+
+def fmt_duration(seconds):
+    """`"0:46"`, `"1:13"`, `"1:02:03"` -- `m:ss` under an hour, `h:mm:ss` at or above.
+    `0`/`None`/a non-numeric value -> "–" (en dash), the same placeholder `cmd_index` already
+    uses for a missing cost."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not seconds:
+        return "–"
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def fmt_int(n):
+    """`1582736` -> `"1,582,736"` -- English grouping, since `codeLanguage` is `en` and the
+    report's labels are English. `None`/non-numeric -> "–"."""
+    if isinstance(n, bool) or not isinstance(n, (int, float)):
+        return "–"
+    return f"{int(n):,}"
+
+
+def fmt_tokens(n):
+    """`jq_round`'s `k` rounding, stepped up to one decimal place of `M` above 1,000k (`12.4M`) --
+    the one formatter the index table's `Out` cell and its group header's summed total both call,
+    so the two numbers can never disagree. `0`/negative/non-numeric -> "–", same placeholder the
+    `k`-only rounding already used for a zero cost."""
+    if isinstance(n, bool) or not isinstance(n, (int, float)) or n <= 0:
+        return "–"
+    k = n / 1000.0
+    if k < 1000:
+        return f"{jq_round(k)}k"
+    return f"{k / 1000.0:.1f}M"
+
+
+_LEADING_NUMBER_RE = re.compile(r"^\d+-")
+_LEADING_DIGITS_RE = re.compile(r"^(\d+)")
+
+
+def phase_topic(phase_id):
+    """`"01-note-sweep-verb"` -> `"Note sweep verb"`. Strips a leading `NN-`, replaces `-` with
+    spaces, uppercases the first character only -- deliberately not title case, so `"cfq"` and
+    `"rfq"` stay lowercase mid-sentence. An id with no leading number is used as-is after the
+    hyphen replacement."""
+    if not isinstance(phase_id, str):
+        return ""
+    rest = _LEADING_NUMBER_RE.sub("", phase_id, count=1)
+    words = rest.replace("-", " ")
+    if not words:
+        return ""
+    return words[0].upper() + words[1:]
+
+
+def phase_row(phase):
+    """The single row object phases 04 and 06 both build their tables from. Every numeric field
+    goes through `_totals_field` (or its `render.jq_alt` equivalent) so a phase without telemetry
+    yields zeros rather than None, exactly as `build_index_rows` already treats them."""
+    phase = phase if isinstance(phase, dict) else {}
+    phase_id = render.jq_alt(phase.get("phase"), "")
+    status = render.jq_alt(phase.get("status"), "")
+    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
+    nr = m.group(1) if m else ""
+    tel = phase.get("telemetry") if isinstance(phase.get("telemetry"), dict) else {}
+    totals = tel.get("totals") if isinstance(tel.get("totals"), dict) else {}
+    finished = phase_finished(phase)
+    duration_s = int(render.jq_alt(tel.get("wallclock_s"), 0))
+    return {
+        "slug": phase_id,
+        "nr": nr,
+        "topic": phase_topic(phase_id),
+        "status": status,
+        "glyph": status_glyph(status),
+        "finished": finished,
+        "finished_disp": fmt_datetime(finished),
+        "duration_s": duration_s,
+        "duration_disp": fmt_duration(duration_s),
+        "turns": _totals_field(totals, "turns"),
+        "out": _totals_field(totals, "output"),
+        "billable_in": _totals_field(totals, "billable_in"),
+        "cache_read": _totals_field(totals, "cache_read"),
+        "commit": render.jq_alt(phase.get("commit"), ""),
+    }
+
+
+def truncate_words(text, limit):
+    """Cut at the last space at or before `limit` and append a horizontal ellipsis. Text that
+    already fits is returned unchanged, without an ellipsis. A `limit`-length prefix with no
+    space in it falls back to a hard cut at `limit` plus the ellipsis, so a long unbroken token
+    cannot return an empty string."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    idx = text.rfind(" ", 0, limit)
+    cut = idx if idx != -1 else limit
+    return text[:cut] + "…"
+
+
+# ---- markdown subset: .batch-context.md -> the report's Overview section -------------------
+#
+# Not a general Markdown renderer (see the batch's Non-Goals) -- headings, one level of bullets,
+# paragraphs, `**bold**` and `` `code` `` only. Everything else (blockquotes, tables, links,
+# nested lists) falls through to paragraph text on purpose, since `.batch-context.md`'s own format
+# never uses them.
+
+_INLINE_RE = re.compile(r"`([^`]*)`|\*\*([^*]*?)\*\*")
+
+
+def md_inline(escaped_text):
+    """Operates on text that has already been through `esc`/`html_escape_jq`. One pass, one
+    regex: inline code and bold are matched as alternatives at each position so a `**` inside a
+    backtick span is consumed as part of the code match and never seen by the bold alternative --
+    doing this as two sequential substitutions would let a later bold pass reach back inside an
+    already-emitted `<code>` span."""
+    def repl(m):
+        if m.group(1) is not None:
+            return f"<code>{m.group(1)}</code>"
+        return f"<strong>{m.group(2)}</strong>"
+    return _INLINE_RE.sub(repl, escaped_text)
+
+
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_MD_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
+
+
+def md_min(text):
+    """A line-driven state machine over `text.splitlines()`. No nesting, no look-ahead -- nested
+    bullets are deliberately flattened to one level, since `.batch-context.md`'s format has none.
+    Every emitted text value goes through `md_inline(esc(value))`, never raw."""
+    parts = []
+    in_list = False
+    list_items = []
+    para_lines = []
+
+    def flush_para():
+        if para_lines:
+            parts.append(f"<p>{md_inline(esc(' '.join(para_lines)))}</p>")
+            para_lines.clear()
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            lis = "".join(f"<li>{it}</li>" for it in list_items)
+            parts.append(f"<ul>{lis}</ul>")
+            in_list = False
+            list_items.clear()
+
+    for raw in text.splitlines():
+        if raw.strip() == "":
+            close_list()
+            flush_para()
+            continue
+        m = _MD_HEADING_RE.match(raw)
+        if m:
+            close_list()
+            flush_para()
+            level = len(m.group(1))
+            if level == 1:
+                continue  # the document title, not content
+            tag = "h3" if level == 2 else "h4"
+            parts.append(f"<{tag}>{md_inline(esc(m.group(2).strip()))}</{tag}>")
+            continue
+        m = _MD_BULLET_RE.match(raw)
+        if m:
+            flush_para()
+            in_list = True
+            list_items.append(md_inline(esc(m.group(1).strip())))
+            continue
+        if in_list and list_items and raw[:1] in (" ", "\t"):
+            list_items[-1] += " " + md_inline(esc(raw.strip()))
+            continue
+        para_lines.append(raw.strip())
+
+    close_list()
+    flush_para()
+    return "".join(parts)
+
+
+_MD_SECTION_RE = re.compile(r"^##\s+(.*)$", re.M)
+
+
+def read_batch_context(dir_):
+    """`<dir_>/.batch-context.md` -> `{heading_lowercased: body_text}`, split on `^## ` headings.
+    Missing file or unreadable -> `{}`. Text before the first `## ` heading (the `# Batch Context`
+    title) is discarded. Heading lookup is case-insensitive and whitespace-stripped."""
+    try:
+        text = pathlib.Path(dir_, ".batch-context.md").read_text()
+    except OSError:
+        return {}
+    matches = list(_MD_SECTION_RE.finditer(text))
+    sections = {}
+    for i, m in enumerate(matches):
+        heading = m.group(1).strip().lower()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        sections[heading] = text[m.end():end].strip("\n")
+    return sections
+
+
+OVERVIEW_SECTIONS = [("goal", "Goal"), ("decisions", "Decisions"), ("non-goals", "Non-Goals")]
+
+
+def overview_html(dir_):
+    """`## Invariants` and `## Cross-Phase Contracts` are deliberately excluded -- they are
+    instructions to the implementer, and the report is read after the implementation is done.
+    Returns "" when the file is missing or none of the three sections has content, so a batch
+    predating `.batch-context.md` gets no overview section at all, not an empty box."""
+    sections = read_batch_context(dir_)
+    body_parts = []
+    for key, label in OVERVIEW_SECTIONS:
+        body = sections.get(key, "")
+        if not body:
+            continue
+        body_parts.append(f"<h3>{label}</h3>{md_min(body)}")
+    if not body_parts:
+        return ""
+    return '<section class="overview"><h2>Overview</h2>' + "".join(body_parts) + "</section>"
+
+
+# ---- phase 04: the phase table -- one row per report.json phase record ----------------------
+#
+# `phases` is an append log, not a set: a phase that went red and was re-run appends a second
+# record for the same phase number (`append_phase`, `outcome()`). Every attempt gets its own row,
+# in record order, so a red attempt followed by a green one is visible rather than overwritten.
+
+def phase_table_html(phases):
+    """A table over every phase record's `phase_row()` -- full token balance, one row per
+    attempt. Returns "" for an empty phase list (a batch whose only report.json content is the
+    planning security snapshot gets no empty table)."""
+    rows = [phase_row(p) for p in phases if isinstance(p, dict)]
+    if not rows:
+        return ""
+
+    body_rows = []
+    tot_duration = tot_turns = tot_out = tot_in = tot_cache = 0
+    for row in rows:
+        tot_duration += row["duration_s"]
+        tot_turns += row["turns"]
+        tot_out += row["out"]
+        tot_in += row["billable_in"]
+        tot_cache += row["cache_read"]
+        finished_disp = row["finished_disp"] or "–"
+        body_rows.append(
+            f'<tr class="{esc(row["status"])}">'
+            f'<td class="c">{esc(row["glyph"])}</td><td class="c">{esc(row["nr"])}</td>'
+            f'<td><a href="#p-{esc(row["slug"])}">{esc(row["topic"])}</a></td>'
+            f'<td>{esc(finished_disp)}</td>'
+            f'<td class="n">{esc(row["duration_disp"])}</td>'
+            f'<td class="n">{esc(fmt_int(row["turns"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["out"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["billable_in"]))}</td>'
+            f'<td class="n">{esc(fmt_int(row["cache_read"]))}</td>'
+            '</tr>'
+        )
+
+    tfoot = (
+        '<tfoot><tr>'
+        '<td class="c"></td><td class="c"></td><th scope="row">Total</th><td></td>'
+        f'<td class="n">{esc(fmt_duration(tot_duration))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_turns))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_out))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_in))}</td>'
+        f'<td class="n">{esc(fmt_int(tot_cache))}</td>'
+        '</tr></tfoot>'
+    )
+
+    return (
+        '<section class="phase-table"><h2>Phases</h2><div class="tscroll"><table>'
+        '<thead><tr>'
+        '<th class="c"><span class="sr">Status</span>·</th><th class="c">#</th><th>Topic</th>'
+        '<th>Finished</th><th class="n">Duration</th><th class="n">Turns</th>'
+        '<th class="n">Out</th><th class="n">In</th><th class="n">Cache</th>'
+        '</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody>'
+        f'{tfoot}'
+        '</table></div></section>'
+    )
+
+
 # ---- verb: html -----------------------------------------------------------------------------
 
 def extract_goal(planfile):
-    """First two non-empty lines after a `## Context` heading, truncated to 220 chars -- same
-    extraction as cfq_brief.py's `parse_phase_body`."""
+    """First two non-empty lines after a `## Context` heading, word-truncated to 320 chars --
+    same extraction as cfq_brief.py's `parse_phase_body`. Budget raised from 220 (which cut
+    mid-sentence with no ellipsis) so two full sentences of context fit."""
     try:
         text = pathlib.Path(planfile).read_text()
     except OSError:
         return ""
-    return parse_phase_body(text)["context"][:220]
+    return truncate_words(parse_phase_body(text)["context"], 320)
 
 
 def extract_goals(dir_, data):
@@ -411,8 +851,78 @@ def section_list(items, title):
     return f"<h4>{title}</h4><ul>{lis}</ul>"
 
 
-def kv(label, value):
-    return f'<span class="kv">{label} <b>{html_escape_jq(render.tostring(value))}</b></span>'
+def section_list_code(items, title):
+    """section_list for entries that are paths or identifiers -- same empty-list contract, each
+    item wrapped in <code>."""
+    items = render.jq_alt(items, [])
+    if not isinstance(items, list) or len(items) == 0:
+        return ""
+    lis = "".join(f"<li><code>{esc(x)}</code></li>" for x in items)
+    return f"<h4>{title}</h4><ul>{lis}</ul>"
+
+
+# ---- phase 05: the Security section -- the planning-time snapshot `report security` writes,
+# rendered once at batch level between the phase table and the phase list.
+
+def _finding_html(finding):
+    """A finding renders from the keys it actually has: `severity` and `title` first (joined with
+    a space), everything else folded into a muted trailing clause. A bare string renders as
+    itself -- both shapes `/pfq`'s Security Check snapshot can carry."""
+    if isinstance(finding, str):
+        return f"<li>{esc(finding)}</li>"
+    if not isinstance(finding, dict):
+        return ""
+    head = " ".join(esc(finding[k]) for k in ("severity", "title") if finding.get(k) not in (None, ""))
+    rest_keys = sorted(k for k in finding.keys() if k not in ("severity", "title"))
+    rest = ", ".join(f"{esc(k)}: {esc(finding[k])}" for k in rest_keys)
+    if head and rest:
+        return f'<li>{head} <span class="muted">({rest})</span></li>'
+    if head:
+        return f"<li>{head}</li>"
+    if rest:
+        return f'<li><span class="muted">{rest}</span></li>'
+    return "<li></li>"
+
+
+_SEVERITY_ORDER = ["critical", "high", "moderate", "low"]
+
+
+def security_html(data):
+    """The **last** snapshot in `data["security"]` -- a batch can accumulate more than one, from
+    planning time onward. Missing key or empty list -> "", no section (same empty-section rule as
+    `section_list`). `available: false`, or `available: true` with nothing in `counts` or
+    `findings`, both render as one muted line; `available: true` with something to show renders
+    `counts` as the header's `<dl class="meta">` grid, then `findings` as a list (or one muted
+    "No findings." line when the list itself is empty but counts are not)."""
+    entries = render.jq_alt(data.get("security") if isinstance(data, dict) else None, [])
+    if not isinstance(entries, list) or not entries:
+        return ""
+    entry = entries[-1]
+    if not isinstance(entry, dict):
+        return ""
+    counts = entry.get("counts") if isinstance(entry.get("counts"), dict) else {}
+    findings = entry.get("findings") if isinstance(entry.get("findings"), list) else []
+    available = bool(entry.get("available"))
+
+    if not available or (not counts and not findings):
+        hint = render.jq_alt(entry.get("hint"), "")
+        at = fmt_datetime(entry.get("at"))
+        when = f" ({at})" if at else ""
+        return (
+            '<section class="security"><h2>Security</h2>'
+            f'<p class="muted">Not available{when} — {esc(hint)}</p></section>'
+        )
+
+    keys = [k for k in _SEVERITY_ORDER if k in counts] + sorted(k for k in counts if k not in _SEVERITY_ORDER)
+    counts_html = "".join(
+        f"<div><dt>{esc(k.capitalize())}</dt><dd>{esc(fmt_int(counts[k]))}</dd></div>" for k in keys
+    )
+    grid = f'<dl class="meta">{counts_html}</dl>' if counts_html else ""
+    if findings:
+        body = f'<ul>{"".join(_finding_html(f) for f in findings)}</ul>'
+    else:
+        body = '<p class="muted">No findings.</p>'
+    return f'<section class="security"><h2>Security</h2>{grid}{body}</section>'
 
 
 def skills_str(t):
@@ -422,6 +932,15 @@ def skills_str(t):
     return ", ".join(sorted(k for k in by_skill.keys() if k != "-"))
 
 
+def _tele_pair(label, value):
+    """One `<dl class="tele">`/`<dl class="meta">` row, or "" when `value` is empty/the `-`
+    sentinel -- the one rule both the header and the per-phase telemetry grid share: a pair with
+    nothing to say is not rendered, never shown as an empty `<dd>`."""
+    if value in ("", "-"):
+        return ""
+    return f"<div><dt>{esc(label)}</dt><dd>{esc(value)}</dd></div>"
+
+
 def telemetry_html(phase):
     t = phase.get("telemetry")
     if not isinstance(t, dict):
@@ -429,16 +948,14 @@ def telemetry_html(phase):
     totals = t.get("totals") if isinstance(t.get("totals"), dict) else {}
     by_model = t.get("by_model") if isinstance(t.get("by_model"), dict) else {}
     by_effort = t.get("by_effort") if isinstance(t.get("by_effort"), dict) else {}
-    duration = f"{math.floor(render.jq_alt(t.get('wallclock_s'), 0))} s"
     pairs = [
-        ("Turns", totals.get("turns")),
-        ("Out", totals.get("output")),
-        ("In", render.jq_alt(totals.get("billable_in"), 0)),
-        ("Cache", render.jq_alt(totals.get("cache_read"), 0)),
-        ("Dauer", duration),
+        ("Turns", fmt_int(_totals_field(totals, "turns"))),
+        ("Duration", fmt_duration(render.jq_alt(t.get("wallclock_s"), 0))),
+        ("Out", fmt_int(_totals_field(totals, "output"))),
+        ("In", fmt_int(_totals_field(totals, "billable_in"))),
+        ("Cache read", fmt_int(_totals_field(totals, "cache_read"))),
         ("Model", ", ".join(sorted(by_model.keys()))),
         ("Effort", ", ".join(sorted(by_effort.keys()))),
-        ("Skills", skills_str(t)),
     ]
     # Additive, same rule as `report summary`'s fields 12-15: a record with no `mode` (every one
     # written before phase 02) must render exactly as it did before -- no empty "Mode" column, no
@@ -446,6 +963,7 @@ def telemetry_html(phase):
     mode = render.jq_alt(t.get("mode"), "")
     if mode:
         pairs.append(("Mode", mode))
+    pairs.append(("Skills", skills_str(t)))
     subagent = t.get("subagent") if isinstance(t.get("subagent"), dict) else {}
     sub_turns = render.jq_alt(subagent.get("turns"), 0)
     sub_output = render.jq_alt(subagent.get("output"), 0)
@@ -453,27 +971,41 @@ def telemetry_html(phase):
         orch_turns = render.jq_alt(totals.get("turns"), 0) - sub_turns
         orch_output = render.jq_alt(totals.get("output"), 0) - sub_output
         pairs.append((
-            "Split",
-            f"{orch_turns}/{sub_turns} Turns, {orch_output}/{sub_output} out (orchestrator/worker)",
+            "Orchestrator / worker",
+            f"{fmt_int(orch_turns)}/{fmt_int(sub_turns)} turns · "
+            f"{fmt_int(orch_output)}/{fmt_int(sub_output)} out",
         ))
-    body = " · ".join(kv(label, value) for label, value in pairs)
-    return f'<p class="telemetry">{body}</p>'
+    rows = "".join(_tele_pair(label, value) for label, value in pairs)
+    if not rows:
+        return ""
+    return f'<dl class="tele">{rows}</dl>'
 
 
 def phase_html(phase, goals):
     status = phase.get("status") or ""
     phase_id = phase.get("phase")
+    glyph = status_glyph(status)
+    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
+    nr = m.group(1) if m else ""
+    topic = phase_topic(phase_id)
     goal = goals.get(phase_id or "", "")
     parts = [
-        f'<section class="phase {status}">',
-        f'<h3><span class="badge {status}">{html_escape_jq(status.upper())}</span> {esc(phase_id)}</h3>',
+        f'<section class="phase {status}" id="p-{esc(phase_id)}">',
+        f'<h3><span class="badge {status}">{esc(glyph)} {html_escape_jq(status.upper())}</span> '
+        f'<span class="num">{esc(nr)}</span> {esc(topic)}</h3>',
+        f'<p class="slug">{esc(phase_id)}</p>',
     ]
     if goal:
         parts.append(f'<p class="goal">{esc(goal)}</p>')
-    parts.append(f'<p>{esc(phase.get("summary"))}</p>')
+    summary = phase_summary(phase)
+    if summary:
+        parts.append(f'<p>{esc(summary)}</p>')
     parts.append(telemetry_html(phase))
+    parts.append(section_list(phase.get("triggers"), "Triggers"))
     parts.append(section_list(phase.get("deviations"), "Deviations"))
     parts.append(section_list(phase.get("errors"), "Errors"))
+    parts.append(section_list_code(phase.get("filesTouched"), "Files touched"))
+    parts.append(section_list_code(phase.get("parkedPlanEntries"), "Parked plan entries"))
     verification = render.jq_alt(phase.get("verification"), "")
     if verification != "":
         parts.append(f'<p class="verification"><code>{esc(phase.get("verification"))}</code></p>')
@@ -484,44 +1016,73 @@ def phase_html(phase, goals):
     return "".join(parts)
 
 
-def render_report_html(data, goals):
+def render_report_html(data, goals, dir_):
     batch = data.get("batch")
     phases = data.get("phases", [])
     green_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
     red_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
 
+    status = outcome(phases)
+    header_badge = (
+        f'<span class="badge {status.lower()}">{esc(status_glyph(status))} '
+        f'{html_escape_jq(status)}</span>'
+    )
+
+    repo = render.jq_alt(data.get("repo"), "")
+    repo_base = os.path.basename(repo.rstrip("/")) if repo else ""
+    started = fmt_datetime(data.get("started"))
+    finished = fmt_datetime(batch_finished(data))
+
+    meta_rows = [f'<div><dt>Repo</dt><dd title="{esc(repo)}">{esc(repo_base)}</dd></div>']
+    meta_rows.append(_tele_pair("Started", started))
+    meta_rows.append(_tele_pair("Finished", finished))
+    meta_rows.append(_tele_pair("Phases", f"{len(phases)} · {green_n} green · {red_n} red"))
+
     planning = data.get("planning")
-    planning_block = ""
     if planning is not None:
         totals = planning.get("totals") if isinstance(planning, dict) else None
         by_model = planning.get("by_model") if isinstance(planning, dict) else None
         model_join = ", ".join(sorted(by_model.keys())) if isinstance(by_model, dict) else ""
-        impl_outputs = []
-        for p in phases:
-            tel = p.get("telemetry") if isinstance(p, dict) else None
-            impl_outputs.append(_totals_field(tel.get("totals") if isinstance(tel, dict) else None, "output"))
-        impl_total = jq_add(impl_outputs)
-        planning_block = (
-            '<p class="summary">Planning: '
-            + render.tostring(totals.get("output") if isinstance(totals, dict) else None)
-            + ' out · '
-            + render.tostring(totals.get("turns") if isinstance(totals, dict) else None)
-            + ' Turns · ' + model_join
-            + ' · Implementierung: ' + render.tostring(impl_total) + ' out</p>'
+        planning_val = (
+            f"{fmt_int(_totals_field(totals, 'output'))} out · "
+            f"{fmt_int(_totals_field(totals, 'turns'))} turns"
         )
+        if model_join:
+            planning_val += f" · {model_join}"
+        meta_rows.append(_tele_pair("Planning", planning_val))
+
+    impl_outputs, impl_turns, impl_models = [], [], set()
+    for p in phases:
+        tel = p.get("telemetry") if isinstance(p, dict) else None
+        totals = tel.get("totals") if isinstance(tel, dict) else None
+        impl_outputs.append(_totals_field(totals, "output"))
+        impl_turns.append(_totals_field(totals, "turns"))
+        by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
+        if isinstance(by_model, dict):
+            impl_models.update(by_model.keys())
+    impl_out_total, impl_turns_total = sum(impl_outputs), sum(impl_turns)
+    if impl_out_total or impl_turns_total or impl_models:
+        impl_val = f"{fmt_int(impl_out_total)} out · {fmt_int(impl_turns_total)} turns"
+        if impl_models:
+            impl_val += f" · {', '.join(sorted(impl_models))}"
+        meta_rows.append(_tele_pair("Implementation", impl_val))
+
+    header = (
+        '<header class="batch"><div class="ident">'
+        f'<h1>{esc(batch)}</h1> {header_badge}</div>'
+        f'<dl class="meta">{"".join(meta_rows)}</dl></header>'
+    )
 
     body = "".join(phase_html(p, goals) for p in phases if isinstance(p, dict))
 
     return (
         '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(batch) + ' report</title>'
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        '<h1>' + esc(batch) + '</h1>'
-        '<p class="meta">Repo: ' + esc(data.get("repo")) + ' · Started: ' + esc(data.get("started")) + '</p>'
-        '<p class="summary">Phases: ' + str(len(phases))
-        + ' · Green: ' + str(green_n)
-        + ' · Red: ' + str(red_n) + '</p>'
-        + planning_block
-        + body
+        + header
+        + overview_html(dir_)
+        + phase_table_html(phases)
+        + security_html(data)
+        + '<main>' + body + '</main>'
         + '</body></html>'
     )
 
@@ -545,7 +1106,7 @@ def cmd_html(args):
         errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
 
     goals = extract_goals(dir_, data)
-    html_doc = render_report_html(data, goals)
+    html_doc = render_report_html(data, goals, dir_)
     tmp = f"{out}.tmp"
     pathlib.Path(tmp).write_text(html_doc + "\n")
     os.replace(tmp, out)
@@ -604,8 +1165,8 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
             if isinstance(d, list):
                 deviations += len(d)
-        last_finished = phases[-1].get("finished") if phases and isinstance(phases[-1], dict) else None
-        date = render.jq_alt(render.jq_alt(last_finished, data.get("started") if isinstance(data, dict) else None), "")
+        date = batch_finished(data)
+        status = outcome(phases)
 
         planning = data.get("planning") if isinstance(data, dict) else None
         planning_totals = planning.get("totals") if isinstance(planning, dict) else None
@@ -618,12 +1179,23 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_outputs.append(_totals_field(totals, "output"))
             phase_turns.append(_totals_field(totals, "turns"))
 
+        # `rendered`/`href` used to be computed a second time, independently, inside
+        # regenerate_index() -- both call sites now share this one `resolve_html_path()` answer
+        # instead of two copies of the same formula. `href` is the resolved absolute path (or ""
+        # when nothing has been rendered yet); regenerate_index() derives its own report-relative
+        # link from it rather than re-resolving the layout itself.
+        resolved = resolve_html_path(os.path.dirname(m["path"]))
+        rendered = os.path.isfile(resolved)
+
         rows.append({
             "batch": m["name"],
             "repo": m["repo"],
             "date": date,
-            "status": outcome(phases),
+            "status": status,
+            "glyph": status_glyph(status),
             "deviations": deviations,
+            "rendered": rendered,
+            "href": resolved if rendered else "",
             "cost": {
                 "outputTokens": planning_output + sum(phase_outputs),
                 "turns": planning_turns + sum(phase_turns),
@@ -635,31 +1207,57 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
     return rows, meta
 
 
+def _index_group_lines(repo_key, group_rows, limit):
+    """One repo's `### heading` + table + optional "… n more" hint, each block ending in a blank
+    line -- the fix for the pasted defect (a Markdown table row followed by a non-blank line
+    renders as a further row). `limit <= 0` means no truncation at all."""
+    total_out = sum(r["cost"]["outputTokens"] for r in group_rows)
+    shown = group_rows if limit <= 0 else group_rows[:limit]
+    lines = [f"### {repo_key} · {len(group_rows)} batches · {fmt_tokens(total_out)} out", ""]
+    lines.append("| Batch | · | Devs | Date | Out | 📄 |")
+    lines.append("|---|---|---|---|---|---|")
+    for r in shown:
+        devs_disp = "" if not r["deviations"] else str(r["deviations"])
+        date_disp = fmt_short(r["date"]) or "–"
+        out_disp = fmt_tokens(r["cost"]["outputTokens"])
+        rendered_disp = "✓" if r["rendered"] else ""
+        lines.append(
+            "| " + " | ".join([r["batch"], r["glyph"], devs_disp, date_disp, out_disp, rendered_disp]) + " |"
+        )
+    lines.append("")
+    remaining = len(group_rows) - len(shown)
+    if remaining > 0:
+        lines.append(f"… {remaining} more · --limit 0 shows all")
+        lines.append("")
+    return lines
+
+
 def cmd_index(args):
-    rows, meta = build_index_rows(args.repo, args.batch, args.any_filter)
+    rows, _meta = build_index_rows(args.repo, args.batch, args.any_filter)
     if not args.text:
         print(render.dump_json(rows))
         return
     if not rows:
         print("No batch has a report yet — reports have existed only since v0.2, so older batches never got one.")
         return
-    lines = ["| " + " | ".join(["Repo", "Batch", "Status", "Dev.", "Date", "Cost"]) + " |", "|---|---|---|---|---|---|"]
-    for r in rows:
-        repo_short = r["repo"].split("/")[-1]
-        status_disp = f'**{r["status"]}**' if r["status"] in ("RED", "MIXED") else r["status"]
-        cost = r["cost"]["outputTokens"]
-        cost_disp = "–" if cost == 0 else f"{jq_round(cost / 1000)}k"
-        lines.append("| " + " | ".join([repo_short, r["batch"], status_disp, str(r["deviations"]), r["date"], cost_disp]) + " |")
-    print("\n".join(lines))
-    for r in rows:
-        m = next((mm for mm in meta if mm["repo"] == r["repo"] and mm["name"] == r["batch"]), None)
-        if m is None:
-            continue
-        path = resolve_html_path(os.path.dirname(m["path"]))
-        # Missing file -> the row above stays listed, just without this link -- printing a
-        # file:// line unconditionally is exactly the defect this check removes.
-        if os.path.isfile(path):
-            print(f"file://{path}")
+
+    # One group per repo, newest-group-first without a second sort: `rows` already arrives sorted
+    # newest-first across every repo (build_index_rows), so the first row encountered for a given
+    # repo is necessarily that repo's own newest -- and since the whole list is date-descending,
+    # the order groups are first encountered in is already newest-group-first too.
+    groups = {}
+    order = []
+    for row in rows:
+        key = os.path.basename(row["repo"])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    out_lines = []
+    for key in order:
+        out_lines.extend(_index_group_lines(key, groups[key], args.limit))
+    print("\n".join(out_lines).rstrip("\n"))
 
 
 def cmd_detail(args):
@@ -700,7 +1298,7 @@ def cmd_detail(args):
         out_phases.append({
             "phase": p.get("phase"),
             "status": p.get("status"),
-            "summary": render.jq_alt(p.get("summary"), ""),
+            "summary": phase_summary(p),
             "deviations": render.jq_alt(p.get("deviations"), []),
             "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
@@ -727,6 +1325,8 @@ def cmd_detail(args):
 # ---- collected index.html (reportDir mode) ---------------------------------------------------
 
 def row_html(row):
+    """One `<tr>` in a repo's index table. A batch with no HTML rendered yet keeps its row and
+    loses only the link (`README.md`: "still listed, just without a link")."""
     status = row.get("status") or ""
     if row.get("rendered"):
         batch_html = f'<a href="{esc(row["href"])}">{esc(row["batch"])}</a>'
@@ -735,17 +1335,31 @@ def row_html(row):
     out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
     turns = render.jq_alt(row.get("cost", {}).get("turns"), 0)
     deviations = row.get("deviations")
-    dev_part = f' · {render.tostring(deviations)} Deviations' if isinstance(deviations, (int, float)) and deviations > 0 else ""
+    devs_disp = fmt_int(deviations) if isinstance(deviations, (int, float)) and deviations > 0 else ""
     return (
-        f'<li><span class="badge {status.lower()}">{esc(status)}</span> '
-        f'{batch_html} · {esc(row.get("date"))} · {render.tostring(out_tokens)} out, '
-        f'{render.tostring(turns)} Turns{dev_part}</li>'
+        f'<tr class="{esc(status.lower())}"><td class="c">{esc(status_glyph(status))}</td>'
+        f'<td>{batch_html}</td>'
+        f'<td>{esc(fmt_datetime(row.get("date")))}</td>'
+        f'<td class="n">{esc(devs_disp)}</td>'
+        f'<td class="n">{esc(fmt_int(out_tokens))}</td>'
+        f'<td class="n">{esc(fmt_int(turns))}</td></tr>'
     )
 
 
-def repo_section_html(items):
-    lis = "".join(row_html(it) for it in items)
-    return f'<section class="repo"><h2>{esc(items[0]["repoBase"])}</h2><ul>{lis}</ul></section>'
+def repo_section_html(repo_base, items):
+    """One `<section class="repo">` per repo, the same table shape as phase 04's phase table
+    (`.phase-table table,.repo table` share their declarations) so the two pages read as one
+    system."""
+    total_out = sum(render.jq_alt(it.get("cost", {}).get("outputTokens"), 0) for it in items)
+    rows = "".join(row_html(it) for it in items)
+    return (
+        f'<section class="repo"><h2>{esc(repo_base)} '
+        f'<span class="count">{esc(fmt_int(len(items)))} batches · {esc(fmt_tokens(total_out))} out'
+        '</span></h2><div class="tscroll"><table><thead><tr>'
+        '<th class="c"><span class="sr">Status</span>·</th><th>Batch</th>'
+        '<th>Date</th><th class="n">Devs</th><th class="n">Out</th><th class="n">Turns</th>'
+        f'</tr></thead><tbody>{rows}</tbody></table></div></section>'
+    )
 
 
 def regenerate_index(report_dir, repo_root_filter=None):
@@ -753,30 +1367,39 @@ def regenerate_index(report_dir, repo_root_filter=None):
     batches -- used by the repo-local default (change 1), where `report_dir` is that repo's own
     `.claude/cfq/reports/` and cross-repo entries have no business being listed there; omitted
     (`None`) for the shared-`reportDir` collected-tree mode, which lists every repo on purpose.
-    Existence check and `href` both route through `resolve_html_path()` -- the one place that
-    decides the on-disk layout -- rather than hard-coding the shared-`reportDir` shape here too,
-    which would disagree with it exactly when the layout differs (the repo-local case)."""
-    rows, meta = build_index_rows()
+    `rendered` and the resolved absolute path both come from `build_index_rows()` now -- the one
+    place that calls `resolve_html_path()`, the one place that decides the on-disk layout -- this
+    function only turns that absolute path into one relative to `report_dir`, rather than
+    re-resolving the layout itself a second time."""
+    rows, _meta = build_index_rows()
     if repo_root_filter:
         norm = repo_root_filter.rstrip("/")
         rows = [r for r in rows if r["repo"].rstrip("/") == norm]
 
     groups = {}
     for row in rows:
-        m = next((mm for mm in meta if mm["repo"] == row["repo"] and mm["name"] == row["batch"]), None)
-        resolved = resolve_html_path(os.path.dirname(m["path"])) if m is not None else None
-        rendered = resolved is not None and os.path.isfile(resolved)
-        href = os.path.relpath(resolved, report_dir) if rendered else ""
+        rendered = row["rendered"]
+        href = os.path.relpath(row["href"], report_dir) if rendered else ""
         repo_base = os.path.basename(row["repo"])
-        enriched = {**row, "repoBase": repo_base, "rendered": rendered, "href": href}
+        enriched = {**row, "rendered": rendered, "href": href}
         groups.setdefault(repo_base, []).append(enriched)
 
-    sections = [repo_section_html(groups[key]) for key in sorted(groups.keys())]
+    sections = [repo_section_html(key, groups[key]) for key in sorted(groups.keys())]
     body = "".join(sections) if sections else '<p class="meta">No reports yet.</p>'
+    total_out = sum(render.jq_alt(r.get("cost", {}).get("outputTokens"), 0) for r in rows)
+    header = (
+        '<header class="batch"><div class="ident"><h1>cfq reports</h1></div>'
+        '<dl class="meta">'
+        f'<div><dt>Repos</dt><dd>{esc(fmt_int(len(groups)))}</dd></div>'
+        f'<div><dt>Batches</dt><dd>{esc(fmt_int(len(rows)))}</dd></div>'
+        f'<div><dt>Output tokens</dt><dd>{esc(fmt_int(total_out))}</dd></div>'
+        f'<div><dt>Generated</dt><dd>{esc(datetime.now().strftime("%Y-%m-%d %H:%M"))}</dd></div>'
+        '</dl></header>'
+    )
     doc = (
         '<!doctype html><html><head><meta charset="utf-8"><title>cfq reports</title>'
         '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        '<h1>cfq reports</h1>' + body + '</body></html>'
+        + header + body + '</body></html>'
     )
     idx_out = os.path.join(report_dir, "index.html")
     tmp = f"{idx_out}.tmp"
@@ -822,6 +1445,11 @@ def build_parser():
     p.add_argument("--repo", default="")
     p.add_argument("--batch", default="")
     p.add_argument("--any", dest="any_filter", default="")
+    p.add_argument(
+        "--limit", type=int, default=10,
+        help="rows per repo group in --text mode, 0 for no limit; ignored in JSON mode, "
+             "which is never truncated",
+    )
     p.add_argument("--text", action="store_true")
     p.set_defaults(func=cmd_index)
 
@@ -843,7 +1471,7 @@ def main(argv):
             f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "
             f"summary <batch-dir> | html <batch-dir> | "
-            f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text] | "
+            f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text] | "
             f"detail <batch-dir>"
         )
     func(args)

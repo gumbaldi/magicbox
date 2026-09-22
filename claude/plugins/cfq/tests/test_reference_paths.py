@@ -157,6 +157,28 @@ def check_skill_line_budget(root):
     return fails
 
 
+# 8. Added by Phase 02 (batch 033): `references/dashboard.md`'s todo action must delegate to
+#    `note sweep` rather than instruct the model to do the work by hand -- that hand-instructed
+#    prose is why 48 cards piled up in this repo's own queue. Assert the file contains `note
+#    sweep`, and that it contains neither `move the file` nor `todo/done/` as a destination the
+#    text tells the reader to write to. Narrow and anchored to this one file -- a repo-wide prose
+#    grep would be brittle, and check 5 already owns the token-level shell-mutation rule for every
+#    file.
+def check_dashboard_todo_delegates(root):
+    fails = []
+    f = root / "references" / "dashboard.md"
+    if not f.is_file():
+        return fails
+    text = f.read_text()
+    if "note sweep" not in text:
+        fails.append(f"FAIL: {f} todo action doesn't delegate to `note sweep`")
+    if "move the file" in text:
+        fails.append(f"FAIL: {f} todo action still instructs `move the file` by hand")
+    if "todo/done/" in text:
+        fails.append(f"FAIL: {f} todo action still names `todo/done/` as a destination to write to")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -166,6 +188,7 @@ def run_all(root):
     fails += check_no_shell_mutations(root)
     fails += check_settings_documented(root)
     fails += check_skill_line_budget(root)
+    fails += check_dashboard_todo_delegates(root)
     return fails
 
 
@@ -325,6 +348,40 @@ class ReferencePathsTest(CfqTestCase):
         )
         self.assertEqual(
             1, len(out), msg=f"check 7 self-test should only flag the over-budget file: {out}"
+        )
+
+    def test_dashboard_todo_delegates(self):
+        tmp = self._repos_dir / "f8"
+        (tmp / "references").mkdir(parents=True)
+        (tmp / "references" / "dashboard.md").write_text(
+            "1. List every entry under `todo/*.md`.\n"
+            "2. Exit `0` -> done, move the file to `todo/done/`.\n"
+        )
+
+        out = check_dashboard_todo_delegates(tmp)
+        joined = "\n".join(out)
+        self.assertIn(
+            "note sweep", joined, msg="check 8 self-test did not catch a missing `note sweep` delegation"
+        )
+        self.assertIn(
+            "move the file",
+            joined,
+            msg="check 8 self-test did not catch `move the file` hand-instructed prose",
+        )
+        self.assertIn(
+            "todo/done/",
+            joined,
+            msg="check 8 self-test did not catch `todo/done/` named as a write destination",
+        )
+
+        good = self._repos_dir / "f8-good"
+        (good / "references").mkdir(parents=True)
+        (good / "references" / "dashboard.md").write_text(
+            'Run `"<plugin-root>/bin/cfq" note sweep "<repo-root>" --text` and show its output.\n'
+        )
+        out = check_dashboard_todo_delegates(good)
+        self.assertEqual(
+            out, [], msg=f"check 8 self-test false-flagged a delegating dashboard.md: {out}"
         )
 
     def test_real_plugin_tree_passes(self):

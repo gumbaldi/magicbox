@@ -52,13 +52,14 @@ Rules:
 | Section | Step | Label | Example detail |
 |---|---|---|---|
 | PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report (only exists since v0.2)` |
-| PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: magicbox → detail view` |
+| PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: magicbox → detail view` / `2 repos, --limit 20` |
+| PRECHECKS | 2 | `Listing` | `2 repos · 20 of 80 rows` |
 | POSTCHECKS | 3 | `HTML` | `rendered · file:///…` |
 
 ## 1. Collect
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>]
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>]
 ```
 
 Print the `PRECHECKS` header on entering this step. One call: `index` already discovers every
@@ -75,13 +76,15 @@ and go straight to **Detail**'s detail view.
 ## 2. Terminal Table
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] --text
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] --text
 ```
 
-Same filters as **Collect** — another cheap single-scan call, this time rendered. Print its output
-exactly as returned: the table plus one `file://` line per row whose HTML has already been
-rendered. A row with no rendered HTML yet is listed without one — that's the cue to render it in
-**Detail** below, not a broken link. No rebuilding the table from **Collect**'s JSON by hand.
+Same filters as **Collect** — another cheap single-scan call, this time rendered. Print the
+`Listing` status line (repo count and shown/total rows, from **Collect**'s own JSON — no extra
+call), then print `index --text`'s output exactly as returned: one section per repo, newest first,
+10 rows per repo by default with a "… n more" hint — pass `--limit 0` when the user asks for the
+full history. A row's `📄` column says whether that batch's HTML already exists; nothing here
+prints a path. No rebuilding the table from **Collect**'s JSON by hand.
 
 ## 3. Detail
 
@@ -102,7 +105,9 @@ For the HTML view:
 ```
 
 (renders fresh, overwrites a stale file) and state the printed path as a `file://` URL, printing
-the `HTML` status line. Never open the file yourself — only print the path.
+the `HTML` status line. This is the only step that ever prints a `file://` URL — one path, for the
+one batch being drilled into, only after `report html` has returned it. Never open the file
+yourself — only print the path.
 
 `detail`'s `todos` array already carries that repo's open `todo/*.md` entries — render title plus
 one line, nothing else. Purely read-only: no checking off, no moving, and never running the
@@ -116,6 +121,8 @@ or a batch, pass it as `--repo`/`--batch` — narrowing independently when both 
 OR). An argument that could name either → `--any <arg>` instead: `index` matches it against repo
 path or batch name and dedupes internally, one call, never two calls merged by Claude after the
 fact. Print the `Filter` status line right after `Scan`, before **Terminal Table**'s table.
+`--limit` composes with any of the above — it only narrows how many rows each repo group shows,
+never which batches match.
 
 ## Boundary
 

@@ -160,17 +160,37 @@ class FinishTest(CfqTestCase):
             "report.html must no longer land inside the batch directory by default",
         )
 
-    def test_html_report_default_off(self):
+    def test_html_report_explicit_off(self):
         home = self._repos_dir / "home6"
-        home.mkdir()
+        (home / ".claude/cfq").mkdir(parents=True)
         repo = self._new_repo("repo6")
         batch = self._new_batch(repo, "2026-01-01-htmloff")
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmloff", home=home, check=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": False}))
 
         self.run_cfq("finish", str(repo), str(batch), "v0.1-htmloff", home=home, check=True)
         self.assertFalse(
             (repo / ".claude/cfq/impl/done/2026-01-01-htmloff/report.html").exists(),
-            "default htmlReport=false must not auto-render report.html",
+            "explicit htmlReport=false must not auto-render report.html",
+        )
+        self.assertFalse(
+            (repo / ".claude/cfq/reports/2026-01-01-htmloff.html").exists(),
+            "explicit htmlReport=false must not auto-render into reports/ either",
+        )
+
+    def test_html_report_default_on(self):
+        # The actual behaviour change: a repo with no settings file at all now renders, since
+        # htmlReport now defaults to true.
+        home = self._repos_dir / "home8"
+        home.mkdir()
+        repo = self._new_repo("repo8")
+        batch = self._new_batch(repo, "2026-01-01-htmldefault")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmldefault", home=home, check=True)
+
+        self.run_cfq("finish", str(repo), str(batch), "v0.1-htmldefault", home=home, check=True)
+        self.assertTrue(
+            (repo / ".claude/cfq/reports/2026-01-01-htmldefault.html").is_file(),
+            "default htmlReport=true should auto-render into .claude/cfq/reports/",
         )
 
     def test_already_in_impl_done_completes_normally(self):

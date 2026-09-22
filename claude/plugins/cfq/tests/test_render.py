@@ -171,7 +171,9 @@ class TestRender(CfqTestCase):
         with self.subTest(mode="text"):
             self.assertIn(" – |", rep_text, f"zero cost did not render as –:\n{rep_text}")
             self.assertNotIn("0k", rep_text, "zero cost rendered as 0k")
-            self.assertIn("**RED**", rep_text, f"RED row not visibly marked:\n{rep_text}")
+            # phase 06: the status column is the shape-coded glyph, not the bold word.
+            self.assertIn("❌", rep_text, f"RED row not visibly marked:\n{rep_text}")
+            self.assertNotIn("RED", rep_text, f"status word RED still present:\n{rep_text}")
             self.assertIn("2026-01-01-demo", rep_text, "batch missing from --text output")
 
     def test_report_index_text_empty_index_plain_sentence(self):

@@ -67,15 +67,17 @@ mutation script executes → the structured result is shown. No new script per a
    check whether the named batch exists (open or in `done/`); if not, warn but write anyway on
    request — the edge is fail-soft by design.
 6. **Work off todos**:
-   1. List every entry under `todo/*.md`: title plus the one or two sentences describing what to
-      do.
-   2. For an entry with a `check:` line, **show** the command, then run it. Exit `0` → done, move
-      the file to `todo/done/`, and print a status line under the `ACTION` header naming the
-      reason (`✅ Todo   merge-v0.2: check green · moved to done`). Exit ≠ 0 → the entry stays
-      open, with one line explaining why.
-   3. Entries without a `check:` line are only shown, and only checked off on explicit
-      confirmation.
-   4. Never create or edit an entry here — those are written by `ifq` at batch end.
+   1. Run `"<plugin-root>/bin/cfq" note sweep "<repo-root>" --text` and show its output — one line
+      per card, green first, then unresolvable, then red oldest-first, then the ones with no
+      `check:` line.
+   2. On confirmation, run the same call with `--apply` and print one summary line under the
+      `ACTION` header, e.g. `✅ Todos          3 checks green · moved to done · 44 still open`, not
+      one line per card.
+   3. A card without a `check:` line is never closed by `--apply`; closing one is an explicit act
+      and goes through `note sweep "<repo-root>" --close <filename>`, one `--close` per card, after
+      the user names it.
+   4. Never create or edit an entry here — those are written by `ifq` at batch end. A red card
+      simply stays open.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
 
