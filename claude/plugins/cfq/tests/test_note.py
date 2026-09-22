@@ -11,6 +11,7 @@ import time
 import unittest
 
 from cfq_testlib import CfqTestCase
+from cfq_lib import text as cfq_text
 
 
 class NoteTest(CfqTestCase):
@@ -430,6 +431,90 @@ class NoteListTest(CfqTestCase):
             "note", "list", str(self.repo), "--text", check=True,
         ).stdout
         self.assertIn("No planning requests waiting in the queue.", out)
+
+    def _inbox_dir(self):
+        return self.home / ".claude" / "cfq" / "framework-inbox"
+
+    # Routine: two plan/ entries, no frameworkRepo configured -- header counts only them, one
+    # row per entry (date + title, no excerpt), rows in filename order (oldest first).
+    def test_overview_two_entries_no_excerpt_oldest_first(self):
+        self._write_entry("2026-01-02-second.md", "# Second finding\n\nsome body text.\n")
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nsome body text.\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table(
+            [["2026-01-01", "First finding"], ["2026-01-02", "Second finding"]]
+        )
+        self.assertEqual(
+            out.splitlines(), ["INBOX  2 entries"] + expected_rows,
+        )
+        self.assertNotIn("some body text", out, "the overview must never carry the excerpt")
+
+    # Edge, empty: no plan/ dir at all (and no frameworkRepo configured) -- exactly one line.
+    def test_overview_empty_inbox_is_a_single_line(self):
+        self.assertFalse(self.plan_dir.exists())
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+        self.assertEqual(out, "INBOX  empty\n")
+
+    # Edge, framework repo: repo is frameworkRepo, one plan/ entry plus one file in the global
+    # framework inbox -- the header counts both, names the framework count, the framework row
+    # carries the `framework` tag, and the inbox file is untouched afterwards (read-only).
+    def test_overview_in_framework_repo_lists_framework_inbox_too(self):
+        self.run_cfq(
+            "settings", "set", "frameworkRepo", str(self.repo), home=self.home, check=True,
+        )
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nbody\n")
+
+        inbox = self._inbox_dir()
+        inbox.mkdir(parents=True)
+        fw_file = inbox / "2026-01-02-fw-finding.md"
+        fw_file.write_text("# FW finding\n\nabout cfq itself\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table([
+            ["2026-01-01", "First finding"],
+            ["2026-01-02", "FW finding", "framework"],
+        ])
+        self.assertEqual(
+            out.splitlines(),
+            ["INBOX  2 entries · 1 framework not imported"] + expected_rows,
+        )
+        self.assertTrue(fw_file.exists(), "--overview must never move or consume the entry")
+        self.assertEqual(fw_file.read_text(), "# FW finding\n\nabout cfq itself\n")
+
+    # Fallback, other repo: same global framework-inbox file, this repo is not frameworkRepo --
+    # the framework entry never shows up and the header has no framework part.
+    def test_overview_in_non_framework_repo_hides_framework_inbox(self):
+        other = self.make_repo("framework-repo")
+        self.run_cfq("settings", "set", "frameworkRepo", str(other), home=self.home, check=True)
+
+        self._write_entry("2026-01-01-first.md", "# First finding\n\nbody\n")
+        inbox = self._inbox_dir()
+        inbox.mkdir(parents=True)
+        (inbox / "2026-01-02-fw-finding.md").write_text("# FW finding\n\nabout cfq itself\n")
+
+        out = self.run_cfq(
+            "note", "list", str(self.repo), "--overview", check=True,
+        ).stdout
+
+        expected_rows = cfq_text.table([["2026-01-01", "First finding"]])
+        self.assertEqual(out.splitlines(), ["INBOX  1 entries"] + expected_rows)
+        self.assertNotIn("framework", out)
+        self.assertNotIn("FW finding", out)
+
+    # --overview and --text are mutually exclusive: passing both is a usage error, not a silent
+    # pick of one over the other.
+    def test_overview_and_text_together_is_a_usage_error(self):
+        proc = self.run_cfq("note", "list", str(self.repo), "--overview", "--text")
+        self.assertNotEqual(proc.returncode, 0)
 
 
 class NoteSweepTest(CfqTestCase):
