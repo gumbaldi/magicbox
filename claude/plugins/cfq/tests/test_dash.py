@@ -7,10 +7,15 @@ block (open-batches-only, `--all`, and the expanded next batch).
 
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import cfq_dash  # noqa: E402
 
 # The seven capability rows the ACTIONS section names (Step C's six actions plus Step D's
 # settings change) -- kept as one list so the drift guard below can check both directions: every
@@ -135,6 +140,28 @@ class TestDash(CfqTestCase):
         )
         self.assertEqual(out_empty["status"], "NO_REPO", f"empty status = {out_empty['status']}")
         self.assertEqual(out_empty["repos"], [], f"empty repos = {out_empty['repos']}")
+
+    def test_precheck_lines_column_position_pinned(self):
+        # Phase 09: pins the exact `<icon> <label:<16>><detail>` bytes PRECHECKS prints today --
+        # both literals below are hand-composed with Python's own `:<16` format spec, never built
+        # via `cfq_lib.text`, so a real drift in cfq_dash.py's own formatting cannot pass by
+        # construction.
+        tmp = self._repos_dir / "preroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-08-01-a")
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        lines = rendered.splitlines()
+
+        dash_line_text = next(l for l in lines if re.match(r"^(✅|⚠️) Dash\b", l))
+        self.assertEqual(dash_line_text, f"✅ {'Dash':<16}1 repos · 1 with open work")
+
+        plugins_line_text = next(l for l in lines if re.match(r"^(✅|➖|⚠️) Plugins\b", l))
+        self.assertEqual(
+            plugins_line_text, f"➖ {'Plugins':<16}mattpocock-skills/ponytail not installed",
+        )
 
     def test_settings_marker_mapping(self):
         # 5. Marker mapping, one case per --sources value (default/global/repo/env:process), plus
@@ -522,6 +549,119 @@ class TestDash(CfqTestCase):
         self.assertIn("ponytail audit: off", rendered, f"expected wording missing:\n{rendered}")
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
 
+
+class TestDashRenderPinnedPreShared(unittest.TestCase):
+    """Phase 09: pins `cfq_dash.py`'s current rendered output -- the icon literals in
+    `dash_line`/`plugins_line`, the `:<16` PRECHECKS padding, and the 27-width ACTIONS column --
+    byte-identical, before those call sites move onto `cfq_lib/text.py`'s shared renderer. Every
+    expected literal below is hand-composed (never built via `cfq_lib.text`), so a real drift in
+    `cfq_dash.py`'s output cannot pass by construction."""
+
+    def test_dash_line_icon_ok(self):
+        icon, text = cfq_dash.dash_line("OK", [{"open": 1}, {"open": 0}], None)
+        self.assertEqual(icon, "✅", f"dash_line OK icon = {icon!r}")
+        self.assertEqual(text, "2 repos · 1 with open work")
+
+    def test_dash_line_icon_multiple_in_progress(self):
+        this_repo = {
+            "name": "repo",
+            "batches": [
+                {"name": "a", "status": "IN_PROGRESS"},
+                {"name": "b", "status": "IN_PROGRESS"},
+            ],
+        }
+        icon, text = cfq_dash.dash_line("MULTIPLE_IN_PROGRESS", [], this_repo)
+        self.assertEqual(icon, "⚠️", f"dash_line MULTIPLE_IN_PROGRESS icon = {icon!r}")
+        self.assertEqual(
+            text,
+            "MULTIPLE_IN_PROGRESS in repo: a, b — invariant violation, resolve manually",
+        )
+
+    def test_plugins_line_icon_missing(self):
+        icon, text = cfq_dash.plugins_line({
+            "mattpocock": False, "ponytail": False, "ponytailMode": "off",
+            "useMattpocockGrilling": True, "usePonytailAudit": True,
+        })
+        self.assertEqual(icon, "➖", f"plugins_line missing-plugins icon = {icon!r}")
+        self.assertEqual(text, "mattpocock-skills/ponytail not installed")
+
+    def test_plugins_line_icon_healthy(self):
+        icon, text = cfq_dash.plugins_line({
+            "mattpocock": True, "ponytail": True, "ponytailMode": "off",
+            "useMattpocockGrilling": True, "usePonytailAudit": True,
+        })
+        self.assertEqual(icon, "✅", f"plugins_line healthy icon = {icon!r}")
+        self.assertEqual(
+            text, "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on",
+        )
+
+    def test_plugins_line_icon_mode_warn(self):
+        icon, text = cfq_dash.plugins_line({
+            "mattpocock": False, "ponytail": True, "ponytailMode": "full",
+            "useMattpocockGrilling": True, "usePonytailAudit": True,
+        })
+        self.assertEqual(icon, "⚠️", f"plugins_line degraded-mode icon = {icon!r}")
+        self.assertEqual(
+            text,
+            "mattpocock-skills not installed · ponytail audit: on · "
+            "ponytail default mode: full · cfq expects off",
+        )
+
+    def test_render_body_byte_identical_empty_queue(self):
+        out = cfq_dash.render_body([], None, [], False, "", "", "")
+        self.assertEqual(out, "\nNo repos with a queue yet.")
+
+    def test_render_body_byte_identical_with_queue_entries(self):
+        # Also pins the :258 two-column ACTIONS block for both a short left value ("view
+        # reports", 12 chars) and the longest one ("set / remove a dependency", 25 chars) -- the
+        # case a literal 27-width column and a computed one would diverge on.
+        repos = [{
+            "name": "repo-a", "plan": 0, "todo": 0, "open": 1, "done": 0, "reports": 0,
+            "status": "OK", "path": "/x/repo-a",
+        }]
+        this_repo = {
+            "path": "/x/repo-a", "name": "repo-a",
+            "batches": [{
+                "name": "2026-01-01-demo", "priority": "", "open": 1, "done": 0,
+                "archived": False, "status": "OK",
+            }],
+        }
+        out = cfq_dash.render_body(repos, this_repo, [], False, "", "", "")
+        expected = (
+            "\nQUEUES\n"
+            "| Repo | Plan | Todo | Batches | Reports | Status |\n"
+            "|---|---|---|---|---|---|\n"
+            "| repo-a | 0 | 0 | 1/0 | 0 | OK |\n"
+            "\n"
+            "THIS REPO · repo-a\n"
+            "| Batch | Priority | Open/Done | Status |\n"
+            "|---|---|---|---|\n"
+            "| 2026-01-01-demo | - | 1/0 | OK |\n"
+            "0 batches done · full list: bin/cfq dash render --all\n"
+            "\n"
+            "CONFIG · repo-a\n"
+            "0 of 0 keys differ from default\n"
+            "\n"
+            "ACTIONS\n"
+            "flag / unflag priority     mark a batch high priority\n"
+            "delete a batch             removes the queue directory\n"
+            "archive a batch            moves it to impl/done/\n"
+            "clean the registry         drop repos that no longer exist\n"
+            "set / remove a dependency  .dependsOn between batches\n"
+            "work off todo/ entries     runs their check: commands\n"
+            "change a setting           just say it in plain language\n"
+            "full batch list            bin/cfq dash render --all\n"
+            "view reports               /rfq\n"
+            "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"
+            "settings, global           bin/cfq settings list --sources\n"
+            "\n"
+            "NEXT\n"
+            "\n"
+            "cd /x/repo-a\n"
+            "/model sonnet\n"
+            "/ifq"
+        )
+        self.assertEqual(out, expected)
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, render  # noqa: E402
+from cfq_lib import paths, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_dash.py"
@@ -126,10 +126,10 @@ def this_repo_rollup(scan_repos, repo):
 def dash_line(status, repos, this_repo):
     if status == "MULTIPLE_IN_PROGRESS":
         names = ", ".join(b["name"] for b in this_repo["batches"] if b["status"] == "IN_PROGRESS")
-        text = f"MULTIPLE_IN_PROGRESS in {this_repo['name']}: {names} — invariant violation, resolve manually"
-        return "⚠️", text
+        detail = f"MULTIPLE_IN_PROGRESS in {this_repo['name']}: {names} — invariant violation, resolve manually"
+        return text.ICONS["warn"], detail
     with_open = sum(1 for r in repos if r["open"] > 0)
-    return "✅", f"{len(repos)} repos · {with_open} with open work"
+    return text.ICONS["done"], f"{len(repos)} repos · {with_open} with open work"
 
 
 def plugins_line(p):
@@ -138,7 +138,7 @@ def plugins_line(p):
         mode_clause = f"ponytail default mode: {p['ponytailMode']} · cfq expects off"
 
     if p["mattpocock"] is False and p["ponytail"] is False:
-        base = {"icon": "➖", "text": "mattpocock-skills/ponytail not installed"}
+        base = {"icon": text.ICONS["skip"], "text": "mattpocock-skills/ponytail not installed"}
     elif p["mattpocock"] is True and p["ponytail"] is True:
         off = []
         if not p["useMattpocockGrilling"]:
@@ -146,9 +146,9 @@ def plugins_line(p):
         if not p["usePonytailAudit"]:
             off.append("ponytail audit: off")
         if not off:
-            base = {"icon": "✅", "text": "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on"}
+            base = {"icon": text.ICONS["done"], "text": "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on"}
         else:
-            base = {"icon": "➖", "text": "installed · " + ", ".join(off)}
+            base = {"icon": text.ICONS["skip"], "text": "installed · " + ", ".join(off)}
     else:
         if p["mattpocock"]:
             missing = "ponytail"
@@ -156,11 +156,11 @@ def plugins_line(p):
         else:
             missing = "mattpocock-skills"
             state = "ponytail audit: on" if p["usePonytailAudit"] else "ponytail audit: off"
-        base = {"icon": "➖", "text": f"{missing} not installed · {state}"}
+        base = {"icon": text.ICONS["skip"], "text": f"{missing} not installed · {state}"}
 
-    text = base["text"] if mode_clause is None else f"{base['text']} · {mode_clause}"
-    icon = "⚠️" if mode_clause is not None else base["icon"]
-    return icon, text
+    detail = base["text"] if mode_clause is None else f"{base['text']} · {mode_clause}"
+    icon = text.ICONS["warn"] if mode_clause is not None else base["icon"]
+    return icon, detail
 
 
 def impl_model(settings_json):
@@ -255,7 +255,7 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
 
     if this_repo is not None:
         action_rows = [(a, b.format(path=this_repo["path"])) for a, b in ACTION_ROWS_TEMPLATE]
-        lines += ["", "ACTIONS"] + [f"{a.ljust(27)}{b}" for a, b in action_rows]
+        lines += ["", "ACTIONS"] + text.table(action_rows, indent="")
 
     eligible = [r for r in repos if r["status"] != "BLOCKED" and r["open"] > 0]
     if eligible:
@@ -280,8 +280,8 @@ def main(argv):
         if mode == "render":
             code = render.jq_alt(runtime_json.get("code"), runtime_json.get("cap"), "see detail")
             print("PRECHECKS")
-            print(f"⚠️ {'Dash':<16}runtime degraded · {code}")
-            print(f"➖ {'Plugins':<16}unknown · runtime degraded")
+            print(text.status_line("warn", "Dash", f"runtime degraded · {code}"))
+            print(text.status_line("skip", "Plugins", "unknown · runtime degraded"))
         else:
             print(render.dump_json_pretty({
                 "status": "RUNTIME_DEGRADED", "runtimeDiagnostic": runtime_json,
@@ -343,8 +343,8 @@ def main(argv):
     p_icon, p_text = plugins_line(plugins_obj)
 
     print("PRECHECKS")
-    print(f"{d_icon} {'Dash':<16}{d_text}")
-    print(f"{p_icon} {'Plugins':<16}{p_text}")
+    print(text.status_line(d_icon, "Dash", d_text))
+    print(text.status_line(p_icon, "Plugins", p_text))
     print(render_body(repos_json, this_repo_json, settings_json, all_flag, next_expanded, next_header, next_note))
 
 
