@@ -1000,3 +1000,13 @@
     - phase: "07-report-index-and-default"
       status: "green"
       summary: ""
+- batchNumber: 35
+  batch: 035-2026-09-22-ifq-batch-gate-and-output-design
+  branch: cfq/035-2026-09-22-ifq-batch-gate-and-output-design
+  base: main
+  started: 2026-09-22
+  status: in-progress
+  legacy: false
+- batchNumber: 36
+  batch: 036-2026-09-22-repair-todo-card-checks
+  status: parked
