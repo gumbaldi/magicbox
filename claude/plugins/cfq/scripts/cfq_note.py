@@ -128,7 +128,19 @@ def cmd_note(args, kind):
     else:
         target_dir = TARGET_DIR[kind](args.repo)
 
-    _write_entry(target_dir, args.slug, body_file.read_text())
+    body_text = body_file.read_text()
+
+    if kind == "todo":
+        # Same detector, same line.strip() treatment, that _sweep_card later applies -- so the
+        # warning fires on exactly the lines sweep would execute, never a second regex that drifts.
+        if not any(CHECK_RE.match(line.strip()) for line in body_text.splitlines()):
+            print(
+                "warning: no `check:` line -- `cfq note sweep` can never close this card "
+                "automatically (see references/queue-entries.md)",
+                file=sys.stderr,
+            )
+
+    _write_entry(target_dir, args.slug, body_text)
 
 
 def cmd_merge_todo(args):

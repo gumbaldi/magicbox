@@ -84,6 +84,47 @@ class NoteTest(CfqTestCase):
         proc = self.run_cfq("note", "plan", str(self.repo), "whatever", str(missing))
         self.assertNotEqual(proc.returncode, 0, "a missing body file must fail")
 
+    # `note todo` with no `check:` line: still writes, still exits 0, still prints the path --
+    # only stderr gains a warning that `note sweep` can never close this card automatically.
+    def test_todo_with_no_check_line_warns_on_stderr_but_still_writes(self):
+        body = self._body_file("# Do the thing\n\none sentence, no check line.\n")
+        proc = self.run_cfq("note", "todo", str(self.repo), "no check", str(body))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-no-check.md"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+        self.assertEqual(expected.read_text(), "# Do the thing\n\none sentence, no check line.\n")
+        self.assertIn("no `check:` line", proc.stderr)
+
+    # Inverted: a body that does carry a check: line prints no warning at all.
+    def test_todo_with_check_line_has_no_warning(self):
+        body = self._body_file("# Do the thing\n\none sentence.\n\ncheck: true\n")
+        proc = self.run_cfq("note", "todo", str(self.repo), "has check", str(body), check=True)
+        self.assertEqual(proc.stderr, "")
+
+    # Edge case: an indented check: line must still be recognised -- the warning has to match
+    # what _sweep_card actually executes, which strips the line before matching CHECK_RE.
+    def test_todo_with_indented_check_line_has_no_warning(self):
+        body = self._body_file("# Do the thing\n\none sentence.\n\n    check: true\n")
+        proc = self.run_cfq(
+            "note", "todo", str(self.repo), "indented check", str(body), check=True,
+        )
+        self.assertEqual(proc.stderr, "")
+
+    # Should-not-fire: note merge-todo always composes its own check: line, so cmd_merge_todo's
+    # direct _write_entry call must never trip the cmd_note warning.
+    def test_merge_todo_never_warns(self):
+        proc = self.run_cfq(
+            "note", "merge-todo", str(self.repo), "cfq/030-2026-09-20-some-slug", check=True,
+        )
+        self.assertEqual(proc.stderr, "")
+
+    # Should-not-fire: plan/ entries have no check: convention at all -- the warning is todo-only.
+    def test_plan_with_no_check_line_has_no_warning(self):
+        body = self._body_file("# Finding\n\nsomething noticed, no check line.\n")
+        proc = self.run_cfq("note", "plan", str(self.repo), "a finding", str(body), check=True)
+        self.assertEqual(proc.stderr, "")
+
     def _inbox_dir(self):
         return self.home / ".claude" / "cfq" / "framework-inbox"
 
