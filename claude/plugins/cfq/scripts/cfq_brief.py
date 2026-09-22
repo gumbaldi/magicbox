@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
-with done phases listed first, ticked. Batch mode (default and --with-done) prints an optional
+with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
+block (header, phase count/done/red line, wrapped goal paragraph, phase table) shared by `ifq`'s
+start gate and `pfq`'s final report. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -15,6 +17,7 @@ every blank line and indent is part of the contract.
 """
 
 import argparse
+import json
 import pathlib
 import re
 import sys
@@ -24,6 +27,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import paths as cfq_paths  # noqa: E402
 from cfq_lib import proc as cfq_proc  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
+from cfq_lib import text as cfq_text  # noqa: E402
 
 PROG = "cfq_brief.py"
 
@@ -113,6 +117,87 @@ def phase_num(path):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
+def _ledger_status_by_phase(d):
+    """Last-attempt status per phase slug from report.json's ledger. (verbatim) carry-over of
+    the `json.loads(pathlib.Path(f).read_text())` plus `data.get("phases", [])` read
+    cfq_report.py's cmd_summary already performs (cfq_report.py:380-384) -- the same two lines,
+    here rather than importing cfq_report.py, since that module exposes no importable accessor
+    and pulling it into the brief path would be the heavier cost. {} (never an exception) when
+    report.json doesn't exist -- an all-open batch that never ran is a normal case, not an
+    error. A phase with several ledger entries (a retry after a red run) is judged by its last
+    entry only, since the dict write below overwrites in insertion order."""
+    f = d / "report.json"
+    if not f.is_file():
+        return {}
+    data = json.loads(pathlib.Path(f).read_text())
+    latest = {}
+    for p in data.get("phases", []):
+        if isinstance(p, dict) and isinstance(p.get("phase"), str):
+            latest[p["phase"]] = p.get("status")
+    return latest
+
+
+def _overview_header(d):
+    """`BATCH <number> · <date> · <slug>` for a numbered batch, `BATCH <slug>` alone for a
+    legacy unnumbered one -- never a literal `None` in either case. The numeric prefix is read
+    straight off the directory name rather than re-formatted from `parse_batch_name`'s `int`, so
+    a leading zero survives without this module reimplementing `cfq_batch_id.py`'s
+    `numbered_width`."""
+    parsed = cfq_text.parse_batch_name(d.name)
+    if parsed["number"] is None:
+        return f"BATCH {parsed['slug']}"
+    number = d.name.split("-", 1)[0]
+    return f"BATCH {number} · {parsed['date']} · {parsed['slug']}"
+
+
+def _overview_rows(d):
+    """Table rows plus the done/red counts feeding the count line. Done phases (under `done/`)
+    sort first, ascending by number, then open ones, also ascending -- `sorted(glob(...))` already
+    gives ascending numeric order for `NN-*` names. A done phase is always `done` regardless of
+    what the ledger says about it; an open phase is `red` only when its own last ledger attempt is
+    red, `open` otherwise."""
+    ledger = _ledger_status_by_phase(d)
+    done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
+    open_files = sorted(d.glob("[0-9][0-9]-*.md"))
+
+    rows = []
+    for f in done_files:
+        fields = parse_phase_body(f.read_text())
+        rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
+
+    red_count = 0
+    for f in open_files:
+        fields = parse_phase_body(f.read_text())
+        status = "red" if ledger.get(f.stem) == "red" else "open"
+        if status == "red":
+            red_count += 1
+        rows.append([phase_num(f), fields["title"], fields["size"] or "M", status])
+
+    return rows, len(done_files), len(open_files), red_count
+
+
+def render_overview(d):
+    rows, done_n, open_n, red_n = _overview_rows(d)
+    planned = done_n + open_n
+
+    count_line = f"{planned} phases planned · {done_n} done"
+    if red_n:
+        count_line += f" · {red_n} red"
+
+    lines = [_overview_header(d), count_line]
+
+    goal = cfq_queue.read_goal_full(d)
+    if goal is not None:
+        lines.append("")
+        lines.extend(cfq_text.wrap(goal, width=68, indent="  ", max_lines=6))
+        lines.append("")
+
+    lines.extend(cfq_text.table(
+        rows, headers=["#", "Phase", "Size", "Status"], aligns=["l", "l", "l", "l"],
+    ))
+    return "\n".join(lines)
+
+
 def _repo_root_from_batch_dir(batch_dir):
     """Walks up from <repo>/.claude/cfq/impl/<batch> until a parent whose own path ends in
     cfq_lib.paths.QUEUE_DIR_COMPONENTS (i.e. the parent itself is <repo>/.claude/cfq) is found,
@@ -168,6 +253,10 @@ def cmd_brief(args):
         print(render_phase(phase_num(f), parse_phase_body(f.read_text())))
         return
 
+    if args.overview:
+        print(render_overview(d))
+        return
+
     name = d.name
     priority_file = d / ".priority"
     priority = priority_file.read_text().strip() if priority_file.is_file() else ""
@@ -202,6 +291,7 @@ def build_parser():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--phase")
     group.add_argument("--with-done", action="store_true")
+    group.add_argument("--overview", action="store_true")
     parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser

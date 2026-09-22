@@ -76,6 +76,12 @@ incomplete plan is worth showing, not worth aborting over. The `goal:` line is t
 shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
 with no `goal:` line.
 
+`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
+later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
+count with done/red breakdown, the wrapped `## Goal` paragraph, then the phase table with a
+`done`/`open`/`red` status column. `--with-done` stays exactly as described above for any caller
+that still wants the old flat listing.
+
 ## Briefing Warnings
 
 `contextGate.verdict` is `WARN` → print one warning line *above* the briefing, naming the reason in
