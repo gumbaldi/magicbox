@@ -1010,3 +1010,6 @@
 - batchNumber: 36
   batch: 036-2026-09-22-repair-todo-card-checks
   status: parked
+- batchNumber: 37
+  batch: 037-2026-09-22-phase-push-upstream-and-inbox-overview
+  status: parked
