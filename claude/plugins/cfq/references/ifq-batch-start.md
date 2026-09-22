@@ -237,11 +237,16 @@ on `mode` to read any of the three.
   — before the checkout runs, and use its `ref` as `<baseRef>` and `<name>` as `<base>` below. Then:
 
 ```bash
-git checkout -b "<branch>" "<baseRef>"
+git checkout --no-track -b "<branch>" "<baseRef>"
 "<plugin-root>/bin/cfq" changelog init "<repo-root>" "<branch>" "<base>" "<batch>"
 "<plugin-root>/bin/cfq" changelog commit "<repo-root>" "Start <branch> batch in the changelog"
 "<plugin-root>/bin/cfq" branch plan "<repo-root>" "<batch>"
 ```
+
+`--no-track` matters: `<baseRef>` is a remote-tracking ref, and without it git's own
+`branch.autoSetupMerge` default would set `<branch>`'s upstream to the *base* branch instead of
+itself — the first `cfq phase commit` on this batch is what sets the upstream to
+`origin/<branch>`, via its own `push -u` fallback.
 
 `changelog init` keeps receiving `<base>` (the plain branch name), not `<baseRef>` — the changelog
 records which branch the work builds on, not which ref was used to cut it. `changelog commit` is a

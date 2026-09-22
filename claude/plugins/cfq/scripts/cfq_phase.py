@@ -112,6 +112,9 @@ def _git(repo, *args):
 
 def _last_stderr_line(stderr):
     lines = [line for line in stderr.splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith("error:") or line.startswith("fatal:"):
+            return line
     return lines[-1] if lines else stderr.strip()
 
 
@@ -188,10 +191,9 @@ def cmd_commit(args):
     cfq_report.set_commit(dir_, phase_id, sha)
 
     branch = _git(repo_root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    has_upstream = _git(
-        repo_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
-    ).returncode == 0
-    push = _git(repo_root, "push") if has_upstream else _git(repo_root, "push", "-u", "origin", branch)
+    upstream = _git(repo_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    tracks_self = upstream.returncode == 0 and upstream.stdout.strip() == f"origin/{branch}"
+    push = _git(repo_root, "push") if tracks_self else _git(repo_root, "push", "-u", "origin", branch)
 
     cfq_registry.add_repo(repo_root)
 

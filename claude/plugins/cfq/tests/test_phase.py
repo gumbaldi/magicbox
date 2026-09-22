@@ -53,6 +53,29 @@ class CommitStatusLineTest(unittest.TestCase):
         self.assertNotEqual(ok_line["icon"], staged_line["icon"])
 
 
+class LastStderrLineTest(unittest.TestCase):
+    """`cfq_phase._last_stderr_line` should surface git's own `error:`/`fatal:` line over the
+    trailing hint line (`"in 'git help config'."`) that used to be all `pushError`/`COMMIT_FAILED`
+    reported -- see the batch's finding."""
+
+    def test_prefers_error_and_fatal_lines_over_trailing_hint(self):
+        cases = [
+            (
+                "error: failed to push some refs to 'x'\nhint: foo\nhint: in 'git help config'.\n",
+                "error: failed to push some refs to 'x'",
+            ),
+            (
+                "fatal: The upstream branch ... does not match\n\nTo push ...\n",
+                "fatal: The upstream branch ... does not match",
+            ),
+            ("some warning\nlast line\n", "last line"),
+            ("", ""),
+        ]
+        for stderr, expected in cases:
+            with self.subTest(stderr=stderr):
+                self.assertEqual(cfq_phase._last_stderr_line(stderr), expected)
+
+
 class TestPhase(CfqTestCase):
     def _batch(self, name):
         d = self._repos_dir / name
@@ -285,6 +308,61 @@ class TestPhase(CfqTestCase):
 
         registered = self.run_cfq("registry", "list").stdout
         self.assertIn(str(repo), registered, "repo should be registered by phase commit")
+
+    def _checkout_off_base(self, repo, branch, base="origin/main"):
+        self.run_clean("git", "checkout", "-q", "-b", branch, base, cwd=repo)
+
+    def _upstream(self, repo):
+        return self.run_clean(
+            "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", cwd=repo,
+        ).stdout.strip()
+
+    def test_commit_pushes_when_upstream_is_base_branch(self):
+        repo, batch = self._git_batch("commit-repo-3", "2026-03-07-thirdtopic")
+        self._checkout_off_base(repo, "cfq/002-x")
+        self.assertEqual(
+            self._upstream(repo), "origin/main",
+            "precondition: git's own branch.autoSetupMerge default must still track the base branch"
+            " here, or this test no longer reproduces the finding",
+        )
+
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "ok"})
+        msg = self._message_file(batch)
+
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(msg))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = self.json_out(proc)
+        self.assertTrue(body["pushed"], f"push should retarget to the branch's own name: {body}")
+
+        remote_branches = self.run_clean("git", "ls-remote", "origin", "cfq/002-x", cwd=repo).stdout
+        self.assertTrue(remote_branches.strip(), "cfq/002-x should now exist on the remote")
+        self.assertEqual(
+            self._upstream(repo), "origin/cfq/002-x",
+            "upstream should now be retracked to the branch's own name",
+        )
+
+    def test_commit_second_phase_after_retracking_uses_plain_push(self):
+        repo, batch = self._git_batch("commit-repo-4", "2026-03-08-fourthtopic")
+        self._checkout_off_base(repo, "cfq/003-y")
+        self._write_phase_md(batch, "01-a")
+        self._write_phase_md(batch, "02-b")
+        self._write_report(batch, [])
+
+        self._stage_change(repo, "one.txt")
+        pf1 = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "ok"})
+        proc1 = self.run_cfq("phase", "commit", str(batch), str(pf1), str(self._message_file(batch, "First\n")))
+        self.assertEqual(proc1.returncode, 0, proc1.stderr)
+        self.assertEqual(self._upstream(repo), "origin/cfq/003-y", "first commit should have retracked")
+
+        self._stage_change(repo, "two.txt", "more\n")
+        pf2 = self._phase_file(batch, {"phase": "02-b", "status": "green", "summary": "ok"})
+        proc2 = self.run_cfq("phase", "commit", str(batch), str(pf2), str(self._message_file(batch, "Second\n")))
+        self.assertEqual(proc2.returncode, 0, proc2.stderr)
+        body2 = self.json_out(proc2)
+        self.assertTrue(body2["pushed"], f"second phase's plain push should still succeed: {body2}")
 
     def test_commit_second_phase_on_same_branch_still_pushes(self):
         repo, batch = self._git_batch("commit-repo-2", "2026-03-02-secondtopic")
