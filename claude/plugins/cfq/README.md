@@ -272,9 +272,14 @@ denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<ba
 It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
 sanctioned commands the guard's own deny messages point to. Paths are resolved against the
 payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
-same as a fully-qualified path. There is no setting to turn it off — disabling it means disabling
-the plugin. It fails open on an internal error: a crash allows the call rather than blocking every
-`Bash` call in the session.
+same as a fully-qualified path. A heredoc body (`<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`) is
+excluded entirely before parsing — only the command line carrying the `<<` operator is checked —
+so a note body written via `bin/cfq note plan|todo … - <<'EOF'` never trips the guard no matter
+what it contains (an apostrophe, a `.claude/cfq` path, the word `rm`); a double-quoted span also
+honours a backslash escape (`\"`, `\\`, `\$`, `` \` ``) the way a real shell would, rather than
+treating it as closing the quote early. There is no setting to turn it off — disabling it means
+disabling the plugin. It fails open on an internal error: a crash allows the call rather than
+blocking every `Bash` call in the session.
 
 ## Batch lifecycle
 
