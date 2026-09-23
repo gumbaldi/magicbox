@@ -66,6 +66,16 @@ exists so a decision question always states what it's about, what the problem is
 option costs, in the user's own terms, before asking — not just in `pfq`, since `ifq`'s branch and
 self-critique questions have the same shape.
 
+## ifq: why the base-branch question always fires
+
+`new`-branch base resolution used to ask only for the `ambiguous` and `newerCandidate` cases,
+picking `dependsOn`/`highestBatch`/`main` silently the rest of the time. That hid a real decision:
+unmerged batches chain onto each other, so which branch a new one builds on decides which earlier,
+still-unmerged work it inherits — a silent pick could carry work the user didn't expect to see
+land in this batch, with no chance to notice before the branch was already cut. Asking every time,
+with the derived base recommended first, keeps that choice visible without changing which branch
+usually gets picked in practice — decided in the same interview that added `resume`/`start`.
+
 ## pfq: why Phase Quality's five rules exist
 
 One `/ifq` phase burned far more tokens than the task itself required — not the logic, the

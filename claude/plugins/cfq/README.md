@@ -66,6 +66,13 @@ a full context window genuinely can't continue. Crossing a rate-limit threshold 
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
 is offered with the warning attached, and the user decides whether to continue or hand off.
 
+```bash
+/ifq                 # ask which batch, then the start gate before touching anything
+/ifq resume           # continue the in-progress batch; skips the start gate
+/ifq start             # take the in-progress batch, or the next one in order; skips the start gate
+/ifq start <batch>    # same as `start`, naming which batch
+```
+
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
 aborts with the name of the holder, unless that session has been silent for `sessionStaleSeconds`

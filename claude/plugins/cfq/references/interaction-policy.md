@@ -23,9 +23,9 @@ that, only exceptional cases still ask; everything routine gets decided and repo
 a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
 only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
 drop-a-phase/remove-a-named-capability question; `ifq`: start gate (start/pick a different
-batch/cancel, per `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**), scope-creep
-parking, branch base (ambiguous dependencies, a newer uncontained cfq branch than the highest
-batch, ahead/diverged remote only) — this section adds a rule, not new question sites.
+batch/cancel, per `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by
+the `resume`/`start` keywords), scope-creep parking, branch base (every new batch branch, plus
+ahead/diverged remote on `continue`) — this section adds a rule, not new question sites.
 
 ## Active Interview Duty
 

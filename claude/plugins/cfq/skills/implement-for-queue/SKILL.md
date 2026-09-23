@@ -34,7 +34,9 @@ Failed Attempt** for the next phase instead of opening `POSTCHECKS`. `POSTCHECKS
 ## Step 1 — Arguments
 
 Text passed with the invocation narrows batch selection in **Batch Selection** — it never replaces
-the briefing.
+the briefing. `resume` and `start` (`start <batch>` included) are keywords, not a selection hint —
+cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Arguments**
+section on first use each session and apply it here.
 
 ## Step 2 — Plan-Mode Gate
 
@@ -66,8 +68,8 @@ phase files in full here, that's **Implementation**'s job. `contextGate.verdict`
 `batch.consistency == "divergent"` — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings** section on first use each session and apply it here. Present `batch.briefText` compactly (already the full
 per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size
-and context excerpt), then show the batch overview and the queue listing and ask before starting —
-cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
+and context excerpt), then show the batch overview and the queue listing, then follow the start
+gate — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
 
 Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`
