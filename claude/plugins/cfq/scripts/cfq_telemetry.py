@@ -194,6 +194,129 @@ def subagent_turns(since, until):
     return assistant_turns(entries, since, until)
 
 
+def agent_id_from_path(p):
+    """"agent-<id>.jsonl" -> "<id>" -- the id shared verbatim by the sibling
+    "agent-<id>.meta.json" and by another agent's own "parentAgentId" (verified against real
+    session directories: both name the same string with no further transformation)."""
+    name = p.stem
+    return name[len("agent-"):] if name.startswith("agent-") else name
+
+
+def read_agent_meta(subdir, agent_id):
+    """The sibling agent-<id>.meta.json for one sub-agent transcript -- agentType, description,
+    spawnDepth, parentAgentId (at depth >= 2). None on a missing or malformed file; callers treat
+    that the same as "no meta" rather than raising, since a sub-agent transcript predates this
+    sibling file existing at all on some hosts."""
+    p = pathlib.Path(subdir) / f"agent-{agent_id}.meta.json"
+    try:
+        with open(p) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _resolve_layer(agent_type, depth, parent, meta_by_id):
+    """worker = type WORKER_AGENT. worker_explore = any agent whose parent chain reaches a
+    worker -- walked by id through meta_by_id, which is built from every meta file in the
+    directory (not just the ones with turns in this record's own window), so a depth->=3 agent
+    still resolves through an intermediate parent that has no turns of its own here. Everything
+    else -- a depth-1 non-worker, or a chain that runs out (missing/malformed meta) before
+    reaching a worker -- is main_explore. `seen` guards a cyclical parentAgentId from looping
+    forever; real sessions never produce one, but a malformed meta file must not hang this."""
+    if agent_type == WORKER_AGENT:
+        return "worker"
+    seen = set()
+    cur = parent
+    while cur and cur not in seen:
+        seen.add(cur)
+        pmeta = meta_by_id.get(cur)
+        if not isinstance(pmeta, dict):
+            break
+        if jqor(pmeta.get("agentType"), "") == WORKER_AGENT:
+            return "worker_explore"
+        cur = pmeta.get("parentAgentId") or None
+    return "main_explore"
+
+
+def collect_agent_nodes(since, until):
+    """One node per agent-<id>.jsonl with at least one turn inside (since, until] -- an agent with
+    no turns in the window is not listed. Each node's `layer` comes from _resolve_layer() against
+    its sibling meta file; a missing or unreadable meta counts as depth 1, type taken from the
+    turn's own attributionAgent (the same fallback attribution subagent_turns()'s callers already
+    read via by_agent), no parent. Returns (nodes, turns_by_id): build_record() needs the raw
+    per-agent turn lists again to sum each layer via sums(), rather than re-deriving a sum from
+    nodes[*]["totals"] by hand."""
+    d = subagent_dir()
+    if not d or not os.path.isdir(d):
+        return [], {}
+
+    files = sorted(pathlib.Path(d).glob("agent-*.jsonl"))
+    meta_by_id = {agent_id_from_path(p): read_agent_meta(d, agent_id_from_path(p)) for p in files}
+
+    nodes = []
+    turns_by_id = {}
+    for p in files:
+        aid = agent_id_from_path(p)
+        try:
+            entries = parse_transcript(str(p))
+        except (OSError, ValueError):
+            continue
+        turns = assistant_turns(entries, since, until)
+        if not turns:
+            continue
+
+        meta = meta_by_id.get(aid)
+        fallback_type = jqor(turns[0].get("attributionAgent"), "-")
+        if isinstance(meta, dict):
+            agent_type = jqor(meta.get("agentType"), fallback_type)
+            description = jqor(meta.get("description"), "")
+            depth = jqor(meta.get("spawnDepth"), 1)
+            parent = meta.get("parentAgentId") or None
+        else:
+            agent_type = fallback_type
+            description = ""
+            depth = 1
+            parent = None
+
+        turns_by_id[aid] = turns
+        nodes.append({
+            "id": aid,
+            "type": agent_type,
+            "description": description,
+            "depth": depth,
+            "parent": parent,
+            "layer": _resolve_layer(agent_type, depth, parent, meta_by_id),
+            "totals": sums(turns),
+            "models": sorted({jqor((it.get("message") or {}).get("model"), "?") for it in turns}),
+            "efforts": sorted({jqor(it.get("effort"), "?") for it in turns}),
+        })
+    return nodes, turns_by_id
+
+
+def _layer_summary(turns, agents):
+    models = sorted({m for a in agents for m in a["models"]})
+    efforts = sorted({e for a in agents for e in a["efforts"]})
+    return {**sums(turns), "models": models, "efforts": efforts, "count": len(agents)}
+
+
+def build_layers(t, nodes, turns_by_id):
+    """The four cost layers the report tree groups by: main is the session's own transcript (`t`,
+    same list `totals` sums -- count is always 1); main_explore/worker/worker_explore partition
+    `nodes` by their resolved `layer`. Invariant (asserted in tests, not just here): main +
+    main_explore + worker + worker_explore == totals + subagent, field by field -- main equals
+    totals by construction, and every node's turns land in exactly one of the other three layers,
+    so their union reproduces `sub` (subagent_turns()'s own sum) exactly."""
+    main_models = sorted({jqor((it.get("message") or {}).get("model"), "?") for it in t})
+    main_efforts = sorted({jqor(it.get("effort"), "?") for it in t})
+    layers = {"main": {**sums(t), "models": main_models, "efforts": main_efforts, "count": 1}}
+    for layer_name in ("main_explore", "worker", "worker_explore"):
+        agents = [n for n in nodes if n["layer"] == layer_name]
+        turns = [it for n in agents for it in turns_by_id[n["id"]]]
+        layers[layer_name] = _layer_summary(turns, agents)
+    return layers
+
+
 def build_record(tf, since, kind, phase, batch, repo, recommended):
     entries = parse_transcript(tf)
     t = assistant_turns(entries, since, "")
@@ -212,7 +335,8 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     last_ts = t[-1].get("timestamp") if t else None
     last = t[-1] if t else {}
 
-    sub = subagent_turns(since, jqor(last_ts, ""))
+    until = jqor(last_ts, "")
+    sub = subagent_turns(since, until)
     by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
     mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
 
@@ -223,8 +347,13 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     worker_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") == WORKER_AGENT]
     explore_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") != WORKER_AGENT]
 
+    # Per-agent nodes and the four cost layers they group into (`agents`/`layers`, schema 2) --
+    # additive, on top of the unchanged `by_agent`/`subagent*` fields above.
+    agent_nodes, agent_turns_by_id = collect_agent_nodes(since, until)
+    layers = build_layers(t, agent_nodes, agent_turns_by_id)
+
     return {
-        "schema": 1,
+        "schema": 2,
         "kind": kind,
         "repo": repo,
         "batch": batch,
@@ -246,6 +375,8 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
         "subagent": sums(sub),
         "subagent_worker": sums(worker_sub),
         "subagent_explore": sums(explore_sub),
+        "agents": agent_nodes,
+        "layers": layers,
         "skills_recommended": recommended,
     }
 

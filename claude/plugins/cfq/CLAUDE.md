@@ -213,6 +213,26 @@ A record's sub-agent turns are further split by the `WORKER_AGENT` attribution n
 a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
 downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker split.
 
+**Schema 2 additionally records every sub-agent as its own node, grouped into four cost layers.**
+`by_agent`/`subagent`/`subagent_worker`/`subagent_explore` keep their existing meaning — schema 2
+is additive, not a replacement. `agents` lists one entry per `agent-<id>.jsonl` that has at least
+one turn in the record's window (`collect_agent_nodes()`), read together with its sibling
+`agent-<id>.meta.json` (`agentType`, `description`, `spawnDepth`, `parentAgentId` at depth ≥ 2) —
+a missing or unreadable meta falls back to depth 1, type from the turn's own `attributionAgent`, no
+parent, the same attribution `by_agent` already uses. `layers` sums those nodes (plus the session's
+own transcript as `main`) into the tree the report reads: `main` (the session), `main_explore`
+(sub-agents the session spawned directly), `worker` (each `cfq:cfq-phase-worker` instance),
+`worker_explore` (sub-agents a worker spawned — resolved by walking `parentAgentId` up through
+every meta file in the directory, `_resolve_layer()`, not only the ones with turns in this
+window, so a depth-≥3 agent still resolves through an intermediate parent). Each layer carries
+`sums()`, `models`, `efforts` and `count` (number of agents; always `1` for `main`). Invariant,
+asserted per fixture in `tests/test_telemetry.py`: `main + main_explore + worker + worker_explore`
+== `totals + subagent`, field by field — this holds structurally because every listed agent's
+turns land in exactly one of the three non-`main` layers. Records are still appended to
+`telemetry.jsonl` exactly as before, so `telemetry sync` carries `agents`/`layers` into the
+telemetry repo without any change on its own part; only a reader that cares about the new fields
+needs to look at `schema` to tell schema-2 records from the 1s that came before them.
+
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
 `implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents

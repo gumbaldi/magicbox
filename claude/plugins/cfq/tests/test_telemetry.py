@@ -24,7 +24,7 @@ EXTRA_TURN = """\
 """
 
 
-def _sub_line(ts, agent, usage=None):
+def _sub_line(ts, agent, usage=None, model="claude-sonnet-5", effort="high"):
     """One entry as a sub-agent transcript file (subagents/agent-*.jsonl) would carry it -- same
     shape as a main-transcript entry, plus attributionAgent."""
     usage = usage or {
@@ -35,13 +35,23 @@ def _sub_line(ts, agent, usage=None):
         "type": "assistant",
         "timestamp": ts,
         "isSidechain": True,
-        "effort": "high",
+        "effort": effort,
         "attributionAgent": agent,
         "attributionSkill": "cfq:implement-for-queue",
         "attributionPlugin": "cfq",
-        "message": {"model": "claude-sonnet-5", "usage": usage},
+        "message": {"model": model, "usage": usage},
     }
     return json.dumps(obj, separators=(",", ":"))
+
+
+def _write_meta(subdir, agent_id, agent_type, description="", spawn_depth=1, parent=None):
+    """The sibling agent-<id>.meta.json a real subagents/ directory carries -- field names and
+    shape verified against real session directories (agentType, description, spawnDepth, and
+    parentAgentId only at depth >= 2)."""
+    meta = {"agentType": agent_type, "description": description, "spawnDepth": spawn_depth}
+    if parent:
+        meta["parentAgentId"] = parent
+    (subdir / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
 
 
 class TelemetryTest(CfqTestCase):
@@ -122,14 +132,15 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(n, 0, msg=f"telemetry.jsonl leaked prompt text ({n} hits)")
 
         # Structural whitelist: every leaf field name must be one we deliberately added.
-        # subagent_worker/subagent_explore are additive top-level fields introduced by this
-        # phase -- listed here even though their own leaf values (turns/output/...) already
-        # existed in `subagent`'s shape, so no genuinely new leaf name rides in unnoticed.
+        # subagent_worker/subagent_explore are additive top-level fields introduced by an earlier
+        # phase; "count" is `layers`'s own leaf field (turns/output/... already existed in
+        # `subagent`'s shape) -- `layers` itself is always present, even with zero agents, so
+        # `count` shows up in every record from here on, not only ones with a subagents/ dir.
         allowed = {
             "schema", "kind", "repo", "batch", "phase", "mode", "session_id", "branch",
             "cc_version", "from", "until", "wallclock_s", "turns", "input", "output",
             "cache_read", "cache_creation", "billable_in", "Bash",
-            "subagent_worker", "subagent_explore",
+            "subagent_worker", "subagent_explore", "count",
         }
         leaves = set(_leaf_keys(rec1))
         extra = leaves - allowed
@@ -296,6 +307,147 @@ class TelemetryTest(CfqTestCase):
             msg="only the entry inside the new (since, until] window counts",
         )
         self.assertEqual(rec2["totals"]["turns"], 1, msg="totals stays windowed the same as before")
+
+    # -- agents/layers (schema 2) -------------------------------------------------------------
+
+    def _scenario_orchestrator(self):
+        """routine: an orchestrator-mode phase -- one worker (model sonnet, effort high) that
+        spawned one Explore agent (haiku), plus one Explore agent spawned by the session."""
+        subdir = self._subagent_dir()
+        (subdir / "agent-w1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:15.000Z", "cfq:cfq-phase-worker", model="claude-sonnet-5", effort="high")
+            + "\n"
+        )
+        _write_meta(subdir, "w1", "cfq:cfq-phase-worker", description="Implement phase 01", spawn_depth=1)
+        (subdir / "agent-e1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "Explore", model="claude-haiku-5", effort="high") + "\n"
+        )
+        _write_meta(subdir, "e1", "Explore", description="worker's own explore", spawn_depth=2, parent="w1")
+        (subdir / "agent-e2.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:45.000Z", "Explore", model="claude-sonnet-5", effort="high") + "\n"
+        )
+        _write_meta(subdir, "e2", "Explore", description="session's own explore", spawn_depth=1)
+        self._record(str(self.batch), "phase", "01-foo")
+        return self._last_record()
+
+    def _scenario_classic(self):
+        """routine: a classic phase -- session plus one Explore agent, no worker
+        (worker/worker_explore are zero)."""
+        subdir = self._subagent_dir()
+        (subdir / "agent-e1.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "Explore") + "\n"
+        )
+        _write_meta(subdir, "e1", "Explore", spawn_depth=1)
+        self._record(str(self.batch), "phase", "01-foo")
+        return self._last_record()
+
+    def _scenario_missing_meta(self):
+        """edge: a meta file missing for one agent (counts as main_explore, no crash)."""
+        subdir = self._subagent_dir()
+        (subdir / "agent-nometa.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:30.000Z", "Explore") + "\n"
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        return self._last_record()
+
+    def _scenario_stale_agent_excluded(self):
+        """edge: an agent with no turns in the window is not listed."""
+        subdir = self._subagent_dir()
+        (subdir / "agent-stale.jsonl").write_text(
+            _sub_line("2026-08-13T10:00:15.000Z", "Explore") + "\n"
+        )
+        _write_meta(subdir, "stale", "Explore", spawn_depth=1)
+        self._record(str(self.batch), "phase", "01-foo")
+        with self.transcript.open("a") as f:
+            f.write(EXTRA_TURN)
+        self._record(str(self.batch), "phase", "01-foo")
+        return self._last_record()
+
+    def _assert_layers_invariant(self, rec):
+        """main + main_explore + worker + worker_explore == totals + subagent, field by field --
+        the one invariant every fixture in this file must hold."""
+        layers = rec["layers"]
+        totals, subagent = rec["totals"], rec["subagent"]
+        for field in ("turns", "input", "output", "cache_read", "cache_creation", "billable_in"):
+            want = totals[field] + subagent[field]
+            got = sum(layers[name][field] for name in ("main", "main_explore", "worker", "worker_explore"))
+            self.assertEqual(got, want, msg=f"layers invariant broke on {field}: {got} != {want}")
+
+    def test_layers_invariant_holds_for_every_fixture(self):
+        # Each scenario needs its own clean repo/session -- re-running setUp() between
+        # iterations gets a fresh CfqTestCase environment (temp home + temp repo), the same one
+        # every other test method in this class starts from.
+        scenarios = (
+            ("orchestrator", self._scenario_orchestrator),
+            ("classic", self._scenario_classic),
+            ("missing_meta", self._scenario_missing_meta),
+            ("stale_agent_excluded", self._scenario_stale_agent_excluded),
+        )
+        for name, build in scenarios:
+            with self.subTest(scenario=name):
+                self.setUp()
+                self._assert_layers_invariant(build())
+
+    def test_agents_and_layers_orchestrator_mode(self):
+        rec = self._scenario_orchestrator()
+
+        nodes_by_id = {n["id"]: n for n in rec["agents"]}
+        self.assertEqual(set(nodes_by_id), {"w1", "e1", "e2"}, msg="agents list")
+        self.assertEqual(nodes_by_id["w1"]["layer"], "worker")
+        self.assertEqual(nodes_by_id["e1"]["layer"], "worker_explore", msg="e1's parent chain reaches the worker")
+        self.assertEqual(nodes_by_id["e2"]["layer"], "main_explore", msg="e2 was spawned by the session, not the worker")
+        self.assertEqual(nodes_by_id["e1"]["parent"], "w1")
+        self.assertIsNone(nodes_by_id["w1"]["parent"])
+        self.assertEqual(nodes_by_id["w1"]["depth"], 1)
+        self.assertEqual(nodes_by_id["e1"]["depth"], 2)
+        self.assertEqual(nodes_by_id["w1"]["models"], ["claude-sonnet-5"])
+        self.assertEqual(nodes_by_id["w1"]["efforts"], ["high"])
+        self.assertEqual(nodes_by_id["e1"]["models"], ["claude-haiku-5"])
+        self.assertEqual(nodes_by_id["w1"]["description"], "Implement phase 01")
+
+        layers = rec["layers"]
+        self.assertEqual(layers["worker"]["count"], 1)
+        self.assertEqual(layers["worker"]["turns"], 1)
+        self.assertEqual(layers["worker"]["models"], ["claude-sonnet-5"])
+        self.assertEqual(layers["worker_explore"]["count"], 1)
+        self.assertEqual(layers["worker_explore"]["turns"], 1)
+        self.assertEqual(layers["worker_explore"]["models"], ["claude-haiku-5"])
+        self.assertEqual(layers["main_explore"]["count"], 1)
+        self.assertEqual(layers["main_explore"]["turns"], 1)
+        self.assertEqual(layers["main"]["count"], 1)
+        self.assertEqual(layers["main"]["turns"], rec["totals"]["turns"])
+        self.assertEqual(layers["main"], {**rec["totals"], "models": layers["main"]["models"], "efforts": layers["main"]["efforts"], "count": 1})
+
+        self._assert_layers_invariant(rec)
+
+    def test_agents_and_layers_classic_mode_no_worker(self):
+        rec = self._scenario_classic()
+
+        self.assertEqual(rec["layers"]["worker"], {
+            "turns": 0, "input": 0, "output": 0, "cache_read": 0, "cache_creation": 0,
+            "billable_in": 0, "models": [], "efforts": [], "count": 0,
+        })
+        self.assertEqual(rec["layers"]["worker_explore"]["count"], 0)
+        self.assertEqual(rec["layers"]["main_explore"]["count"], 1)
+        self.assertEqual(rec["layers"]["main_explore"]["turns"], 1)
+
+        self._assert_layers_invariant(rec)
+
+    def test_agents_missing_meta_counts_as_main_explore(self):
+        rec = self._scenario_missing_meta()
+
+        node = next(n for n in rec["agents"] if n["id"] == "nometa")
+        self.assertEqual(node["layer"], "main_explore")
+        self.assertEqual(node["depth"], 1)
+        self.assertIsNone(node["parent"])
+        self.assertEqual(node["type"], "Explore", msg="type falls back to the turn's own attributionAgent")
+
+        self._assert_layers_invariant(rec)
+
+    def test_agent_with_no_turns_in_window_is_not_listed(self):
+        rec = self._scenario_stale_agent_excluded()
+        self.assertEqual(rec["agents"], [], msg="an agent with no turns in the new window is not listed")
+        self._assert_layers_invariant(rec)
 
     def test_planning_record_mode_is_empty(self):
         self._record(str(self.batch), "planning")
