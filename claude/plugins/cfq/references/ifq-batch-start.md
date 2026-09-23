@@ -200,7 +200,8 @@ on `mode` to read any of the three.
   under `update-ref`). Checked out and dirty → nothing moves; `remoteWarning` names the dirty tree,
   and the `Branch` status line surfaces it as a `⚠️` note — `git checkout "<branch>"` still runs,
   a dirty tree here is otherwise the same error the **`new`** path already treats it as. **`ahead`**
-  (`pushable: true`) → one `AskUserQuestion` before the checkout: **Push and continue**
+  (`pushable: true`) → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision
+  Question Context**, before the checkout: **Push and continue**
   (recommended) runs `git push origin "<branch>"`, then proceeds; **Continue without pushing**
   proceeds and names the commits from `unpushed` that won't be in this batch's base; **Cancel**
   releases the lock and ends the session, nothing touched. **`diverged`** → the same three-option
@@ -215,8 +216,8 @@ on `mode` to read any of the three.
   When `uncontained` is non-empty on `baseSource: "highestBatch"`, add one `   └ ⚠️` sub-line under
   `Branch` per entry: "`<name>` has commits not in `<base>` (last commit `<lastCommit>`)" — an
   older, non-`newer` chain that never surfaces as a question. `baseSource: "newerCandidate"` → one
-  `AskUserQuestion` naming that a newer unmerged `cfq/` branch exists than the highest batch
-  number. Recommended (first, labelled `(Recommended)`): `base` — the highest-numbered branch
+  `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question Context**, naming
+  that a newer unmerged `cfq/` branch exists than the highest batch number. Recommended (first, labelled `(Recommended)`): `base` — the highest-numbered branch
   itself, description naming its batch number. Then one option per `uncontained` entry with
   `newer: true`, description naming its `lastCommit` and its `aheadOfMain` (looked up from
   `candidates` by name); any `uncontained` entry that is not `newer` is named in the question text
@@ -224,7 +225,8 @@ on `mode` to read any of the three.
   "Other") and the `bin/cfq branch check` resolution follow the exact same rules the `ambiguous`
   question below already documents — point at that paragraph, don't repeat it. `baseSource:
   "ambiguous"` (no single dependency branch contains every other unmerged one — the exceptional
-  case) → one `AskUserQuestion` listing every entry in `candidates` (already ranked), asking which
+  case) → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question Context**,
+  listing every entry in `candidates` (already ranked), asking which
   one the new branch builds on. Recommended (first, labelled
   `(Recommended)`): `base` — the newest by `lastCommit`, never the checked-out branch. Each other
   option's description names its `aheadOfMain`, plus `local only` / `already contained in

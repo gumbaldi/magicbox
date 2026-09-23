@@ -56,6 +56,16 @@ because the user picked it from an option list the planner itself wrote, and a s
 the user to review the plan cannot catch that — the user is reviewing a proposal built from their
 own earlier answer.
 
+## pfq/ifq: why decision questions explain their context first
+
+In a `pfq` session (2026-09-23), the planner explained its hypothesis in a dense paragraph written
+in code identifiers, then asked only "what should happen?". The user answered: "Ich verstehe den
+context nicht. Wenn ich Entscheidungen treffen soll brauche ich mehr Details: worum geht es, was
+ist das Problem, wie kann man es lösen." `interaction-policy.md`'s **Decision Question Context**
+exists so a decision question always states what it's about, what the problem is, and what each
+option costs, in the user's own terms, before asking — not just in `pfq`, since `ifq`'s branch and
+self-critique questions have the same shape.
+
 ## pfq: why Phase Quality's five rules exist
 
 One `/ifq` phase burned far more tokens than the task itself required — not the logic, the

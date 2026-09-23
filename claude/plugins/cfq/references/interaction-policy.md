@@ -43,3 +43,19 @@ This section covers decisions the *planner* made autonomously. `plan-for-queue`'
 **Self-Critique of the Phase Cut** and `<plugin-root>/references/plan-self-critique.md` cover the
 mirror case — decisions the *user* made from the
 planner's own option lists, re-examined before any phase file is written.
+
+## Decision Question Context
+
+Before any `AskUserQuestion` that asks the user to *decide* (not merely confirm), write a short
+block in the user's language, in user-visible terms (what the user sees or does), not code
+identifiers:
+
+- **What it is about** — the feature or step, and what happens today.
+- **The problem** — what goes wrong, or why a decision is needed.
+- **Options** — each with its concrete effect for the user and its downside.
+
+Then give the recommendation, marked `➡️`, before asking. Code names may appear in parentheses
+after the plain description, never instead of it.
+
+**Exempt:** `pfq`'s start block questions (**Start Block**), and pure confirmations whose options
+are proceed/cancel (e.g. "delete this batch?").

@@ -27,9 +27,8 @@ definition applied literally, and it is the one thing batching must not break. F
 questions is normal and fine; never pad a round to fill it.
 
 Each round:
-1. State each question in prose first: what is being decided, what makes it non-obvious, what
-   the trade-off is. Two or three sentences each, no essay. For a round of several questions, this
-   prose block covers them in order before the call.
+1. Frame each question per `<plugin-root>/references/interaction-policy.md`'s **Decision Question Context**.
+   For a round of several questions, this prose block covers them in order before the call.
 2. Give your recommendation explicitly, marked with `➡️`, per question, before asking.
 3. Pass the round as one `AskUserQuestion` call, each question with 3–4 options: the recommended
    one **first**, labelled `(Recommended)`, then the genuine alternatives with their real
