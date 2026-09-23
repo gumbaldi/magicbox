@@ -19,7 +19,9 @@ CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added
 phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
 added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
 `cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
-phase 04; `cfq_guard.py` (new) added as batch `019` phase 06) — `bin/cfq` itself stays shell by
+phase 04; `cfq_guard.py` (new) added as batch `019` phase 06; `cfq_portal.py` (new, plus the
+CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01) —
+`bin/cfq` itself stays shell by
 design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
@@ -272,6 +274,27 @@ rather than by subtracting one pool from another; the invariant across the whole
 subtraction that could go negative. Anyone tempted to delegate anything beyond exploration,
 verification execution, or a whole self-committing phase should re-run the relevant comparison
 first, not take this paragraph on faith.
+
+**`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`** (the fixed
+viewer shell that reads it is a later batch-`040` phase): a `portal sync <repo-root> [--batch
+<name>]...` / `portal rebuild <repo-root>` pair that writes one `.js` file per batch's plan, one
+per batch's implementation report, and one per open `todo`/`plan` entry into
+`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview. Every file registers a
+JSON payload on `window.CFQ_DATA["<key>"]` rather than being `fetch()`-ed — a browser blocks
+`fetch()` of a local JSON file under `file://`, but a `<script src>` tag still works. Payloads are
+deterministic (sorted object keys, no timestamp beyond one already in the source data) and written
+only when their content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern
+as `cfq_lib.render.write_json`), so a `sync` that changes nothing writes nothing and reports
+`{"written": [], "unchanged": <n>, "removed": []}`; a batch or entry whose source is gone loses its
+data file the same way. `sync` reuses `cfq_scan.scan_repo()` (the dashboard's own per-repo record
+builder) for batch status/open/done/blocked/planning rather than re-deriving it, and
+`cfq_report.phase_layer_sums()` (batch 038's four-layer cost split, schema-1 fallback included) for
+every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, one
+level of bullets or ordered items, paragraphs, fenced code blocks, `**bold**`/`` `code` ``, nothing
+else) moved out of `cfq_report.py` into its own module here, since both `cfq_report.py`'s Overview
+section and `cfq_portal.py`'s pre-rendered phase-file/queue-entry bodies now share it —
+`cfq_report.py` imports `esc`/`html_escape_jq`/`md_min`/`md_inline` back rather than keeping a
+second copy.
 
 ## Conventions
 

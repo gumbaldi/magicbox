@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib.markdown import esc, html_escape_jq, md_inline, md_min  # noqa: E402,F401
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
@@ -137,18 +138,6 @@ PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 def jq_round(x):
     """Mirrors jq's `round` (round-half-away-from-zero), not Python's round-half-to-even."""
     return math.floor(x + 0.5) if x >= 0 else math.ceil(x - 0.5)
-
-
-_HTML_ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&apos;", '"': "&quot;"}
-
-
-def html_escape_jq(s):
-    return "".join(_HTML_ESCAPES.get(ch, ch) for ch in s)
-
-
-def esc(value):
-    """Mirrors the shell script's `def esc: (. // "") | tostring | @html;`."""
-    return html_escape_jq(render.tostring(render.jq_alt(value, "")))
 
 
 # ---- shared path/settings helpers ----------------------------------------------------------
@@ -699,83 +688,9 @@ def truncate_words(text, limit):
 
 # ---- markdown subset: .batch-context.md -> the report's Overview section -------------------
 #
-# Not a general Markdown renderer (see the batch's Non-Goals) -- headings, one level of bullets,
-# paragraphs, `**bold**` and `` `code` `` only. Everything else (blockquotes, tables, links,
-# nested lists) falls through to paragraph text on purpose, since `.batch-context.md`'s own format
-# never uses them.
-
-_INLINE_RE = re.compile(r"`([^`]*)`|\*\*([^*]*?)\*\*")
-
-
-def md_inline(escaped_text):
-    """Operates on text that has already been through `esc`/`html_escape_jq`. One pass, one
-    regex: inline code and bold are matched as alternatives at each position so a `**` inside a
-    backtick span is consumed as part of the code match and never seen by the bold alternative --
-    doing this as two sequential substitutions would let a later bold pass reach back inside an
-    already-emitted `<code>` span."""
-    def repl(m):
-        if m.group(1) is not None:
-            return f"<code>{m.group(1)}</code>"
-        return f"<strong>{m.group(2)}</strong>"
-    return _INLINE_RE.sub(repl, escaped_text)
-
-
-_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-_MD_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
-
-
-def md_min(text):
-    """A line-driven state machine over `text.splitlines()`. No nesting, no look-ahead -- nested
-    bullets are deliberately flattened to one level, since `.batch-context.md`'s format has none.
-    Every emitted text value goes through `md_inline(esc(value))`, never raw."""
-    parts = []
-    in_list = False
-    list_items = []
-    para_lines = []
-
-    def flush_para():
-        if para_lines:
-            parts.append(f"<p>{md_inline(esc(' '.join(para_lines)))}</p>")
-            para_lines.clear()
-
-    def close_list():
-        nonlocal in_list
-        if in_list:
-            lis = "".join(f"<li>{it}</li>" for it in list_items)
-            parts.append(f"<ul>{lis}</ul>")
-            in_list = False
-            list_items.clear()
-
-    for raw in text.splitlines():
-        if raw.strip() == "":
-            close_list()
-            flush_para()
-            continue
-        m = _MD_HEADING_RE.match(raw)
-        if m:
-            close_list()
-            flush_para()
-            level = len(m.group(1))
-            if level == 1:
-                continue  # the document title, not content
-            tag = "h3" if level == 2 else "h4"
-            parts.append(f"<{tag}>{md_inline(esc(m.group(2).strip()))}</{tag}>")
-            continue
-        m = _MD_BULLET_RE.match(raw)
-        if m:
-            flush_para()
-            in_list = True
-            list_items.append(md_inline(esc(m.group(1).strip())))
-            continue
-        if in_list and list_items and raw[:1] in (" ", "\t"):
-            list_items[-1] += " " + md_inline(esc(raw.strip()))
-            continue
-        para_lines.append(raw.strip())
-
-    close_list()
-    flush_para()
-    return "".join(parts)
-
+# `md_min`/`md_inline` themselves live in `cfq_lib/markdown.py` (imported above), shared with
+# `cfq_portal.py`'s pre-rendered phase-file / queue-entry bodies -- see that module's own
+# docstring for what the subset covers.
 
 _MD_SECTION_RE = re.compile(r"^##\s+(.*)$", re.M)
 
