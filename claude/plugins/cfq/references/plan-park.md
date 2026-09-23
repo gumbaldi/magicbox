@@ -13,7 +13,8 @@ leaves no gap in the numbering.
 
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
-repo — idempotent.
+repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
+several entries (**Inbox**) passes every one of them in the same `park` call.
 
 Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
 snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.

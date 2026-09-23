@@ -11,11 +11,14 @@ argument-hint: <briefing>
 
 # Plan-for-Queue: Interview, Park, Hand Off
 
-Always answer in the user's language. The output of this session is plan files only — no code edits,
-no builds, no commits, not even "just this one line," even once a harness-level plan-mode approval
-says "you can now start coding," and even with an autonomous/auto-run mode active — that approval
-covers parking the plan, never implementing it. Implementation happens later, in a separate
-`implement-for-queue` session.
+Always answer in the user's language. The output of this session is plan files and queue notes —
+no code edits, no builds, no commits, not even "just this one line," even once a harness-level
+plan-mode approval says "you can now start coding," and even with an autonomous/auto-run mode
+active — that approval covers parking the plan, never implementing it. A finding made while
+planning — about the repo (`note plan`/`note todo`) or about cfq itself (`note plan --framework`)
+— is always written without asking, per `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`; a
+finding is never an implementation step, no matter which session writes it. Implementation happens
+later, in a separate `implement-for-queue` session.
 
 ## Output Format
 

@@ -224,7 +224,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `maintenance` | Whether the periodic maintenance run is due. |
 | `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
-| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
+| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo; `--from-plan` (repeatable) consumes the chosen `plan/` inbox entry or entries. |
 | `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |

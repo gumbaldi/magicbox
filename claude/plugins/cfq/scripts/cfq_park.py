@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_park.py <repo-root> <batch-dir-name> <high|normal> [<dependsOn-entry>...]
-#                     [--from-plan <plan-entry-path>]
+#                     [--from-plan <plan-entry-path>]...
 """Parks a batch directory: creates it, writes .priority/.dependsOn, ensures the local git-exclude
 entry, and registers the repo. Idempotent -- safe to re-run with the same arguments. Does not
 write phase files; only the planning session that knows their content does that.
@@ -8,14 +8,17 @@ write phase files; only the planning session that knows their content does that.
 Ported from cfq-park.sh -- a port, not a redesign: the CLI contract (verbs, argument order, text
 output, exit codes) is the invariant this file preserves.
 
-`--from-plan <path>` is the plan-inbox consumption step: once everything above has run, the named
-`plan/*.md` file (as shown by `cfq note list`) is moved into `plan/done/`, creating that directory
-if needed -- so a failure in the move can never leave a half-parked batch behind. The move itself
-stays idempotent the same way the rest of this script is: a path already under `plan/done/`, or
-one that no longer exists, is a no-op rather than an error, since a `/pfq` session retrying Park
-must not fail on the second attempt. A path outside `plan/` is rejected -- the flag consumes inbox
-entries, not arbitrary files -- and a filename collision inside `plan/done/` is a real error,
-naming both paths, since overwriting a previously parked entry is never the right move.
+`--from-plan <path>` is the plan-inbox consumption step, repeatable -- a batch planned from
+several inbox entries passes one `--from-plan` per entry. Every path is validated first, and only
+once all of them pass does any move happen, so one invalid path among several leaves every entry
+in place. Once validated, the named `plan/*.md` file (as shown by `cfq note list`) is moved into
+`plan/done/`, creating that directory if needed -- so a failure in the move can never leave a
+half-parked batch behind. The move itself stays idempotent the same way the rest of this script
+is: a path already under `plan/done/`, or one that no longer exists, is a no-op rather than an
+error, since a `/pfq` session retrying Park must not fail on the second attempt. A path outside
+`plan/` is rejected -- the flag consumes inbox entries, not arbitrary files -- and a filename
+collision inside `plan/done/` is a real error, naming both paths, since overwriting a previously
+parked entry is never the right move.
 """
 
 import argparse
@@ -34,17 +37,20 @@ from cfq_lib.proc import cfq_argv  # noqa: E402
 PROG = "cfq_park.py"
 
 
-def _consume_plan_entry(repo, from_plan):
+def _resolve_plan_entry(repo, from_plan):
+    """Validates one --from-plan path and returns the (src, target) move to perform, or None when
+    this entry is already consumed (moved, or gone) and there is nothing left to do. Called for
+    every path before any move happens -- see _consume_plan_entries."""
     plan_root = pathlib.Path(cfq_lib_paths.plan_dir(repo)).resolve(strict=False)
     plan_done = plan_root / "done"
     src = pathlib.Path(from_plan).resolve(strict=False)
 
     if not src.exists():
-        return  # already gone -- idempotent no-op, matches a retried Park
+        return None  # already gone -- idempotent no-op, matches a retried Park
 
     try:
         src.relative_to(plan_done)
-        return  # already consumed -- idempotent no-op
+        return None  # already consumed -- idempotent no-op
     except ValueError:
         pass
 
@@ -52,14 +58,32 @@ def _consume_plan_entry(repo, from_plan):
         src.relative_to(plan_root)
     except ValueError:
         errors.fail("INVALID_PATH", detail=f"--from-plan is outside plan/: {src}")
-        return
+        return None  # unreachable -- errors.fail() exits
 
-    plan_done.mkdir(parents=True, exist_ok=True)
     target = plan_done / src.name
     if target.exists():
         errors.fail("EXISTS", detail=f"{src} -> {target}")
+        return None  # unreachable -- errors.fail() exits
+
+    return (src, target)
+
+
+def _consume_plan_entries(repo, from_plan_list):
+    # Every path is resolved -- and, on a bad one, errors.fail() exits -- before this list
+    # comprehension finishes, so the os.replace() loop below never starts until every path in
+    # from_plan_list has passed validation. One invalid path therefore leaves every entry in
+    # place, valid ones included.
+    moves = [
+        move
+        for move in (_resolve_plan_entry(repo, p) for p in from_plan_list)
+        if move is not None
+    ]
+    if not moves:
         return
-    os.replace(str(src), str(target))
+    plan_done = pathlib.Path(cfq_lib_paths.plan_dir(repo)).resolve(strict=False) / "done"
+    plan_done.mkdir(parents=True, exist_ok=True)
+    for src, target in moves:
+        os.replace(str(src), str(target))
 
 
 def cmd_park(args):
@@ -91,7 +115,7 @@ def cmd_park(args):
     print(str(d))
 
     if args.from_plan:
-        _consume_plan_entry(args.repo, args.from_plan)
+        _consume_plan_entries(args.repo, args.from_plan)
 
 
 def build_parser():
@@ -100,7 +124,7 @@ def build_parser():
     parser.add_argument("batch")
     parser.add_argument("priority")
     parser.add_argument("depends", nargs="*")
-    parser.add_argument("--from-plan", dest="from_plan", default=None)
+    parser.add_argument("--from-plan", dest="from_plan", action="append", default=None)
     parser.set_defaults(func=cmd_park)
     return parser
 

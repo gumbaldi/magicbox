@@ -533,7 +533,9 @@ class ParkFromPlanTest(CfqTestCase):
     def _park(self, batch, from_plan=None, priority="normal"):
         args = ["park", str(self.parkrepo), batch, priority]
         if from_plan is not None:
-            args += ["--from-plan", str(from_plan)]
+            entries = from_plan if isinstance(from_plan, (list, tuple)) else [from_plan]
+            for entry in entries:
+                args += ["--from-plan", str(entry)]
         return self.run_cfq(*args, home=self.park_home)
 
     def test_normal_move_into_plan_done(self):
@@ -591,6 +593,45 @@ class ParkFromPlanTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse((self.plan_dir / "done").exists(), "no --from-plan means no move at all")
         self.assertTrue(self.entry.exists(), "the plan entry must be left untouched")
+
+    def test_repeatable_flag_moves_every_valid_entry(self):
+        second = self.plan_dir / "2026-01-02-second-finding.md"
+        second.write_text("# Second finding\n\nsomething else\n")
+
+        proc = self._park("2026-02-06-batch", from_plan=[self.entry, second])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        done = self.plan_dir / "done"
+        self.assertTrue((done / self.entry.name).is_file(), "first entry should have moved")
+        self.assertTrue((done / second.name).is_file(), "second entry should have moved")
+        self.assertFalse(self.entry.exists(), "first entry should no longer be at its original path")
+        self.assertFalse(second.exists(), "second entry should no longer be at its original path")
+
+    def test_one_invalid_path_among_several_moves_nothing(self):
+        outside = self._repos_dir / "outside-multi.md"
+        outside.write_text("not a plan entry\n")
+
+        proc = self._park("2026-02-07-batch", from_plan=[self.entry, outside])
+        self.assertNotEqual(proc.returncode, 0, "an invalid path among several must be rejected")
+        self.assertTrue(self.entry.exists(), "the valid entry must be left in place, not moved")
+        self.assertTrue(outside.exists(), "the outside file must be left untouched")
+        self.assertFalse(
+            (self.plan_dir / "done").exists(),
+            "nothing should be moved when any one of the paths is invalid",
+        )
+
+    def test_retried_park_with_entries_already_in_plan_done_is_a_noop(self):
+        second = self.plan_dir / "2026-01-03-third-finding.md"
+        second.write_text("# Third finding\n\nsomething else again\n")
+
+        self._park("2026-02-08-batch", from_plan=[self.entry, second])
+        done = self.plan_dir / "done"
+        first_before = (done / self.entry.name).read_text()
+        second_before = (done / second.name).read_text()
+
+        proc = self._park("2026-02-08-batch", from_plan=[self.entry, second])
+        self.assertEqual(proc.returncode, 0, f"retried park must be a no-op, not an error: {proc.stderr}")
+        self.assertEqual((done / self.entry.name).read_text(), first_before, "first entry must stay unchanged")
+        self.assertEqual((done / second.name).read_text(), second_before, "second entry must stay unchanged")
 
 
 if __name__ == "__main__":

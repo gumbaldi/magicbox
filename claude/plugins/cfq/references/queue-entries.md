@@ -19,6 +19,10 @@ number whose batch never got parked is a legitimate abandoned reservation, not a
 
 ## Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
 
+A `pfq` planning session writes findings the same way `ifq` does — see
+`plan-for-queue/SKILL.md`'s opening paragraph: a finding is never an implementation step, no
+matter which session writes it.
+
 Pipe the body (H1 title, then the sections below) straight into `note plan` on stdin — no temp
 file, so no write-guard hook that only allows writes under `.claude/cfq/` can ever block it:
 
