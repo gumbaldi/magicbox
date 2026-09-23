@@ -136,8 +136,9 @@ Always runs, regardless of `security.available` — mechanics in
 ```
 
 `fixable.critical`/`fixable.high` → write a `plan/` entry via
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" "<body-file>"` — never
-a question, never a phase. Store the snapshot: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
+(body on stdin, never a temp file) — never a question, never a phase. Store the snapshot:
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
 ## Step 13 — New Repo: Config Overview
 

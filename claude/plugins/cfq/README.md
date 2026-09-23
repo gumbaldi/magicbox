@@ -222,7 +222,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
-| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
+| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
 | `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
 | `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
