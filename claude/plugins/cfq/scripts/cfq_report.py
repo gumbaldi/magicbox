@@ -375,6 +375,37 @@ def _totals_field(totals, key):
     return render.jq_alt(totals.get(key) if isinstance(totals, dict) else None, 0)
 
 
+LAYER_NAMES = ("main", "main_explore", "worker", "worker_explore")
+
+
+def phase_layer_sums(tel):
+    """The four cost layers (`main`, `main_explore`, `worker`, `worker_explore`) for one phase's
+    (or planning's) telemetry record, each a plain totals dict callers read with `_totals_field`
+    exactly like `tel["totals"]` already was. Reads `layers` when present (schema 2, phase 04's
+    `build_layers()`) -- used as-is, never re-derived, so a schema-2 record's own numbers are
+    authoritative even where an older sibling key (`totals`/`subagent`) would disagree. A record
+    with no `layers` key (schema 1) derives the same four sums from the fields it does carry:
+    `main` = `totals`, `worker` = `subagent_worker` (falling back to the legacy collapsed
+    `subagent` only when `subagent_worker` is entirely absent -- the same shim `cmd_summary`
+    applied before this helper existed), `main_explore` = `subagent_explore`, `worker_explore` =
+    empty (no such split existed before schema 2). This is the one place both `cmd_summary` and
+    `telemetry_html` read a phase's layer split from -- no subtraction anywhere downstream, since
+    every layer here is already its own disjoint pool."""
+    tel = tel if isinstance(tel, dict) else {}
+    layers = tel.get("layers")
+    if isinstance(layers, dict):
+        return {name: layers.get(name) if isinstance(layers.get(name), dict) else {} for name in LAYER_NAMES}
+    worker = tel.get("subagent_worker")
+    if worker is None:
+        worker = tel.get("subagent")
+    return {
+        "main": tel.get("totals") if isinstance(tel.get("totals"), dict) else {},
+        "main_explore": tel.get("subagent_explore") if isinstance(tel.get("subagent_explore"), dict) else {},
+        "worker": worker if isinstance(worker, dict) else {},
+        "worker_explore": {},
+    }
+
+
 def cmd_summary(args):
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
@@ -400,36 +431,47 @@ def cmd_summary(args):
     planning_turns = _totals_field(planning_totals, "turns")
     planning_billable_in = _totals_field(planning_totals, "billable_in")
 
-    phase_outputs, phase_turns = [], []
     model_keys, effort_keys = [], []
-    worker_output, worker_turns = 0, 0
+
+    # Whole-batch layer sums, planning included -- the fix for the negative orchestrator_turns/
+    # orchestrator_output bug: main/main_explore/worker/worker_explore are four disjoint pools
+    # read straight from phase_layer_sums(), summed across every record, never subtracted from
+    # each other. total_turns/total_output/total_billable_in are the sum of all four; fields
+    # 12-15 read `main`/`worker` directly; the tail fields read `main_explore`/`worker_explore`.
+    main_turns = main_output = 0
+    worker_turns = worker_output = 0
+    explore_turns = explore_output = 0
+    worker_explore_turns = worker_explore_output = 0
     total_billable_in = 0
-    explore_turns, explore_output = 0, 0
+
+    def accumulate(tel):
+        nonlocal main_turns, main_output, worker_turns, worker_output
+        nonlocal explore_turns, explore_output, worker_explore_turns, worker_explore_output
+        nonlocal total_billable_in
+        layers = phase_layer_sums(tel)
+        main_turns += _totals_field(layers["main"], "turns")
+        main_output += _totals_field(layers["main"], "output")
+        worker_turns += _totals_field(layers["worker"], "turns")
+        worker_output += _totals_field(layers["worker"], "output")
+        explore_turns += _totals_field(layers["main_explore"], "turns")
+        explore_output += _totals_field(layers["main_explore"], "output")
+        worker_explore_turns += _totals_field(layers["worker_explore"], "turns")
+        worker_explore_output += _totals_field(layers["worker_explore"], "output")
+        for name in LAYER_NAMES:
+            total_billable_in += _totals_field(layers[name], "billable_in")
+
+    if planning is not None:
+        accumulate(planning)
+
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
-        totals = tel.get("totals") if isinstance(tel, dict) else None
-        phase_outputs.append(_totals_field(totals, "output"))
-        phase_turns.append(_totals_field(totals, "turns"))
-        total_billable_in += _totals_field(totals, "billable_in")
+        accumulate(tel)
         by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
         by_effort = render.jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
         if isinstance(by_model, dict):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
-        # subagent_worker is the corrected, worker-only split; a report written before this
-        # change carries no such key at all (None here), and only then do we fall back to the
-        # old collapsed `subagent` value -- a compatibility shim for data already on disk, never
-        # for code. A record that *does* carry `subagent_worker` (even an all-zero one, e.g. a
-        # phase that only ran Explore agents) is used as-is, no fallback.
-        subagent_worker = tel.get("subagent_worker") if isinstance(tel, dict) else None
-        if subagent_worker is None:
-            subagent_worker = tel.get("subagent") if isinstance(tel, dict) else None
-        worker_output += _totals_field(subagent_worker, "output")
-        worker_turns += _totals_field(subagent_worker, "turns")
-        subagent_explore = tel.get("subagent_explore") if isinstance(tel, dict) else None
-        explore_turns += _totals_field(subagent_explore, "turns")
-        explore_output += _totals_field(subagent_explore, "output")
 
     planning_by_model = render.jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
     planning_by_effort = render.jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
@@ -438,22 +480,26 @@ def cmd_summary(args):
     if isinstance(planning_by_effort, dict):
         effort_keys = list(planning_by_effort.keys()) + effort_keys
 
-    total_output = planning_output + sum(phase_outputs)
-    total_turns = planning_turns + sum(phase_turns)
+    total_output = main_output + explore_output + worker_output + worker_explore_output
+    total_turns = main_turns + explore_turns + worker_turns + worker_explore_turns
     models = ",".join(sorted(set(model_keys)))
     efforts = ",".join(sorted(set(effort_keys)))
 
     row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
     # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
-    # an old or classic-mode report with no subagent turns/output must render byte-identical to the
-    # row above, not grow a meaningless zero split. Sourced from subagent_worker (with the
-    # subagent fallback above), never the collapsed subagent, so a phase that only ran Explore
-    # agents no longer counts as a worker here (the mislabelling this phase fixes).
+    # an old or classic-mode report with no worker turns/output must render byte-identical to the
+    # row above, not grow a meaningless zero split. 12/13 are the `main` layer's own turns/output,
+    # 14/15 the `worker` layer's -- both read straight off phase_layer_sums(), never by
+    # subtracting one pool from another, so neither can go negative.
     if worker_output > 0 or worker_turns > 0:
-        row += [total_turns - worker_turns, total_output - worker_output, worker_turns, worker_output]
+        row += [main_turns, main_output, worker_turns, worker_output]
     # Additive fields, always appended after the optional 12-15 block above: total_billable_in,
-    # planning_turns, planning_billable_in, explore_turns, explore_output.
-    row += [total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output]
+    # planning_turns, planning_billable_in, explore_turns, explore_output, worker_explore_turns,
+    # worker_explore_output.
+    row += [
+        total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
+        worker_explore_turns, worker_explore_output,
+    ]
     print("\t".join(_tsv_field(v) for v in row))
 
 
@@ -983,16 +1029,20 @@ def telemetry_html(phase):
     if mode:
         pairs.append(("Mode", mode))
     pairs.append(("Skills", skills_str(t)))
-    subagent = t.get("subagent") if isinstance(t.get("subagent"), dict) else {}
-    sub_turns = render.jq_alt(subagent.get("turns"), 0)
-    sub_output = render.jq_alt(subagent.get("output"), 0)
-    if sub_turns or sub_output:
-        orch_turns = render.jq_alt(totals.get("turns"), 0) - sub_turns
-        orch_output = render.jq_alt(totals.get("output"), 0) - sub_output
+    # `main` vs `worker`, straight from the same layer reader `cmd_summary` uses -- no
+    # subtraction, so this can never show a negative split. Gated on the `worker` layer itself
+    # (not the collapsed `subagent`, which also holds Explore turns), so a phase that only ran
+    # Explore agents renders no split line at all, matching `cmd_summary`'s own gate.
+    layers = phase_layer_sums(t)
+    worker_turns = _totals_field(layers["worker"], "turns")
+    worker_output = _totals_field(layers["worker"], "output")
+    if worker_turns or worker_output:
+        main_turns = _totals_field(layers["main"], "turns")
+        main_output = _totals_field(layers["main"], "output")
         pairs.append((
             "Orchestrator / worker",
-            f"{fmt_int(orch_turns)}/{fmt_int(sub_turns)} turns · "
-            f"{fmt_int(orch_output)}/{fmt_int(sub_output)} out",
+            f"{fmt_int(main_turns)}/{fmt_int(worker_turns)} turns · "
+            f"{fmt_int(main_output)}/{fmt_int(worker_output)} out",
         ))
     rows = "".join(_tele_pair(label, value) for label, value in pairs)
     if not rows:

@@ -39,10 +39,13 @@ implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is na
 see `<plugin-root>/references/phase-quality.md`'s closing section.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
-and render its own fields, field by field: `turns`, `billable_in` as "in", `output` as "out",
-`cache_read` named separately, `models`, `efforts`. When `subagent_explore.turns` is non-zero, add
-one further clause naming the Explore sub-agent's own `turns`/`output` share — a planning session
-that delegated research to an Explore agent must not have that activity vanish into the top-level
-numbers. Interview depth is the one part of this line that stays prose, not a script field — it is
-a fact about this session, not something the script can see. If the call itself fails or returns
-nothing usable, the whole line reads `⚠️ unavailable` — never a guessed number in its place.
+and render its own top-level fields, field by field: `turns`, `billable_in` as "in", `output` as
+"out" — the whole session's own sum (the planning session itself plus every sub-agent it spawned,
+never only the top-level transcript), `cache_read` named separately, `models`, `efforts`. When
+`layers.main_explore.turns` is non-zero, add one further clause naming the Explore sub-agent's own
+`turns`/`output` share, read from `layers.main_explore` — that activity is already folded into the
+top-level numbers above, this clause only surfaces the split, so a planning session that delegated
+research to an Explore agent doesn't have that share stay invisible. Interview depth is the one
+part of this line that stays prose, not a script field — it is a fact about this session, not
+something the script can see. If the call itself fails or returns nothing usable, the whole line
+reads `⚠️ unavailable` — never a guessed number in its place.

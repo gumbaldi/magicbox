@@ -211,7 +211,8 @@ that adding a field which happens to carry free text fails the test on purpose, 
 A record's sub-agent turns are further split by the `WORKER_AGENT` attribution name into
 `subagent_worker` and `subagent_explore` (the unchanged `subagent` field stays the sum of both), so
 a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
-downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker split.
+downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker
+split, and `bin/cfq telemetry show --session`'s `layers` object.
 
 **Schema 2 additionally records every sub-agent as its own node, grouped into four cost layers.**
 `by_agent`/`subagent`/`subagent_worker`/`subagent_explore` keep their existing meaning — schema 2
@@ -263,9 +264,14 @@ the same files directly — for a fragment the parent must read back, the subage
 For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (its
 additive TSV fields 12-15, populated whenever a phase actually ran as a worker) is the same
 comparison already run per batch — read it before assuming the split still favors orchestrator
-mode. Anyone tempted to delegate anything beyond exploration, verification execution, or a whole
-self-committing phase should re-run the relevant comparison first, not take this paragraph on
-faith.
+mode. Fields 12/13 are the `main` layer's own turns/output (the session itself) and 14/15 the
+`worker` layer's, both read straight off `layers` (or derived the same way for an older record)
+rather than by subtracting one pool from another; the invariant across the whole row is
+`orchestrator_turns + worker_turns + explore_turns + worker_explore_turns` == the batch's whole
+`total_turns` (and the same shape for output) — four disjoint layers summing to the total, never a
+subtraction that could go negative. Anyone tempted to delegate anything beyond exploration,
+verification execution, or a whole self-committing phase should re-run the relevant comparison
+first, not take this paragraph on faith.
 
 ## Conventions
 

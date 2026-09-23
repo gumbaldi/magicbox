@@ -529,23 +529,52 @@ def cmd_sync(rest):
         print(f"telemetry sync: +{added} written to {target_file}, git step failed (non-fatal)", file=sys.stderr)
 
 
+LAYER_NAMES = ("main", "main_explore", "worker", "worker_explore")
+
+
+def _record_layers(r):
+    """The four cost layers for one stored telemetry.jsonl record -- same fallback
+    cfq_report.py's `phase_layer_sums()` uses, since a planning or phase record read back off
+    disk carries exactly the shape either wrote it in (`build_record()`'s own return value).
+    Reads `layers` when present (schema 2). An older schema-1 record derives them: `main` =
+    `totals`, `worker` = `subagent_worker` (falling back to the legacy collapsed `subagent` only
+    when `subagent_worker` is entirely absent), `main_explore` = `subagent_explore`,
+    `worker_explore` = empty (no such split existed before schema 2)."""
+    r = r if isinstance(r, dict) else {}
+    layers = r.get("layers")
+    if isinstance(layers, dict):
+        return {name: layers.get(name) if isinstance(layers.get(name), dict) else {} for name in LAYER_NAMES}
+    worker = r.get("subagent_worker")
+    if worker is None:
+        worker = r.get("subagent")
+    return {
+        "main": r.get("totals") if isinstance(r.get("totals"), dict) else {},
+        "main_explore": r.get("subagent_explore") if isinstance(r.get("subagent_explore"), dict) else {},
+        "worker": worker if isinstance(worker, dict) else {},
+        "worker_explore": {},
+    }
+
+
 def aggregate_show(records):
     """One JSON object out of a list of parsed telemetry.jsonl records -- the numbers `pfq`'s
-    `Cost` line needs (turns, output, billable_in, cache_read, models, efforts) plus
-    subagent_explore, so a planning session's own Explore-agent usage stops being invisible. Skips
-    anything that isn't a `planning`/`phase` record structurally (a bootstrap entry has no
-    `totals`) rather than raising on it."""
-    turns = output = billable_in = cache_read = 0
-    explore_turns = explore_output = 0
+    `Cost` line needs. `turns`/`output`/`billable_in` are whole-session sums: every record's four
+    cost layers (`main`, `main_explore`, `worker`, `worker_explore`, read via `_record_layers()`)
+    added together, so a planning session's own Explore- or worker-agent usage is never invisible
+    at the top level. `cache_read` stays sourced from each record's own `totals.cache_read` only
+    (unaffected by the layer split -- cache reads aren't meaningfully additive across layers the
+    way turns/output are). `layers` carries the same four sums separately, so a caller that wants
+    the split (rather than only the total) doesn't have to re-derive it; `subagent_explore` stays
+    as its own key with the unchanged shape, so the existing key keeps working. Skips anything
+    that isn't a `planning`/`phase` record structurally (a bootstrap entry has no `totals`) rather
+    than raising on it."""
+    cache_read = 0
     model_keys, effort_keys = [], []
+    layer_totals = {name: {"turns": 0, "output": 0, "billable_in": 0} for name in LAYER_NAMES}
     for r in records:
         if not isinstance(r, dict):
             continue
         totals = r.get("totals") if isinstance(r.get("totals"), dict) else None
         if totals:
-            turns += _totals_field(totals, "turns")
-            output += _totals_field(totals, "output")
-            billable_in += _totals_field(totals, "billable_in")
             cache_read += _totals_field(totals, "cache_read")
         by_model = r.get("by_model")
         if isinstance(by_model, dict):
@@ -553,10 +582,16 @@ def aggregate_show(records):
         by_effort = r.get("by_effort")
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
-        explore = r.get("subagent_explore")
-        if isinstance(explore, dict):
-            explore_turns += _totals_field(explore, "turns")
-            explore_output += _totals_field(explore, "output")
+
+        layers = _record_layers(r)
+        for name in LAYER_NAMES:
+            for field in ("turns", "output", "billable_in"):
+                layer_totals[name][field] += _totals_field(layers[name], field)
+
+    turns = sum(layer_totals[name]["turns"] for name in LAYER_NAMES)
+    output = sum(layer_totals[name]["output"] for name in LAYER_NAMES)
+    billable_in = sum(layer_totals[name]["billable_in"] for name in LAYER_NAMES)
+
     return {
         "turns": turns,
         "output": output,
@@ -564,7 +599,11 @@ def aggregate_show(records):
         "cache_read": cache_read,
         "models": ",".join(sorted(set(model_keys))),
         "efforts": ",".join(sorted(set(effort_keys))),
-        "subagent_explore": {"turns": explore_turns, "output": explore_output},
+        "subagent_explore": {
+            "turns": layer_totals["main_explore"]["turns"],
+            "output": layer_totals["main_explore"]["output"],
+        },
+        "layers": layer_totals,
     }
 
 

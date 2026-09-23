@@ -33,20 +33,26 @@ printing `Report` as `rendered`, unless `htmlReport` is `false` — then skip it
 - `Batch` — batch and repo, phases total, green/red split.
 - `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
-  tokens total (planning's share named separately), models, efforts. The row's last five fields —
-  in that order, regardless of whether the optional worker block below is present — are always
-  `total_billable_in`, `planning_turns`, `planning_billable_in`, `explore_turns`, `explore_output`:
-  render `total_billable_in` as input tokens for the whole batch, `planning_turns` alongside
-  `planning_output` (field 8, already named) as planning's own turn count, `planning_billable_in`
-  alongside it as planning's own input share, and `explore_turns`/`explore_output` together as one
-  clause naming the Explore sub-agents' own share. A row carrying fields 12-15 (only present when a
-  phase actually ran a worker sub-agent, i.e. orchestrator mode) additionally names the
-  orchestrator's and the workers' turns and output tokens separately — `orchestrator_turns`,
-  `orchestrator_output`, `worker_turns`, `worker_output`, in that order, the two pairs summing back
-  to fields 9/7 — alongside the existing total. These four fields are worker-only now: an Explore
-  agent's activity within the same phases never counts toward either side of this split, it
-  surfaces only in the `explore_turns`/`explore_output` tail fields above. A row without fields
-  12-15 (classic mode, or an older report) renders exactly as before, no worker line.
+  tokens total, models, efforts. Fields 9/7 mean the **whole batch** — session + every sub-agent,
+  planning included — never only the session's own transcript; field 8 (`planning_output`) still
+  names planning's own share separately. The row's last seven fields — in that order, regardless
+  of whether the optional worker block below is present — are always `total_billable_in`,
+  `planning_turns`, `planning_billable_in`, `explore_turns`, `explore_output`,
+  `worker_explore_turns`, `worker_explore_output`: render `total_billable_in` as input tokens for
+  the whole batch, `planning_turns` alongside `planning_output` (field 8, already named) as
+  planning's own turn count, `planning_billable_in` alongside it as planning's own input share, and
+  the remaining two pairs as one compact clause naming the explorer's (session-spawned) and the
+  worker explorer's (worker-spawned) own share, each turns/out. A row carrying fields 12-15 (only
+  present when a phase actually ran a worker sub-agent, i.e. orchestrator mode) additionally names
+  the orchestrator's and the workers' turns and output tokens separately —
+  `orchestrator_turns`/`orchestrator_output` (the `main` layer, i.e. the session itself),
+  `worker_turns`/`worker_output` (the `worker` layer) — alongside the existing total. Four disjoint
+  layers, never a subtraction: `orchestrator_turns + worker_turns + explore_turns +
+  worker_explore_turns` always equals the total (fields 9, and the same for output against field
+  7) — orchestrator·explorer·worker·worker-explorer is the full compact clause worth naming
+  together when summarizing this line. A row without fields 12-15 (classic mode, or an older
+  report) renders exactly as before, no worker line — there, `orchestrator_turns + explore_turns`
+  equals the total, since worker and worker explorer are both zero.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented

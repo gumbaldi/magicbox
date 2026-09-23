@@ -529,15 +529,29 @@ class TelemetryShowTest(CfqTestCase):
         self.jsonl.write_text(json.dumps(rec_a) + "\n" + json.dumps(rec_b) + "\n")
 
     def test_show_whole_file_aggregates_every_session(self):
+        # turns/output/billable_in are now whole-session sums (schema 1: `totals` + the derived
+        # `subagent_explore` layer; neither record carries `subagent_worker`/`subagent`, so the
+        # worker/worker_explore layers stay zero) -- rec_a contributes 3+1=4 turns/300+50=350
+        # output, rec_b 5+2=7 turns/500+80=580 output, for 11 turns / 930 output combined.
         proc = self.run_cfq("telemetry", "show", str(self.repo), check=True)
         out = json.loads(proc.stdout)
-        self.assertEqual(out["turns"], 8, msg=f"turns = {out}")
-        self.assertEqual(out["output"], 800, msg=f"output = {out}")
+        self.assertEqual(out["turns"], 11, msg=f"turns = {out}")
+        self.assertEqual(out["output"], 930, msg=f"output = {out}")
         self.assertEqual(out["billable_in"], 650, msg=f"billable_in = {out}")
         self.assertEqual(out["cache_read"], 30, msg=f"cache_read = {out}")
         self.assertEqual(out["models"], "claude-opus-5,claude-sonnet-5", msg=f"models = {out}")
         self.assertEqual(out["efforts"], "high,medium", msg=f"efforts = {out}")
         self.assertEqual(out["subagent_explore"], {"turns": 3, "output": 130}, msg=f"subagent_explore = {out}")
+        self.assertEqual(
+            out["layers"],
+            {
+                "main": {"turns": 8, "output": 800, "billable_in": 650},
+                "main_explore": {"turns": 3, "output": 130, "billable_in": 0},
+                "worker": {"turns": 0, "output": 0, "billable_in": 0},
+                "worker_explore": {"turns": 0, "output": 0, "billable_in": 0},
+            },
+            msg=f"layers = {out}",
+        )
 
     def test_show_session_filters_to_current_session_only(self):
         # The `(verbatim)` check: same session-id extraction cmd_record already uses, now reused
@@ -547,8 +561,8 @@ class TelemetryShowTest(CfqTestCase):
             env={"CLAUDE_CODE_SESSION_ID": "sess-a"}, check=True,
         )
         out = json.loads(proc.stdout)
-        self.assertEqual(out["turns"], 3, msg=f"turns = {out}")
-        self.assertEqual(out["output"], 300, msg=f"output = {out}")
+        self.assertEqual(out["turns"], 4, msg=f"turns = {out}")
+        self.assertEqual(out["output"], 350, msg=f"output = {out}")
         self.assertEqual(out["billable_in"], 250, msg=f"billable_in = {out}")
         self.assertEqual(out["cache_read"], 10, msg=f"cache_read = {out}")
         self.assertEqual(out["models"], "claude-sonnet-5", msg=f"models = {out}")
@@ -564,8 +578,48 @@ class TelemetryShowTest(CfqTestCase):
             out, {
                 "turns": 0, "output": 0, "billable_in": 0, "cache_read": 0,
                 "models": "", "efforts": "", "subagent_explore": {"turns": 0, "output": 0},
+                "layers": {
+                    "main": {"turns": 0, "output": 0, "billable_in": 0},
+                    "main_explore": {"turns": 0, "output": 0, "billable_in": 0},
+                    "worker": {"turns": 0, "output": 0, "billable_in": 0},
+                    "worker_explore": {"turns": 0, "output": 0, "billable_in": 0},
+                },
             },
             msg=f"missing telemetry.jsonl should aggregate to all zeros, got {out}",
+        )
+
+    def test_show_layers_schema2_used_directly_not_rederived(self):
+        # A schema-2 record's own `layers` key is authoritative -- read as-is, never re-derived
+        # from `totals`/`subagent*`, even where those older sibling fields disagree (a record
+        # never actually carries both meaningfully, but this proves the precedence). Also exercises
+        # a populated `worker`/`worker_explore` split, which the schema-1 fixtures above never do.
+        rec = {
+            "schema": 2, "kind": "phase", "session_id": "sess-c",
+            "totals": {"turns": 999, "output": 99999, "billable_in": 99999},
+            "layers": {
+                "main": {"turns": 3, "output": 300, "billable_in": 100},
+                "main_explore": {"turns": 1, "output": 50, "billable_in": 0},
+                "worker": {"turns": 6, "output": 700, "billable_in": 200},
+                "worker_explore": {"turns": 2, "output": 150, "billable_in": 0},
+            },
+            "by_model": {"claude-haiku-5": {}}, "by_effort": {"low": {}},
+        }
+        self.jsonl.write_text(json.dumps(rec) + "\n")
+        proc = self.run_cfq("telemetry", "show", str(self.repo), check=True)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["turns"], 12, msg=f"turns = {out}")
+        self.assertEqual(out["output"], 1200, msg=f"output = {out}")
+        self.assertEqual(out["billable_in"], 300, msg=f"billable_in = {out}")
+        self.assertEqual(out["subagent_explore"], {"turns": 1, "output": 50}, msg=f"subagent_explore = {out}")
+        self.assertEqual(
+            out["layers"],
+            {
+                "main": {"turns": 3, "output": 300, "billable_in": 100},
+                "main_explore": {"turns": 1, "output": 50, "billable_in": 0},
+                "worker": {"turns": 6, "output": 700, "billable_in": 200},
+                "worker_explore": {"turns": 2, "output": 150, "billable_in": 0},
+            },
+            msg=f"layers = {out}",
         )
 
 

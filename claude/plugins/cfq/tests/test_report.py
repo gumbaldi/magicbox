@@ -143,10 +143,11 @@ class TestReport(CfqTestCase):
         )
 
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        # 1-11 as before, then the always-appended tail (fields 12-15 are absent here since
-        # neither phase has any telemetry at all, let alone worker activity): total_billable_in,
-        # planning_turns, planning_billable_in, explore_turns, explore_output, all zero.
-        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0"
+        # 1-11 as before, then the always-appended (7-field) tail (fields 12-15 are absent here
+        # since neither phase has any telemetry at all, let alone worker activity):
+        # total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
+        # worker_explore_turns, worker_explore_output, all zero.
+        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, f"summary = {s}")
 
         out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
@@ -544,8 +545,10 @@ M
         self.assertEqual(out, str(batch / "report.html"), f"html path (default reportDir) = {out}")
         html = (batch / "report.html").read_text()
         self.assertIn('<dt>Mode</dt><dd>orchestrator</dd>', html, "mode not rendered")
+        # `main` (10/1,000) vs `worker` (6/700), straight from phase_layer_sums() -- no
+        # subtraction (this fixture has no `layers` key, so `main` derives from `totals` as-is).
         self.assertIn(
-            '<dt>Orchestrator / worker</dt><dd>4/6 turns · 300/700 out</dd>', html,
+            '<dt>Orchestrator / worker</dt><dd>10/6 turns · 1,000/700 out</dd>', html,
             "orchestrator/worker split not rendered correctly",
         )
 
@@ -699,23 +702,33 @@ M
         }))
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
         fields = s.split("\t")
-        # existing fields (1-11) unchanged in shape
+        # existing fields (1-6) unchanged in shape
         self.assertEqual(fields[:6], [batch.name, "2", "2", "0", "0", "2026-01-08T12:00:00+01:00"])
+        # totals are now whole-batch: main (10+5=15) + worker (6+0=6), no Explore activity here.
         total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
-        self.assertEqual((total_output, planning_output, total_turns), ("1500", "0", "15"))
-        # fields 12-15: orchestrator_turns, orchestrator_output, worker_turns, worker_output --
-        # then the always-appended tail (total_billable_in, planning_turns, planning_billable_in,
-        # explore_turns, explore_output), all zero since this old-style fixture carries none of
-        # billable_in/planning/subagent_explore.
-        self.assertEqual(fields[11:], ["9", "800", "6", "700", "0", "0", "0", "0", "0"])
-        self.assertEqual(int(fields[11]) + int(fields[13]), int(total_turns), "orchestrator + worker turns must add up to the existing total")
-        self.assertEqual(int(fields[12]) + int(fields[14]), int(total_output), "orchestrator + worker output must add up to the existing total")
+        self.assertEqual((total_output, planning_output, total_turns), ("2200", "0", "21"))
+        # fields 12-15: orchestrator_turns (main), orchestrator_output (main), worker_turns,
+        # worker_output -- read straight from the layers, not `total - worker` -- then the
+        # always-appended tail (total_billable_in, planning_turns, planning_billable_in,
+        # explore_turns, explore_output, worker_explore_turns, worker_explore_output), all zero
+        # since this old-style fixture carries none of billable_in/planning/subagent_explore.
+        self.assertEqual(
+            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0"],
+        )
+        self.assertEqual(
+            int(fields[11]) + int(fields[13]), int(total_turns),
+            "main + worker turns must add up to the whole-batch total (no Explore activity here)",
+        )
+        self.assertEqual(
+            int(fields[12]) + int(fields[14]), int(total_output),
+            "main + worker output must add up to the whole-batch total (no Explore activity here)",
+        )
 
     def test_summary_uses_subagent_worker_and_explore_when_present(self):
-        # Post-change data: subagent_worker/subagent_explore are both populated. Fields 12-15
-        # must be sourced from subagent_worker only -- the Explore turns must not leak into the
-        # worker split, and the new tail fields (total_billable_in, planning_turns,
-        # planning_billable_in, explore_turns, explore_output) must reflect real numbers.
+        # Post-change data: subagent_worker/subagent_explore are both populated, and a planning
+        # record is present too. Fields 12-15 must be sourced from subagent_worker only -- the
+        # Explore turns must not leak into the worker split -- and totals are now whole-batch,
+        # planning included: main (4 planning + 10 phase = 14), explore (2), worker (6).
         batch = self._batch("2026-01-11-worker-and-explore")
         (batch / "report.json").write_text(json.dumps({
             "repo": "", "batch": "2026-01-11-worker-and-explore",
@@ -739,16 +752,20 @@ M
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
         fields = s.split("\t")
         total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
-        self.assertEqual((total_output, planning_output, total_turns), ("1400", "400", "14"))
-        # 12-15: worker split sourced from subagent_worker (6/700), not the collapsed subagent (8/750)
-        self.assertEqual(fields[11:15], ["8", "700", "6", "700"])
-        # tail: total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output
-        self.assertEqual(fields[15:], ["600", "4", "150", "2", "50"])
+        # whole-batch: main(4+10=14 turns, 400+1000=1400 out) + explore(2, 50) + worker(6, 700)
+        self.assertEqual((total_output, planning_output, total_turns), ("2150", "400", "22"))
+        # 12-15: main (14/1400), worker split sourced from subagent_worker (6/700), not the
+        # collapsed subagent (8/750)
+        self.assertEqual(fields[11:15], ["14", "1400", "6", "700"])
+        # tail: total_billable_in (150 planning + 600 phase), planning_turns, planning_billable_in,
+        # explore_turns, explore_output, worker_explore_turns, worker_explore_output
+        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0"])
 
     def test_summary_explore_only_phase_is_not_counted_as_worker(self):
         # The regression from Context, reproduced directly: a phase whose only sub-agent activity
         # is an Explore agent must not trip the `worker_output > 0 or worker_turns > 0` gate --
-        # fields 12-15 stay absent, exactly as a phase with no sub-agent activity at all.
+        # fields 12-15 stay absent, exactly as a phase with no sub-agent activity at all. Totals
+        # are whole-batch: main (5) + explore (3) = 8 turns, 500 + 200 = 700 output.
         batch = self._batch("2026-01-12-explore-only")
         (batch / "report.json").write_text(json.dumps({
             "repo": "", "batch": "2026-01-12-explore-only", "started": "2026-01-12T10:00:00+01:00",
@@ -767,10 +784,10 @@ M
         }))
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
         fields = s.split("\t")
-        # fields 1-11 as normal, no 12-15 worker block, then the always-appended tail
-        self.assertEqual(len(fields), 16, f"expected no fields 12-15, got row {fields}")
-        self.assertEqual(fields[6:11], ["500", "0", "5", "", ""])
-        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200"])
+        # fields 1-11 as normal, no 12-15 worker block, then the always-appended (now 7-field) tail
+        self.assertEqual(len(fields), 18, f"expected no fields 12-15, got row {fields}")
+        self.assertEqual(fields[6:11], ["700", "0", "8", "", ""])
+        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0"])
 
     def test_summary_orchestrator_worker_invariant_never_negative(self):
         # The regression case from Context, asserted directly: a fixture reproducing batch 034's
@@ -818,7 +835,7 @@ M
             s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
             fields = s.split("\t")
             total_turns = int(fields[8])
-            if len(fields) == 16:
+            if len(fields) == 18:
                 # No phase worker ever ran (subagent_worker is zero on every phase) -- the
                 # heavy-Explore batch-034 shape. Fields 12-15 must be absent entirely, which is
                 # itself the fix: a negative number can never be printed for a split that isn't
@@ -829,8 +846,81 @@ M
             self.assertGreaterEqual(worker_turns, 0, f"{report['batch']}: worker_turns went negative")
             self.assertEqual(
                 orchestrator_turns + worker_turns, total_turns,
-                f"{report['batch']}: orchestrator_turns + worker_turns must sum back to total_turns",
+                f"{report['batch']}: orchestrator_turns + worker_turns must sum back to total_turns"
+                " (no Explore activity in this fixture)",
             )
+
+    def test_summary_batch_035_regression_shape_no_field_negative(self):
+        # The exact defect from Context: batch 035 printed orchestrator_turns = -401 because
+        # total_turns (main only, no worker) minus worker_turns went deeply negative. Reproduced
+        # here with the numbers named in the phase plan (totals.turns = 9, subagent_worker.turns
+        # = 86) -- a genuinely disjoint pool, main and worker never overlapping -- and asserted
+        # that no field is ever negative, the row's total is main + worker (no subtraction), and
+        # the four-layer invariant holds.
+        batch = self._batch("2026-01-15-batch-035-shape")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-15-batch-035-shape", "started": "2026-01-15T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-15T11:00:00+01:00",
+                    "telemetry": {
+                        "totals": {"turns": 9, "output": 900},
+                        "subagent_worker": {"turns": 86, "output": 8600},
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        for f in fields[6:]:
+            if f == "":
+                continue
+            self.assertGreaterEqual(int(f), 0, f"field went negative: {fields}")
+        total_output, total_turns = int(fields[6]), int(fields[8])
+        self.assertEqual(total_turns, 95, f"total_turns = {fields}")
+        self.assertEqual(total_output, 9500, f"total_output = {fields}")
+        orchestrator_turns, orchestrator_output, worker_turns, worker_output = (
+            int(fields[11]), int(fields[12]), int(fields[13]), int(fields[14]),
+        )
+        self.assertEqual(orchestrator_turns, 9, "field 12 must be the session's own (main) turns")
+        self.assertEqual(worker_turns, 86)
+        self.assertEqual(orchestrator_turns + worker_turns, total_turns)
+        self.assertEqual(orchestrator_output + worker_output, total_output)
+
+    def test_summary_schema2_layers_read_directly_worker_explore_populated(self):
+        # A schema-2 telemetry record carries its own `layers` object -- read as-is, never
+        # re-derived from the (here deliberately bogus) `totals`, and the one fixture in this
+        # class that populates `worker_explore` -- the new tail fields must carry real numbers.
+        batch = self._batch("2026-01-16-schema2-layers")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-01-16-schema2-layers", "started": "2026-01-16T10:00:00+01:00",
+            "phases": [
+                {
+                    "phase": "01-a", "status": "green", "finished": "2026-01-16T11:00:00+01:00",
+                    "telemetry": {
+                        "schema": 2,
+                        "totals": {"turns": 999, "output": 99999, "billable_in": 99999},
+                        "layers": {
+                            "main": {"turns": 3, "output": 300, "billable_in": 100},
+                            "main_explore": {"turns": 1, "output": 50, "billable_in": 0},
+                            "worker": {"turns": 6, "output": 700, "billable_in": 200},
+                            "worker_explore": {"turns": 2, "output": 150, "billable_in": 0},
+                        },
+                        "by_model": {}, "by_effort": {},
+                    },
+                },
+            ],
+        }))
+        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
+        fields = s.split("\t")
+        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
+        self.assertEqual((total_output, planning_output, total_turns), ("1200", "0", "12"))
+        # 12-15: main (3/300), worker (6/700) -- straight off `layers`, ignoring the bogus `totals`
+        self.assertEqual(fields[11:15], ["3", "300", "6", "700"])
+        # tail: total_billable_in (100+0+200+0), planning_turns, planning_billable_in,
+        # explore_turns, explore_output, worker_explore_turns, worker_explore_output
+        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150"])
 
     def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
         batch = self._batch("2026-01-09-classic")
@@ -848,10 +938,14 @@ M
             ],
         }))
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        # Fields 1-11 stay exactly as before; fields 12-15 are still absent (no worker activity);
-        # the always-appended tail (total_billable_in, planning_turns, planning_billable_in,
-        # explore_turns, explore_output) is all zero since this fixture carries none of them.
-        expected = f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium\t0\t0\t0\t0\t0"
+        # Fields 1-11 stay exactly as before (no Explore/worker activity, so whole-batch totals
+        # equal the old main-only totals too); fields 12-15 are still absent (no worker activity);
+        # the always-appended (now 7-field) tail is all zero since this fixture carries none of
+        # billable_in/planning/subagent_explore/subagent_worker.
+        expected = (
+            f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
+            "\t0\t0\t0\t0\t0\t0\t0"
+        )
         self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
 
         # A report predating this feature -- no `subagent` key at all -- must degrade the same way.
@@ -866,7 +960,7 @@ M
             ],
         }))
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
-        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0"
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
 
 
