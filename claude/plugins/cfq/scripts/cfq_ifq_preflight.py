@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_ifq_preflight.py <repo-root> [--select <batch>]
+# Usage: cfq_ifq_preflight.py <repo-root> [--select <batch>] [--intent {resume,start}]
 """Single read-only preflight aggregator for implement-for-queue's Steps 1-2 (model/plugin policy),
 3a (batch selection), 3b's read-only half (briefing) and 4a/4b (failed-attempt lookup, context
 gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_brief.py/cfq_resume.py/cfq_report.py
@@ -37,6 +37,7 @@ GATE_LINE_RE = re.compile(
 
 EMPTY_SELECTION_TEMPLATE = {
     "batch": None, "nextPhase": None, "branch": None, "resume": None, "contextGate": None,
+    "startGate": None,
 }
 
 INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
@@ -126,6 +127,29 @@ def plugin_boundaries_line(policy):
     )
 
 
+def start_gate_result(intent, inprogress_name):
+    """`startGate` for the resolved-batch (`OK`) path only -- every early-return status
+    (`NO_BATCH`, `BLOCKED`, `MULTIPLE_IN_PROGRESS`, `SELECT_UNAVAILABLE`) carries `startGate: null`
+    instead, since those paths end before a gate could fire. No `--intent` always fires (today's
+    unconditional stop); `resume` fires unless a batch is already in progress; `start` never
+    fires, since a batch was always resolved to reach this function at all."""
+    if not intent:
+        return {"fire": True, "reason": "default"}
+    if intent == "resume":
+        if inprogress_name:
+            return {"fire": False, "reason": "resume"}
+        return {"fire": True, "reason": "resume-nothing-in-progress"}
+    return {"fire": False, "reason": "start"}
+
+
+def start_gate_line(start_gate, chosen):
+    """The `Start Gate` status line, printed only when the gate is skipped -- `reason` is already
+    exactly `resume` or `start` on every path that reaches here (the only two `fire: False`
+    reasons), so it doubles as the keyword. When the gate fires, the skill composes its own line
+    after the question instead, as today."""
+    return text.status_entry("Start Gate", "done", f"skipped · {start_gate['reason']} · {chosen}")
+
+
 def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resume_only, orchestrator_mode):
     """The four `Batch` phrasings `references/ifq-batch-start.md` used to spell out by hand --
     the distinguishing condition (`--select` given, in-progress set, `selectable` length) already
@@ -155,6 +179,15 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
 def cmd_preflight(args):
     repo = args.repo_root
     select_batch = args.select or ""
+    intent = args.intent or ""
+
+    if intent == "resume" and select_batch:
+        print(render.dump_json({
+            "status": "INVALID_ARGS",
+            "detail": "--intent resume cannot be combined with --select; resume targets the "
+                      "batch already in progress, not a chosen one",
+        }))
+        return
 
     resolved = git(repo, "rev-parse", "--show-toplevel")
     if resolved.returncode != 0:
@@ -301,6 +334,18 @@ def cmd_preflight(args):
         next_phase_json = None
         gate_json = None
 
+    start_gate = start_gate_result(intent, inprogress_name)
+    status_lines = [
+        model_gate_line(policy), plugin_boundaries_line(policy),
+        batch_line(
+            select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
+            chosen=chosen, cand=cand, resume_only=resume_only,
+            orchestrator_mode=policy["orchestratorMode"],
+        ),
+    ]
+    if not start_gate["fire"]:
+        status_lines.append(start_gate_line(start_gate, chosen))
+
     print(render.dump_json({
         "status": "OK",
         "repo": {"root": repo},
@@ -321,14 +366,8 @@ def cmd_preflight(args):
         "branch": branch_json,
         "resume": resume_only,
         "contextGate": gate_json,
-        "statusLines": [
-            model_gate_line(policy), plugin_boundaries_line(policy),
-            batch_line(
-                select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
-                chosen=chosen, cand=cand, resume_only=resume_only,
-                orchestrator_mode=policy["orchestratorMode"],
-            ),
-        ],
+        "startGate": start_gate,
+        "statusLines": status_lines,
     }))
 
 
@@ -336,6 +375,7 @@ def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     parser.add_argument("repo_root")
     parser.add_argument("--select")
+    parser.add_argument("--intent", choices=["resume", "start"])
     parser.set_defaults(func=cmd_preflight)
     return parser
 
