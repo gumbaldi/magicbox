@@ -8,38 +8,15 @@ counts the batch records (open and archived both) whose `report.json` exists —
 with none prints a bare `0`, never a dash or blank.
 
 The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing at `/rfq`
-(`report-for-queue`), the skill that lists and renders them. It needs no confirmation and isn't one
-of Step C's six mutating actions below.
+(`report-for-queue`), the skill that lists and renders them, plus this repo's own report portal
+path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
+and isn't one of Step C's six mutating actions below.
 
-## Optional Third-Party Plugins (Step A)
+## Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
 
-| Plugin | What cfq uses it for | Installation | Docs |
-|---|---|---|---|
-| `mattpocock-skills` | classic grill mode (`grillMode: classic`) | `/plugin install mattpocock-skills@claude-plugins-official` — if the marketplace is missing: `/plugin marketplace add anthropics/claude-plugins-official` | `github.com/anthropics/claude-plugins-official`, locally the `SKILL.md` under `skills/productivity/grilling/` in the plugin cache |
-| `ponytail` | one one-shot use: an optional cleanup audit (one of several tasks in the maintenance run) | `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail` | `github.com/DietrichGebert/ponytail`, at runtime `/ponytail-help` |
-
-An already-installed plugin starts enabled (its switch defaults to `true`) without asking here —
-only offer what `.plugins` reports missing.
-
-## Ponytail Dormant-by-Default Offer (Step A, third question)
-
-Only asked when `.plugins.ponytail` is `true` and `.plugins.ponytailMode` is not `off` — ponytail
-defaults to `full` mode itself when unconfigured, which loads it into every session including
-`pfq`/`ifq` and every Explore subagent. cfq uses ponytail for one one-shot skill invocation that
-never needs the persistent mode: the optional cleanup audit inside the maintenance run. State
-plainly, in order:
-
-- **What changes**: `~/.config/ponytail/config.json` gets `{"defaultMode": "off"}`, merged into
-  whatever is already there (a user may already have `hideStatus` or `quietStartup` set) — never an
-  overwrite. The directory is created if it doesn't exist yet.
-- **What it means**: ponytail stops loading into every session; `/ponytail full` (or any mode)
-  still switches it on by hand at any time, and `ponytail:ponytail-audit` keeps working untouched
-  either way — it doesn't depend on the persistent mode.
-- **Why cfq asks**: `pfq`'s plan detail and `ifq`'s scope fidelity both degrade under an always-on
-  lazy mode — full mode's "does this need to exist at all?" can silently shrink a scope `pfq`'s
-  interview already agreed on.
-- **Declining is fine and changes nothing** — no file is written, and this question isn't asked
-  again this session.
+Moved into `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
+former Step A, first-time-setup only, is now the setup wizard's global part, run automatically the
+first time and any time by name via `/cfq setup`).
 
 ## CONFIG Block: Full List and Global View (Step B)
 
@@ -93,6 +70,14 @@ ACTION
 ```
 
 ## Step D — Settings, Full Detail
+
+The guided `/cfq settings` picker (`<plugin-root>/references/settings-menu.md`) navigates the same
+schema this section describes and reuses everything below — scope inference, the global-only
+rejection, the `env:repo-legacy` migration note — rather than duplicating it; a free-text change
+request ("set stopUsed to 100000") keeps landing here directly. `ACTIONS`' two permanent rows,
+`settings menu` (`/cfq settings`) and `setup wizard` (`/cfq setup`), point at the picker and at the
+onboarding wizard respectively; both stay listed on every render, in a repo or outside one, rather
+than only once during first-time setup.
 
 Pair each `.settings` row with its explanation from `bin/cfq settings describe [<key>]` — that
 schema call is the single source for per-key prose, not a hand-maintained table;

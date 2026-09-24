@@ -267,6 +267,33 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
         self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
 
+    # ---- setup.globalDone (batch 041 phase 03) ------------------------------------------------
+
+    def test_setup_global_done_false_on_fresh_home(self):
+        reg = self._repos_dir / "setup-fresh-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["setup"], {"globalDone": False}, msg=f"setup = {out['setup']}")
+
+    def test_setup_global_done_true_after_state_set(self):
+        reg = self._repos_dir / "setup-done-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_settings.py"), "state", "set", "setupDone",
+            "true", env={"HOME": str(self.home)},
+        )
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["setup"], {"globalDone": True}, msg=f"setup = {out['setup']}")
+
+    def test_no_repo_has_no_setup_key(self):
+        out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
+        self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
+        self.assertNotIn("setup", out, msg=f"NO_REPO result should carry no setup key: {out}")
+
     def _make_bindir_without(self, excluded):
         # Symlink farm of the real PATH minus the given commands, so the rest of the toolchain
         # (bash, jq, git, coreutils, ...) stays reachable while the excluded commands' presence

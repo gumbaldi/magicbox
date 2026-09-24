@@ -1,5 +1,23 @@
 # ifq: Batch Selection, Briefing, Branch and Resume
 
+## Arguments
+
+`$ARGUMENTS`, trimmed of surrounding whitespace and compared case-insensitively, maps onto flags
+for the same `preflight-impl` call **Batch Selection** already makes — never a second call:
+
+| Argument text | Flag(s) added | Meaning |
+|---|---|---|
+| `resume` | `--intent resume` | Continue the in-progress batch, skipping the start gate. Falls back to the normal gate (`startGate.reason: "resume-nothing-in-progress"`) when nothing is in progress — it never starts something new silently. |
+| `start` | `--intent start` | Take the in-progress batch, or the ordered next selectable one, skipping the start gate. |
+| `start <batch>` | `--intent start --select <batch>` | Same as `start`, naming which batch. |
+| anything else | `--select <text>` (today's meaning, unchanged) | A hint that narrows batch selection, per **Batch Selection Rules** — not a keyword. |
+
+`--intent resume` combined with `--select` is rejected by the preflight itself (`INVALID_ARGS`) —
+`resume` always targets whichever batch is already in progress, never a chosen one; this parsing
+never produces that combination, so it should never actually fire. `MULTIPLE_IN_PROGRESS`,
+`BLOCKED`, `NO_BATCH` and `SELECT_UNAVAILABLE` stop exactly as they do without a keyword —
+`startGate` comes back `null` on every one of those, so neither keyword has anything to skip.
+
 ## Model Gate Stop
 
 The running model's name is in your system prompt's environment block; `policy.allowAnyModel:
@@ -33,7 +51,9 @@ with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — 
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
 step) — is never offered either, separately from the `dependsOn` wait list: for every name in
-`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes."
+`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes. If no
+`/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"` clears the marker;
+otherwise it becomes selectable on its own once the marker is older than `sessionStaleSeconds`."
 One line per such batch, no more.
 
 **In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`
@@ -127,17 +147,28 @@ more than two other open batches:
   <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
   second time for the freshly chosen batch, because choosing it *was* the confirmation.
 
-**When it fires**: always. A resumed in-progress batch, a batch named explicitly as an argument,
-and orchestrator mode are all included — one behaviour, no exception, even though each of the
-three reads like a natural exemption.
+**When it fires**: `startGate.fire` is `true` — already resolved by the preflight from `--intent`
+and whether a batch is in progress (**Arguments** above). Without either keyword this is always
+`true`, the same "no exception" behaviour as before — a resumed in-progress batch, a batch named
+explicitly as an argument, and orchestrator mode are all still included. `--intent resume` also
+comes back `true` (reason `resume-nothing-in-progress`) when nothing is in progress — `resume`
+never starts something new silently, it falls back to the normal gate instead.
 
-**The one case it does not fire**: `selection.selectable` is empty and there is no in-progress
-batch, i.e. the session is already ending via `NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those
-paths end before a batch is ever resolved, so there is nothing left to confirm.
+**When it does not fire**: `startGate.fire` is `false` — `--intent start` always, or `--intent
+resume` with a batch already in progress. Print the preflight's own `Start Gate` status line (in
+`statusLines`, already worded `skipped · resume · <batch>` / `skipped · start · <batch>`) and go
+straight to **Lock Acquisition** — the briefing warnings and the batch overview above are still
+printed either way, so the user sees what is starting even without being asked.
+
+**The one case it does not fire regardless of `--intent`**: `selection.selectable` is empty and
+there is no in-progress batch, i.e. the session is already ending via
+`NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those paths end before a batch is ever resolved
+(`startGate: null`), so there is nothing left to confirm.
 
 Print `Start Gate` either way: `✅ confirmed · <batch>` (Start chosen), `✅ switched to <batch>`
-(a different batch chosen on the second call), or `➖ cancelled by user` (Cancel, or a second
-free-text miss on the second call).
+(a different batch chosen on the second call), `➖ cancelled by user` (Cancel, or a second
+free-text miss on the second call) — or, when `startGate.fire` was `false`, the preflight's own
+line from `statusLines`, printed exactly as returned rather than composed here.
 
 ## Lock Acquisition
 
@@ -158,9 +189,9 @@ fetch fails offline/sandboxed, and everything falls back to local-only behavior 
 deciding, so a stale local `main`/branch never gets silently proposed as a base. On the `new` path,
 `origin/*` is the source of truth for `candidates` — each is an object (`name`, `ref`,
 `aheadOfMain`, `behindRemote`, `aheadRemote`, `localOnly`, `highestBatch`, `mergedIntoOriginMain`,
-`lastCommit`), ranked by `lastCommit` descending, kept for the `ambiguous` fallback below and for
-the free-text answer's resolution. `base`/`baseRef` are derived from the batch's own `.dependsOn`,
-in a `baseSource` field:
+`lastCommit`), ranked by `lastCommit` descending, kept for the base question below (recommended
+first, then up to two more, then `main`) and for the free-text answer's resolution. `base`/
+`baseRef` are derived from the batch's own `.dependsOn`, in a `baseSource` field:
 
 - `"dependsOn"` — the one unmerged dependency branch that contains every other unmerged one;
 - `"ambiguous"` — no single dependency branch contains all the others (falls back to
@@ -200,7 +231,8 @@ on `mode` to read any of the three.
   under `update-ref`). Checked out and dirty → nothing moves; `remoteWarning` names the dirty tree,
   and the `Branch` status line surfaces it as a `⚠️` note — `git checkout "<branch>"` still runs,
   a dirty tree here is otherwise the same error the **`new`** path already treats it as. **`ahead`**
-  (`pushable: true`) → one `AskUserQuestion` before the checkout: **Push and continue**
+  (`pushable: true`) → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision
+  Question Context**, before the checkout: **Push and continue**
   (recommended) runs `git push origin "<branch>"`, then proceeds; **Continue without pushing**
   proceeds and names the commits from `unpushed` that won't be in this batch's base; **Cancel**
   releases the lock and ends the session, nothing touched. **`diverged`** → the same three-option
@@ -210,31 +242,35 @@ on `mode` to read any of the three.
   touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
   changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
   the `new` path.
-- **`new`** → `baseSource: "dependsOn"`, `"highestBatch"` or `"main"` resolves silently to the
-  already-derived `base`/`baseRef`, no question — name `baseSource` in the `Branch` status line.
-  When `uncontained` is non-empty on `baseSource: "highestBatch"`, add one `   └ ⚠️` sub-line under
-  `Branch` per entry: "`<name>` has commits not in `<base>` (last commit `<lastCommit>`)" — an
-  older, non-`newer` chain that never surfaces as a question. `baseSource: "newerCandidate"` → one
-  `AskUserQuestion` naming that a newer unmerged `cfq/` branch exists than the highest batch
-  number. Recommended (first, labelled `(Recommended)`): `base` — the highest-numbered branch
-  itself, description naming its batch number. Then one option per `uncontained` entry with
-  `newer: true`, description naming its `lastCommit` and its `aheadOfMain` (looked up from
-  `candidates` by name); any `uncontained` entry that is not `newer` is named in the question text
-  itself, not offered as its own option. The free-text answer (`AskUserQuestion`'s built-in
-  "Other") and the `bin/cfq branch check` resolution follow the exact same rules the `ambiguous`
-  question below already documents — point at that paragraph, don't repeat it. `baseSource:
-  "ambiguous"` (no single dependency branch contains every other unmerged one — the exceptional
-  case) → one `AskUserQuestion` listing every entry in `candidates` (already ranked), asking which
-  one the new branch builds on. Recommended (first, labelled
-  `(Recommended)`): `base` — the newest by `lastCommit`, never the checked-out branch. Each other
-  option's description names its `aheadOfMain`, plus `local only` / `already contained in
-  origin/main` / `behind origin by <behindRemote>` where applicable. The free-text answer
-  (`AskUserQuestion`'s built-in "Other") is resolved with `bin/cfq branch check "<repo-root>"
-  "<name>"`: `UNRESOLVED` → ask once more naming the unresolvable input; a second miss ends the
-  session without touching anything, exactly like the dirty-tree rule below. On `OK`, surface both
-  its warnings separately when they apply — "`<name>` is `<behind>` commit(s) behind
-  `origin/<name>`" and "`<newerCandidate.name>` has a newer commit (`<newerCandidate.lastCommit>`)"
-  — before the checkout runs, and use its `ref` as `<baseRef>` and `<name>` as `<base>` below. Then:
+- **`new`** → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question
+  Context**, fires for every `baseSource` — none of the four resolves silently any more. What it
+  is about: a new branch `<branch>` is created for batch `<batch>`. The problem: which existing
+  branch it builds on decides which earlier, unmerged work it contains. Options, `base`
+  recommended first, always:
+  - First, labelled `(Recommended)`: `base`, described by `baseSource` in plain words —
+    `"dependsOn"` → "the batch this one depends on"; `"highestBatch"`/`"newerCandidate"` → "the
+    highest unmerged batch"; `"ambiguous"` → "the newest unmerged branch"; `"main"` → "main — no
+    unmerged batch".
+  - Then up to two further entries from `candidates` (already ranked, skipping `base`), each
+    described by `aheadOfMain`, `lastCommit`, and `local only` / `already contained in
+    origin/main` / `behind origin by <behindRemote>` where applicable.
+  - `main`, when it is neither `base` nor among those two.
+
+  A non-empty `uncontained` and `baseSource: "newerCandidate"` fold their warnings into the
+  question text instead of surfacing as a separate special case: name every `uncontained` entry's
+  `lastCommit` ("`<name>` has commits not in `<base>`"), and, on `newerCandidate`, that a newer
+  unmerged `cfq/` branch exists than the highest batch number. The `   └ ⚠️` sub-line under
+  `Branch` per `uncontained` entry — "`<name>` has commits not in `<base>` (last commit
+  `<lastCommit>`)" — still prints after the checkout, regardless of which option was picked; name
+  `baseSource` in the `Branch` status line itself either way.
+
+  The free-text answer (`AskUserQuestion`'s built-in "Other") is resolved with `bin/cfq branch
+  check "<repo-root>" "<name>"`: `UNRESOLVED` → ask once more naming the unresolvable input; a
+  second miss ends the session without touching anything, exactly like the dirty-tree rule below.
+  On `OK`, surface both its warnings separately when they apply — "`<name>` is `<behind>`
+  commit(s) behind `origin/<name>`" and "`<newerCandidate.name>` has a newer commit
+  (`<newerCandidate.lastCommit>`)" — before the checkout runs, and use its `ref` as `<baseRef>` and
+  `<name>` as `<base>` below. Then:
 
 ```bash
 git checkout --no-track -b "<branch>" "<baseRef>"

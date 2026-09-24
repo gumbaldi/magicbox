@@ -55,9 +55,11 @@ are statements about individual phases that per-phase judging alone cannot make 
 A failing category is **corrected, not asked about**. Re-cutting, merging, reordering, and
 narrowing a phase to remove duplication are corrections the planner makes on its own and reports.
 
-Exactly two things still trigger one `AskUserQuestion`: **dropping a phase entirely**, and
-**removing a capability the user asked for by name during the interview**. Both change *what* the
-batch delivers; everything else only changes *how* it is split, which is the planner's call.
+Exactly two things still trigger one `AskUserQuestion`, framed per
+`<plugin-root>/references/interaction-policy.md`'s **Decision Question Context**: **dropping a
+phase entirely**, and **removing a capability the user asked for by name during the interview**.
+Both change *what* the batch delivers; everything else only changes *how* it is split, which is
+the planner's call.
 
 Batch several question-worthy findings into one call rather than asking serially.
 

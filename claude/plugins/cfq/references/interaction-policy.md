@@ -20,12 +20,13 @@ user decision — print a status line, then continue automatically once the resu
 `AskUserQuestion` is reserved for points where the answer changes what gets built or parked. The
 rule behind `pfq`'s site list: it asks everything it needs before planning work starts — after
 that, only exceptional cases still ask; everything routine gets decided and reported, or parked as
-a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
-only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
+a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, one call; on an
+unknown repo, the repo setup wizard's own area/value questions run first, before that call),
+grilling rounds, closing question, self-critique's
 drop-a-phase/remove-a-named-capability question; `ifq`: start gate (start/pick a different
-batch/cancel, per `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**), scope-creep
-parking, branch base (ambiguous dependencies, a newer uncontained cfq branch than the highest
-batch, ahead/diverged remote only) — this section adds a rule, not new question sites.
+batch/cancel, per `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by
+the `resume`/`start` keywords), scope-creep parking, branch base (every new batch branch, plus
+ahead/diverged remote on `continue`) — this section adds a rule, not new question sites.
 
 ## Active Interview Duty
 
@@ -43,3 +44,19 @@ This section covers decisions the *planner* made autonomously. `plan-for-queue`'
 **Self-Critique of the Phase Cut** and `<plugin-root>/references/plan-self-critique.md` cover the
 mirror case — decisions the *user* made from the
 planner's own option lists, re-examined before any phase file is written.
+
+## Decision Question Context
+
+Before any `AskUserQuestion` that asks the user to *decide* (not merely confirm), write a short
+block in the user's language, in user-visible terms (what the user sees or does), not code
+identifiers:
+
+- **What it is about** — the feature or step, and what happens today.
+- **The problem** — what goes wrong, or why a decision is needed.
+- **Options** — each with its concrete effect for the user and its downside.
+
+Then give the recommendation, marked `➡️`, before asking. Code names may appear in parentheses
+after the plain description, never instead of it.
+
+**Exempt:** `pfq`'s start block questions (**Start Block**), and pure confirmations whose options
+are proceed/cancel (e.g. "delete this batch?").

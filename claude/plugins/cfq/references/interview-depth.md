@@ -14,7 +14,9 @@ only needs one clause, the reasoning for *why* it's recommended lives here.
 ## Start Block Questions
 
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
-else, every time — never skip, never infer. Up to three independent questions:
+else, every time — never skip, never infer. Two independent questions — on an unknown repo, the
+repo setup wizard's own area/value questions (`<plugin-root>/references/setup-wizard.md`'s **Repo
+Part**) already ran before this call and are never folded into it:
 
 - **Interview depth** (always) — three options, the recommendation derived from scope (components
   touched, how unclear the requirement is, how far consequences reach) and justified in the option
@@ -26,7 +28,6 @@ else, every time — never skip, never infer. Up to three independent questions:
   Full rationale below.
 - **Priority** (always) — "Should this batch be flagged high priority?" (picked first by `ifq`'s
   ordering, marked in the `/cfq` dashboard; not flagging is normal and needs no answer).
-- **Config** — see `<plugin-root>/references/config-overview.md`'s **The Config Question**.
 
 On **Thorough** or **Grilling with docs**, read `<plugin-root>/references/grilling.md` and follow
 it. Print `Interview Depth` and `Priority` (omit detail when not flagged) status lines once

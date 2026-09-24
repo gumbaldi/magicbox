@@ -182,7 +182,60 @@ class GuardTest(CfqTestCase):
         self.assertAllowed(self._write("/repo/.claude/cfq/impl/019-x/06-foo.md"))
         self.assertAllowed(self._write("/repo/.claude/cfq/impl/019-x/.batch-context.md"))
         self.assertAllowed(self._write("/repo/.claude/cfq/plan/2026-09-14-foo.md"))
-        self.assertAllowed(self._write("/repo/.claude/cfq/.writeprobe"))
+
+    # -- quote/heredoc parsing (batch 038 phase 01) ---------------------------------------------
+
+    def test_allow_backslash_escaped_double_quote_in_pipeline(self):
+        # The exact reproduction command from the batch-01 planning session: `split_simple_commands`
+        # used to treat `\"` inside a double-quoted span as closing the quote, raising `ValueError`
+        # and falling into the old, over-broad substring fallback.
+        proc = self._bash(
+            'sed -n 1109,1145p scripts/cfq_report.py; '
+            'ls -la /repo/.claude/cfq/reports | head; '
+            'grep -rn "report html\\|cfq_report.py html\\|\\"html\\"" --include=*.py scripts '
+            '| grep -v "^scripts/cfq_report.py" | head',
+            cwd="/repo",
+        )
+        self.assertAllowed(proc)
+
+    def test_allow_quoted_heredoc_body_with_apostrophe_and_destructive_words(self):
+        # An absolute queue path in the body -- so the old substring fallback's
+        # `/.claude/cfq` + destructive-verb check would have denied this, were the body not
+        # excluded entirely before parsing.
+        command = (
+            "claude/plugins/cfq/bin/cfq note plan /repo slug - <<'EOF'\n"
+            "don't skip this: rm -rf /repo/.claude/cfq/plan/x.md and "
+            "sed -i s/a/b/ /repo/.claude/cfq/plan/x.md\n"
+            "EOF"
+        )
+        self.assertAllowed(self._bash(command, cwd="/repo"))
+
+    def test_allow_unquoted_heredoc_body_with_apostrophe_and_destructive_words(self):
+        command = (
+            "claude/plugins/cfq/bin/cfq note plan /repo slug - <<EOF\n"
+            "don't skip this: rm -rf /repo/.claude/cfq/plan/x.md and "
+            "sed -i s/a/b/ /repo/.claude/cfq/plan/x.md\n"
+            "EOF"
+        )
+        self.assertAllowed(self._bash(command, cwd="/repo"))
+
+    def test_allow_sed_without_i_flag_on_queue_path(self):
+        self.assertAllowed(self._bash("sed -n 1p .claude/cfq/plan/x.md", cwd="/repo"))
+
+    def test_deny_sed_i_flag_on_queue_path(self):
+        self.assertDenied(self._bash("sed -i s/a/b/ .claude/cfq/plan/x.md", cwd="/repo"))
+
+    def test_deny_rm_rf_relative_queue_path(self):
+        self.assertDenied(self._bash("rm -rf .claude/cfq/impl/x", cwd="/repo"))
+
+    def test_deny_heredoc_carrying_line_with_redirect_into_queue(self):
+        self.assertDenied(
+            self._bash("cat > .claude/cfq/plan/x.md <<'EOF'", cwd="/repo")
+        )
+
+    def test_deny_fallback_verb_in_command_position(self):
+        proc = self._bash('echo "unbalanced; rm -rf .claude/cfq', cwd="/repo")
+        self.assertDenied(proc)
 
     # -- edge cases -------------------------------------------------------------------------------
 

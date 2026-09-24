@@ -7,8 +7,11 @@
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
 #        cfq_batch_id.py ready         <batch-dir>
 #
-# `ready` removes the `.planning` heartbeat marker a batch directory carries while `plan-for-queue`
-# is still writing it -- hard delete, no trash, since the marker carries no content. Idempotent.
+# `.planning` is written here, by `allocate`, the moment the batch directory is created --
+# `park` only refreshes it (heartbeat) while it exists, and never re-creates it once `ready`
+# removes it. `ready` removes the `.planning` heartbeat marker a batch directory carries while
+# `plan-for-queue` is still writing it -- hard delete, no trash, since the marker carries no
+# content. Idempotent.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -42,6 +45,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
@@ -514,6 +518,12 @@ def cmd_allocate(args):
             )))
             sys.exit(1)
 
+        # .planning is born here, the moment the directory exists, so a concurrent /ifq scan
+        # never sees an open batch with no marker while pfq is still writing its phase files.
+        # `park` only refreshes it from this point on; `ready` removes it once pfq's lint goes
+        # clean.
+        pathlib.Path(target_dir, ".planning").write_text(render.now_iso() + "\n")
+
         print(render.dump_json(result))
     finally:
         release_alloc_lock(repo)
@@ -550,6 +560,8 @@ def cmd_ready(args):
         print("already ready")
         return
     marker.unlink()
+    batch_dir = pathlib.Path(args.batch_dir)
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
     print(f"removed {marker}")
 
 

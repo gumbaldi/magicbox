@@ -32,6 +32,7 @@ noun_script() {
     overlap) echo cfq_queue_overlap.py ;;
     park) echo cfq_park.py ;;
     phase) echo cfq_phase.py ;;
+    portal) echo cfq_portal.py ;;
     preflight-plan) echo cfq_pfq_preflight.py ;;
     preflight-impl) echo cfq_ifq_preflight.py ;;
     registry) echo cfq_registry.py ;;
@@ -49,7 +50,7 @@ noun_script() {
   esac
 }
 
-NOUNS="batch branch brief changelog dash doctor finish guard lang layout lint lock maintenance note overlap park phase preflight-plan preflight-impl registry report resume runtime scan security settings telemetry trash worker ctx"
+NOUNS="batch branch brief changelog dash doctor finish guard lang layout lint lock maintenance note overlap park phase portal preflight-plan preflight-impl registry report resume runtime scan security settings telemetry trash worker ctx"
 
 # Python interpreter discovery: first of python3, python, py (with -3) whose version is >= 3.8.
 # Sets PY_CMD (and PY_ARG, only non-empty for the `py -3` case) -- a string pair rather than an

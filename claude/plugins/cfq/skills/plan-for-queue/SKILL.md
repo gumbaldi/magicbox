@@ -11,11 +11,14 @@ argument-hint: <briefing>
 
 # Plan-for-Queue: Interview, Park, Hand Off
 
-Always answer in the user's language. The output of this session is plan files only — no code edits,
-no builds, no commits, not even "just this one line," even once a harness-level plan-mode approval
-says "you can now start coding," and even with an autonomous/auto-run mode active — that approval
-covers parking the plan, never implementing it. Implementation happens later, in a separate
-`implement-for-queue` session.
+Always answer in the user's language. The output of this session is plan files and queue notes —
+no code edits, no builds, no commits, not even "just this one line," even once a harness-level
+plan-mode approval says "you can now start coding," and even with an autonomous/auto-run mode
+active — that approval covers parking the plan, never implementing it. A finding made while
+planning — about the repo (`note plan`/`note todo`) or about cfq itself (`note plan --framework`)
+— is always written without asking, per `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`; a
+finding is never an implementation step, no matter which session writes it. Implementation happens
+later, in a separate `implement-for-queue` session.
 
 ## Output Format
 
@@ -54,19 +57,18 @@ regardless of entry count; plan the arguments, leave every inbox entry untouched
 ## Step 4 — Start Block (unconditional, always, before anything else)
 
 Print the `INTERVIEW` header on entering — the preflight already ran at **Inbox**, no new call.
-Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model
-Gate** section, then print `Model Check` as returned. `repo.known` is `false` → show the full
-config overview now, per `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before the
-call below.
+`setup.globalDone` is `false` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its
+**Global Part** now, before anything else in this step. Run the model-gate check per
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section, then print `Model
+Check` as returned. `repo.known` is `false` → read
+`${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its **Repo Part** now, right before the
+call below, and print its `Config` status line. `repo.known` is `true` → print `Config  ➖ known
+repo` instead, without reading that section.
 
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
-else, every time — never skip, never infer. Up to three questions: **Interview depth** (always),
-**Priority** (always), **Config** (only when `repo.known` is `false`) — option copy and
-status-line wording in `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block
-Questions** and `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`'s **The Config Question**.
-Then probe the write surface before any research starts — read
-`${CLAUDE_PLUGIN_ROOT}/references/write-probe.md` and follow it. Print `Write Probe`: `➖` (docs
-half skipped) or `❌` plus the blocking hook's reason, ending the session there.
+else, every time — never skip, never infer. Two questions: **Interview depth** (always),
+**Priority** (always) — option copy and status-line wording in
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**.
 
 ## Step 5 — Understand
 
@@ -136,10 +138,11 @@ Always runs, regardless of `security.available` — mechanics in
 ```
 
 `fixable.critical`/`fixable.high` → write a `plan/` entry via
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" "<body-file>"` — never
-a question, never a phase. Store the snapshot: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
+(body on stdin, never a temp file) — never a question, never a phase. Store the snapshot:
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
-## Step 13 — New Repo: Config Overview
+## Step 13 — New Repo: Repo Setup Wizard
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`. Already handled in **Start Block** —
 nothing to read here, straight to **Park**.

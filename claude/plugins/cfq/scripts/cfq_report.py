@@ -30,104 +30,36 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.markdown import esc, html_escape_jq, md_inline, md_min  # noqa: E402,F401
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
-# Shared by html's per-batch report and its collected index.html -- one visual language, not two.
-# Every colour is a custom property defined on bare :root; the dark-mode and print @media blocks
-# only ever redefine tokens that already exist there (tests/test_report.py asserts this
-# structurally) -- no colour gets its only definition inside a media query.
-REPORT_STYLE_CSS = """:root{
-  --bg:#ffffff;--surface:#f7f8fa;--surface-2:#eceff4;
-  --fg:#16181d;--fg-muted:#545c6b;--fg-faint:#767e8c;
-  --border:#d5dae2;--border-strong:#aeb6c2;
-  --ok:#1a7f45;--ok-bg:#e4f3ea;--bad:#b32d1f;--bad-bg:#fae9e6;
-  --warn:#8a5b00;--warn-bg:#fbf1d6;--accent:#2f5fd0;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --r:8px;--gap:1rem;
-}
-@media (prefers-color-scheme:dark){:root{
-  --bg:#14161a;--surface:#1b1e24;--surface-2:#232830;
-  --fg:#e7eaf0;--fg-muted:#a3abba;--fg-faint:#848d9c;
-  --border:#2e343e;--border-strong:#454d5a;
-  --ok:#5cc98b;--ok-bg:#16301f;--bad:#f0857a;--bad-bg:#331b18;
-  --warn:#e0b45a;--warn-bg:#2e2512;--accent:#8fb0ff;
-}}
-body{background:var(--bg);color:var(--fg);font-family:var(--sans);max-width:64rem;margin:0 auto;
-  padding:2rem 1rem;line-height:1.55}
-h1{font-size:1.6rem;margin:0}
-h2{font-size:1.2rem}
-h3{font-size:1.05rem}
-h4{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
-code{background:var(--surface-2);font-family:var(--mono);font-size:0.875em;padding:0.1rem 0.3rem;
-  border-radius:0.2rem}
-header.batch{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem}
-header.batch .ident{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem}
-.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.4rem 1.5rem}
-.meta dt{color:var(--fg-faint);text-transform:uppercase;font-size:.72rem}
-.meta dd{margin:0}
-.badge{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .6rem;border-radius:999px;
-  font-size:.78rem;font-weight:600;letter-spacing:.03em;border:1px solid}
-.badge.green{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
-.badge.red{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
-.badge.mixed{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
-section.phase{background:var(--surface);border:1px solid var(--border);
-  border-left:4px solid var(--border-strong);border-radius:var(--r);padding:1rem 1.25rem;
-  margin:1.25rem 0}
-section.phase.green{border-left-color:var(--ok)}
-section.phase.red{border-left-color:var(--bad)}
-section.phase .num{color:var(--fg-faint);margin-right:.25rem}
-section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem}
-.phase ul{margin:.2rem 0 .8rem;padding-left:1.1rem}
-.phase li{margin:.15rem 0}
-.phase li code{font-size:.8rem;background:none;padding:0;color:var(--fg-muted)}
-.goal{color:var(--fg-muted);font-style:italic;border-left:2px solid var(--border);
-  padding-left:.75rem}
-.tele{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem 1.5rem;
-  font-size:.82rem;background:var(--surface-2);border-radius:var(--r);padding:.6rem .8rem;
-  margin:.75rem 0}
-.tele dt{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem}
-.tele dd{margin:0}
-section.overview{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem;margin:1.25rem 0}
-.overview h3{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
-.overview ul{margin:.3rem 0 .9rem;padding-left:1.1rem}
-.overview li{margin:.2rem 0}
-.overview p{margin:.3rem 0 .9rem}
-.overview li strong{color:var(--fg)}
-section.security{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem;margin:1.25rem 0}
-.muted{color:var(--fg-muted)}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.tscroll{overflow-x:auto}
-.phase-table table,.repo table{border-collapse:collapse;width:100%;font-size:.85rem}
-.phase-table th,.phase-table td,.repo th,.repo td{padding:.4rem .6rem;
-  border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
-.phase-table thead th,.repo thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
-  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-strong)}
-.phase-table td.n,.phase-table th.n,.repo td.n,.repo th.n{text-align:right;
-  font-variant-numeric:tabular-nums;font-family:var(--mono)}
-.phase-table td.c,.phase-table th.c,.repo td.c,.repo th.c{text-align:center}
-.phase-table tbody tr:hover,.repo tbody tr:hover{background:var(--surface-2)}
-.phase-table tfoot td,.phase-table tfoot th{border-top:1px solid var(--border-strong);
-  border-bottom:none;color:var(--fg-muted);font-weight:600}
-.phase-table td a,.repo td a{color:var(--accent);text-decoration:none}
-.phase-table td a:hover,.repo td a:hover{text-decoration:underline}
-.verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
-section.repo{margin:1.5rem 0}
-.repo h2 .count{font-weight:400;font-size:.8rem;color:var(--fg-faint);margin-left:.5rem}
-@media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
-@media print{
-  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f2f2;--fg:#000;--fg-muted:#333;--border:#999;}
-  body{max-width:none;padding:0;font-size:10pt}
-  section.phase{break-inside:avoid}
-  a{text-decoration:none;color:inherit}
-}"""
+# Shared by html's per-batch report and its collected index.html, and (batch 040 phase 02) by the
+# portal viewer shell -- one visual language, not three. The stylesheet itself now lives at
+# `portal/style.css` (moved there verbatim, then extended for the viewer's own overview/cost-tree
+# markup); this constant reads it back rather than holding a second copy, so the two HTML verbs
+# below keep working unchanged while the viewer owns the source file. Every colour is a custom
+# property defined on bare :root; the dark-mode and print @media blocks only ever redefine tokens
+# that already exist there (tests/test_report.py asserts this structurally) -- no colour gets its
+# only definition inside a media query.
+
+
+def _load_report_style_css():
+    """Reads `portal/style.css`, one level up from `scripts/` (this file's own directory) --
+    the same relative layout in a checkout and in an installed plugin cache. A missing or
+    unreadable file degrades to "" rather than raising: a report or index page would rather ship
+    unstyled than fail outright over a stylesheet."""
+    try:
+        return (SCRIPT_DIR.parent / "portal" / "style.css").read_text()
+    except OSError:
+        return ""
+
+
+REPORT_STYLE_CSS = _load_report_style_css()
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
@@ -137,18 +69,6 @@ PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 def jq_round(x):
     """Mirrors jq's `round` (round-half-away-from-zero), not Python's round-half-to-even."""
     return math.floor(x + 0.5) if x >= 0 else math.ceil(x - 0.5)
-
-
-_HTML_ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&apos;", '"': "&quot;"}
-
-
-def html_escape_jq(s):
-    return "".join(_HTML_ESCAPES.get(ch, ch) for ch in s)
-
-
-def esc(value):
-    """Mirrors the shell script's `def esc: (. // "") | tostring | @html;`."""
-    return html_escape_jq(render.tostring(render.jq_alt(value, "")))
 
 
 # ---- shared path/settings helpers ----------------------------------------------------------
@@ -168,37 +88,6 @@ def repo_root_of(d):
     if idx != -1:
         return abs_path[:idx]
     return ""
-
-
-def settings_get(repo_root, key):
-    """Stays local, not `cfq_lib.proc.settings_get`: `repo_root` here is optional (falsy skips
-    `--repo` for a global-only read), which the shared helper doesn't support."""
-    cmd = cfq_argv("settings", "get")
-    if repo_root:
-        cmd += ["--repo", repo_root]
-    cmd.append(key)
-    out = subprocess.run(cmd, capture_output=True, text=True)
-    return out.stdout.strip()
-
-
-def resolve_html_path(dir_):
-    """Path report.html lives (or would live) at for a batch directory, honoring the reportDir
-    setting when configured -- same resolution `html`, `index --text`'s file:// lines and
-    `regenerate_index()` all need. Read-only: a caller that's about to write creates the directory
-    itself. Three branches: an explicit absolute `reportDir` keeps the shared cross-repo layout
-    unchanged; an empty/`"null"` `reportDir` with a derivable repo root now lands under that
-    repo's own `.claude/cfq/reports/`, flat, one file per batch; a batch directory that isn't
-    nested under a `.claude/cfq/impl(/done)/` at all (repo root not derivable -- true only for
-    synthetic fixtures, never a real batch) falls back to the historical per-batch-directory
-    path so that case degrades exactly as it always has."""
-    dir_ = dir_.rstrip("/")
-    repo_root = repo_root_of(dir_)
-    report_dir = settings_get(repo_root, "reportDir")
-    if report_dir not in ("", "null"):
-        return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
-    if repo_root:
-        return f"{repo_root}/.claude/cfq/reports/{os.path.basename(dir_)}.html"
-    return f"{dir_}/report.html"
 
 
 def ensure_report(dir_):
@@ -375,6 +264,37 @@ def _totals_field(totals, key):
     return render.jq_alt(totals.get(key) if isinstance(totals, dict) else None, 0)
 
 
+LAYER_NAMES = ("main", "main_explore", "worker", "worker_explore")
+
+
+def phase_layer_sums(tel):
+    """The four cost layers (`main`, `main_explore`, `worker`, `worker_explore`) for one phase's
+    (or planning's) telemetry record, each a plain totals dict callers read with `_totals_field`
+    exactly like `tel["totals"]` already was. Reads `layers` when present (schema 2, phase 04's
+    `build_layers()`) -- used as-is, never re-derived, so a schema-2 record's own numbers are
+    authoritative even where an older sibling key (`totals`/`subagent`) would disagree. A record
+    with no `layers` key (schema 1) derives the same four sums from the fields it does carry:
+    `main` = `totals`, `worker` = `subagent_worker` (falling back to the legacy collapsed
+    `subagent` only when `subagent_worker` is entirely absent -- the same shim `cmd_summary`
+    applied before this helper existed), `main_explore` = `subagent_explore`, `worker_explore` =
+    empty (no such split existed before schema 2). This is the one place both `cmd_summary` and
+    `telemetry_html` read a phase's layer split from -- no subtraction anywhere downstream, since
+    every layer here is already its own disjoint pool."""
+    tel = tel if isinstance(tel, dict) else {}
+    layers = tel.get("layers")
+    if isinstance(layers, dict):
+        return {name: layers.get(name) if isinstance(layers.get(name), dict) else {} for name in LAYER_NAMES}
+    worker = tel.get("subagent_worker")
+    if worker is None:
+        worker = tel.get("subagent")
+    return {
+        "main": tel.get("totals") if isinstance(tel.get("totals"), dict) else {},
+        "main_explore": tel.get("subagent_explore") if isinstance(tel.get("subagent_explore"), dict) else {},
+        "worker": worker if isinstance(worker, dict) else {},
+        "worker_explore": {},
+    }
+
+
 def cmd_summary(args):
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
@@ -400,36 +320,47 @@ def cmd_summary(args):
     planning_turns = _totals_field(planning_totals, "turns")
     planning_billable_in = _totals_field(planning_totals, "billable_in")
 
-    phase_outputs, phase_turns = [], []
     model_keys, effort_keys = [], []
-    worker_output, worker_turns = 0, 0
+
+    # Whole-batch layer sums, planning included -- the fix for the negative orchestrator_turns/
+    # orchestrator_output bug: main/main_explore/worker/worker_explore are four disjoint pools
+    # read straight from phase_layer_sums(), summed across every record, never subtracted from
+    # each other. total_turns/total_output/total_billable_in are the sum of all four; fields
+    # 12-15 read `main`/`worker` directly; the tail fields read `main_explore`/`worker_explore`.
+    main_turns = main_output = 0
+    worker_turns = worker_output = 0
+    explore_turns = explore_output = 0
+    worker_explore_turns = worker_explore_output = 0
     total_billable_in = 0
-    explore_turns, explore_output = 0, 0
+
+    def accumulate(tel):
+        nonlocal main_turns, main_output, worker_turns, worker_output
+        nonlocal explore_turns, explore_output, worker_explore_turns, worker_explore_output
+        nonlocal total_billable_in
+        layers = phase_layer_sums(tel)
+        main_turns += _totals_field(layers["main"], "turns")
+        main_output += _totals_field(layers["main"], "output")
+        worker_turns += _totals_field(layers["worker"], "turns")
+        worker_output += _totals_field(layers["worker"], "output")
+        explore_turns += _totals_field(layers["main_explore"], "turns")
+        explore_output += _totals_field(layers["main_explore"], "output")
+        worker_explore_turns += _totals_field(layers["worker_explore"], "turns")
+        worker_explore_output += _totals_field(layers["worker_explore"], "output")
+        for name in LAYER_NAMES:
+            total_billable_in += _totals_field(layers[name], "billable_in")
+
+    if planning is not None:
+        accumulate(planning)
+
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
-        totals = tel.get("totals") if isinstance(tel, dict) else None
-        phase_outputs.append(_totals_field(totals, "output"))
-        phase_turns.append(_totals_field(totals, "turns"))
-        total_billable_in += _totals_field(totals, "billable_in")
+        accumulate(tel)
         by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
         by_effort = render.jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
         if isinstance(by_model, dict):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
-        # subagent_worker is the corrected, worker-only split; a report written before this
-        # change carries no such key at all (None here), and only then do we fall back to the
-        # old collapsed `subagent` value -- a compatibility shim for data already on disk, never
-        # for code. A record that *does* carry `subagent_worker` (even an all-zero one, e.g. a
-        # phase that only ran Explore agents) is used as-is, no fallback.
-        subagent_worker = tel.get("subagent_worker") if isinstance(tel, dict) else None
-        if subagent_worker is None:
-            subagent_worker = tel.get("subagent") if isinstance(tel, dict) else None
-        worker_output += _totals_field(subagent_worker, "output")
-        worker_turns += _totals_field(subagent_worker, "turns")
-        subagent_explore = tel.get("subagent_explore") if isinstance(tel, dict) else None
-        explore_turns += _totals_field(subagent_explore, "turns")
-        explore_output += _totals_field(subagent_explore, "output")
 
     planning_by_model = render.jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
     planning_by_effort = render.jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
@@ -438,22 +369,26 @@ def cmd_summary(args):
     if isinstance(planning_by_effort, dict):
         effort_keys = list(planning_by_effort.keys()) + effort_keys
 
-    total_output = planning_output + sum(phase_outputs)
-    total_turns = planning_turns + sum(phase_turns)
+    total_output = main_output + explore_output + worker_output + worker_explore_output
+    total_turns = main_turns + explore_turns + worker_turns + worker_explore_turns
     models = ",".join(sorted(set(model_keys)))
     efforts = ",".join(sorted(set(effort_keys)))
 
     row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
     # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
-    # an old or classic-mode report with no subagent turns/output must render byte-identical to the
-    # row above, not grow a meaningless zero split. Sourced from subagent_worker (with the
-    # subagent fallback above), never the collapsed subagent, so a phase that only ran Explore
-    # agents no longer counts as a worker here (the mislabelling this phase fixes).
+    # an old or classic-mode report with no worker turns/output must render byte-identical to the
+    # row above, not grow a meaningless zero split. 12/13 are the `main` layer's own turns/output,
+    # 14/15 the `worker` layer's -- both read straight off phase_layer_sums(), never by
+    # subtracting one pool from another, so neither can go negative.
     if worker_output > 0 or worker_turns > 0:
-        row += [total_turns - worker_turns, total_output - worker_output, worker_turns, worker_output]
+        row += [main_turns, main_output, worker_turns, worker_output]
     # Additive fields, always appended after the optional 12-15 block above: total_billable_in,
-    # planning_turns, planning_billable_in, explore_turns, explore_output.
-    row += [total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output]
+    # planning_turns, planning_billable_in, explore_turns, explore_output, worker_explore_turns,
+    # worker_explore_output.
+    row += [
+        total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
+        worker_explore_turns, worker_explore_output,
+    ]
     print("\t".join(_tsv_field(v) for v in row))
 
 
@@ -653,83 +588,9 @@ def truncate_words(text, limit):
 
 # ---- markdown subset: .batch-context.md -> the report's Overview section -------------------
 #
-# Not a general Markdown renderer (see the batch's Non-Goals) -- headings, one level of bullets,
-# paragraphs, `**bold**` and `` `code` `` only. Everything else (blockquotes, tables, links,
-# nested lists) falls through to paragraph text on purpose, since `.batch-context.md`'s own format
-# never uses them.
-
-_INLINE_RE = re.compile(r"`([^`]*)`|\*\*([^*]*?)\*\*")
-
-
-def md_inline(escaped_text):
-    """Operates on text that has already been through `esc`/`html_escape_jq`. One pass, one
-    regex: inline code and bold are matched as alternatives at each position so a `**` inside a
-    backtick span is consumed as part of the code match and never seen by the bold alternative --
-    doing this as two sequential substitutions would let a later bold pass reach back inside an
-    already-emitted `<code>` span."""
-    def repl(m):
-        if m.group(1) is not None:
-            return f"<code>{m.group(1)}</code>"
-        return f"<strong>{m.group(2)}</strong>"
-    return _INLINE_RE.sub(repl, escaped_text)
-
-
-_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-_MD_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
-
-
-def md_min(text):
-    """A line-driven state machine over `text.splitlines()`. No nesting, no look-ahead -- nested
-    bullets are deliberately flattened to one level, since `.batch-context.md`'s format has none.
-    Every emitted text value goes through `md_inline(esc(value))`, never raw."""
-    parts = []
-    in_list = False
-    list_items = []
-    para_lines = []
-
-    def flush_para():
-        if para_lines:
-            parts.append(f"<p>{md_inline(esc(' '.join(para_lines)))}</p>")
-            para_lines.clear()
-
-    def close_list():
-        nonlocal in_list
-        if in_list:
-            lis = "".join(f"<li>{it}</li>" for it in list_items)
-            parts.append(f"<ul>{lis}</ul>")
-            in_list = False
-            list_items.clear()
-
-    for raw in text.splitlines():
-        if raw.strip() == "":
-            close_list()
-            flush_para()
-            continue
-        m = _MD_HEADING_RE.match(raw)
-        if m:
-            close_list()
-            flush_para()
-            level = len(m.group(1))
-            if level == 1:
-                continue  # the document title, not content
-            tag = "h3" if level == 2 else "h4"
-            parts.append(f"<{tag}>{md_inline(esc(m.group(2).strip()))}</{tag}>")
-            continue
-        m = _MD_BULLET_RE.match(raw)
-        if m:
-            flush_para()
-            in_list = True
-            list_items.append(md_inline(esc(m.group(1).strip())))
-            continue
-        if in_list and list_items and raw[:1] in (" ", "\t"):
-            list_items[-1] += " " + md_inline(esc(raw.strip()))
-            continue
-        para_lines.append(raw.strip())
-
-    close_list()
-    flush_para()
-    return "".join(parts)
-
+# `md_min`/`md_inline` themselves live in `cfq_lib/markdown.py` (imported above), shared with
+# `cfq_portal.py`'s pre-rendered phase-file / queue-entry bodies -- see that module's own
+# docstring for what the subset covers.
 
 _MD_SECTION_RE = re.compile(r"^##\s+(.*)$", re.M)
 
@@ -983,16 +844,20 @@ def telemetry_html(phase):
     if mode:
         pairs.append(("Mode", mode))
     pairs.append(("Skills", skills_str(t)))
-    subagent = t.get("subagent") if isinstance(t.get("subagent"), dict) else {}
-    sub_turns = render.jq_alt(subagent.get("turns"), 0)
-    sub_output = render.jq_alt(subagent.get("output"), 0)
-    if sub_turns or sub_output:
-        orch_turns = render.jq_alt(totals.get("turns"), 0) - sub_turns
-        orch_output = render.jq_alt(totals.get("output"), 0) - sub_output
+    # `main` vs `worker`, straight from the same layer reader `cmd_summary` uses -- no
+    # subtraction, so this can never show a negative split. Gated on the `worker` layer itself
+    # (not the collapsed `subagent`, which also holds Explore turns), so a phase that only ran
+    # Explore agents renders no split line at all, matching `cmd_summary`'s own gate.
+    layers = phase_layer_sums(t)
+    worker_turns = _totals_field(layers["worker"], "turns")
+    worker_output = _totals_field(layers["worker"], "output")
+    if worker_turns or worker_output:
+        main_turns = _totals_field(layers["main"], "turns")
+        main_output = _totals_field(layers["main"], "output")
         pairs.append((
             "Orchestrator / worker",
-            f"{fmt_int(orch_turns)}/{fmt_int(sub_turns)} turns · "
-            f"{fmt_int(orch_output)}/{fmt_int(sub_output)} out",
+            f"{fmt_int(main_turns)}/{fmt_int(worker_turns)} turns · "
+            f"{fmt_int(main_output)}/{fmt_int(worker_output)} out",
         ))
     rows = "".join(_tele_pair(label, value) for label, value in pairs)
     if not rows:
@@ -1107,37 +972,22 @@ def render_report_html(data, goals, dir_):
 
 
 def cmd_html(args):
+    """Batch 040 phase 05: a thin alias over `portal sync` -- the portal (`cfq_portal.py`) is now
+    the only HTML `report` writes. No `<batch>.html`/`report.html` file is produced here any more;
+    this verb only makes sure this one batch's own data is current in the portal, then prints the
+    `file://` route to it. This verb's former per-batch and collected-tree file writers are gone
+    along with the files they used to write."""
     dir_ = args.dir.rstrip("/")
-    f = os.path.join(dir_, "report.json")
-    if not os.path.isfile(f):
-        errors.die(f"{PROG}: no report.json in {dir_}")
-    data = json.loads(pathlib.Path(f).read_text())
-
     repo_root = repo_root_of(dir_)
-    report_dir = settings_get(repo_root, "reportDir")
-    out = resolve_html_path(dir_)
-    # Unconditional: resolve_html_path() alone decides *where*, this only ensures it exists --
-    # the repo-local default (change 1) points at a directory that may not exist yet on the
-    # first render, same as the collected-tree case always did.
-    try:
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-    except OSError:
-        errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
-
-    goals = extract_goals(dir_, data)
-    html_doc = render_report_html(data, goals, dir_)
-    tmp = f"{out}.tmp"
-    pathlib.Path(tmp).write_text(html_doc + "\n")
-    os.replace(tmp, out)
-    print(out)
-
-    # Collected-tree mode regenerates the cross-repo index; the repo-local default regenerates
-    # its own repo-scoped index into the same reports/ directory, once a repo root exists to
-    # scope it to (a batch with no derivable repo root has no reports/ dir to index into).
-    if report_dir not in ("", "null"):
-        regenerate_index(report_dir)
-    elif repo_root:
-        regenerate_index(f"{repo_root}/.claude/cfq/reports", repo_root_filter=repo_root)
+    if not repo_root:
+        errors.die(f"{PROG}: cannot resolve a repo root for {dir_} -- no portal to sync into")
+    batch_name = os.path.basename(dir_)
+    proc = subprocess.run(
+        cfq_argv("portal", "sync", repo_root, "--batch", batch_name), capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        errors.die(f"{PROG}: portal sync failed for {batch_name}: {proc.stderr.strip()}")
+    print(cfq_lib_paths.portal_batch_url(repo_root, batch_name))
 
 
 # ---- verbs: index / detail -------------------------------------------------------------------
@@ -1200,13 +1050,14 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_turns.append(_totals_field(totals, "turns"))
             phase_billable_in.append(_totals_field(totals, "billable_in"))
 
-        # `rendered`/`href` used to be computed a second time, independently, inside
-        # regenerate_index() -- both call sites now share this one `resolve_html_path()` answer
-        # instead of two copies of the same formula. `href` is the resolved absolute path (or ""
-        # when nothing has been rendered yet); regenerate_index() derives its own report-relative
-        # link from it rather than re-resolving the layout itself.
-        resolved = resolve_html_path(os.path.dirname(m["path"]))
-        rendered = os.path.isfile(resolved)
+        # Batch 040 phase 05: `rendered` means "the portal has this batch's data" -- checked
+        # directly against the one file `portal sync` writes for a batch with a report.json
+        # (`build_impl_payload`) -- rather than "an HTML file was rendered", which no longer
+        # exists as a concept. `href` is the batch's portal route when rendered, "" otherwise, same
+        # empty-string contract `row_html`/`_index_group_lines` already relied on.
+        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.impl.js")
+        rendered = impl_data.is_file()
+        href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
 
         rows.append({
             "batch": m["name"],
@@ -1216,7 +1067,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             "glyph": status_glyph(status),
             "deviations": deviations,
             "rendered": rendered,
-            "href": resolved if rendered else "",
+            "href": href,
             "cost": {
                 "outputTokens": planning_output + sum(phase_outputs),
                 "turns": planning_turns + sum(phase_turns),
@@ -1356,91 +1207,6 @@ def cmd_detail(args):
         "phases": out_phases,
         "todos": todos,
     }))
-
-
-# ---- collected index.html (reportDir mode) ---------------------------------------------------
-
-def row_html(row):
-    """One `<tr>` in a repo's index table. A batch with no HTML rendered yet keeps its row and
-    loses only the link (`README.md`: "still listed, just without a link")."""
-    status = row.get("status") or ""
-    if row.get("rendered"):
-        batch_html = f'<a href="{esc(row["href"])}">{esc(row["batch"])}</a>'
-    else:
-        batch_html = esc(row["batch"])
-    out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
-    turns = render.jq_alt(row.get("cost", {}).get("turns"), 0)
-    deviations = row.get("deviations")
-    devs_disp = fmt_int(deviations) if isinstance(deviations, (int, float)) and deviations > 0 else ""
-    return (
-        f'<tr class="{esc(status.lower())}"><td class="c">{esc(status_glyph(status))}</td>'
-        f'<td>{batch_html}</td>'
-        f'<td>{esc(fmt_datetime(row.get("date")))}</td>'
-        f'<td class="n">{esc(devs_disp)}</td>'
-        f'<td class="n">{esc(fmt_int(out_tokens))}</td>'
-        f'<td class="n">{esc(fmt_int(turns))}</td></tr>'
-    )
-
-
-def repo_section_html(repo_base, items):
-    """One `<section class="repo">` per repo, the same table shape as phase 04's phase table
-    (`.phase-table table,.repo table` share their declarations) so the two pages read as one
-    system."""
-    total_out = sum(render.jq_alt(it.get("cost", {}).get("outputTokens"), 0) for it in items)
-    rows = "".join(row_html(it) for it in items)
-    return (
-        f'<section class="repo"><h2>{esc(repo_base)} '
-        f'<span class="count">{esc(fmt_int(len(items)))} batches · {esc(fmt_tokens(total_out))} out'
-        '</span></h2><div class="tscroll"><table><thead><tr>'
-        '<th class="c"><span class="sr">Status</span>·</th><th>Batch</th>'
-        '<th>Date</th><th class="n">Devs</th><th class="n">Out</th><th class="n">Turns</th>'
-        f'</tr></thead><tbody>{rows}</tbody></table></div></section>'
-    )
-
-
-def regenerate_index(report_dir, repo_root_filter=None):
-    """Writes `<report_dir>/index.html`. `repo_root_filter` scopes the listing to one repo's own
-    batches -- used by the repo-local default (change 1), where `report_dir` is that repo's own
-    `.claude/cfq/reports/` and cross-repo entries have no business being listed there; omitted
-    (`None`) for the shared-`reportDir` collected-tree mode, which lists every repo on purpose.
-    `rendered` and the resolved absolute path both come from `build_index_rows()` now -- the one
-    place that calls `resolve_html_path()`, the one place that decides the on-disk layout -- this
-    function only turns that absolute path into one relative to `report_dir`, rather than
-    re-resolving the layout itself a second time."""
-    rows, _meta = build_index_rows()
-    if repo_root_filter:
-        norm = repo_root_filter.rstrip("/")
-        rows = [r for r in rows if r["repo"].rstrip("/") == norm]
-
-    groups = {}
-    for row in rows:
-        rendered = row["rendered"]
-        href = os.path.relpath(row["href"], report_dir) if rendered else ""
-        repo_base = os.path.basename(row["repo"])
-        enriched = {**row, "rendered": rendered, "href": href}
-        groups.setdefault(repo_base, []).append(enriched)
-
-    sections = [repo_section_html(key, groups[key]) for key in sorted(groups.keys())]
-    body = "".join(sections) if sections else '<p class="meta">No reports yet.</p>'
-    total_out = sum(render.jq_alt(r.get("cost", {}).get("outputTokens"), 0) for r in rows)
-    header = (
-        '<header class="batch"><div class="ident"><h1>cfq reports</h1></div>'
-        '<dl class="meta">'
-        f'<div><dt>Repos</dt><dd>{esc(fmt_int(len(groups)))}</dd></div>'
-        f'<div><dt>Batches</dt><dd>{esc(fmt_int(len(rows)))}</dd></div>'
-        f'<div><dt>Output tokens</dt><dd>{esc(fmt_int(total_out))}</dd></div>'
-        f'<div><dt>Generated</dt><dd>{esc(datetime.now().strftime("%Y-%m-%d %H:%M"))}</dd></div>'
-        '</dl></header>'
-    )
-    doc = (
-        '<!doctype html><html><head><meta charset="utf-8"><title>cfq reports</title>'
-        '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        + header + body + '</body></html>'
-    )
-    idx_out = os.path.join(report_dir, "index.html")
-    tmp = f"{idx_out}.tmp"
-    pathlib.Path(tmp).write_text(doc + "\n")
-    os.replace(tmp, idx_out)
 
 
 # ---- argument parsing ------------------------------------------------------------------------

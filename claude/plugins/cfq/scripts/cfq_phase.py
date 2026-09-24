@@ -29,7 +29,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
-from cfq_lib import errors, render, text  # noqa: E402
+from cfq_lib import errors, portal_hook, render, text  # noqa: E402
 
 PROG = "cfq_phase.py"
 
@@ -102,6 +102,8 @@ def cmd_record(args):
         if moved:
             shutil.move(str(done_path), str(root_path))
         raise
+
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[pathlib.Path(dir_).name])
 
     print(str(done_path) if moved else str(root_path))
 
@@ -196,6 +198,7 @@ def cmd_commit(args):
     push = _git(repo_root, "push") if tracks_self else _git(repo_root, "push", "-u", "origin", branch)
 
     cfq_registry.add_repo(repo_root)
+    portal_hook.sync(repo_root, batches=[pathlib.Path(dir_).name])
 
     result = {"status": "OK", "sha": sha, "pushed": push.returncode == 0, "branch": branch}
     if push.returncode != 0:
@@ -233,6 +236,8 @@ def cmd_reopen(args):
     except OSError:
         shutil.move(str(root_path), str(done_path))
         raise
+
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[pathlib.Path(dir_).name])
 
     print(str(root_path))
 

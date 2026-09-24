@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# Usage: cfq_note.py plan <repo-root> <slug> <body-file> [--framework]
-#        cfq_note.py todo <repo-root> <slug> <body-file>
+# Usage: cfq_note.py plan <repo-root> <slug> <body-file|-> [--framework]
+#        cfq_note.py todo <repo-root> <slug> <body-file|->
+#        cfq_note.py close <repo-root> <entry>... --reason <text>
 #        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
 #        cfq_note.py list <repo-root> [--text | --overview]
@@ -10,7 +11,25 @@
 
 Date, slug normalisation and target directory are convention, not judgement -- the caller
 supplies only the title (raw, pre-normalisation) and the body text. Never appends or overwrites
-an existing entry; the caller picks a different slug instead.
+an existing entry; the caller picks a different slug instead. `<body-file>` may be `-`, in which
+case the body is read from stdin instead -- the documented default (see references/queue-entries.md),
+since a body written to a temp file first can be blocked by a write-guard hook that only allows
+writes under `.claude/cfq/`. An empty stdin body fails with `EMPTY_BODY`; the file form is
+unchanged.
+
+`_write_entry()` (shared by `plan`, `todo` and `merge-todo`) also repairs two writer defects:
+a slug carrying a leading `YYYY-MM-DD-` prefix (repeated, too -- e.g. copied from another entry's
+filename) has it stripped before normalising, and a body whose first non-empty line doesn't open
+with `# ` gets a `# <Title>` derived from the slug prepended, with a stderr warning naming it --
+never rejected.
+
+`close <repo-root> <entry>... --reason <text>` is the `plan/` inbox's other close path, for an
+entry whose fix landed incidentally rather than through `park --from-plan`: `<entry>` (repeatable,
+one call closes several with the same reason) is a filename or path inside
+`<repo-root>/.claude/cfq/plan/` -- anything outside `plan/` fails `INVALID_PATH`, a missing entry
+fails `NOT_FOUND`. It appends a `## Closed` section (date + reason) to the entry and moves it into
+`plan/done/`, creating that directory if absent. Never touches `todo/` -- `note sweep --close`
+stays the only todo closer.
 
 `plan --framework` is for findings about cfq itself rather than the repo under work: it always
 writes into the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) unless
@@ -59,6 +78,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import proc as cfq_lib_proc  # noqa: E402
 from cfq_lib import text as cfq_lib_text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
@@ -71,12 +91,53 @@ TARGET_DIR = {
 }
 
 
+DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
+
+
 def normalise_slug(raw):
     s = raw.lower().encode("ascii", "ignore").decode("ascii")
     s = re.sub(r"[\s_]+", "-", s)
     s = re.sub(r"[^a-z0-9-]", "", s)
     s = re.sub(r"-+", "-", s)
     return s.strip("-")
+
+
+def _strip_date_prefixes(raw_slug):
+    """Strips a leading `YYYY-MM-DD-` from the slug, repeated -- a caller may pass an
+    already-dated slug (e.g. copied from another entry's filename) more than once, which would
+    otherwise double up in the written filename."""
+    s = raw_slug
+    while DATE_PREFIX_RE.match(s):
+        s = DATE_PREFIX_RE.sub("", s, count=1)
+    return s
+
+
+def _derive_title(slug):
+    """Hyphens -> spaces, first letter upper-cased -- the fallback title for a body with no `# `
+    heading, derived from the already-normalised slug so it matches the written filename."""
+    title = slug.replace("-", " ")
+    return title[:1].upper() + title[1:] if title else title
+
+
+def _ensure_title(body_text, slug):
+    """A body whose first non-empty line doesn't open with `# ` gets a derived title prepended,
+    with a stderr warning naming it -- never rejected. Fix for the malformed inbox entry
+    `2026-09-23-2026-09-23-notification-dialog-focus-not-restored-on-close.md`, whose body had no
+    `# ` title and showed "## Finding" as its inbox title instead."""
+    first_nonempty = ""
+    for line in body_text.splitlines():
+        if line.strip():
+            first_nonempty = line.strip()
+            break
+    if first_nonempty.startswith("# "):
+        return body_text
+
+    title = _derive_title(slug)
+    print(
+        f"warning: note body has no `# ` title -- derived '# {title}' from the slug",
+        file=sys.stderr,
+    )
+    return f"# {title}\n\n{body_text}"
 
 
 def _inbox_dir():
@@ -99,10 +160,11 @@ def _is_framework_repo(repo, framework_repo):
 
 
 def _write_entry(target_dir, raw_slug, body_text):
-    """Shared tail for every `note` subcommand that lands a file in `plan/` or `todo/`: resolve
-    the target directory, build `<today>-<slug>.md`, refuse an existing target, write, print the
-    path. One place decides where a card lands -- callers never reimplement this."""
-    slug = normalise_slug(raw_slug)
+    """Shared tail for every `note` subcommand that lands a file in `plan/` or `todo/`: strip a
+    repeated date prefix off the slug, normalise it, build `<today>-<slug>.md`, refuse an existing
+    target, ensure the body carries a `# ` title, write, print the path. One place decides where a
+    card lands -- callers never reimplement this."""
+    slug = normalise_slug(_strip_date_prefixes(raw_slug))
     if not slug:
         errors.fail("INVALID_SLUG", detail=f"slug normalises to the empty string: '{raw_slug}'")
         return
@@ -115,26 +177,47 @@ def _write_entry(target_dir, raw_slug, body_text):
         errors.fail("EXISTS", detail=str(target))
         return
 
-    target.write_text(body_text)
+    target.write_text(_ensure_title(body_text, slug))
     print(str(target))
 
 
-def cmd_note(args, kind):
-    body_file = pathlib.Path(args.body_file)
+def _read_body(body_file_arg):
+    """Reads the body from stdin when `body_file_arg == "-"`, otherwise from the named file.
+    Returns `None` after already calling `errors.fail()` (and exiting) on failure -- the `None`
+    return is unreachable in practice, kept only so the caller's `if body_text is None: return`
+    guard reads the same as every other early-exit in this file."""
+    if body_file_arg == "-":
+        body_text = sys.stdin.read()
+        if not body_text:
+            errors.fail("EMPTY_BODY", detail="stdin body was empty")
+            return None
+        return body_text
+
+    body_file = pathlib.Path(body_file_arg)
     if not body_file.is_file():
         errors.fail("NO_SUCH_FILE", detail=f"no such body file: {body_file}")
+        return None
+    return body_file.read_text()
+
+
+def cmd_note(args, kind):
+    body_text = _read_body(args.body_file)
+    if body_text is None:
         return
 
+    # False only for `plan --framework` writing into the global framework inbox -- an entry that
+    # never lands in this repo's own queue, so there is nothing here for that repo's portal to
+    # resync over.
+    wrote_to_repo = True
     if kind == "plan" and getattr(args, "framework", False):
         framework_repo = _resolve_framework_repo()
         if _is_framework_repo(args.repo, framework_repo):
             target_dir = TARGET_DIR[kind](args.repo)
         else:
             target_dir = _inbox_dir()
+            wrote_to_repo = False
     else:
         target_dir = TARGET_DIR[kind](args.repo)
-
-    body_text = body_file.read_text()
 
     if kind == "todo":
         # Same detector, same line.strip() treatment, that _sweep_card later applies -- so the
@@ -147,6 +230,61 @@ def cmd_note(args, kind):
             )
 
     _write_entry(target_dir, args.slug, body_text)
+
+    if wrote_to_repo:
+        portal_hook.sync(args.repo)
+
+
+def _plan_entry_path(repo, entry):
+    """Resolves `<entry>` against `<repo>/.claude/cfq/plan/` -- an absolute path is taken as
+    given, anything else (a bare filename or a relative path) is joined onto `plan/` -- and
+    requires the result to land under `plan/` itself. Returns the resolved path, or `None` when it
+    falls outside `plan/`.
+
+    (verbatim in spirit) containment check duplicated from `cfq_park.py`'s `_consume_plan_entry()`
+    -- duplicated rather than imported, since scripts call each other through `bin/cfq <noun>`,
+    never by a direct cross-script import (CLAUDE.md's Commands section), and `cfq_park.py` is
+    outside this phase's Affected Files."""
+    plan_root = pathlib.Path(cfq_lib_paths.plan_dir(repo)).resolve(strict=False)
+    raw = pathlib.Path(entry)
+    candidate = (raw if raw.is_absolute() else plan_root / raw).resolve(strict=False)
+    try:
+        candidate.relative_to(plan_root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def cmd_close(args):
+    plan_root = pathlib.Path(cfq_lib_paths.plan_dir(args.repo)).resolve(strict=False)
+    done_dir = plan_root / "done"
+
+    closed = []
+    for raw_entry in args.entries:
+        target = _plan_entry_path(args.repo, raw_entry)
+        if target is None:
+            errors.fail("INVALID_PATH", detail=f"not inside plan/: {raw_entry}")
+            return
+        if not target.is_file():
+            errors.fail("NOT_FOUND", detail=f"no such plan entry: {target}")
+            return
+
+        body = target.read_text()
+        if not body.endswith("\n"):
+            body += "\n"
+        body += f"\n## Closed\n\n{date.today().isoformat()} -- {args.reason}\n"
+        target.write_text(body)
+
+        done_dir.mkdir(parents=True, exist_ok=True)
+        dest = done_dir / target.name
+        if dest.exists():
+            errors.fail("EXISTS", detail=f"{target} -> {dest}")
+            return
+        os.replace(str(target), str(dest))
+        closed.append(str(dest))
+
+    portal_hook.sync(args.repo)
+    print(render.dump_json({"status": "OK", "closed": closed}))
 
 
 def cmd_merge_todo(args):
@@ -166,6 +304,7 @@ def cmd_merge_todo(args):
     )
     slug = "merge-" + branch.replace("/", "-")
     _write_entry(TARGET_DIR["todo"](args.repo), slug, body)
+    portal_hook.sync(args.repo)
 
 
 def cmd_import(args):
@@ -194,6 +333,8 @@ def cmd_import(args):
     result = {"status": "OK", "imported": imported}
     if import_errors:
         result["errors"] = import_errors
+    if imported:
+        portal_hook.sync(repo)
     print(render.dump_json(result))
 
 
@@ -444,6 +585,9 @@ def cmd_sweep(args):
         "counts": counts,
     }
 
+    if counts["moved"]:
+        portal_hook.sync(str(repo_root))
+
     if args.text:
         _sweep_text(result)
     else:
@@ -462,6 +606,12 @@ def build_parser():
         if kind == "plan":
             p.add_argument("--framework", action="store_true")
         p.set_defaults(func=lambda args, kind=kind: cmd_note(args, kind))
+
+    close_p = sub.add_parser("close")
+    close_p.add_argument("repo")
+    close_p.add_argument("entries", nargs="+")
+    close_p.add_argument("--reason", required=True)
+    close_p.set_defaults(func=cmd_close)
 
     merge_todo_p = sub.add_parser("merge-todo")
     merge_todo_p.add_argument("repo")
@@ -497,7 +647,8 @@ def main(argv):
     func = getattr(args, "func", None)
     if func is None:
         errors.die(
-            f"usage: {PROG} plan|todo <repo-root> <slug> <body-file> [--framework] | "
+            f"usage: {PROG} plan|todo <repo-root> <slug> <body-file|-> [--framework] | "
+            f"close <repo-root> <entry>... --reason <text> | "
             f"merge-todo <repo-root> <branch> | import <repo-root> | "
             f"list <repo-root> [--text | --overview] | "
             f"sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S] "

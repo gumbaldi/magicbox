@@ -1066,3 +1066,114 @@
     - phase: "03-inbox-overview-in-pfq-ifq"
       status: "green"
       summary: ""
+- batchNumber: 38
+  batch: 038-2026-09-23-framework-bugfixes
+  branch: cfq/038-2026-09-23-framework-bugfixes
+  base: main
+  started: 2026-09-23
+  status: done
+  legacy: false
+  finished: 2026-09-23
+  phases:
+    - phase: "01-guard-quote-heredoc-parsing"
+      status: "green"
+      summary: ""
+    - phase: "02-note-stdin-close-writer"
+      status: "green"
+      summary: ""
+    - phase: "03-park-multi-from-plan-pfq-note-rule"
+      status: "green"
+      summary: ""
+    - phase: "04-telemetry-agent-layers"
+      status: "green"
+      summary: ""
+    - phase: "05-cost-summary-layers"
+      status: "green"
+      summary: ""
+    - phase: "06-decision-question-context-rule"
+      status: "green"
+      summary: ""
+- batchNumber: 39
+  batch: 039-2026-09-23-ifq-resume-start-args
+  branch: cfq/039-2026-09-23-ifq-resume-start-args
+  base: cfq/038-2026-09-23-framework-bugfixes
+  started: 2026-09-23
+  status: done
+  legacy: false
+  finished: 2026-09-23
+  phases:
+    - phase: "01-preflight-start-intent"
+      status: "green"
+      summary: ""
+    - phase: "02-ifq-start-args-and-base-question"
+      status: "green"
+      summary: ""
+- batchNumber: 40
+  batch: 040-2026-09-23-report-portal
+  branch: cfq/040-2026-09-23-report-portal
+  base: cfq/039-2026-09-23-ifq-resume-start-args
+  started: 2026-09-23
+  status: done
+  legacy: false
+  finished: 2026-09-24
+  phases:
+    - phase: "01-portal-data-files"
+      status: "green"
+      summary: ""
+    - phase: "02-portal-viewer"
+      status: "green"
+      summary: ""
+    - phase: "03-portal-report-dir-mirror"
+      status: "green"
+      summary: ""
+    - phase: "04-portal-sync-triggers"
+      status: "green"
+      summary: ""
+    - phase: "05-portal-replaces-html-report"
+      status: "green"
+      summary: ""
+- batchNumber: 41
+  batch: 041-2026-09-23-settings-menu-onboarding
+  branch: cfq/041-2026-09-23-settings-menu-onboarding
+  base: cfq/040-2026-09-23-report-portal
+  started: 2026-09-24
+  status: done
+  legacy: false
+  finished: 2026-09-24
+  phases:
+    - phase: "01-settings-groups-menu-render"
+      status: "green"
+      summary: ""
+    - phase: "02-cfq-settings-menu-flow"
+      status: "green"
+      summary: ""
+    - phase: "03-global-setup-wizard"
+      status: "green"
+      summary: ""
+    - phase: "04-repo-setup-wizard"
+      status: "green"
+      summary: ""
+- batchNumber: 42
+  batch: 042-2026-09-24-drop-pfq-write-probe
+  branch: cfq/042-2026-09-24-drop-pfq-write-probe
+  base: cfq/041-2026-09-23-settings-menu-onboarding
+  started: 2026-09-24
+  status: done
+  legacy: false
+  finished: 2026-09-24
+  phases:
+    - phase: "01-remove-write-probe"
+      status: "green"
+      summary: ""
+- batchNumber: 43
+  batch: 043-2026-09-24-planning-marker-lifecycle
+  branch: cfq/043-2026-09-24-planning-marker-lifecycle
+  base: cfq/042-2026-09-24-drop-pfq-write-probe
+  started: 2026-09-24
+  status: done
+  legacy: false
+  finished: 2026-09-24
+  phases:
+    - phase: "01-planning-marker-lifecycle"
+      status: "green"
+      summary: ""

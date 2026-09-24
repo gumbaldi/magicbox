@@ -14,3 +14,8 @@ python3,python,py|alternative|runs every cfq implementation (3.8+)
 gh|optional|GitHub security-finding lookups (Dependabot/code-scanning) in cfq_security.py
 tea|optional|Gitea security-finding lookups in cfq_security.py
 npm|optional|npm audit for repos with a package.json in cfq_security.py
+#
+# node is deliberately not a row above: it runs the portal viewer's JS unit tests
+# (tests/js/, see tests/test_portal_viewer.py) but is never a runtime dependency of the plugin
+# itself, so `cfq doctor check` must never report it missing to a user who has never run the test
+# suite.
