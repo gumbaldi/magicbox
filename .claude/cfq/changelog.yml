@@ -1121,3 +1121,6 @@
 - batchNumber: 42
   batch: 042-2026-09-24-drop-pfq-write-probe
   status: parked
+- batchNumber: 43
+  batch: 043-2026-09-24-planning-marker-lifecycle
+  status: parked
