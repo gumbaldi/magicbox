@@ -4,6 +4,7 @@
 #        cfq_settings.py set [--repo <path>] <key> <value>
 #        cfq_settings.py unset [--repo <path>] <key>
 #        cfq_settings.py describe [<key>]
+#        cfq_settings.py menu [--repo <path>] [--group <id>] [--format text|json]
 #        cfq_settings.py migrate <repo-root>
 #        cfq_settings.py state get <key> | state set <key> <value>
 """Manages cfq settings: $HOME/.claude/cfq/settings.json (global) and, per repo,
@@ -22,49 +23,63 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, paths, render  # noqa: E402
+from cfq_lib import errors, paths, render, text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
-# Single source of truth for every key: type, default, scope, env mapping, description, plus
-# type-specific validation data (min/max for int, values for enum, pattern for string, shape
-# for object). list/get/set/unset/describe and env overrides all walk this generically — a new
-# key is one entry here, never a second hand-written case arm.
+# The eight fixed settings-menu groups, in display order — `settings menu` walks this list, never
+# a set (whose iteration order isn't a promise), so the group order is always this order.
+GROUPS = [
+    {"id": "models", "title": "Models"},
+    {"id": "planning", "title": "Planning"},
+    {"id": "implementation", "title": "Implementation"},
+    {"id": "limits", "title": "Limits & handoff"},
+    {"id": "language", "title": "Language & docs"},
+    {"id": "maintenance", "title": "Maintenance & security"},
+    {"id": "reports", "title": "Reports & telemetry"},
+    {"id": "repo", "title": "Repo & git"},
+]
+GROUP_IDS = [g["id"] for g in GROUPS]
+
+# Single source of truth for every key: type, default, scope, env mapping, description, group,
+# plus type-specific validation data (min/max for int, values for enum, pattern for string, shape
+# for object). list/get/set/unset/describe/menu and env overrides all walk this generically — a
+# new key is one entry here, never a second hand-written case arm.
 SCHEMA = {
-    "grillMode": {"type": "enum", "default": "stepwise", "values": ["stepwise", "classic"], "scope": ["global", "repo"], "env": "CFQ_GRILL_MODE", "description": "Interview style for /pfq: stepwise (one question at a time) or classic."},
-    "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "description": "Models /pfq is allowed to run under."},
-    "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "description": "Models /ifq is allowed to run under."},
-    "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
-    "orchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
-    "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "description": "Model used for /pfq exploratory sub-agent research."},
-    "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
-    "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "description": "Skip the implModels/planModels gate entirely."},
-    "scanRoots": {"type": "array", "default": ["~/git"], "scope": ["global"], "env": "CFQ_SCAN_ROOTS", "description": "Root directories cfq_scan.py searches for repos with a queue."},
-    "useMattpocockGrilling": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_MATTPOCOCK", "description": "Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
-    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "description": "Run ponytail-audit during maintenance."},
-    "codeLanguage": {"type": "string", "default": "en", "pattern": "^[A-Za-z][A-Za-z-]*$", "scope": ["global", "repo"], "env": "CFQ_CODE_LANGUAGE", "description": "Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
-    "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
-    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
-    "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
-    "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
-    "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
-    "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
-    "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "description": "Plugins /pfq must never call, even indirectly."},
-    "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "description": "Plugins /ifq must never call, even indirectly."},
-    "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
-    "frameworkRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "description": "Absolute path of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
-    "stopUsed": {"type": "int", "default": 125000, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_USED", "description": "Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
-    "stopFiveHourPct": {"type": "int", "default": 70, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_FIVE_HOUR_PCT", "description": "Five-hour rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
-    "stopSevenDayPct": {"type": "int", "default": 95, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_SEVEN_DAY_PCT", "description": "Seven-day rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
-    "onePhasePerSession": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ONE_PHASE_PER_SESSION", "description": "When true, /ifq always hands off after one phase instead of continuing automatically while the context gate allows it."},
-    "sessionStaleSeconds": {"type": "int", "default": 1800, "min": 1, "scope": ["global", "repo"], "env": "CFQ_SESSION_STALE_SECONDS", "description": "Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
-    "ctxWindowLimits": {"type": "object", "shape": {"default": "int", "large": "object"}, "default": {"default": 200000, "large": {"models": ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"], "limit": 1000000}}, "scope": ["global", "repo"], "env": None, "description": "Context-window size in tokens per model, keyed by whether the model gets the large window."},
-    "securityTimeoutSeconds": {"type": "int", "default": 30, "min": 1, "scope": ["global"], "env": None, "description": "Timeout in seconds for the batch-completion security scan."},
-    "securityFindingsCap": {"type": "int", "default": 20, "min": 1, "scope": ["global"], "env": None, "description": "Maximum number of security findings surfaced per batch-completion scan."},
-    "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": None, "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
-    "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": None, "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
-    "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
-    "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
-    "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
+    "grillMode": {"type": "enum", "default": "stepwise", "values": ["stepwise", "classic"], "scope": ["global", "repo"], "env": "CFQ_GRILL_MODE", "group": "planning", "description": "Interview style for /pfq: stepwise (one question at a time) or classic."},
+    "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "group": "models", "description": "Models /pfq is allowed to run under."},
+    "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "group": "models", "description": "Models /ifq is allowed to run under."},
+    "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "group": "implementation", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
+    "orchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "group": "models", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
+    "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "group": "models", "description": "Model used for /pfq exploratory sub-agent research."},
+    "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "group": "models", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
+    "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "group": "models", "description": "Skip the implModels/planModels gate entirely."},
+    "scanRoots": {"type": "array", "default": ["~/git"], "scope": ["global"], "env": "CFQ_SCAN_ROOTS", "group": "repo", "description": "Root directories cfq_scan.py searches for repos with a queue."},
+    "useMattpocockGrilling": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_MATTPOCOCK", "group": "planning", "description": "Use the mattpocock-skills grilling skill instead of the built-in one, when installed."},
+    "usePonytailAudit": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_USE_PONYTAIL", "group": "maintenance", "description": "Run ponytail-audit during maintenance."},
+    "codeLanguage": {"type": "string", "default": "en", "pattern": "^[A-Za-z][A-Za-z-]*$", "scope": ["global", "repo"], "env": "CFQ_CODE_LANGUAGE", "group": "language", "description": "Language of everything executed or read as an instruction: code, comments, commit messages, README, CLAUDE.md, SKILL.md."},
+    "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "group": "language", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
+    "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "group": "language", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
+    "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "group": "maintenance", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
+    "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "group": "implementation", "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
+    "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
+    "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
+    "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
+    "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "group": "implementation", "description": "Plugins /ifq must never call, even indirectly."},
+    "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "group": "reports", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
+    "frameworkRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "group": "repo", "description": "Absolute path of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
+    "stopUsed": {"type": "int", "default": 125000, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_USED", "group": "limits", "description": "Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
+    "stopFiveHourPct": {"type": "int", "default": 70, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_FIVE_HOUR_PCT", "group": "limits", "description": "Five-hour rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
+    "stopSevenDayPct": {"type": "int", "default": 95, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_SEVEN_DAY_PCT", "group": "limits", "description": "Seven-day rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
+    "onePhasePerSession": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ONE_PHASE_PER_SESSION", "group": "implementation", "description": "When true, /ifq always hands off after one phase instead of continuing automatically while the context gate allows it."},
+    "sessionStaleSeconds": {"type": "int", "default": 1800, "min": 1, "scope": ["global", "repo"], "env": "CFQ_SESSION_STALE_SECONDS", "group": "limits", "description": "Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
+    "ctxWindowLimits": {"type": "object", "shape": {"default": "int", "large": "object"}, "default": {"default": 200000, "large": {"models": ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"], "limit": 1000000}}, "scope": ["global", "repo"], "env": None, "group": "limits", "description": "Context-window size in tokens per model, keyed by whether the model gets the large window."},
+    "securityTimeoutSeconds": {"type": "int", "default": 30, "min": 1, "scope": ["global"], "env": None, "group": "maintenance", "description": "Timeout in seconds for the batch-completion security scan."},
+    "securityFindingsCap": {"type": "int", "default": 20, "min": 1, "scope": ["global"], "env": None, "group": "maintenance", "description": "Maximum number of security findings surfaced per batch-completion scan."},
+    "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": None, "group": "repo", "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
+    "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": None, "group": "language", "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
+    "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
+    "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
+    "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
 }
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
@@ -337,6 +352,146 @@ def cmd_describe(args):
         print(render.dump_json(out))
 
 
+def _marker(source):
+    """Maps a `key_source()` result onto the four-letter legend `settings menu` prints:
+    [D] default [G] global [R] repo [E] env — both env flavours (`env:process` and the legacy
+    `env:repo-legacy`) share the E marker, distinguished in text output by a trailing note
+    instead of a fifth letter."""
+    if source in ("env:process", "env:repo-legacy"):
+        return "E"
+    if source == "repo":
+        return "R"
+    if source == "global":
+        return "G"
+    return "D"
+
+
+def _format_menu_value(entry, value):
+    type_ = entry["type"]
+    if type_ == "array":
+        return ",".join(value) if value else ""
+    if type_ == "object":
+        return render.dump_json(value)
+    return render.tostring(value)
+
+
+def _range_str(entry):
+    """Allowed-values-or-range text for `settings menu --group`'s type column: enum lists its
+    values, int shows its min/max bounds, string shows its validation pattern. Empty for a type
+    with none of the three (bool, array, object)."""
+    type_ = entry["type"]
+    if type_ == "enum":
+        return "one of " + "|".join(entry["values"])
+    if type_ == "int":
+        parts = []
+        if "min" in entry:
+            parts.append(f">= {entry['min']}")
+        if "max" in entry:
+            parts.append(f"<= {entry['max']}")
+        return ", ".join(parts)
+    if type_ == "string" and entry.get("pattern"):
+        return f"pattern {entry['pattern']}"
+    return ""
+
+
+def _repo_label(repo_path):
+    return pathlib.Path(repo_path).name or "global" if repo_path else "global"
+
+
+LEGEND = "[D] default  [G] global  [R] repo  [E] env"
+
+
+def _menu_groups(args, base, final):
+    """Builds `{groups:[{id,title,keys:[...]}]}`'s `groups` list -- the one data structure every
+    `settings menu` format (text overview, text --group, --format json) renders from, so the three
+    can never disagree about a key's value/source/marker."""
+    keys_by_group = {g["id"]: [] for g in GROUPS}
+    for key, entry in SCHEMA.items():
+        keys_by_group[entry["group"]].append(key)
+
+    groups_out = []
+    for g in GROUPS:
+        if args.group and g["id"] != args.group:
+            continue
+        group_keys = []
+        for key in keys_by_group[g["id"]]:
+            entry = SCHEMA[key]
+            source = key_source(key, args.repo, base, final)
+            group_keys.append({
+                "key": key,
+                "value": final.get(key),
+                "source": source,
+                "marker": _marker(source),
+                "type": entry["type"],
+                "values": entry.get("values"),
+                "min": entry.get("min"),
+                "scopes": entry["scope"],
+                "default": entry["default"],
+                "description": entry["description"],
+            })
+        groups_out.append({"id": g["id"], "title": g["title"], "keys": group_keys})
+    return groups_out
+
+
+def _render_menu_overview(groups_out, repo_path):
+    lines = [f"SETTINGS · {_repo_label(repo_path)}", LEGEND, ""]
+    for i, g in enumerate(groups_out, start=1):
+        lines.append(f"{i}. {g['title']}")
+        # Non-default keys first (stable sort keeps each side in schema-declared order).
+        ordered = sorted(g["keys"], key=lambda k: k["source"] == "default")
+        preview, remaining = ordered[:2], len(ordered) - min(2, len(ordered))
+        rows = [
+            [f"[{k['marker']}]", k["key"], _format_menu_value(SCHEMA[k["key"]], k["value"])]
+            for k in preview
+        ]
+        lines.extend(text.table(rows, indent="   "))
+        if remaining > 0:
+            lines.append(f"   … +{remaining}")
+        lines.append("")
+    # A trailing all-empty column (the last row's notes cell, or a value cell of "") still gets a
+    # gap inserted ahead of it by text.table() -- rstrip every line rather than special-case it.
+    return "\n".join(ln.rstrip() for ln in lines).rstrip("\n")
+
+
+def _render_menu_group(group_out, repo_path):
+    lines = [f"SETTINGS · {_repo_label(repo_path)} · {group_out['title']}", LEGEND, ""]
+    rows = []
+    for k in group_out["keys"]:
+        entry = SCHEMA[k["key"]]
+        notes = []
+        if "repo" not in entry["scope"]:
+            notes.append("global only")
+        if k["source"] == "env:repo-legacy":
+            notes.append("(legacy env)")
+        rows.append([
+            f"[{k['marker']}]",
+            k["key"],
+            _format_menu_value(entry, k["value"]),
+            entry["type"],
+            _range_str(entry),
+            " ".join(notes),
+        ])
+    lines.extend(text.table(rows, indent="  "))
+    return "\n".join(ln.rstrip() for ln in lines)
+
+
+def cmd_menu(args):
+    ensure()
+    if args.group and args.group not in GROUP_IDS:
+        errors.fail("UNKNOWN_GROUP", detail=f"unknown group '{args.group}', want one of {', '.join(GROUP_IDS)}")
+    base = merged_tiers(args.repo)
+    final = with_overrides(base)
+    groups_out = _menu_groups(args, base, final)
+
+    if args.format == "json":
+        print(render.dump_json({"groups": groups_out}))
+        return
+    if args.group:
+        print(_render_menu_group(groups_out[0], args.repo))
+    else:
+        print(_render_menu_overview(groups_out, args.repo))
+
+
 def cmd_migrate(args):
     repo_root = args.repo_root
     legacy = os.path.join(repo_root, ".claude", "settings.json")
@@ -416,6 +571,12 @@ def build_parser():
     describe_p.add_argument("key", nargs="?")
     describe_p.set_defaults(func=cmd_describe)
 
+    menu_p = sub.add_parser("menu")
+    menu_p.add_argument("--repo")
+    menu_p.add_argument("--group")
+    menu_p.add_argument("--format", choices=["text", "json"], default="text")
+    menu_p.set_defaults(func=cmd_menu)
+
     migrate_p = sub.add_parser("migrate")
     migrate_p.add_argument("repo_root")
     migrate_p.set_defaults(func=cmd_migrate)
@@ -444,6 +605,7 @@ def main(argv):
         errors.die(
             f"usage: {PROG} list [--repo <path>] [--sources] | get [--repo <path>] [--source] <key> | "
             f"set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | "
+            f"menu [--repo <path>] [--group <id>] [--format text|json] | "
             f"migrate <repo-root> | state get <key> | state set <key> <value>"
         )
     func(args)
