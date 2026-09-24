@@ -3,14 +3,14 @@
 ## Batch-Done Report Fields
 
 `bin/cfq finish` moves the batch into `impl/done/`, registers the repo, runs the
-language/maintenance/security/changelog/telemetry sequence and releases the lock unconditionally (a
-`trap`, so a mid-sequence failure can never leave the repo locked), and prints one JSON object whose
-`statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/`Changelog`/
-`Telemetry`/`Lock` rendered from that same object's fields — print each entry as returned, in
-order; `Security Diff` is entirely absent from the array on an older batch with no planning
-snapshot to diff against, rather than printed empty. Any `.errors` entry (`"<step>: <message>"`)
-already arrives attached as a `sub` line under its matching entry above — the sequence still
-completed, no separate error line to compose.
+language/maintenance/security/changelog/telemetry sequence, syncs the portal, and releases the lock
+unconditionally (a `trap`, so a mid-sequence failure can never leave the repo locked), and prints
+one JSON object whose `statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/
+`Changelog`/`Telemetry`/`Report`/`Lock` rendered from that same object's fields — print each entry
+as returned, in order; `Security Diff` is entirely absent from the array on an older batch with no
+planning snapshot to diff against, rather than printed empty. Any `.errors` entry
+(`"<step>: <message>"`) already arrives attached as a `sub` line under its matching entry above —
+the sequence still completed, no separate error line to compose.
 
 One addition the aggregator cannot make on its own: `Language`'s line covers only the structural
 count (`.lang.issues`, `missing`/`stray`/`unfiled`); still judge `.lang.prose.sample` yourself for
@@ -22,9 +22,11 @@ more `   └ ` sub-line of your own to the printed `Language` line — an additi
 what the aggregator already rendered. No repair here either way — every finding becomes a `todo/`
 entry per **Follow-Up** in `queue-entries.md`.
 
-Render the HTML report (`bin/cfq report html "<repo-root>/.claude/cfq/impl/done/<batch>"`),
-printing `Report` as `rendered`, unless `htmlReport` is `false` — then skip it, printing `➖ off ·
-/rfq renders on demand` and no `file://` line in **Closing Reports**.
+`Report` names the batch's own route inside the report portal (`file://<repo-root>/.claude/cfq/
+reports/index.html#/batch/<batch>`) — the portal sync itself already ran as this same `finish`
+call's own side effect (`cfq_lib/portal_hook.py`), so this line only reports where it landed, no
+separate render step to run. `htmlReport: false` renders it `➖ off · /rfq renders on demand`
+instead, with no `file://` line in **Closing Reports**.
 
 ## Closing Report Fields (full format)
 
@@ -60,7 +62,8 @@ printing `Report` as `rendered`, unless `htmlReport` is `false` — then skip it
   `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
   `queue-entries.md`), so a forgotten merge is never lost and the card's `check:` line lets `/cfq`
   close it on its own once the merge lands.
-- `Report` — `file://` path, only when the Batch-Done step rendered one, else the line is omitted.
+- `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
+  this batch, or omitted when `htmlReport` turned the sync off.
 
 **Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases
 open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the

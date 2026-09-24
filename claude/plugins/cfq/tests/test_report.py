@@ -17,7 +17,7 @@ import tempfile
 import time
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -150,16 +150,6 @@ class TestReport(CfqTestCase):
         expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, f"summary = {s}")
 
-        out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
-        self.assertEqual(out, str(batch / "report.html"), f"html path (default reportDir) = {out}")
-        self.assertTrue((batch / "report.html").is_file(), "report.html not created")
-
-        html = (batch / "report.html").read_text()
-        self.assertIn("01-a", html, "report.html missing 01-a")
-        self.assertIn("02-b", html, "report.html missing 02-b")
-        self.assertIn("1 Test &lt;failed&gt;", html, "error text not HTML-escaped")
-        self.assertEqual(html.count('class="tele"'), 0, "report.html has telemetry markup despite no telemetry data")
-
         lf = self.json_out(self.run_cfq("report", "last-failure", str(batch), "02-b"))
         self.assertTrue(lf["found"], f"last-failure should find 02-b's red entry: {lf}")
         self.assertEqual(lf["note"], "fehlgeschlagen", f"last-failure note: {lf}")
@@ -227,12 +217,10 @@ class TestReport(CfqTestCase):
         # once, regardless of how many report-bearing batches exist. cfq_report.py resolves its
         # own SCRIPT_DIR from its own path, so the stub has to be invoked directly by path --
         # this is the one case in this file that cannot go through bin/cfq, since the dispatcher
-        # would always exec the real, unstubbed scripts/ directory. `build_index_rows` now calls
-        # `resolve_html_path`/`settings_get` for every row (phase 06's `rendered`/`href` fields),
-        # which shells out to `bin/cfq settings get` -- so this double copies the whole `scripts/`
+        # would always exec the real, unstubbed scripts/ directory. Copies the whole `scripts/`
         # tree plus `bin/`, preserving the real `bin/../scripts` layout (the same rule every other
-        # filename-shadowing test double in this suite already follows), rather than the three
-        # files that sufficed before that call existed.
+        # filename-shadowing test double in this suite already follows), rather than the handful of
+        # files that would technically suffice for this one call.
         scan_calls = self._repos_dir / "scan-call-count"
         scripts_dir = PLUGIN_ROOT / "scripts"
         stub_root = self._repos_dir / "stub-cfq"
@@ -334,293 +322,46 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         vlines = det_long["phases"][0]["verification"].count("\n")
         self.assertLess(vlines, 200, f"detail should bound verification output, got {vlines} lines")
 
-    def test_html_report_dir_and_index(self):
-        rd = self._repos_dir / "reportdir"
-        rd.mkdir()
-        repo_x = self._repos_dir / "repo-x"
-        batch_x_name = "2026-03-01-goaltest"
-        batch_x = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_x_name
-        (batch_x / "done").mkdir(parents=True)
-        (batch_x / "done" / "01-a.md").write_text("""# A phase
+    # ---- html: batch 040 phase 05 -- a thin `portal sync` alias, no file of its own -----------
 
-## Context
-
-This phase adds the goal-extraction test.
-It covers the two-line context excerpt.
-
-## Size
-
-M
-""")
+    def test_html_is_a_thin_portal_alias(self):
+        repo = self._repos_dir / "repo-html-alias"
+        batch_name = "2026-07-01-htmlalias"
+        batch = repo / ".claude" / "cfq" / "impl" / batch_name
+        batch.mkdir(parents=True)
         cfq_report.append_phase(
-            str(batch_x),
-            '{"phase":"01-a","status":"green","finished":"2026-03-01T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"eee5555"}',
+            str(batch),
+            '{"phase":"01-a","status":"green","finished":"2026-07-01T10:00:00+01:00","summary":"ok",'
+            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"7770000"}',
             record_telemetry=False,
         )
 
-        env = {"CFQ_REPORT_DIR": str(rd), "CFQ_SCAN_ROOTS": str(self._repos_dir)}
-        out_x = self.run_cfq("report", "html", str(batch_x), env=env).stdout.strip()
-        self.assertEqual(out_x, str(rd / "repo-x" / f"{batch_x_name}.html"), f"reportDir html path = {out_x}")
-        self.assertTrue((rd / "repo-x" / f"{batch_x_name}.html").is_file(), f"collected report.html not created: {out_x}")
-        self.assertTrue((rd / "index.html").is_file(), "index.html not created")
-        html_x = (rd / "repo-x" / f"{batch_x_name}.html").read_text()
-        self.assertIn("This phase adds the goal-extraction test", html_x, "report.html missing phase goal text")
-        self.assertIn('<header class="batch">', html_x, "report.html missing the header block")
-        self.assertIn("<dt>Repo</dt>", html_x, "report.html header missing the Repo pair")
-        self.assertIn("<dt>Started</dt>", html_x, "report.html header missing the Started pair")
-        # phase 03 fills the overview placeholder in; this batch has no .batch-context.md, so the
-        # slot renders empty and neither the placeholder comment nor the section survives.
-        self.assertNotIn("<!-- overview -->", html_x, "overview placeholder not filled in")
-        self.assertNotIn('<section class="overview">', html_x, "overview section rendered despite no .batch-context.md")
-        # phase 04 fills the phase-table placeholder in; this batch has one phase, so the section
-        # renders and the placeholder comment no longer survives.
-        self.assertNotIn("<!-- phase-table -->", html_x, "phase-table placeholder not filled in")
-        self.assertIn('<section class="phase-table">', html_x, "report.html missing the rendered phase table")
-        self.assertNotIn("Dauer", html_x, "report.html still carries the German Dauer label")
-        self.assertNotIn("Implementierung", html_x, "report.html still carries the German Implementierung label")
-        index_html = (rd / "index.html").read_text()
-        self.assertIn(batch_x_name, index_html, f"index.html missing batch {batch_x_name}")
-        n_links = index_html.count("<a href=")
-        self.assertGreaterEqual(n_links, 1, f"index.html has no links: {n_links}")
-        # phase 07: index.html shares the batch report's header design and renders a table per
-        # repo, not the old flat <ul>.
-        self.assertIn('<header class="batch">', index_html, "index.html missing the shared header block")
-        self.assertIn('<section class="repo">', index_html, "index.html missing the per-repo table section")
-        self.assertIn('<tr class="green">', index_html, "index.html missing a rendered batch's table row")
-
-        # edge: batch whose phase file no longer exists -> phase still renders, goal omitted, no crash
-        batch_y_name = "2026-03-02-nogoal"
-        batch_y = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_y_name
-        (batch_y / "done").mkdir(parents=True)
-        cfq_report.append_phase(
-            str(batch_y),
-            '{"phase":"01-a","status":"green","finished":"2026-03-02T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"fff6666"}',
-            record_telemetry=False,
+        out = self.run_cfq("report", "html", str(batch)).stdout.strip()
+        self.assertEqual(
+            out, f"file://{repo}/.claude/cfq/reports/index.html#/batch/{batch_name}",
+            f"html alias did not print the portal's batch route: {out}",
         )
-        out_y = self.run_cfq("report", "html", str(batch_y), env=env).stdout.strip()
-        self.assertTrue(len(out_y) > 0, f"html for missing-plan-file batch not created: {out_y}")
-        html_y = (rd / "repo-x" / f"{batch_y_name}.html").read_text()
-        self.assertNotIn('class="goal"', html_y, "goal markup present despite no plan file")
-
-        # edge: called twice -> overwritten not duplicated, index still lists the batch once
-        out_x2 = self.run_cfq("report", "html", str(batch_x), env=env).stdout.strip()
-        self.assertEqual(out_x2, out_x, f"second html call path differs: {out_x2}")
-        count_x = len(list((rd / "repo-x").glob(f"{batch_x_name}.html")))
-        self.assertEqual(count_x, 1, f"duplicate html file for batch_x: {count_x}")
-        index_html = (rd / "index.html").read_text()
-        href_count = index_html.count(f"repo-x/{batch_x_name}.html")
-        self.assertEqual(href_count, 1, f"index.html links batch_x more than once: {href_count}")
-
-        # edge: a batch with a report.json but no rendered HTML keeps its row, without a href --
-        # `README.md`'s "still listed, just without a link" guarantee, now for the table markup.
-        batch_w_name = "2026-03-03-unrendered"
-        batch_w = repo_x / ".claude" / "cfq" / "impl" / "done" / batch_w_name
-        (batch_w / "done").mkdir(parents=True)
-        cfq_report.append_phase(
-            str(batch_w),
-            '{"phase":"01-a","status":"green","finished":"2026-03-03T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"aaa7777"}',
-            record_telemetry=False,
-        )
-        self.run_cfq("report", "html", str(batch_x), env=env)  # regenerate the index
-        index_html = (rd / "index.html").read_text()
-        self.assertIn(batch_w_name, index_html, f"index.html missing unrendered batch {batch_w_name}")
-        self.assertNotIn(f"{batch_w_name}.html", index_html, "index.html links an unrendered batch")
-
-        # must-fall-back: reportDir pointing at a path that cannot be created -> non-zero exit,
-        # stderr message, batch-directory file NOT silently written instead
-        robase = self._repos_dir / "readonly-parent"
-        robase.mkdir()
-        badrd = robase / "reports"
-        robase.chmod(0o555)
-        try:
-            proc = self.run_cfq(
-                "report", "html", str(batch_x),
-                env={"CFQ_REPORT_DIR": str(badrd), "CFQ_SCAN_ROOTS": str(self._repos_dir)},
-            )
-        finally:
-            robase.chmod(0o755)
-        self.assertNotEqual(proc.returncode, 0, "html should fail when reportDir cannot be created")
-        self.assertTrue(len(proc.stderr) > 0, "no stderr message on reportDir mkdir failure")
+        self.assertFalse((batch / "report.html").exists(), "html alias must not write a batch-dir report.html")
         self.assertFalse(
-            (batch_x / "report.html").exists(), "fell back to writing batch-dir report.html on reportDir failure",
+            (repo / ".claude" / "cfq" / "reports" / f"{batch_name}.html").exists(),
+            "html alias must not write a flat <batch>.html file",
+        )
+        self.assertTrue(
+            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.impl.js").is_file(),
+            "html alias did not sync this batch's own data into the portal",
+        )
+        self.assertTrue(
+            (repo / ".claude" / "cfq" / "reports" / "index.html").is_file(),
+            "html alias did not install the portal shell",
         )
 
-    def test_html_repo_local_default_and_index(self):
-        # change 1: an empty reportDir (the new default) resolves to <repo-root>/.claude/cfq/
-        # reports/<batch>.html rather than inside the batch directory -- the required fixture
-        # case: the first test running the shared body renderer against a path derived from the
-        # batch directory itself.
-        repo_y = self._repos_dir / "repo-y"
-        batch_y_name = "2026-04-01-repolocal"
-        batch_y = repo_y / ".claude" / "cfq" / "impl" / batch_y_name
-        batch_y.mkdir(parents=True)
-        cfq_report.append_phase(
-            str(batch_y),
-            '{"phase":"01-a","status":"green","finished":"2026-04-01T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"1110000"}',
-            record_telemetry=False,
-        )
-
-        env = {"CFQ_SCAN_ROOTS": str(self._repos_dir)}
-        out = self.run_cfq("report", "html", str(batch_y), env=env).stdout.strip()
-        expected_path = repo_y / ".claude" / "cfq" / "reports" / f"{batch_y_name}.html"
-        self.assertEqual(out, str(expected_path), f"repo-local default html path = {out}")
-        self.assertTrue(expected_path.is_file(), "repo-local report.html not created")
-        self.assertFalse((batch_y / "report.html").exists(), "report.html must not also land in the batch dir")
-
-        html_y = expected_path.read_text()
-        self.assertIn('<header class="batch">', html_y, "report.html missing the header block")
-        self.assertIn("<dt>Repo</dt>", html_y, "report.html header missing the Repo pair")
-        self.assertIn("<dt>Started</dt>", html_y, "report.html header missing the Started pair")
-        # phase 03 fills the overview placeholder in; this batch has no .batch-context.md, so the
-        # slot renders empty and neither the placeholder comment nor the section survives.
-        self.assertNotIn("<!-- overview -->", html_y, "overview placeholder not filled in")
-        self.assertNotIn('<section class="overview">', html_y, "overview section rendered despite no .batch-context.md")
-        # phase 04 fills the phase-table placeholder in; this batch has one phase, so the section
-        # renders and the placeholder comment no longer survives.
-        self.assertNotIn("<!-- phase-table -->", html_y, "phase-table placeholder not filled in")
-        self.assertIn('<section class="phase-table">', html_y, "report.html missing the rendered phase table")
-        self.assertNotIn("Dauer", html_y, "report.html still carries the German Dauer label")
-        self.assertNotIn("Implementierung", html_y, "report.html still carries the German Implementierung label")
-
-        # change 3: the repo-local default also regenerates index.html in that same reports/
-        # directory, with a flat href -- not the shared-reportDir <repoBase>/<batch>.html shape,
-        # since the reports/ dir is already repo-local.
-        index_path = repo_y / ".claude" / "cfq" / "reports" / "index.html"
-        self.assertTrue(index_path.is_file(), "repo-local index.html not created")
-        index_html = index_path.read_text()
-        self.assertIn(f'<a href="{batch_y_name}.html">', index_html, "repo-local index link not flat/relative")
-        # phase 07: index.html shares the batch report's header design and renders a table per
-        # repo, one <tr> per batch -- the one-design contract this phase exists to restore.
-        self.assertIn('<header class="batch">', index_html, "index.html missing the shared header block")
-        self.assertIn('<section class="repo">', index_html, "index.html missing the per-repo table section")
-        self.assertIn('<tr class="green">', index_html, "index.html missing the rendered batch's table row")
-
-        # change 3, scoping: a batch from a different repo must never show up in repo_y's own
-        # local index, even though the underlying scan is cross-repo -- "listing that repo's
-        # batches" per the phase, not everyone else's.
-        repo_z = self._repos_dir / "repo-z"
-        batch_z_name = "2026-04-02-otherrepo"
-        batch_z = repo_z / ".claude" / "cfq" / "impl" / batch_z_name
-        batch_z.mkdir(parents=True)
-        cfq_report.append_phase(
-            str(batch_z),
-            '{"phase":"01-a","status":"green","finished":"2026-04-02T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"2220000"}',
-            record_telemetry=False,
-        )
-        self.run_cfq("report", "html", str(batch_y), env=env)  # regenerate repo_y's own index
-        index_html = index_path.read_text()
-        self.assertNotIn(batch_z_name, index_html, "repo-y's local index picked up a batch from another repo")
-
-        # change 4: batch_z has a report.json but no rendered HTML anywhere -- the global table
-        # still lists it, but prints no file:// line for it.
-        idx_text = self.run_cfq("report", "index", "--text", env=env).stdout
-        self.assertIn(batch_z_name, idx_text, "unrendered batch missing from the table")
-        unrendered_path = repo_z / ".claude" / "cfq" / "reports" / f"{batch_z_name}.html"
-        self.assertNotIn(f"file://{unrendered_path}", idx_text, "file:// line printed for an unrendered report")
-
-    def test_html_telemetry_mode_and_worker_split(self):
-        # change 5: the detail/HTML renderer surfaces phase 02's `mode` and, when the worker
-        # share is non-zero, the orchestrator/worker split.
-        batch = self._batch("2026-05-01-orchestrator-html")
-        cfq_report.append_phase(
-            str(batch),
-            json.dumps({
-                "phase": "01-a", "status": "green", "finished": "2026-05-01T10:00:00+01:00",
-                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
-                "commit": "3330000",
-                "telemetry": {
-                    "totals": {"turns": 10, "output": 1000},
-                    "subagent": {"turns": 6, "output": 700},
-                    "by_model": {}, "by_effort": {}, "mode": "orchestrator",
-                },
-            }),
-            record_telemetry=False,
-        )
-        out = self.run_clean(str(CFQ_BIN), "report", "html", str(batch)).stdout.strip()
-        self.assertEqual(out, str(batch / "report.html"), f"html path (default reportDir) = {out}")
-        html = (batch / "report.html").read_text()
-        self.assertIn('<dt>Mode</dt><dd>orchestrator</dd>', html, "mode not rendered")
-        # `main` (10/1,000) vs `worker` (6/700), straight from phase_layer_sums() -- no
-        # subtraction (this fixture has no `layers` key, so `main` derives from `totals` as-is).
-        self.assertIn(
-            '<dt>Orchestrator / worker</dt><dd>10/6 turns · 1,000/700 out</dd>', html,
-            "orchestrator/worker split not rendered correctly",
-        )
-
-        # A record predating phase 02 (no mode, no subagent activity) must render exactly as
-        # before -- no empty Mode/Split column, no "None".
-        batch2 = self._batch("2026-05-02-classic-html")
-        cfq_report.append_phase(
-            str(batch2),
-            json.dumps({
-                "phase": "01-a", "status": "green", "finished": "2026-05-02T10:00:00+01:00",
-                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
-                "commit": "4440000",
-                "telemetry": {"totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {}},
-            }),
-            record_telemetry=False,
-        )
-        out2 = self.run_clean(str(CFQ_BIN), "report", "html", str(batch2)).stdout.strip()
-        self.assertEqual(out2, str(batch2 / "report.html"), f"html path (default reportDir) = {out2}")
-        html2 = (batch2 / "report.html").read_text()
-        self.assertNotIn('<dt>Mode</dt>', html2, "Mode column rendered despite no mode field")
-        self.assertNotIn('<dt>Orchestrator / worker</dt>', html2, "Split column rendered despite no subagent activity")
-
-        # A third fixture whose by_skill holds only "-" must omit the Skills pair entirely,
-        # rather than rendering an empty value (the "-" sentinel is skills_str's own "unknown").
-        batch3 = self._batch("2026-05-03-only-dash-skill")
-        cfq_report.append_phase(
-            str(batch3),
-            json.dumps({
-                "phase": "01-a", "status": "green", "finished": "2026-05-03T10:00:00+01:00",
-                "summary": "ok", "deviations": [], "errors": [], "verification": "tests -> PASS",
-                "commit": "5550000",
-                "telemetry": {
-                    "totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {},
-                    "by_skill": {"-": 3},
-                },
-            }),
-            record_telemetry=False,
-        )
-        self.run_clean(str(CFQ_BIN), "report", "html", str(batch3))
-        html3 = (batch3 / "report.html").read_text()
-        self.assertNotIn('<dt>Skills</dt>', html3, "Skills pair rendered despite by_skill holding only '-'")
-
-    def test_html_stylesheet_defines_every_colour_on_root(self):
-        # A colour must never get its only definition inside a @media block -- dark mode and the
-        # print stylesheet only redefine tokens the bare :root block already declares.
-        batch = self._batch("2026-06-01-stylecheck")
-        cfq_report.append_phase(
-            str(batch),
-            '{"phase":"01-a","status":"green","finished":"2026-06-01T10:00:00+01:00","summary":"ok",'
-            '"deviations":[],"errors":[],"verification":"tests -> PASS","commit":"6660000"}',
-            record_telemetry=False,
-        )
-        self.run_clean(str(CFQ_BIN), "report", "html", str(batch))
-        html = (batch / "report.html").read_text()
-
-        style_match = re.search(r"<style>(.*?)</style>", html, re.S)
-        self.assertIsNotNone(style_match, "no <style> block found in report.html")
-        css = style_match.group(1)
-
-        root_match = re.search(r":root\s*\{([^}]*)\}", css)
-        self.assertIsNotNone(root_match, "no bare :root block found in the stylesheet")
-        root_props = set(re.findall(r"(--[\w-]+)\s*:", root_match.group(1)))
-        self.assertGreater(len(root_props), 0, "bare :root block defines no custom properties")
-
-        media_root_blocks = re.findall(r"@media[^{]*\{\s*:root\s*\{([^}]*)\}\s*\}", css, re.S)
-        self.assertGreater(len(media_root_blocks), 0, "no @media :root override block found (dark mode / print)")
-        for block in media_root_blocks:
-            for prop in re.findall(r"(--[\w-]+)\s*:", block):
-                self.assertIn(
-                    prop, root_props,
-                    f"custom property {prop} is redefined inside a @media block but never defined on bare :root",
-                )
+    def test_html_without_a_resolvable_repo_root_fails_loudly(self):
+        # A batch directory not nested under `.claude/cfq/impl(/done)/` at all has nowhere for a
+        # portal to live -- the alias must refuse, not silently degrade or write a fallback file.
+        batch = self._batch("2026-07-02-noreporoot")
+        proc = self.run_cfq("report", "html", str(batch))
+        self.assertNotEqual(proc.returncode, 0, "html alias should fail without a resolvable repo root")
+        self.assertTrue(len(proc.stderr) > 0, "no stderr message for an unresolvable repo root")
 
     # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
     # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
@@ -1103,9 +844,11 @@ class TestIndexText(CfqTestCase):
         self._batch(
             "repo-a", "2026-05-02-unrendered", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")],
         )
-        html_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports"
-        html_dir.mkdir(parents=True)
-        (html_dir / "2026-05-01-rendered.html").write_text("<html></html>")
+        # `rendered` now means "the portal has this batch's own data" -- simulated directly by
+        # dropping the one data file `portal sync` would have written, rather than a `.html` file.
+        data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
+        data_dir.mkdir(parents=True)
+        (data_dir / "2026-05-01-rendered.impl.js").write_text("window.CFQ_DATA = {};")
 
         text = self._run_text()
         self.assertNotIn("file://", text, f"a file:// line leaked into the listing:\n{text}")

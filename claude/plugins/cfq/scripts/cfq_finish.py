@@ -85,6 +85,16 @@ def telemetry_line(telemetry, ok):
     return cfq_text.status_entry("Telemetry", "done" if ok else "warn", telemetry)
 
 
+def report_line(html_report, repo_root, batch_name):
+    """The `Report` status line -- the portal sync itself already ran as this same `finish` call's
+    own side effect (`cfq_lib/portal_hook.py`, fired unconditionally below), so this only names
+    where it landed: the batch's own route inside the (already-synced) portal, or `➖ off` when
+    `htmlReport` turns the automatic sync off."""
+    if html_report != "true":
+        return cfq_text.status_entry("Report", "skip", "off · /rfq renders on demand")
+    return cfq_text.status_entry("Report", "done", paths.portal_batch_url(repo_root, batch_name))
+
+
 def lock_line(lock):
     return cfq_text.status_entry("Lock", "done", lock)
 
@@ -242,10 +252,6 @@ def cmd_finish(args):
             add_error("telemetry", telemetry)
 
         html_report = capture(cfq_run("settings", "get", "--repo", str(repo_root), "htmlReport"))
-        if html_report == "true":
-            if cfq_run("report", "html", str(batch_dir)).returncode != 0:
-                print(f"{PROG}: html report render failed for {batch_dir}", file=sys.stderr)
-
         portal_hook.sync(str(repo_root), batches=[batch_dir.name])
 
         status_lines = [
@@ -254,6 +260,7 @@ def cmd_finish(args):
             security_diff_line({"planning": planning_json, "now": now_json, "new": new_json}),
             changelog_line(changelog),
             telemetry_line(telemetry, tel_proc.returncode == 0),
+            report_line(html_report, str(repo_root), batch_dir.name),
             lock_line("released"),
         ]
         attach_errors(status_lines, errs)

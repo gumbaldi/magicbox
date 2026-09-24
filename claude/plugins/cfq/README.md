@@ -46,7 +46,7 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 | `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. |
 | `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
 | `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
-| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or a detailed HTML report. |
+| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or in the report portal. |
 
 ## What each skill does
 
@@ -337,14 +337,23 @@ queue.
 
 Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
 by default (`--limit 0` for the full history) with a marker column showing which batches already
-have their HTML rendered — or drill into a single batch for the detailed HTML report. By default
-it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
-an `index.html` regenerated alongside it listing that repo's own batches; set `reportDir` for the
-collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). Every
-finished batch renders its HTML at batch end and refreshes the repo's `index.html`; `/rfq`
-re-renders on demand, and `htmlReport: false` turns the automatic render off. The HTML can be
-deleted freely — `report.json` is the source of truth, and a batch whose HTML hasn't been rendered
-yet is still listed, just without a link.
+have their data in the report portal — or drill into a single batch for the portal's own detail
+view.
+
+## Report portal
+
+`<repo>/.claude/cfq/reports/index.html` is a single-page viewer over every batch this repo's queue
+has ever planned or implemented, plus its open `todo`/`plan` entries — a queue overview, a
+per-batch plan and implementation detail page, and a cost-by-agent-layer breakdown, all rendered
+client-side from plain data files `bin/cfq portal sync` writes alongside the fixed viewer shell.
+It's kept current as a side effect of the mutating verbs that already run during `pfq`/`ifq`
+(park, phase commit, `finish`, …) — at zero model-token cost, since nothing is rendered by the
+model itself, and a resync that changes nothing writes nothing. Set `reportDir` to an absolute
+path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a cross-repo index
+across every repo that mirrors into it (`## Report collection layout` in `docs/configuration.md`).
+`htmlReport: false` turns every automatic sync off — `/rfq`'s `report html` verb still syncs a
+single batch on request even then, so the portal always stays reachable, just not kept current in
+the background.
 
 ## Telemetry
 

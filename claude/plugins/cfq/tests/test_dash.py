@@ -651,7 +651,7 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
             "work off todo/ entries     runs their check: commands\n"
             "change a setting           just say it in plain language\n"
             "full batch list            bin/cfq dash render --all\n"
-            "view reports               /rfq\n"
+            "view reports               /rfq · /x/repo-a/.claude/cfq/reports/index.html\n"
             "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"
             "settings, global           bin/cfq settings list --sources\n"
             "\n"

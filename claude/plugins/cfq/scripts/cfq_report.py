@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib.markdown import esc, html_escape_jq, md_inline, md_min  # noqa: E402,F401
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
@@ -87,37 +88,6 @@ def repo_root_of(d):
     if idx != -1:
         return abs_path[:idx]
     return ""
-
-
-def settings_get(repo_root, key):
-    """Stays local, not `cfq_lib.proc.settings_get`: `repo_root` here is optional (falsy skips
-    `--repo` for a global-only read), which the shared helper doesn't support."""
-    cmd = cfq_argv("settings", "get")
-    if repo_root:
-        cmd += ["--repo", repo_root]
-    cmd.append(key)
-    out = subprocess.run(cmd, capture_output=True, text=True)
-    return out.stdout.strip()
-
-
-def resolve_html_path(dir_):
-    """Path report.html lives (or would live) at for a batch directory, honoring the reportDir
-    setting when configured -- same resolution `html`, `index --text`'s file:// lines and
-    `regenerate_index()` all need. Read-only: a caller that's about to write creates the directory
-    itself. Three branches: an explicit absolute `reportDir` keeps the shared cross-repo layout
-    unchanged; an empty/`"null"` `reportDir` with a derivable repo root now lands under that
-    repo's own `.claude/cfq/reports/`, flat, one file per batch; a batch directory that isn't
-    nested under a `.claude/cfq/impl(/done)/` at all (repo root not derivable -- true only for
-    synthetic fixtures, never a real batch) falls back to the historical per-batch-directory
-    path so that case degrades exactly as it always has."""
-    dir_ = dir_.rstrip("/")
-    repo_root = repo_root_of(dir_)
-    report_dir = settings_get(repo_root, "reportDir")
-    if report_dir not in ("", "null"):
-        return f"{report_dir}/{os.path.basename(repo_root)}/{os.path.basename(dir_)}.html"
-    if repo_root:
-        return f"{repo_root}/.claude/cfq/reports/{os.path.basename(dir_)}.html"
-    return f"{dir_}/report.html"
 
 
 def ensure_report(dir_):
@@ -1002,37 +972,22 @@ def render_report_html(data, goals, dir_):
 
 
 def cmd_html(args):
+    """Batch 040 phase 05: a thin alias over `portal sync` -- the portal (`cfq_portal.py`) is now
+    the only HTML `report` writes. No `<batch>.html`/`report.html` file is produced here any more;
+    this verb only makes sure this one batch's own data is current in the portal, then prints the
+    `file://` route to it. This verb's former per-batch and collected-tree file writers are gone
+    along with the files they used to write."""
     dir_ = args.dir.rstrip("/")
-    f = os.path.join(dir_, "report.json")
-    if not os.path.isfile(f):
-        errors.die(f"{PROG}: no report.json in {dir_}")
-    data = json.loads(pathlib.Path(f).read_text())
-
     repo_root = repo_root_of(dir_)
-    report_dir = settings_get(repo_root, "reportDir")
-    out = resolve_html_path(dir_)
-    # Unconditional: resolve_html_path() alone decides *where*, this only ensures it exists --
-    # the repo-local default (change 1) points at a directory that may not exist yet on the
-    # first render, same as the collected-tree case always did.
-    try:
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-    except OSError:
-        errors.die(f"{PROG}: cannot create {os.path.dirname(out)}")
-
-    goals = extract_goals(dir_, data)
-    html_doc = render_report_html(data, goals, dir_)
-    tmp = f"{out}.tmp"
-    pathlib.Path(tmp).write_text(html_doc + "\n")
-    os.replace(tmp, out)
-    print(out)
-
-    # Collected-tree mode regenerates the cross-repo index; the repo-local default regenerates
-    # its own repo-scoped index into the same reports/ directory, once a repo root exists to
-    # scope it to (a batch with no derivable repo root has no reports/ dir to index into).
-    if report_dir not in ("", "null"):
-        regenerate_index(report_dir)
-    elif repo_root:
-        regenerate_index(f"{repo_root}/.claude/cfq/reports", repo_root_filter=repo_root)
+    if not repo_root:
+        errors.die(f"{PROG}: cannot resolve a repo root for {dir_} -- no portal to sync into")
+    batch_name = os.path.basename(dir_)
+    proc = subprocess.run(
+        cfq_argv("portal", "sync", repo_root, "--batch", batch_name), capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        errors.die(f"{PROG}: portal sync failed for {batch_name}: {proc.stderr.strip()}")
+    print(cfq_lib_paths.portal_batch_url(repo_root, batch_name))
 
 
 # ---- verbs: index / detail -------------------------------------------------------------------
@@ -1095,13 +1050,14 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_turns.append(_totals_field(totals, "turns"))
             phase_billable_in.append(_totals_field(totals, "billable_in"))
 
-        # `rendered`/`href` used to be computed a second time, independently, inside
-        # regenerate_index() -- both call sites now share this one `resolve_html_path()` answer
-        # instead of two copies of the same formula. `href` is the resolved absolute path (or ""
-        # when nothing has been rendered yet); regenerate_index() derives its own report-relative
-        # link from it rather than re-resolving the layout itself.
-        resolved = resolve_html_path(os.path.dirname(m["path"]))
-        rendered = os.path.isfile(resolved)
+        # Batch 040 phase 05: `rendered` means "the portal has this batch's data" -- checked
+        # directly against the one file `portal sync` writes for a batch with a report.json
+        # (`build_impl_payload`) -- rather than "an HTML file was rendered", which no longer
+        # exists as a concept. `href` is the batch's portal route when rendered, "" otherwise, same
+        # empty-string contract `row_html`/`_index_group_lines` already relied on.
+        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.impl.js")
+        rendered = impl_data.is_file()
+        href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
 
         rows.append({
             "batch": m["name"],
@@ -1111,7 +1067,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             "glyph": status_glyph(status),
             "deviations": deviations,
             "rendered": rendered,
-            "href": resolved if rendered else "",
+            "href": href,
             "cost": {
                 "outputTokens": planning_output + sum(phase_outputs),
                 "turns": planning_turns + sum(phase_turns),
@@ -1251,91 +1207,6 @@ def cmd_detail(args):
         "phases": out_phases,
         "todos": todos,
     }))
-
-
-# ---- collected index.html (reportDir mode) ---------------------------------------------------
-
-def row_html(row):
-    """One `<tr>` in a repo's index table. A batch with no HTML rendered yet keeps its row and
-    loses only the link (`README.md`: "still listed, just without a link")."""
-    status = row.get("status") or ""
-    if row.get("rendered"):
-        batch_html = f'<a href="{esc(row["href"])}">{esc(row["batch"])}</a>'
-    else:
-        batch_html = esc(row["batch"])
-    out_tokens = render.jq_alt(row.get("cost", {}).get("outputTokens"), 0)
-    turns = render.jq_alt(row.get("cost", {}).get("turns"), 0)
-    deviations = row.get("deviations")
-    devs_disp = fmt_int(deviations) if isinstance(deviations, (int, float)) and deviations > 0 else ""
-    return (
-        f'<tr class="{esc(status.lower())}"><td class="c">{esc(status_glyph(status))}</td>'
-        f'<td>{batch_html}</td>'
-        f'<td>{esc(fmt_datetime(row.get("date")))}</td>'
-        f'<td class="n">{esc(devs_disp)}</td>'
-        f'<td class="n">{esc(fmt_int(out_tokens))}</td>'
-        f'<td class="n">{esc(fmt_int(turns))}</td></tr>'
-    )
-
-
-def repo_section_html(repo_base, items):
-    """One `<section class="repo">` per repo, the same table shape as phase 04's phase table
-    (`.phase-table table,.repo table` share their declarations) so the two pages read as one
-    system."""
-    total_out = sum(render.jq_alt(it.get("cost", {}).get("outputTokens"), 0) for it in items)
-    rows = "".join(row_html(it) for it in items)
-    return (
-        f'<section class="repo"><h2>{esc(repo_base)} '
-        f'<span class="count">{esc(fmt_int(len(items)))} batches · {esc(fmt_tokens(total_out))} out'
-        '</span></h2><div class="tscroll"><table><thead><tr>'
-        '<th class="c"><span class="sr">Status</span>·</th><th>Batch</th>'
-        '<th>Date</th><th class="n">Devs</th><th class="n">Out</th><th class="n">Turns</th>'
-        f'</tr></thead><tbody>{rows}</tbody></table></div></section>'
-    )
-
-
-def regenerate_index(report_dir, repo_root_filter=None):
-    """Writes `<report_dir>/index.html`. `repo_root_filter` scopes the listing to one repo's own
-    batches -- used by the repo-local default (change 1), where `report_dir` is that repo's own
-    `.claude/cfq/reports/` and cross-repo entries have no business being listed there; omitted
-    (`None`) for the shared-`reportDir` collected-tree mode, which lists every repo on purpose.
-    `rendered` and the resolved absolute path both come from `build_index_rows()` now -- the one
-    place that calls `resolve_html_path()`, the one place that decides the on-disk layout -- this
-    function only turns that absolute path into one relative to `report_dir`, rather than
-    re-resolving the layout itself a second time."""
-    rows, _meta = build_index_rows()
-    if repo_root_filter:
-        norm = repo_root_filter.rstrip("/")
-        rows = [r for r in rows if r["repo"].rstrip("/") == norm]
-
-    groups = {}
-    for row in rows:
-        rendered = row["rendered"]
-        href = os.path.relpath(row["href"], report_dir) if rendered else ""
-        repo_base = os.path.basename(row["repo"])
-        enriched = {**row, "rendered": rendered, "href": href}
-        groups.setdefault(repo_base, []).append(enriched)
-
-    sections = [repo_section_html(key, groups[key]) for key in sorted(groups.keys())]
-    body = "".join(sections) if sections else '<p class="meta">No reports yet.</p>'
-    total_out = sum(render.jq_alt(r.get("cost", {}).get("outputTokens"), 0) for r in rows)
-    header = (
-        '<header class="batch"><div class="ident"><h1>cfq reports</h1></div>'
-        '<dl class="meta">'
-        f'<div><dt>Repos</dt><dd>{esc(fmt_int(len(groups)))}</dd></div>'
-        f'<div><dt>Batches</dt><dd>{esc(fmt_int(len(rows)))}</dd></div>'
-        f'<div><dt>Output tokens</dt><dd>{esc(fmt_int(total_out))}</dd></div>'
-        f'<div><dt>Generated</dt><dd>{esc(datetime.now().strftime("%Y-%m-%d %H:%M"))}</dd></div>'
-        '</dl></header>'
-    )
-    doc = (
-        '<!doctype html><html><head><meta charset="utf-8"><title>cfq reports</title>'
-        '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        + header + body + '</body></html>'
-    )
-    idx_out = os.path.join(report_dir, "index.html")
-    tmp = f"{idx_out}.tmp"
-    pathlib.Path(tmp).write_text(doc + "\n")
-    os.replace(tmp, idx_out)
 
 
 # ---- argument parsing ------------------------------------------------------------------------

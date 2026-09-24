@@ -83,8 +83,8 @@ Same filters as **Collect** — another cheap single-scan call, this time render
 `Listing` status line (repo count and shown/total rows, from **Collect**'s own JSON — no extra
 call), then print `index --text`'s output exactly as returned: one section per repo, newest first,
 10 rows per repo by default with a "… n more" hint — pass `--limit 0` when the user asks for the
-full history. A row's `📄` column says whether that batch's HTML already exists; nothing here
-prints a path. No rebuilding the table from **Collect**'s JSON by hand.
+full history. A row's `📄` column says whether that batch's own data is already in the portal;
+nothing here prints a path. No rebuilding the table from **Collect**'s JSON by hand.
 
 ## 3. Detail
 
@@ -105,10 +105,10 @@ For the HTML view:
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report html "<batch-dir>"
 ```
 
-(renders fresh, overwrites a stale file) and state the printed path as a `file://` URL, printing
-the `HTML` status line. This is the only step that ever prints a `file://` URL — one path, for the
-one batch being drilled into, only after `report html` has returned it. Never open the file
-yourself — only print the path.
+(syncs this one batch's data fresh into the portal) and print the returned `file://` URL as-is,
+via the `HTML` status line. This is the only step that ever prints a `file://` URL — one URL, for
+the one batch being drilled into, only after `report html` has returned it. Never open the portal
+yourself — only print the URL.
 
 `detail`'s `todos` array already carries that repo's open `todo/*.md` entries — render title plus
 one line, nothing else. Purely read-only: no checking off, no moving, and never running the

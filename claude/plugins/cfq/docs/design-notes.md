@@ -82,3 +82,25 @@ One `/ifq` phase burned far more tokens than the task itself required — not th
 debugging: a raw `bash -x` trace dumped whole into context, and a dozen one-off shell smoke tests
 instead of one test file. The five rules in `references/phase-quality.md` turn that incident into a
 standing checkpoint, not a one-time lesson repeated only in a post-mortem.
+
+## cfq: why the report portal is data files plus a fixed viewer, not one rendered page per batch
+
+The retired per-batch design (`bin/cfq report html` writing a standalone `<batch>.html`, plus a
+second hand-rolled `index.html` listing them) meant every batch re-rendered its own copy of the
+same header/table/section markup, and the "collected tree" (`reportDir`) and "repo-local" layouts
+were two separately maintained code paths generating two different HTML shapes for the same data.
+Splitting the page in two — one fixed viewer shell (`portal/index.html`, `viewer.js`, `style.css`,
+installed once per `reports/` root and version-stamped so a resync only recopies it when the
+plugin's own version moved on) plus one plain data file per batch/entry — means a plan edit, a new
+phase result, or a closed `todo/` card each touch exactly one small file, the shell never
+regenerates, and there is exactly one rendering path (the viewer's own JS) instead of three
+(per-batch HTML, collected-tree HTML, and now a second attempt at either). The `reportDir` mirror
+and the repo-local copy stopped being two layouts for the same reason: both write the same data
+shape, just to two different roots.
+
+Data files are `.js`, not `.json`: browsers refuse `fetch()` of a local file under `file://`
+(`CORS request not http`), which every one of these pages is opened as — no server, no build step,
+just opening a path from a file manager or `/rfq`'s own printed URL. A `<script src="…">` tag has
+no such restriction, so each data file registers its payload on `window.CFQ_DATA["<key>"]` as a
+side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
+a request for it.

@@ -30,6 +30,17 @@ def todo_dir(repo):
     return f"{repo}/{QUEUE_DIR_REL}/todo"
 
 
+def reports_dir(repo):
+    return f"{repo}/{QUEUE_DIR_REL}/reports"
+
+
+def portal_batch_url(repo, batch_name):
+    """`file://` route for `batch_name` inside `repo`'s report portal -- the one place both
+    `cfq_report.py`'s `html`/`index` verbs and `cfq_finish.py`'s `Report` status line compute this,
+    so all three can never disagree on the URL shape."""
+    return f"file://{reports_dir(repo)}/index.html#/batch/{batch_name}"
+
+
 def repo_settings_file(repo):
     return f"{repo}/{QUEUE_DIR_REL}/settings.json"
 

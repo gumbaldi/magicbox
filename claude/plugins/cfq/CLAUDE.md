@@ -275,16 +275,19 @@ subtraction that could go negative. Anyone tempted to delegate anything beyond e
 verification execution, or a whole self-committing phase should re-run the relevant comparison
 first, not take this paragraph on faith.
 
-**`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`** (the fixed
-viewer shell that reads it is a later batch-`040` phase): a `portal sync <repo-root> [--batch
-<name>]...` / `portal rebuild <repo-root>` pair that writes one `.js` file per batch's plan, one
-per batch's implementation report, and one per open `todo`/`plan` entry into
-`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview. Every file registers a
-JSON payload on `window.CFQ_DATA["<key>"]` rather than being `fetch()`-ed — a browser blocks
-`fetch()` of a local JSON file under `file://`, but a `<script src>` tag still works. Payloads are
-deterministic (sorted object keys, no timestamp beyond one already in the source data) and written
-only when their content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern
-as `cfq_lib.render.write_json`), so a `sync` that changes nothing writes nothing and reports
+**`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`**, and, since
+batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo-root> [--batch
+<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes one `.js` file per batch's
+plan, one per batch's implementation report, and one per open `todo`/`plan` entry into
+`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview, alongside the fixed viewer
+shell (`index.html`/`assets/viewer.js`/`assets/style.css`, `install_shell()`, copied in from the
+plugin's own `portal/` source whenever the installed `.portal-version` stamp differs from the
+running plugin's own version). Every data file registers a JSON payload on
+`window.CFQ_DATA["<key>"]` rather than being `fetch()`-ed — a browser blocks `fetch()` of a local
+JSON file under `file://`, but a `<script src>` tag still works. Payloads are deterministic (sorted
+object keys, no timestamp beyond one already in the source data) and written only when their
+content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern as
+`cfq_lib.render.write_json`), so a `sync` that changes nothing writes nothing and reports
 `{"written": [], "unchanged": <n>, "removed": []}`; a batch or entry whose source is gone loses its
 data file the same way. `sync` reuses `cfq_scan.scan_repo()` (the dashboard's own per-repo record
 builder) for batch status/open/done/blocked/planning rather than re-deriving it, and
@@ -292,9 +295,25 @@ builder) for batch status/open/done/blocked/planning rather than re-deriving it,
 every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, one
 level of bullets or ordered items, paragraphs, fenced code blocks, `**bold**`/`` `code` ``, nothing
 else) moved out of `cfq_report.py` into its own module here, since both `cfq_report.py`'s Overview
-section and `cfq_portal.py`'s pre-rendered phase-file/queue-entry bodies now share it —
-`cfq_report.py` imports `esc`/`html_escape_jq`/`md_min`/`md_inline` back rather than keeping a
-second copy.
+section (a still-standing but now unreachable-from-any-CLI-verb pure-function pipeline, kept for its
+own direct pure-function test coverage rather than deleted outright) and `cfq_portal.py`'s
+pre-rendered phase-file/queue-entry bodies share it — `cfq_report.py` imports
+`esc`/`html_escape_jq`/`md_min`/`md_inline` back rather than keeping a second copy.
+
+With `reportDir` set, `sync()` additionally mirrors every data file into
+`<reportDir>/<repo-basename>[-<hash>]/data/…` and installs one global viewer shell at `reportDir`
+itself (batch 040 phase 03); every batch-affecting `bin/cfq` mutation (`park`, `phase`
+`record`/`commit`/`reopen`, `lock acquire`, `finish`, `batch ready`, `trash put`/`restore`,
+`note`'s mutating verbs, `dash render`) fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect
+after its own mutation succeeds, gated on `htmlReport` and never touching the triggering verb's own
+exit code or stdout (batch 040 phase 04). `cfq_report.py`'s `html` verb is now a thin alias over
+`portal sync <repo> --batch <b>`, printing the batch's own portal route rather than writing a
+`<batch>.html`/`report.html` file of its own; `report index`'s `rendered`/`href` fields read the
+same portal data rather than a rendered file's presence. `portal rebuild <repo-root> --migrate` is
+the one-time cleanup for a repo that still carries the old per-batch HTML files `report html` used
+to write — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror
+directory under `reportDir` when set) whose name matches a batch's own shape, never touching
+`assets/`, `data/`, or the portal's own `index.html`.
 
 ## Conventions
 

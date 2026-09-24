@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_portal.py sync <repo-root> [--batch <name>]...
-#        cfq_portal.py rebuild <repo-root>
+#        cfq_portal.py rebuild <repo-root> [--migrate]
 """Writes both halves of `<repo>/.claude/cfq/reports/index.html`: the fixed viewer shell
 (`index.html`, `assets/viewer.js`, `assets/style.css`, copied in from the plugin's own `portal/`
 source by `install_shell()` whenever `reports/.portal-version` differs from the running plugin's
@@ -18,9 +18,14 @@ sorted, so a re-sync that changes nothing writes nothing. `sync <repo-root> [--b
 recomputes the shell (when its version stamp moved on), `queue.js`, `site.js`, the named batches'
 own files (every batch when `--batch` is omitted) and every `todo`/`plan` entry file; it also
 deletes a `batch/*.js`/`entry/*.js` file whose source batch or entry no longer exists. `rebuild
-<repo-root>` is `sync` with no `--batch` filter, kept as its own verb for the migration off the old
-per-batch `report.html` (a later phase) and for manual repair. Both print one JSON object:
-`{"status", "written", "unchanged", "removed"}`.
+<repo-root>` is `sync` with no `--batch` filter, kept as its own verb for manual repair and, with
+`--migrate` (batch 040 phase 05), the one-time move off the old per-batch HTML report: after the
+full rebuild, `remove_legacy_html()` deletes every stale `*.html` file directly under the repo's
+own `reports/` (and, with `reportDir` set, this repo's own mirror directory under it) whose name
+matches a batch's own shape -- `report html` used to write one there, before the portal became the
+only HTML `report` produces. Never touches `assets/`, `data/`, or the portal's own `index.html`.
+Both print one JSON object: `{"status", "written", "unchanged", "removed"}` -- `--migrate` folds
+the legacy files it removed into that same `removed` list.
 
 Reuses rather than re-derives: `cfq_brief.parse_phase_body` for a phase file's title/size,
 `cfq_report.read_batch_context` for `.batch-context.md`'s sections, `cfq_report.phase_layer_sums`
@@ -197,8 +202,8 @@ DATA_FILE_RE = re.compile(
 
 
 def report_dir_setting(repo_root):
-    """`""`/`"null"` both mean "mirroring is off" -- same two-value check `cfq_report.py`'s own
-    `resolve_html_path()` uses for this same setting's other (legacy, unrelated) consumer."""
+    """`""`/`"null"` both mean "mirroring is off" -- the same two-value check `cfq_report.py`'s
+    `html`/`index` verbs use for this same setting."""
     value = settings_get(repo_root, "reportDir")
     return value if value not in ("", "null") else ""
 
@@ -630,12 +635,67 @@ def sync(repo_root, batch_names=None):
     return result
 
 
+# ---- migrate: removing the old per-batch HTML report (batch 040 phase 05) ----------------------
+
+# Matches a legacy `report html`-written file's name, whichever batch-naming era it's from: a
+# numbered batch (`038-2026-09-23-topic.html`) or the pre-numbering shape
+# (`2026-09-23-topic.html`) -- never `index.html` itself (neither pattern matches a bare
+# `index.html`), and this is only ever glob-matched against a directory's own top level, so it
+# never reaches into `assets/`/`data/` either.
+LEGACY_BATCH_HTML_RE = re.compile(r"^(\d{3}-.*|\d{4}-\d{2}-\d{2}-.*)\.html$")
+
+
+def remove_legacy_html(base_dir):
+    """Deletes every file directly under `base_dir` (a `reports/` directory, repo-local or a
+    `reportDir` mirror) whose name matches `LEGACY_BATCH_HTML_RE` -- the flat `<batch>.html` files
+    the old `report html` verb used to write there. Non-recursive on purpose: `assets/` and `data/`
+    are subdirectories, never touched. Returns the removed paths, sorted; `[]` for a directory that
+    doesn't exist."""
+    if not base_dir.is_dir():
+        return []
+    removed = []
+    for f in sorted(base_dir.glob("*.html")):
+        if LEGACY_BATCH_HTML_RE.match(f.name):
+            f.unlink()
+            removed.append(str(f))
+    return removed
+
+
+def migrate(repo_root, result):
+    """The `--migrate` half of `rebuild`: `result` is a just-completed full `sync()`'s own JSON --
+    mutated in place, folding every legacy file this removes into that same `removed` list, so the
+    caller prints one JSON object either way. Removes this repo's own stale `reports/*.html`, and,
+    when `reportDir` is set, the same repo's own mirror directory's stale `*.html` -- resolved via
+    `repos.js`, the one place a repo's mirror directory name is recorded, rather than assumed to be
+    its basename (a collision suffixes it -- `resolve_mirror_name()`)."""
+    removed = set(result["removed"])
+    removed.update(remove_legacy_html(reports_dir(repo_root)))
+
+    report_dir = report_dir_setting(repo_root)
+    if report_dir:
+        existing_repos = read_data_payload(repos_js_path(report_dir))
+        mirror_name = None
+        if isinstance(existing_repos, list):
+            for r in existing_repos:
+                if isinstance(r, dict) and r.get("source") == repo_root:
+                    mirror_name = r.get("mirror")
+                    break
+        if mirror_name:
+            removed.update(remove_legacy_html(pathlib.Path(report_dir) / mirror_name))
+
+    result["removed"] = sorted(removed)
+
+
 def cmd_sync(args):
     print(render.dump_json(sync(args.repo_root, args.batch or None)))
 
 
 def cmd_rebuild(args):
-    print(render.dump_json(sync(args.repo_root, None)))
+    repo_root = str(pathlib.Path(args.repo_root).resolve())
+    result = sync(repo_root, None)
+    if args.migrate and result["status"] == "OK":
+        migrate(repo_root, result)
+    print(render.dump_json(result))
 
 
 def build_parser():
@@ -649,6 +709,7 @@ def build_parser():
 
     p = sub.add_parser("rebuild")
     p.add_argument("repo_root")
+    p.add_argument("--migrate", action="store_true")
     p.set_defaults(func=cmd_rebuild)
 
     return parser
@@ -659,7 +720,10 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        print(f"usage: {PROG} sync <repo-root> [--batch <name>]... | rebuild <repo-root>", file=sys.stderr)
+        print(
+            f"usage: {PROG} sync <repo-root> [--batch <name>]... | rebuild <repo-root> [--migrate]",
+            file=sys.stderr,
+        )
         sys.exit(1)
     func(args)
 

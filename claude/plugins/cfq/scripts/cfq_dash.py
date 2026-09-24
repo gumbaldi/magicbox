@@ -36,7 +36,7 @@ ACTION_ROWS_TEMPLATE = [
     ("work off todo/ entries", "runs their check: commands"),
     ("change a setting", "just say it in plain language"),
     ("full batch list", "bin/cfq dash render --all"),
-    ("view reports", "/rfq"),
+    ("view reports", "/rfq · {path}/.claude/cfq/reports/index.html"),
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
     ("settings, global", "bin/cfq settings list --sources"),
 ]

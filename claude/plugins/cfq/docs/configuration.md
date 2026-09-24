@@ -88,7 +88,7 @@ interactively.
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | global, repo | commits since the last maintenance run before it's due again; `0` disables maintenance entirely |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
-| `htmlReport` | — | `true` | global, repo | render the HTML report at batch end; set false to render only on `/rfq` request |
+| `htmlReport` | — | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
@@ -120,19 +120,21 @@ still runs on the cheap default.
 
 ## Report collection layout
 
-With `reportDir` set, `bin/cfq report html <batch-dir>` writes into
-`<reportDir>/<repo-basename>/<batch>.html` instead of the batch directory, and regenerates
-`<reportDir>/index.html` alongside it — one page linking every report-bearing batch across every
-repo (`bin/cfq report index`'s own data), grouped by repo, newest first. A batch `index` reports
-that has no HTML rendered yet is listed without a link rather than omitted. Leaving `reportDir`
-empty — the default — renders into `<repo>/.claude/cfq/reports/<batch>.html` instead: flat, one
-file per batch, with its own `index.html` scoped to that repo's own batches, and stable across
-archiving since the batch name (not the batch's `impl/`-vs-`impl/done/` location) is the only
-thing the path depends on. Set an absolute `reportDir` instead for a location reachable outside
-the queue's own git-excluded directory and shared across repos — a WSL user opening reports from
-Windows Explorer, for example — rendering happens automatically at batch completion in either mode
-by default; `htmlReport` (above) is the switch that turns the automatic render off, leaving it to
-`/rfq` on request.
+Every repo keeps its own report portal at `<repo>/.claude/cfq/reports/index.html` — a fixed viewer
+shell (`index.html`, `assets/`) plus plain data files under `data/`, one per batch's plan and
+implementation report and one per open `todo`/`plan` entry (`bin/cfq portal sync`/`rebuild`). It's
+stable across archiving, since the batch name — not the batch's `impl/`-vs-`impl/done/` location —
+is the only thing a batch's own data-file path depends on. With `reportDir` set to an absolute
+path, every repo's sync additionally mirrors its own data into
+`<reportDir>/<repo-basename>[-<hash>]/data/…` (a short hash suffix only on a name collision between
+two different repos) and installs one global viewer shell at `<reportDir>/` itself, whose
+`index.html` renders a cross-repo index over every mirrored repo instead of one repo's own overview
+— a location reachable outside any one queue's own git-excluded directory and shared across repos,
+a WSL user opening reports from Windows Explorer, for example. Either way, `bin/cfq report html
+<batch-dir>` (`/rfq`'s own drill-down call) always syncs that one batch fresh and prints its
+`file://` route; the portal itself keeps itself current automatically at every batch-affecting
+`bin/cfq` mutation (park, phase commit, `finish`, …) by default — `htmlReport` (above) is the
+switch that turns that automatic sync off, leaving it to `/rfq` on request.
 
 ## Script Output Reference
 
