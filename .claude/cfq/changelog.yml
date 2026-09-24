@@ -1134,7 +1134,11 @@
       summary: ""
 - batchNumber: 41
   batch: 041-2026-09-23-settings-menu-onboarding
-  status: parked
+  branch: cfq/041-2026-09-23-settings-menu-onboarding
+  base: cfq/040-2026-09-23-report-portal
+  started: 2026-09-24
+  status: in-progress
+  legacy: false
 - batchNumber: 42
   batch: 042-2026-09-24-drop-pfq-write-probe
   status: parked
