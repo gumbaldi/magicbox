@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 # Usage: cfq_portal.py sync <repo-root> [--batch <name>]...
 #        cfq_portal.py rebuild <repo-root>
-"""Writes the data layer behind `<repo>/.claude/cfq/reports/index.html` (the viewer itself is
-phase 02): one `.js` file per batch's plan, one per batch's implementation report, one per open
-`todo`/`plan` entry, plus `data/queue.js` for the repo overview. Every file registers a JSON
-payload on `window.CFQ_DATA` rather than being fetched, since browsers block `fetch()` of a local
-JSON file under `file://` but a `<script src>` tag still works:
+"""Writes both halves of `<repo>/.claude/cfq/reports/index.html`: the fixed viewer shell
+(`index.html`, `assets/viewer.js`, `assets/style.css`, copied in from the plugin's own `portal/`
+source by `install_shell()` whenever `reports/.portal-version` differs from the running plugin's
+own version) and the data layer it reads -- one `.js` file per batch's plan, one per batch's
+implementation report, one per open `todo`/`plan` entry, plus `data/queue.js` for the repo overview
+and `data/site.js` for the page title. Every data file registers a JSON payload on
+`window.CFQ_DATA` rather than being fetched, since browsers block `fetch()` of a local JSON file
+under `file://` but a `<script src>` tag still works:
 
     window.CFQ_DATA = window.CFQ_DATA || {}; window.CFQ_DATA["batch/<b>/plan"] = { ... };
 
 Deterministic, at zero model-token cost: no timestamp is ever written beyond one already present
 in the source data (`report.json`, a queue-entry filename), and every payload's object keys are
 sorted, so a re-sync that changes nothing writes nothing. `sync <repo-root> [--batch <name>]...`
-recomputes `queue.js`, the named batches' own files (every batch when `--batch` is omitted) and
-every `todo`/`plan` entry file; it also deletes a `batch/*.js`/`entry/*.js` file whose source batch
-or entry no longer exists. `rebuild <repo-root>` is `sync` with no `--batch` filter, kept as its
-own verb for the migration off the old per-batch `report.html` (a later phase) and for manual
-repair. Both print one JSON object: `{"status", "written", "unchanged", "removed"}`.
+recomputes the shell (when its version stamp moved on), `queue.js`, `site.js`, the named batches'
+own files (every batch when `--batch` is omitted) and every `todo`/`plan` entry file; it also
+deletes a `batch/*.js`/`entry/*.js` file whose source batch or entry no longer exists. `rebuild
+<repo-root>` is `sync` with no `--batch` filter, kept as its own verb for the migration off the old
+per-batch `report.html` (a later phase) and for manual repair. Both print one JSON object:
+`{"status", "written", "unchanged", "removed"}`.
 
 Reuses rather than re-derives: `cfq_brief.parse_phase_body` for a phase file's title/size,
 `cfq_report.read_batch_context` for `.batch-context.md`'s sections, `cfq_report.phase_layer_sums`
@@ -57,6 +61,21 @@ def reports_dir(repo_root):
 
 def data_dir(repo_root):
     return reports_dir(repo_root) / "data"
+
+
+def plugin_root():
+    """`scripts/` -> the plugin root, one level up -- the same relative layout in a checkout and
+    in an installed plugin cache. Used to locate both the viewer's own source (`portal/`) and
+    `.claude-plugin/plugin.json` for the version stamp below."""
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+def plugin_version():
+    try:
+        data = json.loads((plugin_root() / ".claude-plugin" / "plugin.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return data.get("version", "") if isinstance(data, dict) else ""
 
 
 def batch_directory(repo_root, batch_record):
@@ -115,6 +134,44 @@ def cleanup_stale(out_dir, expected_rel):
                 f.unlink()
                 removed.append(rel)
     return removed
+
+
+# ---- install: the fixed viewer shell, copied in only when the plugin version moved on ----------
+
+PORTAL_SHELL_FILES = (
+    ("index.html", "index.html"),
+    ("viewer.js", "assets/viewer.js"),
+    ("style.css", "assets/style.css"),
+)
+
+
+def install_shell(repo_root):
+    """Copies the fixed viewer shell (`index.html`, `assets/viewer.js`, `assets/style.css`) from
+    the plugin's own `portal/` source into `<repo>/.claude/cfq/reports/` whenever the installed
+    stamp (`reports/.portal-version`) differs from the running plugin's own version -- an
+    unchanged version copies nothing, so a sync never rewrites a repo's `reports/` tree on every
+    call. Returns the list of paths (relative to `reports/`) actually written."""
+    out_dir = reports_dir(repo_root)
+    stamp_path = out_dir / ".portal-version"
+    version = plugin_version()
+    try:
+        current = stamp_path.read_text().strip()
+    except OSError:
+        current = None
+    if current == version:
+        return []
+
+    written = []
+    for src_name, rel in PORTAL_SHELL_FILES:
+        src = plugin_root() / "portal" / src_name
+        try:
+            content = src.read_text()
+        except OSError:
+            continue
+        if write_if_changed(out_dir / rel, content):
+            written.append(rel)
+    write_if_changed(stamp_path, version)
+    return written
 
 
 # ---- cost totals: whole-batch totals plus the four layer sums ----------------------------------
@@ -219,6 +276,7 @@ def build_queue_batch_row(repo_root, b):
         "status": batch_status(b),
         "priority": b.get("priority", ""),
         "dependsOn": b.get("dependsOn", []),
+        "unknownDeps": b.get("unknownDeps", []),
         "open": b.get("open", 0),
         "done": b.get("done", 0),
         "goal": first_goal_line(bd),
@@ -361,7 +419,7 @@ def sync(repo_root, batch_names=None):
         return {"status": "NO_REPO", "written": [], "unchanged": 0, "removed": []}
 
     out_dir = data_dir(repo_root)
-    written = []
+    written = list(install_shell(repo_root))
     unchanged = 0
 
     def write(rel, key, payload):
@@ -370,6 +428,8 @@ def sync(repo_root, batch_names=None):
             written.append(rel)
         else:
             unchanged += 1
+
+    write("site.js", "site", {"mode": "repo", "repo": pathlib.Path(repo_root).name})
 
     entry_fulls = []
     for kind in ENTRY_KINDS:

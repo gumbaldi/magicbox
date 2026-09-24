@@ -37,98 +37,28 @@ PROG = "cfq_report.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
-# Shared by html's per-batch report and its collected index.html -- one visual language, not two.
-# Every colour is a custom property defined on bare :root; the dark-mode and print @media blocks
-# only ever redefine tokens that already exist there (tests/test_report.py asserts this
-# structurally) -- no colour gets its only definition inside a media query.
-REPORT_STYLE_CSS = """:root{
-  --bg:#ffffff;--surface:#f7f8fa;--surface-2:#eceff4;
-  --fg:#16181d;--fg-muted:#545c6b;--fg-faint:#767e8c;
-  --border:#d5dae2;--border-strong:#aeb6c2;
-  --ok:#1a7f45;--ok-bg:#e4f3ea;--bad:#b32d1f;--bad-bg:#fae9e6;
-  --warn:#8a5b00;--warn-bg:#fbf1d6;--accent:#2f5fd0;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --r:8px;--gap:1rem;
-}
-@media (prefers-color-scheme:dark){:root{
-  --bg:#14161a;--surface:#1b1e24;--surface-2:#232830;
-  --fg:#e7eaf0;--fg-muted:#a3abba;--fg-faint:#848d9c;
-  --border:#2e343e;--border-strong:#454d5a;
-  --ok:#5cc98b;--ok-bg:#16301f;--bad:#f0857a;--bad-bg:#331b18;
-  --warn:#e0b45a;--warn-bg:#2e2512;--accent:#8fb0ff;
-}}
-body{background:var(--bg);color:var(--fg);font-family:var(--sans);max-width:64rem;margin:0 auto;
-  padding:2rem 1rem;line-height:1.55}
-h1{font-size:1.6rem;margin:0}
-h2{font-size:1.2rem}
-h3{font-size:1.05rem}
-h4{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
-code{background:var(--surface-2);font-family:var(--mono);font-size:0.875em;padding:0.1rem 0.3rem;
-  border-radius:0.2rem}
-header.batch{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem}
-header.batch .ident{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem}
-.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.4rem 1.5rem}
-.meta dt{color:var(--fg-faint);text-transform:uppercase;font-size:.72rem}
-.meta dd{margin:0}
-.badge{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .6rem;border-radius:999px;
-  font-size:.78rem;font-weight:600;letter-spacing:.03em;border:1px solid}
-.badge.green{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
-.badge.red{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
-.badge.mixed{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
-section.phase{background:var(--surface);border:1px solid var(--border);
-  border-left:4px solid var(--border-strong);border-radius:var(--r);padding:1rem 1.25rem;
-  margin:1.25rem 0}
-section.phase.green{border-left-color:var(--ok)}
-section.phase.red{border-left-color:var(--bad)}
-section.phase .num{color:var(--fg-faint);margin-right:.25rem}
-section.phase .slug{color:var(--fg-faint);font-size:.78rem;margin:.15rem 0 .6rem}
-.phase ul{margin:.2rem 0 .8rem;padding-left:1.1rem}
-.phase li{margin:.15rem 0}
-.phase li code{font-size:.8rem;background:none;padding:0;color:var(--fg-muted)}
-.goal{color:var(--fg-muted);font-style:italic;border-left:2px solid var(--border);
-  padding-left:.75rem}
-.tele{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem 1.5rem;
-  font-size:.82rem;background:var(--surface-2);border-radius:var(--r);padding:.6rem .8rem;
-  margin:.75rem 0}
-.tele dt{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem}
-.tele dd{margin:0}
-section.overview{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem;margin:1.25rem 0}
-.overview h3{font-size:.9rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-faint)}
-.overview ul{margin:.3rem 0 .9rem;padding-left:1.1rem}
-.overview li{margin:.2rem 0}
-.overview p{margin:.3rem 0 .9rem}
-.overview li strong{color:var(--fg)}
-section.security{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:1.25rem;margin:1.25rem 0}
-.muted{color:var(--fg-muted)}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.tscroll{overflow-x:auto}
-.phase-table table,.repo table{border-collapse:collapse;width:100%;font-size:.85rem}
-.phase-table th,.phase-table td,.repo th,.repo td{padding:.4rem .6rem;
-  border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
-.phase-table thead th,.repo thead th{color:var(--fg-faint);font-weight:600;font-size:.72rem;
-  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border-strong)}
-.phase-table td.n,.phase-table th.n,.repo td.n,.repo th.n{text-align:right;
-  font-variant-numeric:tabular-nums;font-family:var(--mono)}
-.phase-table td.c,.phase-table th.c,.repo td.c,.repo th.c{text-align:center}
-.phase-table tbody tr:hover,.repo tbody tr:hover{background:var(--surface-2)}
-.phase-table tfoot td,.phase-table tfoot th{border-top:1px solid var(--border-strong);
-  border-bottom:none;color:var(--fg-muted);font-weight:600}
-.phase-table td a,.repo td a{color:var(--accent);text-decoration:none}
-.phase-table td a:hover,.repo td a:hover{text-decoration:underline}
-.verification code{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
-section.repo{margin:1.5rem 0}
-.repo h2 .count{font-weight:400;font-size:.8rem;color:var(--fg-faint);margin-left:.5rem}
-@media (max-width:30rem){.meta,.tele{grid-template-columns:1fr}}
-@media print{
-  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f2f2;--fg:#000;--fg-muted:#333;--border:#999;}
-  body{max-width:none;padding:0;font-size:10pt}
-  section.phase{break-inside:avoid}
-  a{text-decoration:none;color:inherit}
-}"""
+# Shared by html's per-batch report and its collected index.html, and (batch 040 phase 02) by the
+# portal viewer shell -- one visual language, not three. The stylesheet itself now lives at
+# `portal/style.css` (moved there verbatim, then extended for the viewer's own overview/cost-tree
+# markup); this constant reads it back rather than holding a second copy, so the two HTML verbs
+# below keep working unchanged while the viewer owns the source file. Every colour is a custom
+# property defined on bare :root; the dark-mode and print @media blocks only ever redefine tokens
+# that already exist there (tests/test_report.py asserts this structurally) -- no colour gets its
+# only definition inside a media query.
+
+
+def _load_report_style_css():
+    """Reads `portal/style.css`, one level up from `scripts/` (this file's own directory) --
+    the same relative layout in a checkout and in an installed plugin cache. A missing or
+    unreadable file degrades to "" rather than raising: a report or index page would rather ship
+    unstyled than fail outright over a stylesheet."""
+    try:
+        return (SCRIPT_DIR.parent / "portal" / "style.css").read_text()
+    except OSError:
+        return ""
+
+
+REPORT_STYLE_CSS = _load_report_style_css()
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 

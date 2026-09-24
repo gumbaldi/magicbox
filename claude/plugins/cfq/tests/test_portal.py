@@ -9,7 +9,7 @@ import shutil
 import sys
 import unittest
 
-from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -126,7 +126,11 @@ class PortalTest(CfqTestCase):
         self.assertEqual(
             set(result["written"]),
             {
+                "index.html",
+                "assets/viewer.js",
+                "assets/style.css",
                 "queue.js",
+                "site.js",
                 "batch/2026-09-23-demo.plan.js",
                 "batch/2026-09-23-demo.impl.js",
                 "entry/todo-2026-09-20-fix-thing.js",
@@ -135,14 +139,34 @@ class PortalTest(CfqTestCase):
         )
         self.assertEqual(result["unchanged"], 0)
 
+        reports_dir = self._data_dir(repo).parent
+        for rel in ("index.html", "assets/viewer.js", "assets/style.css"):
+            self.assertTrue((reports_dir / rel).is_file(), f"{rel} was reported written but is missing")
         data_dir = self._data_dir(repo)
-        for rel in result["written"]:
+        for rel in ("queue.js", "site.js", "batch/2026-09-23-demo.plan.js", "batch/2026-09-23-demo.impl.js",
+                    "entry/todo-2026-09-20-fix-thing.js", "entry/plan-2026-09-19-idea.js"):
             self.assertTrue((data_dir / rel).is_file(), f"{rel} was reported written but is missing")
 
         second = self._sync(repo)
+        # The version stamp already matches -- the shell copy is skipped entirely (not even
+        # reported as "unchanged", per the "an unchanged version copies nothing" contract).
         self.assertEqual(second["written"], [], "an unchanged fixture must rewrite nothing")
-        self.assertEqual(second["unchanged"], 5)
+        self.assertEqual(second["unchanged"], 6)
         self.assertEqual(second["removed"], [])
+
+    def test_queue_js_row_carries_unknown_deps(self):
+        # An unnamed/deleted dependency doesn't block a batch on its own (cfq_scan.py's own
+        # resolve_deps -- only a still-open dependency dir does that), but the viewer still needs
+        # to name it, so `unknownDeps` travels through unmodified alongside `dependsOn`.
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        (repo / ".claude" / "cfq" / "impl" / "2026-09-23-demo" / ".dependsOn").write_text("gibtsnicht\n")
+        self._sync(repo)
+
+        _key, payload = self._payload(self._data_dir(repo) / "queue.js")
+        row = payload["batches"][0]
+        self.assertEqual(row["dependsOn"], ["gibtsnicht"])
+        self.assertEqual(row["unknownDeps"], ["gibtsnicht"])
 
     def test_queue_js_lists_batch_and_entries(self):
         repo = self.make_repo()
@@ -188,7 +212,7 @@ class PortalTest(CfqTestCase):
 
         result = self._sync(repo)
         self.assertEqual(set(result["written"]), {"queue.js", "batch/2026-09-23-demo.impl.js"})
-        self.assertEqual(result["unchanged"], 1)  # plan.js alone stays byte-identical
+        self.assertEqual(result["unchanged"], 2)  # site.js and plan.js alone stay byte-identical
 
     # ---- edge: no report.json yet -> no impl.js -------------------------------------------------
 
@@ -290,6 +314,79 @@ class PortalTest(CfqTestCase):
         result = self.json_out(proc)
         self.assertIn("batch/2026-09-23-alpha.plan.js", result["written"])
         self.assertIn("batch/2026-09-23-beta.plan.js", result["written"])
+
+    # ---- install: the fixed viewer shell -------------------------------------------------------
+
+    def _plugin_version(self):
+        data = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
+        return data["version"]
+
+    def _init_queue(self, repo):
+        """A bare `.claude/cfq/` with no batches -- `cfq_scan.scan_repo()` treats a repo with no
+        such directory at all as unregistered (`status: "NO_REPO"`, sync short-circuits before
+        even reaching the install step), so every install-only test needs at least this much."""
+        (repo / ".claude" / "cfq").mkdir(parents=True, exist_ok=True)
+
+    def test_install_copies_shell_files_matching_portal_source(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        self._sync(repo)
+
+        reports_dir = self._data_dir(repo).parent
+        for src_name, rel in (
+            ("index.html", "index.html"),
+            ("viewer.js", "assets/viewer.js"),
+            ("style.css", "assets/style.css"),
+        ):
+            self.assertEqual(
+                (reports_dir / rel).read_text(),
+                (PLUGIN_ROOT / "portal" / src_name).read_text(),
+                f"{rel} was not copied verbatim from portal/{src_name}",
+            )
+        self.assertEqual((reports_dir / ".portal-version").read_text().strip(), self._plugin_version())
+
+    def test_install_copies_nothing_when_version_stamp_already_matches(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        self._sync(repo)
+
+        reports_dir = self._data_dir(repo).parent
+        # A local edit to the installed shell must survive an unchanged-version resync -- the
+        # phase's own contract ("an unchanged version copies nothing") means zero file operations,
+        # not a content-diff rewrite back to the plugin's own source.
+        (reports_dir / "assets" / "style.css").write_text("/* locally edited */")
+
+        result = self._sync(repo)
+        self.assertNotIn("index.html", result["written"])
+        self.assertNotIn("assets/viewer.js", result["written"])
+        self.assertNotIn("assets/style.css", result["written"])
+        self.assertEqual((reports_dir / "assets" / "style.css").read_text(), "/* locally edited */")
+
+    def test_install_recopies_shell_when_version_stamp_differs(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        self._sync(repo)
+
+        reports_dir = self._data_dir(repo).parent
+        (reports_dir / ".portal-version").write_text("0.0.0-stale")
+        (reports_dir / "assets" / "style.css").write_text("/* stale */")
+
+        result = self._sync(repo)
+        self.assertIn("assets/style.css", result["written"])
+        self.assertEqual(
+            (reports_dir / "assets" / "style.css").read_text(),
+            (PLUGIN_ROOT / "portal" / "style.css").read_text(),
+        )
+        self.assertEqual((reports_dir / ".portal-version").read_text().strip(), self._plugin_version())
+
+    def test_data_site_js_carries_mode_and_repo_name(self):
+        repo = self.make_repo("my-repo")
+        self._init_queue(repo)
+        self._sync(repo)
+
+        key, payload = self._payload(self._data_dir(repo) / "site.js")
+        self.assertEqual(key, "site")
+        self.assertEqual(payload, {"mode": "repo", "repo": "my-repo"})
 
 
 # ---- cfq_lib.markdown's extensions over cfq_report.py's original md_min/md_inline --------------
