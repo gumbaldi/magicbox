@@ -181,6 +181,95 @@ test("renderEntryInto renders a malicious title as text, not as markup", () => {
   assert.ok(!htmlBlobs.some((h) => h.includes("<img")));
 });
 
+// ---- global mode (batch 040 phase 03: reportDir mirror + cross-repo index) -------------------
+
+test("parseRoute in global mode: repos list, repo overview, repo batch/entry", () => {
+  assert.deepEqual(viewer.parseRoute("#/", "global"), { name: "repos", param: null });
+  assert.deepEqual(viewer.parseRoute("", "global"), { name: "repos", param: null });
+  assert.deepEqual(viewer.parseRoute("#/myrepo/", "global"), { name: "repo-overview", param: "myrepo" });
+  assert.deepEqual(viewer.parseRoute("#/myrepo", "global"), { name: "repo-overview", param: "myrepo" });
+  assert.deepEqual(
+    viewer.parseRoute("#/myrepo/batch/01-x", "global"),
+    { name: "repo-batch", param: { repo: "myrepo", batch: "01-x" } },
+  );
+  assert.deepEqual(
+    viewer.parseRoute("#/myrepo/entry/todo-2026-01-01-x", "global"),
+    { name: "repo-entry", param: { repo: "myrepo", id: "todo-2026-01-01-x" } },
+  );
+});
+
+test("parseRoute without a mode argument stays repo mode (phase 02 unchanged)", () => {
+  assert.deepEqual(viewer.parseRoute("#/batch/2026-09-23-demo"), { name: "batch", param: "2026-09-23-demo" });
+});
+
+test("dataPath resolves repo-local vs global-mirrored data file paths", () => {
+  assert.equal(viewer.dataPath("repo", null, "queue"), "data/queue");
+  assert.equal(viewer.dataPath("global", null, "repos"), "data/repos");
+  assert.equal(viewer.dataPath("global", null, "site"), "data/site");
+  assert.equal(viewer.dataPath("global", "myrepo", "queue"), "myrepo/data/queue");
+  assert.equal(viewer.dataPath("global", "myrepo", "batch/01-x/plan"), "myrepo/data/batch/01-x/plan");
+});
+
+test("dataKeyFromPath strips through the last data/ segment regardless of repo prefix", () => {
+  assert.equal(viewer.dataKeyFromPath("data/queue"), "queue");
+  assert.equal(viewer.dataKeyFromPath("myrepo/data/queue"), "queue");
+  assert.equal(viewer.dataKeyFromPath("myrepo/data/batch/01-x/plan"), "batch/01-x/plan");
+});
+
+test("renderReposInto lists repos with their counts and never leaks a name into innerHTML", () => {
+  const doc = fakeDoc();
+  const root = fakeRoot();
+  const repos = [
+    {
+      name: "<img src=x onerror=alert(1)>",
+      mirror: "repo-a1b2c3d4",
+      source: "/x",
+      counts: { batches: { inProgress: 1, planned: 2, done: 3 }, todos: 4, planEntries: 5 },
+    },
+  ];
+  viewer.renderReposInto(doc, root, repos);
+
+  const htmlBlobs = collectHtml(root);
+  assert.ok(!htmlBlobs.some((h) => h.includes("<img")), `innerHTML leaked markup: ${htmlBlobs}`);
+
+  const section = root.children[0];
+  const row = section.children.find((c) => c.className === "repo-row");
+  const link = row.children[0];
+  assert.equal(link.attrs.href, "#/repo-a1b2c3d4/");
+  assert.equal(link.textContent, repos[0].name);
+});
+
+test("renderReposInto with no repos yet renders an empty-state message, no crash", () => {
+  const doc = fakeDoc();
+  const root = fakeRoot();
+  assert.doesNotThrow(() => viewer.renderReposInto(doc, root, []));
+});
+
+test("renderBatchInto/renderEntryInto honor a custom crumb href (global mode's repo-overview link)", () => {
+  const doc = fakeDoc();
+  const plan = { batch: "b", sections: {}, phases: [] };
+
+  const batchRoot = fakeRoot();
+  viewer.renderBatchInto(doc, batchRoot, "b", plan, null, "#/myrepo/");
+  const batchCrumbLink = batchRoot.children[0].children[0];
+  assert.equal(batchCrumbLink.attrs.href, "#/myrepo/");
+
+  const entryRoot = fakeRoot();
+  const entry = { id: "todo-x", title: "An entry", bodyHtml: "<p>ok</p>" };
+  viewer.renderEntryInto(doc, entryRoot, entry, "#/myrepo/");
+  const entryCrumbLink = entryRoot.children[0].children[0];
+  assert.equal(entryCrumbLink.attrs.href, "#/myrepo/");
+});
+
+test("renderOverviewInto with a crumbHref prepends a nav back to it (global mode's repo-overview page)", () => {
+  const doc = fakeDoc();
+  const root = fakeRoot();
+  viewer.renderOverviewInto(doc, root, { batches: [], entries: [] }, "#/");
+  const crumbLink = root.children[0].children[0];
+  assert.equal(crumbLink.attrs.href, "#/");
+  assert.equal(crumbLink.textContent, "All repos");
+});
+
 test("renderOverviewInto never leaks a batch goal or entry title into innerHTML", () => {
   const doc = fakeDoc();
   const root = fakeRoot();

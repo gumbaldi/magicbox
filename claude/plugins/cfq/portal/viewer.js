@@ -19,10 +19,30 @@
   "use strict";
 
   // ---- route parsing ----------------------------------------------------------------------
+  // `mode` ("repo", the default, or "global") comes from the already-loaded `site.js` payload --
+  // the same hash means different things in the two modes (batch 040 phase 03's global index),
+  // so the parser needs to be told which one is live rather than guessing from the hash alone.
+  // Repo mode is byte-identical to phase 02: every existing call site (and test) that omits
+  // `mode` keeps its exact prior behaviour.
 
-  function parseRoute(hash) {
+  function parseRoute(hash, mode) {
+    mode = mode || "repo";
     var h = (hash || "").replace(/^#/, "");
     var parts = h.split("/").filter(function (p) { return p !== ""; });
+
+    if (mode === "global") {
+      if (!parts.length) return { name: "repos", param: null };
+      var repo = parts[0];
+      var rest = parts.slice(1);
+      if (rest.length >= 2 && rest[0] === "batch") {
+        return { name: "repo-batch", param: { repo: repo, batch: rest.slice(1).join("/") } };
+      }
+      if (rest.length >= 2 && rest[0] === "entry") {
+        return { name: "repo-entry", param: { repo: repo, id: rest.slice(1).join("/") } };
+      }
+      return { name: "repo-overview", param: repo };
+    }
+
     if (parts.length >= 2 && parts[0] === "batch") {
       return { name: "batch", param: parts.slice(1).join("/") };
     }
@@ -30,6 +50,26 @@
       return { name: "entry", param: parts.slice(1).join("/") };
     }
     return { name: "overview", param: null };
+  }
+
+  // ---- data paths: repo-local vs global-mirrored ------------------------------------------
+  // Repo mode always reads "data/<key>.js". Global mode reads the same per-repo files out of
+  // "<repo>/data/<key>.js" (batch 040 phase 03's mirror layout) for every key except the
+  // global-only "site"/"repos" files, which stay at "data/<key>.js" (repo=null/falsy selects
+  // that branch either way, so a global caller with no repo yet -- the repos list itself --
+  // needs no special case).
+
+  function dataPath(mode, repo, key) {
+    if (mode === "global" && repo) return repo + "/data/" + key;
+    return "data/" + key;
+  }
+
+  // The key registered on `window.CFQ_DATA` is always the bit after the last "data/" segment --
+  // true for both "data/queue" (-> "queue") and "myrepo/data/queue" (-> "queue"), since the data
+  // file itself doesn't know or care whether it was written to a repo-local or a mirrored root.
+  function dataKeyFromPath(path) {
+    var idx = path.lastIndexOf("data/");
+    return idx === -1 ? path : path.slice(idx + 5);
   }
 
   // ---- overview grouping --------------------------------------------------------------------
@@ -170,7 +210,7 @@
     while (node.firstChild) node.removeChild(node.firstChild);
   }
 
-  // ---- rendering: overview --------------------------------------------------------------------
+  // ---- rendering: overview building blocks (batch rows, groups, entry lists) ----------------
 
   function batchRowInto(doc, b) {
     var row = doc.createElement("div");
@@ -235,8 +275,61 @@
     return section;
   }
 
-  function renderOverviewInto(doc, root, queue) {
+  // ---- rendering: global repos list ------------------------------------------------------
+
+  function repoRowInto(doc, r) {
+    r = r || {};
+    var row = doc.createElement("div");
+    row.className = "repo-row";
+
+    var link = doc.createElement("a");
+    link.setAttribute("href", "#/" + r.mirror + "/");
+    link.textContent = r.name || r.mirror;
+    row.appendChild(link);
+
+    var counts = r.counts || {};
+    var batches = counts.batches || {};
+    row.appendChild(el(
+      doc, "span",
+      (batches.inProgress || 0) + " in progress · " + (batches.planned || 0) + " planned · "
+        + (batches.done || 0) + " done",
+      "counts",
+    ));
+    if (counts.todos) row.appendChild(el(doc, "span", counts.todos + " todos", "todos"));
+    if (counts.planEntries) row.appendChild(el(doc, "span", counts.planEntries + " plan inbox", "plan-entries"));
+
+    return row;
+  }
+
+  function renderReposInto(doc, root, repos) {
+    repos = repos || [];
+    var section = doc.createElement("section");
+    section.className = "queue-group";
+    section.appendChild(el(doc, "h2", "Repositories (" + repos.length + ")"));
+    if (!repos.length) {
+      section.appendChild(el(doc, "p", "No repo has synced into this reportDir yet.", "muted"));
+    } else {
+      repos.forEach(function (r) { section.appendChild(repoRowInto(doc, r)); });
+    }
+    root.appendChild(section);
+  }
+
+  // ---- rendering: overview ----------------------------------------------------------------
+  // `crumbHref`, when given, prepends a nav back to it (global mode's repo-overview page,
+  // linking back to the cross-repo repos list). Omitted (repo mode, unchanged from phase 02),
+  // no crumb is rendered -- the overview stays the top-level page.
+
+  function renderOverviewInto(doc, root, queue, crumbHref) {
     queue = queue || { batches: [], entries: [] };
+    if (crumbHref) {
+      var crumbs = doc.createElement("nav");
+      crumbs.className = "crumbs";
+      var back = doc.createElement("a");
+      back.setAttribute("href", crumbHref);
+      back.textContent = "All repos";
+      crumbs.appendChild(back);
+      root.appendChild(crumbs);
+    }
     var batches = queue.batches || [];
     var entries = queue.entries || [];
     var groups = groupBatches(batches);
@@ -374,13 +467,13 @@
     return details;
   }
 
-  function renderBatchInto(doc, root, batchName, plan, impl) {
+  function renderBatchInto(doc, root, batchName, plan, impl, crumbHref) {
     plan = plan || {};
 
     var crumbs = doc.createElement("nav");
     crumbs.className = "crumbs";
     var back = doc.createElement("a");
-    back.setAttribute("href", "#/");
+    back.setAttribute("href", crumbHref || "#/");
     back.textContent = "Overview";
     crumbs.appendChild(back);
     root.appendChild(crumbs);
@@ -416,7 +509,7 @@
 
   // ---- rendering: entry -------------------------------------------------------------------
 
-  function renderEntryInto(doc, root, entry) {
+  function renderEntryInto(doc, root, entry, crumbHref) {
     if (!entry) {
       root.appendChild(el(doc, "p", "Entry not found.", "muted"));
       return;
@@ -425,7 +518,7 @@
     var crumbs = doc.createElement("nav");
     crumbs.className = "crumbs";
     var back = doc.createElement("a");
-    back.setAttribute("href", "#/");
+    back.setAttribute("href", crumbHref || "#/");
     back.textContent = "Overview";
     crumbs.appendChild(back);
     root.appendChild(crumbs);
@@ -459,42 +552,86 @@
 
   var _dataCache = Object.create(null);
 
-  function loadData(key) {
-    if (Object.prototype.hasOwnProperty.call(_dataCache, key)) return _dataCache[key];
+  // `path` is relative to the reports root, without ".js" (e.g. "data/queue" in repo mode,
+  // "myrepo/data/queue" in global mode) -- built by `dataPath()` above. Cached by that full path,
+  // not by the short `window.CFQ_DATA` key alone, so navigating between two repos' same-named
+  // file (e.g. both have a "queue" key) in one global-mode page session never serves the wrong
+  // repo's cached promise.
+  function loadData(path) {
+    if (Object.prototype.hasOwnProperty.call(_dataCache, path)) return _dataCache[path];
+    var jsKey = dataKeyFromPath(path);
     var promise = new Promise(function (resolve) {
       var script = document.createElement("script");
-      script.src = "data/" + key + ".js";
+      script.src = path + ".js";
       script.onload = function () {
         var data = window.CFQ_DATA;
-        resolve(data && Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null);
+        resolve(data && Object.prototype.hasOwnProperty.call(data, jsKey) ? data[jsKey] : null);
       };
       script.onerror = function () { resolve(null); };
       document.head.appendChild(script);
     });
-    _dataCache[key] = promise;
+    _dataCache[path] = promise;
     return promise;
   }
 
   function updateSiteTitle() {
-    loadData("site").then(function (site) {
+    loadData(dataPath("repo", null, "site")).then(function (site) {
       var titleEl = document.getElementById("site-title");
-      if (titleEl && site && site.repo) titleEl.textContent = "cfq — " + site.repo;
+      if (!titleEl || !site) return;
+      if (site.mode === "global") titleEl.textContent = "cfq — all repos";
+      else if (site.repo) titleEl.textContent = "cfq — " + site.repo;
     });
   }
 
   function route() {
     var root = document.getElementById("app");
     if (!root) return;
-    var r = parseRoute(location.hash);
-    clearChildren(root);
-    if (r.name === "batch") {
-      Promise.all([loadData("batch/" + r.param + "/plan"), loadData("batch/" + r.param + "/impl")])
-        .then(function (results) { renderBatchInto(document, root, r.param, results[0], results[1]); });
-    } else if (r.name === "entry") {
-      loadData("entry/" + r.param).then(function (entry) { renderEntryInto(document, root, entry); });
-    } else {
-      loadData("queue").then(function (queue) { renderOverviewInto(document, root, queue); });
-    }
+    // The site payload's own "data/site" path is the same in both modes -- only its content
+    // (`mode: "repo"|"global"`) decides how the rest of the hash is read.
+    loadData(dataPath("repo", null, "site")).then(function (site) {
+      var mode = (site && site.mode) || "repo";
+      var r = parseRoute(location.hash, mode);
+      clearChildren(root);
+
+      if (mode === "global") {
+        if (r.name === "repo-overview") {
+          loadData(dataPath("global", r.param, "queue")).then(function (queue) {
+            renderOverviewInto(document, root, queue, "#/");
+          });
+        } else if (r.name === "repo-batch") {
+          var repo = r.param.repo, batch = r.param.batch;
+          Promise.all([
+            loadData(dataPath("global", repo, "batch/" + batch + "/plan")),
+            loadData(dataPath("global", repo, "batch/" + batch + "/impl")),
+          ]).then(function (results) {
+            renderBatchInto(document, root, batch, results[0], results[1], "#/" + repo + "/");
+          });
+        } else if (r.name === "repo-entry") {
+          var entryRepo = r.param.repo, id = r.param.id;
+          loadData(dataPath("global", entryRepo, "entry/" + id)).then(function (entry) {
+            renderEntryInto(document, root, entry, "#/" + entryRepo + "/");
+          });
+        } else {
+          loadData(dataPath("global", null, "repos")).then(function (repos) {
+            renderReposInto(document, root, repos);
+          });
+        }
+        return;
+      }
+
+      if (r.name === "batch") {
+        Promise.all([
+          loadData(dataPath("repo", null, "batch/" + r.param + "/plan")),
+          loadData(dataPath("repo", null, "batch/" + r.param + "/impl")),
+        ]).then(function (results) { renderBatchInto(document, root, r.param, results[0], results[1]); });
+      } else if (r.name === "entry") {
+        loadData(dataPath("repo", null, "entry/" + r.param)).then(function (entry) {
+          renderEntryInto(document, root, entry);
+        });
+      } else {
+        loadData(dataPath("repo", null, "queue")).then(function (queue) { renderOverviewInto(document, root, queue); });
+      }
+    });
   }
 
   if (typeof window !== "undefined") {
@@ -510,6 +647,8 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       parseRoute: parseRoute,
+      dataPath: dataPath,
+      dataKeyFromPath: dataKeyFromPath,
       groupBatches: groupBatches,
       plannedReason: plannedReason,
       zeroTotals: zeroTotals,
@@ -520,6 +659,7 @@
       fmtInt: fmtInt,
       el: el,
       clearChildren: clearChildren,
+      renderReposInto: renderReposInto,
       renderOverviewInto: renderOverviewInto,
       renderBatchInto: renderBatchInto,
       renderEntryInto: renderEntryInto,

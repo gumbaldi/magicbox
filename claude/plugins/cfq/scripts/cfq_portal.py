@@ -27,9 +27,21 @@ Reuses rather than re-derives: `cfq_brief.parse_phase_body` for a phase file's t
 (batch 038 phase 05's four-layer cost split) for every cost total here, and `cfq_scan.scan_repo`
 (the same per-repo record builder the dashboard uses) for batch status/open/done/blocked/planning
 -- never a second scan of every `scanRoots` repo for what is always a single-repo sync.
+
+When the `reportDir` setting resolves to a non-empty absolute path, `sync()` additionally mirrors
+every data file it just wrote (repo-local) to `<reportDir>/<repo-name>[-<hash>]/data/...` --
+`<repo-name>` is the repo directory's basename, suffixed with a short hash of the absolute repo
+path only on a collision with a different repo already mirrored under that name, a mapping
+recorded (and kept stable across syncs) in `<reportDir>/data/repos.js`. The fixed viewer shell is
+installed once at `<reportDir>/` itself (not per repo), and `<reportDir>/data/site.js` carries
+`{"mode": "global"}` so the viewer renders the cross-repo index instead of one repo's overview. A
+mirror failure (permission denied, `reportDir` not creatable) never fails the repo-local sync --
+the JSON result carries `"mirror": {"status": "ERROR", "detail": ...}` instead, with the
+repo-local files written exactly as if `reportDir` were unset.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -42,6 +54,7 @@ from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.proc import settings_get  # noqa: E402
 
 import cfq_report  # noqa: E402
 import cfq_scan  # noqa: E402
@@ -145,13 +158,13 @@ PORTAL_SHELL_FILES = (
 )
 
 
-def install_shell(repo_root):
+def install_shell(out_dir):
     """Copies the fixed viewer shell (`index.html`, `assets/viewer.js`, `assets/style.css`) from
-    the plugin's own `portal/` source into `<repo>/.claude/cfq/reports/` whenever the installed
-    stamp (`reports/.portal-version`) differs from the running plugin's own version -- an
-    unchanged version copies nothing, so a sync never rewrites a repo's `reports/` tree on every
-    call. Returns the list of paths (relative to `reports/`) actually written."""
-    out_dir = reports_dir(repo_root)
+    the plugin's own `portal/` source into `out_dir` (a repo's `.claude/cfq/reports/`, or a
+    `reportDir` root for the global mirror) whenever the installed stamp
+    (`<out_dir>/.portal-version`) differs from the running plugin's own version -- an unchanged
+    version copies nothing, so a sync never rewrites the tree on every call. Returns the list of
+    paths (relative to `out_dir`) actually written."""
     stamp_path = out_dir / ".portal-version"
     version = plugin_version()
     try:
@@ -172,6 +185,140 @@ def install_shell(repo_root):
             written.append(rel)
     write_if_changed(stamp_path, version)
     return written
+
+
+# ---- reportDir mirror: an additional copy of every repo's portal, plus a cross-repo index ------
+
+DATA_FILE_RE = re.compile(
+    r"^window\.CFQ_DATA = window\.CFQ_DATA \|\| \{\};\n"
+    r"window\.CFQ_DATA\[.*?\] = (?P<payload>.*);\n\Z",
+    re.S,
+)
+
+
+def report_dir_setting(repo_root):
+    """`""`/`"null"` both mean "mirroring is off" -- same two-value check `cfq_report.py`'s own
+    `resolve_html_path()` uses for this same setting's other (legacy, unrelated) consumer."""
+    value = settings_get(repo_root, "reportDir")
+    return value if value not in ("", "null") else ""
+
+
+def read_data_payload(path):
+    """Parses a `window.CFQ_DATA[...] = <payload>;` data file back into its JSON payload -- the
+    one place `repos.js` (this module's only data file ever read back, not just written) needs
+    reading. Missing file, unreadable file or unexpected shape all degrade to `None` rather than
+    raising, since a first sync into a fresh `reportDir` has no `repos.js` yet."""
+    try:
+        content = path.read_text()
+    except OSError:
+        return None
+    m = DATA_FILE_RE.match(content)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group("payload"))
+    except json.JSONDecodeError:
+        return None
+
+
+def repos_js_path(report_dir):
+    return pathlib.Path(report_dir) / "data" / "repos.js"
+
+
+def resolve_mirror_name(existing_repos, repo_root):
+    """The mirror directory name for `repo_root` under `reportDir`: stable once recorded --
+    a repo already listed in `repos.js` (matched by its absolute `source` path, not by name) keeps
+    its existing `mirror` value forever, even if a *third* repo later collides with its basename.
+    A repo seen for the first time gets its own basename, unless another *different* repo already
+    claimed that exact mirror name, in which case it gets a `-<short hash of its own absolute
+    path>` suffix -- deterministic (the same repo always hashes to the same suffix) and stable
+    (recorded here, in `repos.js`, the moment it's chosen)."""
+    for r in existing_repos:
+        if isinstance(r, dict) and r.get("source") == repo_root:
+            return r.get("mirror") or pathlib.Path(repo_root).name
+    base = pathlib.Path(repo_root).name
+    used = {r.get("mirror") for r in existing_repos if isinstance(r, dict)}
+    if base not in used:
+        return base
+    digest = hashlib.sha1(repo_root.encode("utf-8")).hexdigest()[:8]
+    return f"{base}-{digest}"
+
+
+def repo_counts(queue_payload):
+    """`{"batches": {"inProgress", "planned", "done"}, "todos", "planEntries"}` -- the same
+    grouping the viewer's own `groupBatches()` applies (in_progress / done / everything else),
+    computed here so the cross-repo index can render a repo's card without loading and grouping
+    that repo's full `queue.js` itself."""
+    groups = {"inProgress": 0, "planned": 0, "done": 0}
+    for b in queue_payload.get("batches", []):
+        status = b.get("status")
+        if status == "in_progress":
+            groups["inProgress"] += 1
+        elif status == "done":
+            groups["done"] += 1
+        else:
+            groups["planned"] += 1
+    entries = queue_payload.get("entries", [])
+    todos = sum(1 for e in entries if e.get("kind") == "todo")
+    plan_entries = sum(1 for e in entries if e.get("kind") == "plan")
+    return {"batches": groups, "todos": todos, "planEntries": plan_entries}
+
+
+def update_repos_list(existing_repos, repo_root, mirror_name, counts):
+    """Read-modify-write over the parsed `repos.js` list: only the row for `repo_root` changes
+    (updated in place if present, appended otherwise) -- every other repo's row, including its
+    position, is left untouched, so two repos syncing independently never race on each other's
+    data."""
+    name = pathlib.Path(repo_root).name
+    row = {"name": name, "mirror": mirror_name, "source": repo_root, "counts": counts}
+    rows, replaced = [], False
+    for r in existing_repos:
+        if isinstance(r, dict) and r.get("source") == repo_root:
+            rows.append(row)
+            replaced = True
+        else:
+            rows.append(r)
+    if not replaced:
+        rows.append(row)
+    return rows
+
+
+def mirror_sync(report_dir, repo_root, queue_payload, docs):
+    """Mirrors `docs` (the `(rel, key, payload)` triples `sync()` just wrote repo-locally) into
+    `<report_dir>/<mirror-name>/data/...`, installs the global shell once at `<report_dir>/`
+    itself, and updates the cross-repo `<report_dir>/data/{site,repos}.js`. Raises on any
+    filesystem failure -- the caller isolates it, since a mirror failure must never fail the
+    repo-local sync it rides along with."""
+    report_root = pathlib.Path(report_dir)
+    written = list(install_shell(report_root))
+    unchanged = 0
+
+    if write_if_changed(report_root / "data" / "site.js", render_data_file("site", {"mode": "global"})):
+        written.append("data/site.js")
+    else:
+        unchanged += 1
+
+    existing_repos = read_data_payload(repos_js_path(report_dir))
+    if not isinstance(existing_repos, list):
+        existing_repos = []
+    mirror_name = resolve_mirror_name(existing_repos, repo_root)
+    new_repos = update_repos_list(existing_repos, repo_root, mirror_name, repo_counts(queue_payload))
+    if write_if_changed(repos_js_path(report_dir), render_data_file("repos", new_repos)):
+        written.append("data/repos.js")
+    else:
+        unchanged += 1
+
+    out_dir = report_root / mirror_name / "data"
+    expected = set()
+    for rel, key, payload in docs:
+        expected.add(rel)
+        if write_if_changed(out_dir / rel, render_data_file(key, payload)):
+            written.append(f"{mirror_name}/data/{rel}")
+        else:
+            unchanged += 1
+    removed = [f"{mirror_name}/data/{rel}" for rel in cleanup_stale(out_dir, expected)]
+
+    return {"status": "OK", "written": sorted(written), "unchanged": unchanged, "removed": sorted(removed)}
 
 
 # ---- cost totals: whole-batch totals plus the four layer sums ----------------------------------
@@ -419,11 +566,13 @@ def sync(repo_root, batch_names=None):
         return {"status": "NO_REPO", "written": [], "unchanged": 0, "removed": []}
 
     out_dir = data_dir(repo_root)
-    written = list(install_shell(repo_root))
+    written = list(install_shell(reports_dir(repo_root)))
     unchanged = 0
+    docs = []  # every (rel, key, payload) triple actually considered this sync -- mirrored as-is
 
     def write(rel, key, payload):
         nonlocal unchanged
+        docs.append((rel, key, payload))
         if write_if_changed(out_dir / rel, render_data_file(key, payload)):
             written.append(rel)
         else:
@@ -437,7 +586,8 @@ def sync(repo_root, batch_names=None):
             entry_fulls.append(build_entry_payload(kind, f))
     entry_summaries = [entry_summary(e) for e in entry_fulls]
 
-    write("queue.js", "queue", build_queue_payload(repo_root, scan, entry_summaries))
+    queue_payload = build_queue_payload(repo_root, scan, entry_summaries)
+    write("queue.js", "queue", queue_payload)
 
     all_names = {b["name"] for b in scan["batches"]}
     target_names = all_names if batch_names is None else (all_names & set(batch_names))
@@ -461,12 +611,23 @@ def sync(repo_root, batch_names=None):
     expected |= {f"entry/{e['id']}.js" for e in entry_fulls}
     removed = cleanup_stale(out_dir, expected)
 
-    return {
+    result = {
         "status": "OK",
         "written": sorted(written),
         "unchanged": unchanged,
         "removed": sorted(removed),
     }
+
+    report_dir = report_dir_setting(repo_root)
+    if report_dir:
+        try:
+            result["mirror"] = mirror_sync(report_dir, repo_root, queue_payload, docs)
+        except Exception as e:  # noqa: BLE001 -- a mirror failure must never fail the repo-local sync
+            result["mirror"] = {"status": "ERROR", "detail": str(e)}
+    else:
+        result["mirror"] = None
+
+    return result
 
 
 def cmd_sync(args):

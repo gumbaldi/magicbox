@@ -89,7 +89,7 @@ interactively.
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 | `htmlReport` | — | `true` | global, repo | render the HTML report at batch end; set false to render only on `/rfq` request |
-| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | absolute path of the directory HTML reports are collected in; empty renders into `<repo>/.claude/cfq/reports/` instead — see layout below |
+| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |

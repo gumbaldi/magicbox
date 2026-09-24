@@ -4,6 +4,7 @@ the `.js` data files `portal sync` writes into `<repo>/.claude/cfq/reports/data/
 """
 
 import json
+import pathlib
 import re
 import shutil
 import sys
@@ -107,8 +108,8 @@ class PortalTest(CfqTestCase):
         self.assertIsNotNone(m, f"unexpected data-file shape in {path}: {path.read_text()[:200]!r}")
         return json.loads(m.group("key")), json.loads(m.group("payload"))
 
-    def _sync(self, repo, *extra):
-        proc = self.run_cfq("portal", "sync", str(repo), *extra)
+    def _sync(self, repo, *extra, env=None):
+        proc = self.run_cfq("portal", "sync", str(repo), *extra, env=env)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         return self.json_out(proc)
 
@@ -387,6 +388,118 @@ class PortalTest(CfqTestCase):
         key, payload = self._payload(self._data_dir(repo) / "site.js")
         self.assertEqual(key, "site")
         self.assertEqual(payload, {"mode": "repo", "repo": "my-repo"})
+
+    def test_sync_without_reportdir_carries_no_mirror(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        result = self._sync(repo)
+        self.assertIsNone(result["mirror"])
+
+    # ---- reportDir mirror (batch 040 phase 03) --------------------------------------------------
+
+    def test_reportdir_mirror(self):
+        repo_a = self.make_repo("alpha")
+        repo_b = self.make_repo("beta")
+        self._build_batch(repo_a, "2026-09-23-a")
+        self._build_batch(repo_b, "2026-09-23-b")
+
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+
+        result_a = self._sync(repo_a, env=env)
+        result_b = self._sync(repo_b, env=env)
+
+        # routine: both mirrored, repos.js has two rows -----------------------------------------
+        self.assertEqual(result_a["mirror"]["status"], "OK")
+        self.assertEqual(result_b["mirror"]["status"], "OK")
+
+        for rel in ("index.html", "assets/viewer.js", "assets/style.css"):
+            self.assertTrue((report_dir / rel).is_file(), f"global shell {rel} not installed")
+        self.assertTrue((report_dir / ".portal-version").is_file())
+
+        site_key, site_payload = self._payload(report_dir / "data" / "site.js")
+        self.assertEqual(site_key, "site")
+        self.assertEqual(site_payload, {"mode": "global"})
+
+        repos_key, repos_payload = self._payload(report_dir / "data" / "repos.js")
+        self.assertEqual(repos_key, "repos")
+        self.assertEqual(len(repos_payload), 2)
+        by_source = {r["source"]: r for r in repos_payload}
+        self.assertIn(str(repo_a.resolve()), by_source)
+        self.assertIn(str(repo_b.resolve()), by_source)
+        row_a = by_source[str(repo_a.resolve())]
+        self.assertEqual(row_a["name"], "alpha")
+        self.assertEqual(row_a["mirror"], "alpha")
+        self.assertIn("batches", row_a["counts"])
+
+        for repo, mirror_name, batch_name in (
+            (repo_a, "alpha", "2026-09-23-a"), (repo_b, "beta", "2026-09-23-b"),
+        ):
+            mirror_data = report_dir / mirror_name / "data"
+            for rel in ("site.js", "queue.js", f"batch/{batch_name}.plan.js"):
+                self.assertTrue((mirror_data / rel).is_file(), f"{mirror_name}: missing mirrored {rel}")
+            _k, mirrored_queue = self._payload(mirror_data / "queue.js")
+            _k2, repo_queue = self._payload(self._data_dir(repo) / "queue.js")
+            self.assertEqual(mirrored_queue, repo_queue, f"{mirror_name}: mirrored queue.js diverges from repo-local")
+
+        # a no-op re-sync of the same repo mirrors nothing new
+        second = self._sync(repo_a, env=env)
+        self.assertEqual(second["mirror"]["status"], "OK")
+        self.assertEqual(second["mirror"]["written"], [])
+
+    def test_reportdir_mirror_same_basename_gets_stable_distinct_directory(self):
+        repo_1 = self.make_repo("dup")
+        repo_2 = self.make_repo(str(pathlib.Path("nested") / "dup"))
+        self._build_batch(repo_1, "2026-09-23-a")
+        self._build_batch(repo_2, "2026-09-23-b")
+
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+
+        result_1 = self._sync(repo_1, env=env)
+        result_2 = self._sync(repo_2, env=env)
+        mirror_1 = result_1["mirror"]["written"]
+        mirror_2 = result_2["mirror"]["written"]
+        self.assertTrue(any(p.startswith("dup/data/") for p in mirror_1), mirror_1)
+        second_mirror_dirs = {p.split("/", 1)[0] for p in mirror_2 if "/data/" in p}
+        self.assertEqual(len(second_mirror_dirs), 1)
+        second_mirror_dir = next(iter(second_mirror_dirs))
+        self.assertNotEqual(second_mirror_dir, "dup")
+        self.assertTrue(second_mirror_dir.startswith("dup-"), second_mirror_dir)
+
+        repos_key, repos_payload = self._payload(report_dir / "data" / "repos.js")
+        mirrors = {r["mirror"] for r in repos_payload}
+        self.assertEqual(mirrors, {"dup", second_mirror_dir})
+
+        # stable across a re-sync: the same repo keeps the same mirror name it was first assigned,
+        # and an unchanged resync mirrors nothing new
+        result_2_again = self._sync(repo_2, env=env)
+        self.assertEqual(result_2_again["mirror"]["written"], [])
+        _key, repos_payload_again = self._payload(report_dir / "data" / "repos.js")
+        by_source = {r["source"]: r["mirror"] for r in repos_payload_again}
+        self.assertEqual(by_source[str(repo_2.resolve())], second_mirror_dir)
+
+    def test_reportdir_unwritable_falls_back_with_mirror_error(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+
+        robase = self._repos_dir / "readonly-parent"
+        robase.mkdir()
+        bad_report_dir = robase / "reports"
+        robase.chmod(0o555)
+        try:
+            result = self._sync(repo, env={"CFQ_REPORT_DIR": str(bad_report_dir)})
+        finally:
+            robase.chmod(0o755)
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["mirror"]["status"], "ERROR")
+        self.assertTrue(result["mirror"]["detail"])
+        # the repo-local sync itself is unaffected by the mirror failure
+        self.assertTrue((self._data_dir(repo) / "queue.js").is_file())
+        self.assertTrue((self._data_dir(repo) / "batch/2026-09-23-demo.plan.js").is_file())
 
 
 # ---- cfq_lib.markdown's extensions over cfq_report.py's original md_min/md_inline --------------
