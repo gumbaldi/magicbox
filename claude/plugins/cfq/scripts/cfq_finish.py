@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, render, text as cfq_text  # noqa: E402
+from cfq_lib import paths, portal_hook, render, text as cfq_text  # noqa: E402
 from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
 
 PROG = "cfq_finish.py"
@@ -245,6 +245,8 @@ def cmd_finish(args):
         if html_report == "true":
             if cfq_run("report", "html", str(batch_dir)).returncode != 0:
                 print(f"{PROG}: html report render failed for {batch_dir}", file=sys.stderr)
+
+        portal_hook.sync(str(repo_root), batches=[batch_dir.name])
 
         status_lines = [
             language_line(lang_json),

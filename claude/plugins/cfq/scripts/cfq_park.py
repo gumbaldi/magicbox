@@ -31,6 +31,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
@@ -116,6 +117,8 @@ def cmd_park(args):
 
     if args.from_plan:
         _consume_plan_entries(args.repo, args.from_plan)
+
+    portal_hook.sync(args.repo, batches=[args.batch])
 
 
 def build_parser():

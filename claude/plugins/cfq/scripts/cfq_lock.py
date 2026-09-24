@@ -20,6 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
@@ -84,6 +85,7 @@ def cmd_acquire(args):
     with open(tmp, "w") as fh:
         fh.write(json.dumps(payload))
     os.replace(tmp, f)
+    portal_hook.sync(repo, batches=[batch])
     print(f"OK {batch}")
 
 

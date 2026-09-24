@@ -78,6 +78,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import proc as cfq_lib_proc  # noqa: E402
 from cfq_lib import text as cfq_lib_text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
@@ -204,12 +205,17 @@ def cmd_note(args, kind):
     if body_text is None:
         return
 
+    # False only for `plan --framework` writing into the global framework inbox -- an entry that
+    # never lands in this repo's own queue, so there is nothing here for that repo's portal to
+    # resync over.
+    wrote_to_repo = True
     if kind == "plan" and getattr(args, "framework", False):
         framework_repo = _resolve_framework_repo()
         if _is_framework_repo(args.repo, framework_repo):
             target_dir = TARGET_DIR[kind](args.repo)
         else:
             target_dir = _inbox_dir()
+            wrote_to_repo = False
     else:
         target_dir = TARGET_DIR[kind](args.repo)
 
@@ -224,6 +230,9 @@ def cmd_note(args, kind):
             )
 
     _write_entry(target_dir, args.slug, body_text)
+
+    if wrote_to_repo:
+        portal_hook.sync(args.repo)
 
 
 def _plan_entry_path(repo, entry):
@@ -274,6 +283,7 @@ def cmd_close(args):
         os.replace(str(target), str(dest))
         closed.append(str(dest))
 
+    portal_hook.sync(args.repo)
     print(render.dump_json({"status": "OK", "closed": closed}))
 
 
@@ -294,6 +304,7 @@ def cmd_merge_todo(args):
     )
     slug = "merge-" + branch.replace("/", "-")
     _write_entry(TARGET_DIR["todo"](args.repo), slug, body)
+    portal_hook.sync(args.repo)
 
 
 def cmd_import(args):
@@ -322,6 +333,8 @@ def cmd_import(args):
     result = {"status": "OK", "imported": imported}
     if import_errors:
         result["errors"] = import_errors
+    if imported:
+        portal_hook.sync(repo)
     print(render.dump_json(result))
 
 
@@ -571,6 +584,9 @@ def cmd_sweep(args):
         "cards": records,
         "counts": counts,
     }
+
+    if counts["moved"]:
+        portal_hook.sync(str(repo_root))
 
     if args.text:
         _sweep_text(result)

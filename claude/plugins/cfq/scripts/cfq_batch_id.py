@@ -42,6 +42,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
@@ -550,6 +551,8 @@ def cmd_ready(args):
         print("already ready")
         return
     marker.unlink()
+    batch_dir = pathlib.Path(args.batch_dir)
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
     print(f"removed {marker}")
 
 

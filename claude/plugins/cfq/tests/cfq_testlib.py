@@ -44,11 +44,17 @@ class CfqTestCase(unittest.TestCase):
         """Strips CFQ_* plus the host's own XDG_CONFIG_HOME/PONYTAIL_DEFAULT_MODE -- both are
         read directly from os.environ by cfq_doctor.py/cfq_runtime.py regardless of the `home=`
         override, so a CI runner that happens to set XDG_CONFIG_HOME leaks its (nonexistent)
-        ponytail config into every test unless a test opts back in via its own `env=`."""
-        return {
+        ponytail config into every test unless a test opts back in via its own `env=`. Reinstates
+        CFQ_PORTAL_SYNC=0 on top -- every mutating verb now fires a `portal sync` side effect
+        (`cfq_lib/portal_hook.py`), and this suite's directory-content assertions were all written
+        before that existed; a test opting back in (only `test_portal_triggers.py` does) overrides
+        it via its own `env=`."""
+        env = {
             k: v for k, v in os.environ.items()
             if not k.startswith("CFQ_") and k not in ("XDG_CONFIG_HOME", "PONYTAIL_DEFAULT_MODE")
         }
+        env["CFQ_PORTAL_SYNC"] = "0"
+        return env
 
     def run_cfq(self, *args, home=None, env=None, cwd=None, check=False):
         run_env = self._base_env()
@@ -65,7 +71,7 @@ class CfqTestCase(unittest.TestCase):
         )
 
     def run_clean(self, *args, env=None, cwd=None, check=False):
-        run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", "")}
+        run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", ""), "CFQ_PORTAL_SYNC": "0"}
         if env:
             run_env.update(env)
         return subprocess.run(

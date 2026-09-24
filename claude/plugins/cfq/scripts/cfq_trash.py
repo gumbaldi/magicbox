@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib import trash  # noqa: E402
 
@@ -27,6 +28,7 @@ def cmd_put(args):
     except trash.TrashError as e:
         errors.fail(e.code, detail=str(e))
         return
+    portal_hook.sync(args.repo)
     print(entry_id)
 
 
@@ -45,6 +47,7 @@ def cmd_restore(args):
     except trash.TrashError as e:
         errors.fail(e.code, detail=str(e))
         return
+    portal_hook.sync(args.repo)
     print(path)
 
 

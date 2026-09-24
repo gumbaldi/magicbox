@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, render, text  # noqa: E402
+from cfq_lib import paths, portal_hook, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_dash.py"
@@ -336,6 +336,9 @@ def main(argv):
             "thisRepo": this_repo_json, "settings": settings_json,
         }))
         return
+
+    if repo:
+        portal_hook.sync(repo)
 
     next_expanded, next_header, next_note = build_next(repo, scan_json["repos"])
 
