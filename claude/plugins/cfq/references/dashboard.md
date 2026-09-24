@@ -95,6 +95,14 @@ ACTION
 
 ## Step D — Settings, Full Detail
 
+The guided `/cfq settings` picker (`<plugin-root>/references/settings-menu.md`) navigates the same
+schema this section describes and reuses everything below — scope inference, the global-only
+rejection, the `env:repo-legacy` migration note — rather than duplicating it; a free-text change
+request ("set stopUsed to 100000") keeps landing here directly. `ACTIONS`' two permanent rows,
+`settings menu` (`/cfq settings`) and `setup wizard` (`/cfq setup`), point at the picker and at the
+onboarding wizard respectively; both stay listed on every render, in a repo or outside one, rather
+than only once during first-time setup.
+
 Pair each `.settings` row with its explanation from `bin/cfq settings describe [<key>]` — that
 schema call is the single source for per-key prose, not a hand-maintained table;
 `<plugin-root>/references/settings-explain.md` adds only the nuance that doesn't reduce to

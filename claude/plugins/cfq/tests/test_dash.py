@@ -481,6 +481,26 @@ class TestDash(CfqTestCase):
         for kw in ACTION_KEYWORDS:
             self.assertIn(kw, lowered, f"action keyword {kw!r} missing from the rendered dashboard:\n{rendered}")
 
+    def test_actions_settings_menu_and_setup_wizard_rows_permanent(self):
+        # routine: the two permanent ACTIONS rows show up both inside a registered repo and
+        # outside one -- neither is a one-time setup hint, both point at /cfq settings|setup.
+        tmp = self._repos_dir / "permanentroot"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+        outside = self._repos_dir / "permanentoutside"
+        self._plain_repo(outside)
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        inside_rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        outside_rendered = self.run_cfq("dash", "render", str(outside), env=env).stdout
+
+        for rendered in (inside_rendered, outside_rendered):
+            self.assertIn("settings menu", rendered, f"settings menu row missing:\n{rendered}")
+            self.assertIn("/cfq settings", rendered, f"/cfq settings pointer missing:\n{rendered}")
+            self.assertIn("setup wizard", rendered, f"setup wizard row missing:\n{rendered}")
+            self.assertIn("/cfq setup", rendered, f"/cfq setup pointer missing:\n{rendered}")
+
     def test_actions_drift_guard_matches_dashboard_md(self):
         # Keeps the ACTIONS list and references/dashboard.md's prose from drifting apart in
         # either direction -- a new management action must be documented AND rendered.
@@ -608,8 +628,16 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
         )
 
     def test_render_body_byte_identical_empty_queue(self):
+        # The settings-menu/setup-wizard ACTIONS rows are permanent -- they still print even with
+        # no repo anywhere (status NO_REPO), since both commands work without any repo context.
         out = cfq_dash.render_body([], None, [], False, "", "", "")
-        self.assertEqual(out, "\nNo repos with a queue yet.")
+        self.assertEqual(
+            out,
+            "\nNo repos with a queue yet."
+            "\n\nACTIONS\n"
+            "settings menu  /cfq settings\n"
+            "setup wizard   /cfq setup",
+        )
 
     def test_render_body_byte_identical_with_queue_entries(self):
         # Also pins the :258 two-column ACTIONS block for both a short left value ("view
@@ -650,6 +678,8 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
             "set / remove a dependency  .dependsOn between batches\n"
             "work off todo/ entries     runs their check: commands\n"
             "change a setting           just say it in plain language\n"
+            "settings menu              /cfq settings\n"
+            "setup wizard               /cfq setup\n"
             "full batch list            bin/cfq dash render --all\n"
             "view reports               /rfq · /x/repo-a/.claude/cfq/reports/index.html\n"
             "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"

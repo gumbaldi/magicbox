@@ -27,6 +27,14 @@ PROG = "cfq_dash.py"
 
 REASON_TEXT = {"inProgress": "in progress", "priority": "priority high", "order": "next in order"}
 
+# Permanent, scope-independent -- shown inside a repo (as part of the full ACTIONS list below) and
+# outside one (on their own, see render_body) alike, so the settings menu and setup wizard are
+# always pointed at rather than offered once during first-time setup.
+GLOBAL_ACTION_ROWS = [
+    ("settings menu", "/cfq settings"),
+    ("setup wizard", "/cfq setup"),
+]
+
 ACTION_ROWS_TEMPLATE = [
     ("flag / unflag priority", "mark a batch high priority"),
     ("delete a batch", "removes the queue directory"),
@@ -35,6 +43,7 @@ ACTION_ROWS_TEMPLATE = [
     ("set / remove a dependency", ".dependsOn between batches"),
     ("work off todo/ entries", "runs their check: commands"),
     ("change a setting", "just say it in plain language"),
+] + GLOBAL_ACTION_ROWS + [
     ("full batch list", "bin/cfq dash render --all"),
     ("view reports", "/rfq · {path}/.claude/cfq/reports/index.html"),
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
@@ -256,6 +265,10 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     if this_repo is not None:
         action_rows = [(a, b.format(path=this_repo["path"])) for a, b in ACTION_ROWS_TEMPLATE]
         lines += ["", "ACTIONS"] + text.table(action_rows, indent="")
+    else:
+        # No repo (or not registered) -- most of ACTIONS needs a repo, but the settings menu and
+        # setup wizard don't, so they stay visible rather than disappearing along with the rest.
+        lines += ["", "ACTIONS"] + text.table(GLOBAL_ACTION_ROWS, indent="")
 
     eligible = [r for r in repos if r["status"] != "BLOCKED" and r["open"] > 0]
     if eligible:

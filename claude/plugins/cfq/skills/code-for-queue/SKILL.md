@@ -129,6 +129,11 @@ confirm → mutate → report under an `ACTION` header. Full per-action detail i
 
 ## Step D — Settings
 
+Argument `settings` (or a request for "the settings menu") → read
+`${CLAUDE_PLUGIN_ROOT}/references/settings-menu.md` and follow it: a guided scope → group → key →
+value picker, global or per repo. A free-text change request ("set stopUsed to 100000") skips the
+picker and goes straight through the rest of this step, unchanged.
+
 Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
 each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference,
 the global-only rejection, and the `env:repo-legacy` migration note are in

@@ -408,6 +408,24 @@ works and still sits at the top tier:
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.
 
+### Settings
+
+`/cfq settings` walks the same schema interactively instead — scope (global or this repo), then
+group, setting and value, four choices per question with a "more…" page beyond that and "reset to
+default" always offered:
+
+```
+SETTINGS · magicbox
+→ scope?    global | this repo
+→ group?    1-4 | more… (5-8)
+→ setting?  keys of the group (4 per page, "more…" when needed)
+→ value?    bool/enum values as options · "reset to default" · int/string/array/object as free text
+✓ Setting   stopUsed: 125000 → 100000 (repo)
+```
+
+`/cfq setup` runs the onboarding wizard — global defaults first, then a repo part the first time
+it runs in a given repo. Both commands are permanent dashboard entries, not one-time offers.
+
 ## Host dependencies
 
 Required: `bash`, `git`, `python3` (3.8 or newer, runs the ported implementations). Installing the
