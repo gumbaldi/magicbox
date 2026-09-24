@@ -68,10 +68,7 @@ repo` instead, without reading that section.
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
 else, every time — never skip, never infer. Two questions: **Interview depth** (always),
 **Priority** (always) — option copy and status-line wording in
-`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**. Then probe the
-write surface before any research starts — read
-`${CLAUDE_PLUGIN_ROOT}/references/write-probe.md` and follow it. Print `Write Probe`: `➖` (docs
-half skipped) or `❌` plus the blocking hook's reason, ending the session there.
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**.
 
 ## Step 5 — Understand
 

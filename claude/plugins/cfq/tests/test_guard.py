@@ -182,7 +182,6 @@ class GuardTest(CfqTestCase):
         self.assertAllowed(self._write("/repo/.claude/cfq/impl/019-x/06-foo.md"))
         self.assertAllowed(self._write("/repo/.claude/cfq/impl/019-x/.batch-context.md"))
         self.assertAllowed(self._write("/repo/.claude/cfq/plan/2026-09-14-foo.md"))
-        self.assertAllowed(self._write("/repo/.claude/cfq/.writeprobe"))
 
     # -- quote/heredoc parsing (batch 038 phase 01) ---------------------------------------------
 

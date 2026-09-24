@@ -78,7 +78,6 @@ SUGGEST_PHASE_RECORD = "bin/cfq phase record <batch-dir> <phase-json-file>"
 SUGGEST_PHASE_REOPEN = "bin/cfq phase reopen <batch-dir> <phase-slug>"
 SUGGEST_TRASH_PUT = "bin/cfq trash put <repo-root> <path>"
 SUGGEST_BATCH_READY = "bin/cfq batch ready <batch-dir>"
-SUGGEST_PROBE_CLEANUP = "bin/cfq layout probe-cleanup <repo-root>"
 
 
 def touches_queue(resolved_posix_path):
@@ -103,8 +102,6 @@ def suggestion_for(resolved_path, *, is_mv=False, mv_dest_in_done=False, mv_sour
         return SUGGEST_PHASE_REOPEN
     if basename == ".planning":
         return SUGGEST_BATCH_READY
-    if basename == ".writeprobe":
-        return SUGGEST_PROBE_CLEANUP
     return SUGGEST_TRASH_PUT
 
 

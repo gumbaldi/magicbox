@@ -227,7 +227,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
-| `layout` | Owns the `.claude/cfq/` layout, the git-exclude policy, and write-probe cleanup. |
+| `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
 | `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |

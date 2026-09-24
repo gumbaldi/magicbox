@@ -18,7 +18,7 @@ ported as batch `017` phase 10; `cfq_pfq_preflight.py`, `cfq_ifq_preflight.py` p
 CLI-less `cfq_lib/trash.py`) added as batch `019` phase 01; `cfq_phase.py` added as batch `019`
 phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_lib/consistency.py`)
 added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
-`cfq_layout.py`'s `probe-cleanup` verb and `cfq_report.py`'s `skills` verb added as batch `019`
+and `cfq_report.py`'s `skills` verb added as batch `019`
 phase 04; `cfq_guard.py` (new) added as batch `019` phase 06; `cfq_portal.py` (new, plus the
 CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01) —
 `bin/cfq` itself stays shell by
@@ -350,7 +350,7 @@ directory under `reportDir` when set) whose name matches a batch's own shape, ne
   prose costs that every session, even on the runs where the path never executes.
 - **No skill or reference file instructs a shell mutation of anything under `.claude/cfq/`** —
   every such operation (`phase record`/`commit`/`reopen`, `trash put`, `note plan`/`todo`/`close`,
-  `park --from-plan`, `batch ready`, `layout probe-cleanup`, …) is a `bin/cfq` subcommand, never a
+  `park --from-plan`, `batch ready`, …) is a `bin/cfq` subcommand, never a
   raw `rm`/`mv`/`mkdir`/`jq` written into the text. `tests/test_reference_paths.py` greps for this
   structurally.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them

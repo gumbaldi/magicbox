@@ -11,6 +11,13 @@ reserves it in the local changelog (`status: parked`) and the queue directory, r
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
 leaves no gap in the numbering.
 
+A phase-file `Write` denied by a `PreToolUse` hook ends the session. Print `❌ Park`, then
+quote the hook's `stopReason` verbatim on a `   └ ` sub-line (paraphrasing it loses the path
+it names) and add the reserved batch directory's path on another sub-line. Never work around
+the denial: no `Bash` fallback for phase files, no unlock marker of any kind. Both would
+defeat the guard the user configured. What a guard hook has to allow: **Hook contract** in
+the plugin's `README.md`.
+
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
 repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
