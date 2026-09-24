@@ -1167,4 +1167,8 @@
       summary: ""
 - batchNumber: 43
   batch: 043-2026-09-24-planning-marker-lifecycle
-  status: parked
+  branch: cfq/043-2026-09-24-planning-marker-lifecycle
+  base: cfq/042-2026-09-24-drop-pfq-write-probe
+  started: 2026-09-24
+  status: in-progress
+  legacy: false
