@@ -125,7 +125,9 @@ CFQ_STOP_USED overrides` when an env var shadows the key.
 ## Step E — Setup Wizard
 
 Argument `setup` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and follow it: its
-**Global Part** always, then — inside a repo — its **Repo Part** once that lands (a later phase);
-outside a repo the global part is the whole wizard. This is the exact flow Step A already runs
-automatically on `setupDone: false`; running it again by name re-walks it, and every question's
-"keep current" option makes an already-configured value a no-op.
+**Global Part** always, then — inside a repo — its **Repo Part**; outside a repo the global part is
+the whole wizard. This is the exact **Global Part** flow Step A already runs automatically on
+`setupDone: false` — Step A never chains into the repo part on its own, even inside a repo; only
+`/pfq`'s own unknown-repo trigger and this explicit `setup` argument run it. Running this step
+again by name re-walks the whole flow, and every question's "keep current"/"keep" option makes an
+already-configured value a no-op.

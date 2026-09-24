@@ -71,6 +71,17 @@ below) fails with `UNKNOWN_GROUP`.
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings unset --repo "$(git rev-parse --show-toplevel)" docLevel
 ```
 
+### The repo tier only stores deviations
+
+Nothing writes a repo override just to mirror the current global value — `set --repo` only ever
+lands there because something is genuinely meant to differ from what every other repo uses. The
+repo setup wizard (`/pfq`'s first run in an unknown repo, or `/cfq setup` inside a repo — see
+[setup.md](setup.md)) follows the same rule: it writes only the keys the user actually changed, so
+a repo that never overrode anything keeps following later changes to the global default
+automatically. `settings list --repo <path> --sources` (or `settings menu --repo <path>`) shows
+`repo` as the source for exactly those deviations and nothing else; `settings unset --repo <path>
+<key>` removes one, falling back to whatever the global tier (or the schema default) says instead.
+
 `get [--repo <path>] [--source] <key>` reads a single key the same way `list` does; `describe
 [<key>]` prints type/default/scope/env/description for one key or the whole schema — the same
 data this reference table below is generated from. `/cfq` offers the same `set` calls

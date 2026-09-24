@@ -20,8 +20,9 @@ user decision — print a status line, then continue automatically once the resu
 `AskUserQuestion` is reserved for points where the answer changes what gets built or parked. The
 rule behind `pfq`'s site list: it asks everything it needs before planning work starts — after
 that, only exceptional cases still ask; everything routine gets decided and reported, or parked as
-a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, and — new repo
-only — config keep/adjust, one call), grilling rounds, closing question, self-critique's
+a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, one call; on an
+unknown repo, the repo setup wizard's own area/value questions run first, before that call),
+grilling rounds, closing question, self-critique's
 drop-a-phase/remove-a-named-capability question; `ifq`: start gate (start/pick a different
 batch/cancel, per `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by
 the `resume`/`start` keywords), scope-creep parking, branch base (every new batch branch, plus

@@ -4,8 +4,9 @@ cfq's onboarding wizard. This file's **Global Part** runs automatically the firs
 `/pfq` starts with `setupDone` still `false`, and any time by name via `/cfq setup` — the same
 flow either way; `setupDone` only decides whether it opens on its own. `/ifq` never triggers or
 offers it — it runs on the cheap model and stays out of onboarding entirely. Inside a repo, `/cfq
-setup` continues into **Repo Part** (added by a later phase) once the global part finishes;
-outside a repo, the global part is the whole wizard.
+setup` continues into **Repo Part** once the global part finishes; outside a repo, the global part
+is the whole wizard. `/pfq` triggers **Repo Part** on its own too, independently of `setupDone` —
+see that section's own opening paragraph for when.
 
 ## Global Part
 
@@ -142,3 +143,102 @@ Print one status line per change, same wording as `code-for-queue`'s **Step D**:
 Print the closing status line: `Setup  ✅ done · <n> changed` — `<n>` is the number of keys
 actually written (`0` on the keep-all fast path, which reaches this line without running any area
 above).
+
+## Repo Part
+
+Runs automatically the first time `/pfq` starts inside a repo with `repo.known: false` — right
+before its own **Start Block** `AskUserQuestion`, replacing the old **Config** question that used
+to be one of that call's options — and as the second half of `/cfq setup` inside a repo,
+immediately after the **Global Part** above finishes. `/ifq` never triggers or offers it, same as
+the global part.
+
+### Data
+
+One call, read once for the whole flow — never re-fetch per area or per question:
+
+```bash
+"<plugin-root>/bin/cfq" settings menu --repo <repo-root> --format json
+```
+
+Read `codeLanguage`/`docLanguages`/`docLevel` (group `language`), `branchPerBatch` (group
+`implementation`), `gitStatePolicy` (group `repo`), `maintenanceEvery` (group `maintenance`), and
+`htmlReport`/`reportDir` (group `reports`) from the returned groups — each entry's own
+`value`/`source`/`marker` is "current" throughout this section, never a fresh `bin/cfq settings get`
+per question. Any of those eight keys reporting `source: "env:repo-legacy"` (an override still
+living in `<repo-root>/.claude/settings.json`'s `env` block rather than the repo settings file) →
+note it once, before the **Opening Question**, naming the affected key(s) and pointing at `bin/cfq
+settings migrate <repo-root>`.
+
+### Opening Question
+
+One `AskUserQuestion`, three options, framed per
+`<plugin-root>/references/interaction-policy.md`'s **Decision Question Context** in light form —
+one plain sentence per area on what it covers, not the full three-part treatment. Every option's
+description ends with the current effective values in one compact line, e.g. `code en · docs
+minimal · branch per batch on · maintenance 50 · report on`:
+
+- **Keep the global values for this repo (recommended when unsure)** — nothing is written, the
+  wizard ends immediately at **Finish**.
+- **Walk through the four areas** — Language & docs, Git, Maintenance, Reports, each its own
+  `AskUserQuestion` round, in that order.
+- **Pick areas** — a multi-select over the same four names; only the chosen ones run, still in the
+  order above.
+
+### Language & docs
+
+One `AskUserQuestion` call, up to 4 questions. Every question's first option is "keep (<effective
+value>, from <global|default>)":
+
+- **Code language** (`codeLanguage`) — options: the effective value, the language this conversation
+  is itself being held in (when it differs), free text via the question's own **Other**.
+- **Doc languages** (`docLanguages`) — options: the effective value, "none" (empty list —
+  documentation follows `codeLanguage` alone), free text via **Other**.
+- **Doc level** (`docLevel`) — `minimal` (README only) / `standard`.
+
+One plain sentence per question — the same wording the global wizard's **Language Defaults** round
+uses for the same three keys.
+
+### Git
+
+One `AskUserQuestion` call, up to 2 questions, first option "keep (<effective value>, from
+<global|default>)":
+
+- **Branch per batch** (`branchPerBatch`) — on (`ifq` creates one branch per batch right after the
+  go-ahead) / off (implementation happens on whatever branch is already checked out).
+- **Git state policy** (`gitStatePolicy`) — `local` (cfq files stay out of git — a per-clone `git
+  info/exclude` block) / `trackable` (cfq files can be committed — only cfq's own managed exclude
+  block is removed, the rest follows normal repository Git policy).
+
+### Maintenance
+
+One `AskUserQuestion` call, one question, first option "keep (<effective value>, from
+<global|default>)":
+
+- **Maintenance every** (`maintenanceEvery`) — the effective value / another number via **Other** /
+  off (`0`, disables maintenance entirely for this repo).
+
+### Reports
+
+One `AskUserQuestion` call, up to 2 questions, first option "keep (<effective value>, from
+<global|default>)":
+
+- **Report portal** (`htmlReport`) — on (the report portal stays synced automatically at every
+  batch-affecting mutation) / off (synced only on `/rfq` request).
+- **Report directory** (`reportDir`) — the effective value (or "unset" when empty), free text via
+  **Other** (an additional copy of this repo's report portal, mirrored outside its own
+  `.claude/cfq/`).
+
+### Finish
+
+Apply only the values the user actually changed, scoped to this repo — never global, this is the
+repo wizard:
+
+```bash
+"<plugin-root>/bin/cfq" settings set --repo <repo-root> <key> <value>
+```
+
+Print one status line per change, same wording as `code-for-queue`'s **Step D**: `✅ Setting  <key>:
+<old> → <new> (repo)`. Then print the `Config` status line, reused unchanged from what `pfq`'s start
+block always printed for a new repo before this wizard existed: `⚠️ new repo · reviewed` (the user
+kept every value, including the keep-all fast path) or `⚠️ new repo · adjusted <n>` (`<n>` = number
+of keys actually written).

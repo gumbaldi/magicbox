@@ -43,6 +43,18 @@ current", so re-running it is a no-op wherever nothing changed. A user whose set
 before this wizard existed sees a one-time dashboard hint pointing at it instead of it opening
 automatically again.
 
+### Repo setup wizard
+
+The first `/pfq` run inside a repo cfq doesn't know yet walks a second, repo-scoped wizard right
+before its own interview questions — four areas this time: **Language & docs** (`codeLanguage`,
+`docLanguages`, `docLevel`), **Git** (`branchPerBatch`, `gitStatePolicy`), **Maintenance**
+(`maintenanceEvery`), **Reports** (`htmlReport`, `reportDir`). Every question's first option is
+"keep (<effective value>, from global or default)", and it writes only the values actually
+changed — as a repo-scoped override, so the repo keeps following later changes to the global
+default for everything it didn't touch. `/cfq setup` run inside a repo walks the same repo wizard
+as its own second half, right after the global one above; outside a repo there is no repo wizard to
+run. `/ifq` never triggers either wizard.
+
 ## Upgrading
 
 - From the `gumbaclaude` marketplace: it was renamed to `magicbox`. Remove the old entry

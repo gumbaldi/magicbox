@@ -60,15 +60,16 @@ Print the `INTERVIEW` header on entering — the preflight already ran at **Inbo
 `setup.globalDone` is `false` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its
 **Global Part** now, before anything else in this step. Run the model-gate check per
 `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section, then print `Model
-Check` as returned. `repo.known` is `false` → show the full config overview now, per
-`${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before the call below.
+Check` as returned. `repo.known` is `false` → read
+`${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its **Repo Part** now, right before the
+call below, and print its `Config` status line. `repo.known` is `true` → print `Config  ➖ known
+repo` instead, without reading that section.
 
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
-else, every time — never skip, never infer. Up to three questions: **Interview depth** (always),
-**Priority** (always), **Config** (only when `repo.known` is `false`) — option copy and
-status-line wording in `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block
-Questions** and `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`'s **The Config Question**.
-Then probe the write surface before any research starts — read
+else, every time — never skip, never infer. Two questions: **Interview depth** (always),
+**Priority** (always) — option copy and status-line wording in
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**. Then probe the
+write surface before any research starts — read
 `${CLAUDE_PLUGIN_ROOT}/references/write-probe.md` and follow it. Print `Write Probe`: `➖` (docs
 half skipped) or `❌` plus the blocking hook's reason, ending the session there.
 
@@ -144,7 +145,7 @@ Always runs, regardless of `security.available` — mechanics in
 (body on stdin, never a temp file) — never a question, never a phase. Store the snapshot:
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
-## Step 13 — New Repo: Config Overview
+## Step 13 — New Repo: Repo Setup Wizard
 
 Entering this step closes `PLANNING` and opens `POSTCHECKS`. Already handled in **Start Block** —
 nothing to read here, straight to **Park**.
