@@ -748,6 +748,146 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"resumed Batch detail = {entry4}",
         )
 
+    # ---- startGate / --intent (batch 039 phase 01) ---------------------------------------------
+
+    def test_no_intent_start_gate_always_fires(self):
+        repo = self._setup_repo("intent-default")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["startGate"], {"fire": True, "reason": "default"}, msg=f"startGate = {out}"
+        )
+        self.assertNotIn(
+            "Start Gate", [e["label"] for e in out["statusLines"]],
+            msg=f"Start Gate line should not print when fire is true: {out['statusLines']}",
+        )
+
+    def test_intent_resume_with_one_in_progress_skips_gate(self):
+        repo = self._setup_repo("intent-resume-inprogress")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-inprog" / "done").mkdir(parents=True)
+        (qdir / "2026-01-01-inprog" / "done" / "00-x.md").touch()
+        (qdir / "2026-01-01-inprog" / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["startGate"], {"fire": False, "reason": "resume"}, msg=f"startGate = {out}"
+        )
+        entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
+        self.assertEqual(
+            entry["detail"], "skipped · resume · 2026-01-01-inprog", msg=f"entry = {entry}"
+        )
+
+    def test_intent_start_with_no_in_progress_picks_ordered_first(self):
+        repo = self._setup_repo("intent-start-ordered")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo), "--intent", "start"))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-01-alpha", msg=f"batch = {out}")
+        self.assertEqual(
+            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+        )
+        entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
+        self.assertEqual(
+            entry["detail"], "skipped · start · 2026-01-01-alpha", msg=f"entry = {entry}"
+        )
+
+    def test_intent_resume_with_nothing_in_progress_falls_back_to_default(self):
+        repo = self._setup_repo("intent-resume-nothing")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["startGate"], {"fire": True, "reason": "resume-nothing-in-progress"},
+            msg=f"startGate = {out}",
+        )
+        self.assertNotIn(
+            "Start Gate", [e["label"] for e in out["statusLines"]],
+            msg=f"Start Gate line should not print when fire is true: {out['statusLines']}",
+        )
+
+    def test_intent_start_with_select_resolves_that_batch(self):
+        repo = self._setup_repo("intent-start-select")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+        (qdir / "2026-01-02-beta").mkdir(parents=True)
+        (qdir / "2026-01-02-beta" / "01-b.md").touch()
+
+        out = self.json_out(
+            self._run_pf(str(repo), "--intent", "start", "--select", "2026-01-02-beta")
+        )
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"batch = {out}")
+        self.assertEqual(
+            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+        )
+
+    def test_intent_resume_with_select_is_invalid_args(self):
+        repo = self._setup_repo("intent-resume-select-invalid")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir / "2026-01-01-alpha" / "01-a.md").touch()
+
+        out = self.json_out(
+            self._run_pf(str(repo), "--intent", "resume", "--select", "2026-01-01-alpha")
+        )
+        self.assertEqual(out["status"], "INVALID_ARGS", msg=f"out = {out}")
+
+    def test_intent_start_with_two_in_progress_still_stops(self):
+        repo = self._setup_repo("intent-start-multi-inprogress")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-a" / "done").mkdir(parents=True)
+        (qdir / "2026-01-02-b" / "done").mkdir(parents=True)
+        (qdir / "2026-01-01-a" / "01-x.md").touch()
+        (qdir / "2026-01-01-a" / "done" / "00-y.md").touch()
+        (qdir / "2026-01-02-b" / "01-x.md").touch()
+        (qdir / "2026-01-02-b" / "done" / "00-y.md").touch()
+
+        out = self.json_out(self._run_pf(str(repo), "--intent", "start"))
+        self.assertEqual(out["status"], "MULTIPLE_IN_PROGRESS", msg=f"out = {out}")
+        self.assertIsNone(out["startGate"], msg=f"startGate should be null: {out}")
+
+    def test_early_return_statuses_carry_null_start_gate(self):
+        # NO_BATCH
+        empty_repo = self._setup_repo("startgate-no-batch")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"out = {out}")
+        self.assertIsNone(out["startGate"], msg=f"startGate should be null: {out}")
+
+        # BLOCKED
+        blocked_repo = self._setup_repo("startgate-blocked")
+        qdir = blocked_repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-a").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-a\n")
+        out = self.json_out(self._run_pf(str(blocked_repo)))
+        self.assertEqual(out["status"], "BLOCKED", msg=f"out = {out}")
+        self.assertIsNone(out["startGate"], msg=f"startGate should be null: {out}")
+
+        # SELECT_UNAVAILABLE
+        select_repo = self._setup_repo("startgate-select-unavailable")
+        qdir2 = select_repo / ".claude" / "cfq" / "impl"
+        (qdir2 / "2026-01-01-alpha").mkdir(parents=True)
+        (qdir2 / "2026-01-01-alpha" / "01-a.md").touch()
+        out = self.json_out(self._run_pf(str(select_repo), "--select", "does-not-exist"))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"out = {out}")
+        self.assertIsNone(out["startGate"], msg=f"startGate should be null: {out}")
+
     def test_queue_text_legacy_unnumbered_batch(self):
         repo = self._setup_repo("queue-legacy")
         qdir = repo / ".claude" / "cfq" / "impl"

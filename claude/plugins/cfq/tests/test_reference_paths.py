@@ -107,7 +107,7 @@ def check_no_scripts_named(root):
 
 # 5. Added by Phase 05: every mutation of `.claude/cfq/` runs through a `bin/cfq` subcommand now
 #    (`phase record`/`reopen`, `trash put`, `note plan`/`todo`, `batch ready`,
-#    `layout probe-cleanup`, ...) -- no skill or reference file may instruct rm/mv/mkdir/rmdir/jq
+#    ...) -- no skill or reference file may instruct rm/mv/mkdir/rmdir/jq
 #    in command position again. A word followed by whitespace is "command position"; the same word
 #    immediately followed by a closing backtick (prose naming it, e.g. "no `jq`") never matches.
 def check_no_shell_mutations(root):

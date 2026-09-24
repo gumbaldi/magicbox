@@ -15,6 +15,12 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
 import cfq_finish  # noqa: E402
 
+# The suite's own default (`tests/cfq_testlib.py`'s `_base_env()`) sets `CFQ_PORTAL_SYNC=0` so
+# every other test's directory-content assertions stay unaffected by the portal sync `finish`
+# triggers as a side effect -- only a test that actually asserts on the portal's own data files
+# opts back in via `env=ON` (same convention `test_portal_triggers.py` already uses).
+ON = {"CFQ_PORTAL_SYNC": "1"}
+
 
 class StatusLineRenderingTest(unittest.TestCase):
     """Pure-function coverage for cfq_finish.py's line renderers (batch 035 phase 08) -- no
@@ -196,6 +202,9 @@ class FinishTest(CfqTestCase):
         )
 
     def test_html_report_auto_renders_when_enabled(self):
+        # `finish` no longer writes a `.html` file itself -- `htmlReport: true` lets the portal
+        # sync it already triggers (`cfq_lib/portal_hook.py`) actually run, and this batch's own
+        # data lands in the portal.
         home = self._repos_dir / "home5"
         (home / ".claude/cfq").mkdir(parents=True)
         repo = self._new_repo("repo5")
@@ -203,17 +212,28 @@ class FinishTest(CfqTestCase):
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmlon", home=home, check=True)
         (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
 
-        proc = self.run_cfq("finish", str(repo), str(batch), "v0.1-htmlon", home=home, check=True)
-        self.json_out(proc)
-        # Default reportDir (empty) now renders into the repo-local reports/ dir, not next to
-        # report.json inside the moved batch directory -- see phase 03 of batch 032.
+        proc = self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-htmlon", home=home, env=ON, check=True,
+        )
+        out = self.json_out(proc)
+        report_line = next(e for e in out["statusLines"] if e["label"] == "Report")
+        self.assertEqual(report_line["icon"], "done", f"report line: {report_line}")
+        self.assertEqual(
+            report_line["detail"],
+            f"file://{repo}/.claude/cfq/reports/index.html#/batch/2026-01-01-htmlon",
+            f"report line: {report_line}",
+        )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/2026-01-01-htmlon.html").is_file(),
-            "htmlReport=true should auto-render into .claude/cfq/reports/",
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmlon.impl.js").is_file(),
+            "htmlReport=true should auto-sync this batch's own data into the portal",
         )
         self.assertFalse(
             (repo / ".claude/cfq/impl/done/2026-01-01-htmlon/report.html").exists(),
-            "report.html must no longer land inside the batch directory by default",
+            "report.html must never land inside the batch directory",
+        )
+        self.assertFalse(
+            (repo / ".claude/cfq/reports/2026-01-01-htmlon.html").exists(),
+            "no flat <batch>.html file is written any more",
         )
 
     def test_html_report_explicit_off(self):
@@ -224,14 +244,20 @@ class FinishTest(CfqTestCase):
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmloff", home=home, check=True)
         (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": False}))
 
-        self.run_cfq("finish", str(repo), str(batch), "v0.1-htmloff", home=home, check=True)
+        proc = self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-htmloff", home=home, env=ON, check=True,
+        )
+        out = self.json_out(proc)
+        report_line = next(e for e in out["statusLines"] if e["label"] == "Report")
+        self.assertEqual(report_line["icon"], "skip", f"report line: {report_line}")
+        self.assertEqual(report_line["detail"], "off · /rfq renders on demand", f"report line: {report_line}")
         self.assertFalse(
             (repo / ".claude/cfq/impl/done/2026-01-01-htmloff/report.html").exists(),
             "explicit htmlReport=false must not auto-render report.html",
         )
         self.assertFalse(
-            (repo / ".claude/cfq/reports/2026-01-01-htmloff.html").exists(),
-            "explicit htmlReport=false must not auto-render into reports/ either",
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmloff.impl.js").exists(),
+            "explicit htmlReport=false must not sync the portal either",
         )
 
     def test_html_report_default_on(self):
@@ -243,10 +269,12 @@ class FinishTest(CfqTestCase):
         batch = self._new_batch(repo, "2026-01-01-htmldefault")
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmldefault", home=home, check=True)
 
-        self.run_cfq("finish", str(repo), str(batch), "v0.1-htmldefault", home=home, check=True)
+        self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-htmldefault", home=home, env=ON, check=True,
+        )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/2026-01-01-htmldefault.html").is_file(),
-            "default htmlReport=true should auto-render into .claude/cfq/reports/",
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmldefault.impl.js").is_file(),
+            "default htmlReport=true should auto-sync this batch's own data into the portal",
         )
 
     def test_already_in_impl_done_completes_normally(self):
@@ -318,7 +346,7 @@ class FinishTest(CfqTestCase):
         # comes back `{}` on both sides of the diff, so `Security Diff` is the one line correctly
         # omitted here (no planning snapshot, nothing to compare) -- see security_diff_line.
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Lock"],
+            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
             msg=f"labels = {labels}",
         )
         lock = next(e for e in out["statusLines"] if e["label"] == "Lock")
@@ -351,7 +379,7 @@ class FinishTest(CfqTestCase):
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Lock"],
+            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
             msg=f"a changelog error must not add a new statusLines entry: {labels}",
         )
         changelog_line = next(e for e in out["statusLines"] if e["label"] == "Changelog")

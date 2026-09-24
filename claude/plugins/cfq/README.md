@@ -27,7 +27,9 @@ flowchart LR
 /plugin install cfq@magicbox
 ```
 
-Then run `/cfq` once for first-time setup.
+The first `/cfq` or `/pfq` afterward walks the global setup wizard automatically (models, language
+defaults, environment & plugins — or keep every default in one step); run it again any time via
+`/cfq setup`.
 
 Upgrading from a `gumbaclaude` marketplace install: the GitHub repo was renamed from
 `gumbaldi/gumbaclaude` to `gumbaldi/magicbox` (it now hosts skills for other AI providers too, not
@@ -46,7 +48,7 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 | `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. |
 | `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
 | `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
-| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or a detailed HTML report. |
+| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or in the report portal. |
 
 ## What each skill does
 
@@ -65,6 +67,13 @@ green phase immediately, and hands the session off when the capacity threshold (
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
 is offered with the warning attached, and the user decides whether to continue or hand off.
+
+```bash
+/ifq                 # ask which batch, then the start gate before touching anything
+/ifq resume           # continue the in-progress batch; skips the start gate
+/ifq start             # take the in-progress batch, or the next one in order; skips the start gate
+/ifq start <batch>    # same as `start`, naming which batch
+```
 
 Never two batches in the same session, even if the first finishes early — different plans belong
 in separate context windows. Only one `/ifq` session works a given repo at a time: a second one
@@ -218,13 +227,13 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
-| `layout` | Owns the `.claude/cfq/` layout, the git-exclude policy, and write-probe cleanup. |
+| `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
 | `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
-| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
+| `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
-| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo. |
+| `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo; `--from-plan` (repeatable) consumes the chosen `plan/` inbox entry or entries. |
 | `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
@@ -272,9 +281,14 @@ denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<ba
 It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
 sanctioned commands the guard's own deny messages point to. Paths are resolved against the
 payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
-same as a fully-qualified path. There is no setting to turn it off — disabling it means disabling
-the plugin. It fails open on an internal error: a crash allows the call rather than blocking every
-`Bash` call in the session.
+same as a fully-qualified path. A heredoc body (`<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`) is
+excluded entirely before parsing — only the command line carrying the `<<` operator is checked —
+so a note body written via `bin/cfq note plan|todo … - <<'EOF'` never trips the guard no matter
+what it contains (an apostrophe, a `.claude/cfq` path, the word `rm`); a double-quoted span also
+honours a backslash escape (`\"`, `\\`, `\$`, `` \` ``) the way a real shell would, rather than
+treating it as closing the quote early. There is no setting to turn it off — disabling it means
+disabling the plugin. It fails open on an internal error: a crash allows the call rather than
+blocking every `Bash` call in the session.
 
 ## Batch lifecycle
 
@@ -325,14 +339,23 @@ queue.
 
 Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
 by default (`--limit 0` for the full history) with a marker column showing which batches already
-have their HTML rendered — or drill into a single batch for the detailed HTML report. By default
-it renders into `<repo>/.claude/cfq/reports/<batch>.html`, with
-an `index.html` regenerated alongside it listing that repo's own batches; set `reportDir` for the
-collected cross-repo tree instead (`## Report collection layout` in `docs/configuration.md`). Every
-finished batch renders its HTML at batch end and refreshes the repo's `index.html`; `/rfq`
-re-renders on demand, and `htmlReport: false` turns the automatic render off. The HTML can be
-deleted freely — `report.json` is the source of truth, and a batch whose HTML hasn't been rendered
-yet is still listed, just without a link.
+have their data in the report portal — or drill into a single batch for the portal's own detail
+view.
+
+## Report portal
+
+`<repo>/.claude/cfq/reports/index.html` is a single-page viewer over every batch this repo's queue
+has ever planned or implemented, plus its open `todo`/`plan` entries — a queue overview, a
+per-batch plan and implementation detail page, and a cost-by-agent-layer breakdown, all rendered
+client-side from plain data files `bin/cfq portal sync` writes alongside the fixed viewer shell.
+It's kept current as a side effect of the mutating verbs that already run during `pfq`/`ifq`
+(park, phase commit, `finish`, …) — at zero model-token cost, since nothing is rendered by the
+model itself, and a resync that changes nothing writes nothing. Set `reportDir` to an absolute
+path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a cross-repo index
+across every repo that mirrors into it (`## Report collection layout` in `docs/configuration.md`).
+`htmlReport: false` turns every automatic sync off — `/rfq`'s `report html` verb still syncs a
+single batch on request even then, so the portal always stays reachable, just not kept current in
+the background.
 
 ## Telemetry
 
@@ -386,6 +409,24 @@ works and still sits at the top tier:
 
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.
+
+### Settings
+
+`/cfq settings` walks the same schema interactively instead — scope (global or this repo), then
+group, setting and value, four choices per question with a "more…" page beyond that and "reset to
+default" always offered:
+
+```
+SETTINGS · magicbox
+→ scope?    global | this repo
+→ group?    1-4 | more… (5-8)
+→ setting?  keys of the group (4 per page, "more…" when needed)
+→ value?    bool/enum values as options · "reset to default" · int/string/array/object as free text
+✓ Setting   stopUsed: 125000 → 100000 (repo)
+```
+
+`/cfq setup` runs the onboarding wizard — global defaults first, then a repo part the first time
+it runs in a given repo. Both commands are permanent dashboard entries, not one-time offers.
 
 ## Host dependencies
 

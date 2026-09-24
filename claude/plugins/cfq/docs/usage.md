@@ -33,6 +33,13 @@ instead of the classic single-session loop, shifting the handoff point from the 
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
 early.
 
+```bash
+/ifq                 # ask which batch, then the start gate before touching anything
+/ifq resume           # continue the in-progress batch; skips the start gate
+/ifq start             # take the in-progress batch, or the next one in order; skips the start gate
+/ifq start <batch>    # same as `start`, naming which batch
+```
+
 Configurable (see [configuration.md](configuration.md#settings-reference)): `implModels`,
 `allowAnyModel`, `orchestratorMode`, `orchestratorModels`, `implExploreModel`,
 `implExploreModelComplex`, `stopUsed`, `stopFiveHourPct`, `stopSevenDayPct`,

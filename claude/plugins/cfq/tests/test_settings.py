@@ -961,5 +961,180 @@ class SettingsTest(CfqTestCase):
             )
 
 
+    # 20. settings menu: every key in exactly one group, fixed group order and titles.
+    def test_20_menu_groups_cover_every_key_once_in_fixed_order(self):
+        want_group_keys = {
+            "models": {
+                "planModels", "implModels", "orchestratorModels", "allowAnyModel",
+                "planExploreModel", "planExploreModelComplex", "implExploreModel",
+                "implExploreModelComplex",
+            },
+            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
+            "implementation": {
+                "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
+            },
+            "limits": {
+                "stopUsed", "stopFiveHourPct", "stopSevenDayPct", "ctxWindowLimits",
+                "sessionStaleSeconds",
+            },
+            "language": {"codeLanguage", "docLanguages", "docLevel", "i18nExcludePatterns"},
+            "maintenance": {
+                "maintenanceEvery", "usePonytailAudit", "securityTimeoutSeconds",
+                "securityFindingsCap",
+            },
+            "reports": {"htmlReport", "reportDir", "telemetrySyncRepo", "changelogFile"},
+            "repo": {"gitStatePolicy", "scanRoots", "frameworkRepo"},
+        }
+        want_order = [
+            "models", "planning", "implementation", "limits", "language", "maintenance",
+            "reports", "repo",
+        ]
+        want_titles = {
+            "models": "Models",
+            "planning": "Planning",
+            "implementation": "Implementation",
+            "limits": "Limits & handoff",
+            "language": "Language & docs",
+            "maintenance": "Maintenance & security",
+            "reports": "Reports & telemetry",
+            "repo": "Repo & git",
+        }
+
+        out = self.json_out(
+            self.run_cfq("settings", "menu", "--format", "json", home=self.home)
+        )
+        groups = out["groups"]
+
+        self.assertEqual(
+            [g["id"] for g in groups], want_order, msg="menu group order is not fixed"
+        )
+
+        seen_keys = {}
+        all_schema_keys = self.json_out(
+            self.run_cfq("settings", "describe", home=self.home)
+        ).keys()
+        for g in groups:
+            self.assertEqual(
+                g["title"], want_titles[g["id"]], msg=f"wrong title for group '{g['id']}'"
+            )
+            got_keys = {k["key"] for k in g["keys"]}
+            self.assertTrue(got_keys, msg=f"group '{g['id']}' is empty")
+            self.assertEqual(
+                got_keys, want_group_keys[g["id"]],
+                msg=f"group '{g['id']}' keys = {got_keys}, want {want_group_keys[g['id']]}",
+            )
+            for key in got_keys:
+                self.assertNotIn(
+                    key, seen_keys, msg=f"key '{key}' appears in more than one group"
+                )
+                seen_keys[key] = g["id"]
+
+        self.assertEqual(
+            set(seen_keys), set(all_schema_keys),
+            msg="menu groups do not cover exactly the schema's keys",
+        )
+
+    # 21. settings menu (text, no --group): header, legend, non-default keys listed first inside
+    # each affected group, with the right markers.
+    def test_21_menu_overview_text_markers_and_ordering(self):
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+
+            self.run_cfq(
+                "settings", "set", "maintenanceEvery", "10", home=self.home, check=True
+            )
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "docLevel", "standard",
+                home=self.home, check=True,
+            )
+
+            out = self.run_cfq(
+                "settings", "menu", "--repo", str(fixture), home=self.home
+            ).stdout
+            lines = out.splitlines()
+
+            self.assertEqual(lines[0], f"SETTINGS · {fixture.name}")
+            self.assertEqual(
+                lines[1], "[D] default  [G] global  [R] repo  [E] env"
+            )
+            for line in lines:
+                self.assertNotIn("&nbsp;", line)
+                self.assertEqual(line, line.rstrip(), msg=f"trailing whitespace: {line!r}")
+
+            lang_idx = lines.index("5. Language & docs")
+            self.assertIn("[R]  docLevel      standard", lines[lang_idx + 1])
+            self.assertTrue(
+                lines[lang_idx + 1].strip().startswith("[R]"),
+                msg="non-default docLevel is not listed first in Language & docs",
+            )
+
+            maint_idx = lines.index("6. Maintenance & security")
+            self.assertIn("[G]  maintenanceEvery  10", lines[maint_idx + 1])
+            self.assertTrue(
+                lines[maint_idx + 1].strip().startswith("[G]"),
+                msg="non-default maintenanceEvery is not listed first in Maintenance & security",
+            )
+
+    # 22. settings menu --group <id> (text): every key, marker/value/type/range/scope note.
+    def test_22_menu_group_text_range_and_scope_note(self):
+        out = self.run_cfq(
+            "settings", "menu", "--group", "limits", home=self.home
+        ).stdout
+        self.assertIn("SETTINGS · global · Limits & handoff", out)
+        stop_used_line = next(l for l in out.splitlines() if "stopUsed" in l)
+        self.assertIn(">= -1", stop_used_line, msg=f"stopUsed range info missing: {stop_used_line!r}")
+
+        out = self.run_cfq(
+            "settings", "menu", "--group", "repo", home=self.home
+        ).stdout
+        scan_roots_line = next(l for l in out.splitlines() if "scanRoots" in l)
+        self.assertIn(
+            "global only", scan_roots_line, msg=f"scanRoots missing 'global only': {scan_roots_line!r}"
+        )
+        for line in out.splitlines():
+            self.assertEqual(line, line.rstrip(), msg=f"trailing whitespace: {line!r}")
+
+    # 22b. settings menu --group: an env var shadowing a key shows marker E.
+    def test_22b_menu_group_env_shadow_marker(self):
+        out = self.run_cfq(
+            "settings", "menu", "--group", "maintenance", home=self.home,
+            env={"CFQ_MAINTENANCE_EVERY": "99"},
+        ).stdout
+        maint_line = next(l for l in out.splitlines() if "maintenanceEvery" in l)
+        self.assertTrue(
+            maint_line.strip().startswith("[E]"), msg=f"env-shadowed key not marked E: {maint_line!r}"
+        )
+
+    # 22c. settings menu --group: the legacy `env` block source gets marker E plus a trailing
+    # "(legacy env)" note.
+    def test_22c_menu_group_legacy_env_note(self):
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            (fixture / ".claude").mkdir(parents=True, exist_ok=True)
+            (fixture / ".claude" / "settings.json").write_text(
+                '{"env":{"CFQ_DOC_LEVEL":"standard"}}'
+            )
+            out = self.run_cfq(
+                "settings", "menu", "--repo", str(fixture), "--group", "language",
+                home=self.home, env={"CFQ_DOC_LEVEL": "standard"},
+            ).stdout
+            doc_level_line = next(l for l in out.splitlines() if "docLevel" in l)
+            self.assertTrue(doc_level_line.strip().startswith("[E]"))
+            self.assertIn("(legacy env)", doc_level_line)
+
+    # 23. settings menu --group nope: UNKNOWN_GROUP, non-zero exit.
+    def test_23_menu_unknown_group(self):
+        proc = self.run_cfq("settings", "menu", "--group", "nope", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="menu --group nope should fail")
+        err = self.json_out_stderr(proc)
+        self.assertEqual(err["status"], "UNKNOWN_GROUP", msg=f"got {err}")
+
+    def json_out_stderr(self, proc):
+        try:
+            return json.loads(proc.stderr)
+        except json.JSONDecodeError:
+            self.fail(f"could not parse JSON, raw stderr: {proc.stderr!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

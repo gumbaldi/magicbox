@@ -19,10 +19,25 @@ number whose batch never got parked is a legitimate abandoned reservation, not a
 
 ## Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
 
-Write the body (H1 title, then the sections below) to a temp file, then
-`"<plugin-root>/bin/cfq" note plan "<repo-root>" "<slug>" "<body-file>"` — it owns the date and the
-target path, never an agent-composed filename. Written without asking, in both modes, so `## Why
-Not Here` must always state plainly that a decision on the finding is still open:
+A `pfq` planning session writes findings the same way `ifq` does — see
+`plan-for-queue/SKILL.md`'s opening paragraph: a finding is never an implementation step, no
+matter which session writes it.
+
+Pipe the body (H1 title, then the sections below) straight into `note plan` on stdin — no temp
+file, so no write-guard hook that only allows writes under `.claude/cfq/` can ever block it:
+
+```bash
+"<plugin-root>/bin/cfq" note plan "<repo-root>" "<slug>" - <<'EOF'
+# Title
+…
+EOF
+```
+
+`note plan`/`note todo` own the date and the target path, never an agent-composed filename, and
+still accept a body-file path in place of `-` for the rare case a body already lives on disk. The
+heredoc delimiter is always quoted (`<<'EOF'`, never `<<EOF`) — see README.md's Hook contract for
+why an unquoted one matters. Written without asking, in both modes, so `## Why Not Here` must
+always state plainly that a decision on the finding is still open:
 
 - `## Finding` — what was noticed
 - `## Location` — files and locations, absolute paths
@@ -38,12 +53,27 @@ above; a framework finding adds the `--framework` flag right after `note plan` �
 routing, the caller never picks a target repo or path. A framework entry's `## Origin` additionally
 names the repo the finding was made in, since the entry leaves that repo.
 
+## Closing a Plan Entry (`note close`)
+
+An entry whose fix landed incidentally, rather than through `pfq`'s `park --from-plan`, is closed
+with:
+
+```bash
+"<plugin-root>/bin/cfq" note close "<repo-root>" "<entry>" [<entry>...] --reason "<text>"
+```
+
+`<entry>` is a filename or path inside `<repo-root>/.claude/cfq/plan/` — anything outside `plan/`
+fails `INVALID_PATH`, a missing entry fails `NOT_FOUND`. It appends a `## Closed` section (date +
+reason) to the entry and moves it into `plan/done/`, creating that directory if absent; repeated
+`<entry>` arguments close several entries in one call, all with the same reason. It never touches
+`todo/` — `note sweep --close` stays the only todo closer.
+
 ## Parking Out-of-Scope Work
 
 Work found beyond this phase's scope is always parked, never asked about: write a `plan/` entry via
-`bin/cfq note plan "<repo-root>" "<slug>" "<body-file>"` (`--framework` for a cfq-itself finding,
-rule in this file's **Plan Entry** section above), noting a decision is still open, and name it in
-the phase summary — both modes, no `AskUserQuestion`, no second attempt.
+`note plan "<repo-root>" "<slug>" - <<'EOF' … EOF` (`--framework` for a cfq-itself finding, rule in
+this file's **Plan Entry** section above), noting a decision is still open, and name it in the
+phase summary — both modes, no `AskUserQuestion`, no second attempt.
 
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 

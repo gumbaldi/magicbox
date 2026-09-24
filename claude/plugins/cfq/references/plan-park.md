@@ -11,9 +11,24 @@ reserves it in the local changelog (`status: parked`) and the queue directory, r
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
 leaves no gap in the numbering.
 
+A phase-file `Write` denied by a `PreToolUse` hook ends the session. Print `❌ Park`, then
+quote the hook's `stopReason` verbatim on a `   └ ` sub-line (paraphrasing it loses the path
+it names) and add the reserved batch directory's path on another sub-line. Never work around
+the denial: no `Bash` fallback for phase files, no unlock marker of any kind. Both would
+defeat the guard the user configured. What a guard hook has to allow: **Hook contract** in
+the plugin's `README.md`.
+
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
-repo — idempotent.
+repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
+several entries (**Inbox**) passes every one of them in the same `park` call.
+
+`.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
+batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
+during this session). Once **Plan Lint** has run `batch ready` and the marker is gone, a later
+`park` call — a correction after that point — leaves it absent and prints an `already ready`
+warning on stderr instead of resurrecting it: re-run `bin/cfq lint` until clean and `batch ready`
+(idempotent) again before **Final Report**.
 
 Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
 snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
@@ -38,10 +53,13 @@ implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is na
 see `<plugin-root>/references/phase-quality.md`'s closing section.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
-and render its own fields, field by field: `turns`, `billable_in` as "in", `output` as "out",
-`cache_read` named separately, `models`, `efforts`. When `subagent_explore.turns` is non-zero, add
-one further clause naming the Explore sub-agent's own `turns`/`output` share — a planning session
-that delegated research to an Explore agent must not have that activity vanish into the top-level
-numbers. Interview depth is the one part of this line that stays prose, not a script field — it is
-a fact about this session, not something the script can see. If the call itself fails or returns
-nothing usable, the whole line reads `⚠️ unavailable` — never a guessed number in its place.
+and render its own top-level fields, field by field: `turns`, `billable_in` as "in", `output` as
+"out" — the whole session's own sum (the planning session itself plus every sub-agent it spawned,
+never only the top-level transcript), `cache_read` named separately, `models`, `efforts`. When
+`layers.main_explore.turns` is non-zero, add one further clause naming the Explore sub-agent's own
+`turns`/`output` share, read from `layers.main_explore` — that activity is already folded into the
+top-level numbers above, this clause only surfaces the split, so a planning session that delegated
+research to an Explore agent doesn't have that share stay invisible. Interview depth is the one
+part of this line that stays prose, not a script field — it is a fact about this session, not
+something the script can see. If the call itself fails or returns nothing usable, the whole line
+reads `⚠️ unavailable` — never a guessed number in its place.

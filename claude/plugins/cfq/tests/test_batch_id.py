@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import unittest
+from datetime import datetime
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, CFQ_BIN
 
@@ -153,6 +154,18 @@ class BatchIdTest(CfqTestCase):
         out2 = self.json_out(self._allocate(repo12, "2026-08-20", "second-feature"))
         self.assertEqual(out2["batch"], "002-2026-08-20-second-feature", "second allocate batch")
 
+    def test_allocate_writes_planning_marker(self):
+        # the marker's birth moves to `allocate` -- it exists from the moment the directory does,
+        # never a window where a concurrent /ifq scan could see an open batch with no marker at all
+        repo12b = self._plain_repo("repo12b")
+        out = self.json_out(self._allocate(repo12b, "2026-08-19", "marker-test"))
+        marker = repo12b / ".claude/cfq/impl" / out["batch"] / ".planning"
+        self.assertTrue(marker.is_file(), "allocate did not write .planning")
+        lines = marker.read_text().splitlines()
+        self.assertEqual(len(lines), 1, f".planning must hold exactly one line: {lines}")
+        # a parseable ISO timestamp, same shape as render.now_iso() produces elsewhere
+        datetime.fromisoformat(lines[0])
+
     def test_failed_allocate_does_not_leak_number(self):
         # simulated failure after changelog reservation never allows the number to be reused: make
         # the impl directory unwritable so allocate's own mkdir fails after the changelog reserve
@@ -177,6 +190,10 @@ class BatchIdTest(CfqTestCase):
         self.assertFalse(
             (impl_dir / "001-2026-08-19-blocked").exists(),
             "failed allocate left an orphaned queue directory",
+        )
+        self.assertFalse(
+            list(impl_dir.rglob(".planning")),
+            "failed allocate left a .planning marker somewhere under impl/",
         )
         action13 = self.json_out(proc)["action"]
         self.assertIn(

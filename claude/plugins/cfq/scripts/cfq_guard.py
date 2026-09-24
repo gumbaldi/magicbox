@@ -50,20 +50,34 @@ MAX_WRAPPER_RECURSION = 3
 NUMERIC_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
+_WRAPPER_ALTERNATION = "|".join(sorted(WRAPPER_BASENAMES))
+# A destructive verb only counts in "command position": at the start of the string, right after
+# `;`/`&&`/`||`/`|`/a newline/`(` (the char class matches the last character of any of those
+# multi-char operators too), or right after one of `WRAPPER_BASENAMES`. This keeps the fallback
+# from denying a verb word that merely appears as a substring elsewhere -- inside a quoted grep
+# pattern, a filename, or similar -- the way a naive "appears anywhere" search would.
 DESTRUCTIVE_VERB_RE = re.compile(
-    r"\b(?:rm|rmdir|mv|cp|truncate|shred|dd|ln|install|sed)\b"
+    r"(?:^|[;&|(\n]\s*|\b(?:" + _WRAPPER_ALTERNATION + r")\b\s+)"
+    r"(rm|rmdir|mv|cp|truncate|shred|dd|ln|install|sed)\b"
 )
+# Where a command segment ends, for the `sed` case below -- must not look past the next separator
+# for a trailing `-i` that actually belongs to some later command.
+SEGMENT_END_RE = re.compile(r"[;&|(\n]")
 # A target starting with `&` right after the `>`/`>>` (e.g. `2>&1`, `>&2`, `>&-`) is a file-
 # descriptor duplication, not a path -- it never names a file and must never be resolved as a
 # guard target. `&>file`/`&>>file` are real file redirects: there the `&` sits *before* the `>`,
 # so the character captured is the filename itself, and the lookahead below still lets them through.
 REDIRECT_RE = re.compile(r">>?\s*(?!&)(\S+)")
 
+# `<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"` -- a heredoc operator on a command line. The
+# lookbehind/lookahead exclude `<<<` (a here-string, single-line, no body) from matching as `<<`
+# followed by a `<`-prefixed word.
+HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)(-)?\s*(?:'([^']*)'|\"([^\"]*)\"|(\S+))")
+
 SUGGEST_PHASE_RECORD = "bin/cfq phase record <batch-dir> <phase-json-file>"
 SUGGEST_PHASE_REOPEN = "bin/cfq phase reopen <batch-dir> <phase-slug>"
 SUGGEST_TRASH_PUT = "bin/cfq trash put <repo-root> <path>"
 SUGGEST_BATCH_READY = "bin/cfq batch ready <batch-dir>"
-SUGGEST_PROBE_CLEANUP = "bin/cfq layout probe-cleanup <repo-root>"
 
 
 def touches_queue(resolved_posix_path):
@@ -88,8 +102,6 @@ def suggestion_for(resolved_path, *, is_mv=False, mv_dest_in_done=False, mv_sour
         return SUGGEST_PHASE_REOPEN
     if basename == ".planning":
         return SUGGEST_BATCH_READY
-    if basename == ".writeprobe":
-        return SUGGEST_PROBE_CLEANUP
     return SUGGEST_TRASH_PUT
 
 
@@ -116,7 +128,13 @@ def path_in_done(resolved_path):
 
 def split_simple_commands(command):
     """Splits on `;`, `&&`, `||`, `|` and newlines, respecting quotes. Raises ValueError on an
-    unbalanced quote so the caller can fall back to a substring check."""
+    unbalanced quote so the caller can fall back to a substring check.
+
+    Inside a double-quoted span a backslash escapes the next character (`\\"`, `\\\\`, `\\$`,
+    `` \\` ``) rather than being taken literally -- matching POSIX and `shlex.split()`, which
+    parses the resulting per-segment argv further down and already gets this right. Inside single
+    quotes nothing is escaped, POSIX again: an apostrophe can only be closed by another apostrophe.
+    """
     parts = []
     buf = []
     i = 0
@@ -124,9 +142,20 @@ def split_simple_commands(command):
     quote = None
     while i < n:
         c = command[i]
-        if quote:
+        if quote == '"':
+            if c == "\\" and i + 1 < n and command[i + 1] in ('"', "\\", "$", "`"):
+                buf.append(c)
+                buf.append(command[i + 1])
+                i += 2
+                continue
             buf.append(c)
-            if c == quote:
+            if c == '"':
+                quote = None
+            i += 1
+            continue
+        if quote == "'":
+            buf.append(c)
+            if c == "'":
                 quote = None
             i += 1
             continue
@@ -161,6 +190,38 @@ def split_simple_commands(command):
         raise ValueError("unbalanced quote")
     parts.append("".join(buf))
     return [p.strip() for p in parts if p.strip()]
+
+
+def strip_heredocs(command):
+    """Removes heredoc body lines (the lines between a `<<WORD`/`<<-WORD`/`<<'WORD'`/`<<"WORD"`
+    operator and the line that repeats `WORD`) from `command` before it is handed to
+    `split_simple_commands()`. A heredoc body is data, not a command -- a note body written this
+    way (`bin/cfq note plan ... - <<'EOF'`) commonly contains apostrophes, `.claude/cfq` paths, and
+    words like `rm`/`sed`, none of which are ever meant to be parsed as shell commands. The command
+    line carrying the `<<` operator itself (including any `>`/`>>` redirect on it) is kept and
+    still checked normally."""
+    lines = command.split("\n")
+    result = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        result.append(line)
+        i += 1
+        for m in HEREDOC_RE.finditer(line):
+            word = m.group(2)
+            if word is None:
+                word = m.group(3)
+            if word is None:
+                word = m.group(4)
+            strip_leading_tabs = m.group(1) == "-"
+            while i < n:
+                candidate = lines[i]
+                comparable = candidate.lstrip("\t") if strip_leading_tabs else candidate
+                i += 1
+                if comparable == word:
+                    break
+    return "\n".join(result)
 
 
 def check_find(argv, cwd):
@@ -220,7 +281,19 @@ def check_destructive_call(argv, cwd):
 
 def substring_fallback(command):
     normalized = command.replace("\\", "/")
-    if DESTRUCTIVE_VERB_RE.search(normalized) and f"/{QUEUE_REL}" in normalized:
+    if QUEUE_REL not in normalized:
+        return None
+    for m in DESTRUCTIVE_VERB_RE.finditer(normalized):
+        verb = m.group(1)
+        if verb == "sed":
+            # `sed` only counts with an `-i` flag, same as `check_destructive_call` -- a plain
+            # `sed -n`/`sed -e` read never mutates anything. Only look within this one command
+            # segment, not past the next separator.
+            end_match = SEGMENT_END_RE.search(normalized, m.end())
+            segment_end = end_match.start() if end_match else len(normalized)
+            segment = normalized[m.end():segment_end]
+            if not re.search(r"(?:^|\s)-i\S*", segment):
+                continue
         return build_reason(QUEUE_REL, SUGGEST_TRASH_PUT)
     return None
 
@@ -245,10 +318,11 @@ def unwrap_process_wrappers(argv):
 
 
 def check_bash(command, cwd, depth=0):
+    stripped = strip_heredocs(command)
     try:
-        simple_commands = split_simple_commands(command)
+        simple_commands = split_simple_commands(stripped)
     except ValueError:
-        return substring_fallback(command)
+        return substring_fallback(stripped)
 
     effective_cwd = cwd or "/"
     for sc in simple_commands:

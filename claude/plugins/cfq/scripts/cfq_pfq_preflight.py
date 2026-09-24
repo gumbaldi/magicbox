@@ -77,6 +77,7 @@ def cmd_preflight(args):
     repo = resolved.stdout.strip()
 
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
+    setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
 
     known = False
     registry = cfq_run("registry", "list").stdout
@@ -109,6 +110,7 @@ def cmd_preflight(args):
     print(render.dump_json({
         "status": "OK",
         "repo": {"root": repo, "known": known},
+        "setup": {"globalDone": setup_done},
         "planningPolicy": {
             "planModels": settings["planModels"],
             "allowAnyModel": settings["allowAnyModel"],

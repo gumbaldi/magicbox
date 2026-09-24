@@ -7,10 +7,11 @@ itself -- date, slug normalisation and target directory are convention (see phas
 
 import datetime
 import pathlib
+import subprocess
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CFQ_BIN, CfqTestCase
 from cfq_lib import text as cfq_text
 
 
@@ -24,6 +25,16 @@ class NoteTest(CfqTestCase):
         f = self._repos_dir / "body.md"
         f.write_text(content)
         return f
+
+    def _run_cfq_stdin(self, *args, stdin_text, check=False):
+        # subprocess input= piping -- run_cfq itself has no stdin support, and adding it there is
+        # out of this phase's scope (cfq_testlib.py is not in Affected Files).
+        env = self._base_env()
+        env["HOME"] = str(self.home)
+        return subprocess.run(
+            [str(CFQ_BIN), *args], input=stdin_text, capture_output=True, text=True,
+            env=env, check=check,
+        )
 
     def test_plan_entry_written_at_expected_path(self):
         body = self._body_file("# Finding\n\nsomething noticed\n")
@@ -84,6 +95,73 @@ class NoteTest(CfqTestCase):
         missing = self._repos_dir / "does-not-exist.md"
         proc = self.run_cfq("note", "plan", str(self.repo), "whatever", str(missing))
         self.assertNotEqual(proc.returncode, 0, "a missing body file must fail")
+
+    # `-` reads the body from stdin instead of a file -- the fix for a planning session unable to
+    # write a body anywhere a write-guard hook allows (see .batch-context.md / this phase's
+    # Context §1).
+    def test_plan_with_stdin_body_writes_entry(self):
+        proc = self._run_cfq_stdin(
+            "note", "plan", str(self.repo), "stdin finding", "-",
+            stdin_text="# Stdin finding\n\nfound via stdin\n", check=True,
+        )
+        expected = self.repo / ".claude" / "cfq" / "plan" / f"{self.today}-stdin-finding.md"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+        self.assertEqual(expected.read_text(), "# Stdin finding\n\nfound via stdin\n")
+
+    def test_todo_with_stdin_body_writes_entry(self):
+        proc = self._run_cfq_stdin(
+            "note", "todo", str(self.repo), "stdin todo", "-",
+            stdin_text="# Stdin todo\n\ncheck: true\n", check=True,
+        )
+        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-stdin-todo.md"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+        self.assertEqual(expected.read_text(), "# Stdin todo\n\ncheck: true\n")
+
+    def test_stdin_body_empty_fails_with_empty_body(self):
+        proc = self._run_cfq_stdin(
+            "note", "plan", str(self.repo), "empty stdin", "-", stdin_text="",
+        )
+        self.assertNotEqual(proc.returncode, 0, "an empty stdin body must fail")
+        self.assertIn("EMPTY_BODY", proc.stderr)
+        target_dir = self.repo / ".claude" / "cfq" / "plan"
+        self.assertFalse(
+            any(target_dir.glob(f"{self.today}-*.md")) if target_dir.is_dir() else False,
+            "no file should have been written for an empty stdin body",
+        )
+
+    # A slug that already carries a (repeated) date prefix -- e.g. copied from another entry's
+    # filename -- must not double up in the written filename.
+    def test_slug_with_repeated_date_prefix_is_stripped(self):
+        body = self._body_file("# Title\n\nbody\n")
+        out = self.run_cfq(
+            "note", "plan", str(self.repo), "2026-09-23-2026-09-23-foo", str(body), check=True,
+        ).stdout.strip()
+        expected = self.repo / ".claude" / "cfq" / "plan" / f"{self.today}-foo.md"
+        self.assertEqual(out, str(expected))
+
+    # A body with no `# ` title must never be rejected -- a title is derived from the slug and
+    # prepended, with a stderr warning naming it.
+    def test_body_without_h1_gets_derived_title_and_warning(self):
+        body = self._body_file("no title here\n\nbody text\n")
+        proc = self.run_cfq(
+            "note", "plan", str(self.repo), "some finding", str(body), check=True,
+        )
+        expected = self.repo / ".claude" / "cfq" / "plan" / f"{self.today}-some-finding.md"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+        content = expected.read_text()
+        self.assertTrue(content.startswith("# Some finding\n\n"), content)
+        self.assertIn("no title here", content)
+        self.assertIn("derived", proc.stderr)
+
+    # Inverted: a body that already opens with `# ` gets no derived title and no warning.
+    def test_body_with_h1_gets_no_derived_title_or_warning(self):
+        body = self._body_file("# Already titled\n\nbody text\n")
+        proc = self.run_cfq(
+            "note", "plan", str(self.repo), "already titled", str(body), check=True,
+        )
+        expected = self.repo / ".claude" / "cfq" / "plan" / f"{self.today}-already-titled.md"
+        self.assertEqual(expected.read_text(), "# Already titled\n\nbody text\n")
+        self.assertEqual(proc.stderr, "")
 
     # `note todo` with no `check:` line: still writes, still exits 0, still prints the path --
     # only stderr gains a warning that `note sweep` can never close this card automatically.
@@ -344,6 +422,106 @@ class NoteTest(CfqTestCase):
         self.assertEqual(out["status"], "OK")
         self.assertEqual(out["imported"], [])
         self.assertFalse(inbox.exists(), "importing must not create the inbox directory")
+
+
+class NoteCloseTest(CfqTestCase):
+    """Behavior tests for `bin/cfq note close` -- the plan-inbox close path for an entry whose fix
+    landed incidentally rather than through `park --from-plan`. See phase 02's .batch-context.md
+    and .claude/cfq/impl/038-2026-09-23-framework-bugfixes/02-note-stdin-close-writer.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.plan_dir = self.repo / ".claude" / "cfq" / "plan"
+        self.today = datetime.date.today().isoformat()
+
+    def _write_entry(self, filename, content, directory=None):
+        d = directory if directory is not None else self.plan_dir
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / filename
+        f.write_text(content)
+        return f
+
+    def test_close_moves_entry_and_appends_closed_section(self):
+        entry = self._write_entry(f"{self.today}-fixed.md", "# Fixed\n\nsomething noticed.\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "close", str(self.repo), entry.name,
+                "--reason", "fixed incidentally in phase 01", check=True,
+            )
+        )
+        self.assertEqual(out["status"], "OK")
+
+        done = self.plan_dir / "done" / entry.name
+        self.assertEqual(out["closed"], [str(done)])
+        self.assertFalse(entry.exists())
+        self.assertTrue(done.exists())
+
+        content = done.read_text()
+        self.assertIn("# Fixed\n\nsomething noticed.\n", content)
+        self.assertIn("## Closed", content)
+        self.assertIn("fixed incidentally in phase 01", content)
+        self.assertIn(self.today, content)
+
+    def test_close_two_entries_in_one_call(self):
+        one = self._write_entry(f"{self.today}-one.md", "# One\n\nbody\n")
+        two = self._write_entry(f"{self.today}-two.md", "# Two\n\nbody\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "close", str(self.repo), one.name, two.name,
+                "--reason", "both landed already", check=True,
+            )
+        )
+        done_dir = self.plan_dir / "done"
+        self.assertCountEqual(
+            out["closed"], [str(done_dir / one.name), str(done_dir / two.name)],
+        )
+        self.assertFalse(one.exists())
+        self.assertFalse(two.exists())
+        self.assertTrue((done_dir / one.name).exists())
+        self.assertTrue((done_dir / two.name).exists())
+        for f in (done_dir / one.name, done_dir / two.name):
+            self.assertIn("both landed already", f.read_text())
+
+    def test_close_accepts_absolute_path(self):
+        entry = self._write_entry(f"{self.today}-abs.md", "# Abs\n\nbody\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "close", str(self.repo), str(entry), "--reason", "closed by path", check=True,
+            )
+        )
+        self.assertEqual(out["status"], "OK")
+        self.assertTrue((self.plan_dir / "done" / entry.name).exists())
+
+    def test_close_on_path_outside_plan_fails_invalid_path(self):
+        todo_dir = self.repo / ".claude" / "cfq" / "todo"
+        entry = self._write_entry(f"{self.today}-todo.md", "# Todo\n\nbody\n", directory=todo_dir)
+
+        proc = self.run_cfq(
+            "note", "close", str(self.repo), str(entry), "--reason", "wrong queue",
+        )
+        self.assertNotEqual(proc.returncode, 0, "closing a todo/ entry must fail")
+        self.assertIn("INVALID_PATH", proc.stderr)
+        self.assertTrue(entry.exists(), "the todo/ entry must be left untouched")
+
+    def test_close_on_missing_entry_fails_not_found(self):
+        proc = self.run_cfq(
+            "note", "close", str(self.repo), "does-not-exist.md", "--reason", "gone",
+        )
+        self.assertNotEqual(proc.returncode, 0, "closing a missing entry must fail")
+        self.assertIn("NOT_FOUND", proc.stderr)
+
+    def test_close_never_touches_todo(self):
+        # A close call naming only a plan/ entry must never create or touch todo/done/.
+        entry = self._write_entry(f"{self.today}-plan-only.md", "# Plan only\n\nbody\n")
+        self.run_cfq(
+            "note", "close", str(self.repo), entry.name, "--reason", "done", check=True,
+        )
+        todo_done = self.repo / ".claude" / "cfq" / "todo" / "done"
+        self.assertFalse(todo_done.exists())
 
 
 class NoteListTest(CfqTestCase):

@@ -15,5 +15,6 @@ proceed?" (N = `inbox.count`):
   the inbox were empty)
 
 The chosen entry's path is passed to **Park**'s `bin/cfq park` call as `--from-plan
-<chosen-entry-path>`, which moves it into `plan/done/` once the batch is parked. "Skip" passes
-nothing, and every inbox entry stays untouched.
+<chosen-entry-path>`, which moves it into `plan/done/` once the batch is parked — when this
+session's topic combines more than one inbox entry, pass one `--from-plan <path>` per entry, the
+flag repeats. "Skip" passes nothing, and every inbox entry stays untouched.

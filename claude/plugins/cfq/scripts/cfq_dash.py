@@ -20,12 +20,20 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, render, text  # noqa: E402
+from cfq_lib import paths, portal_hook, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_dash.py"
 
 REASON_TEXT = {"inProgress": "in progress", "priority": "priority high", "order": "next in order"}
+
+# Permanent, scope-independent -- shown inside a repo (as part of the full ACTIONS list below) and
+# outside one (on their own, see render_body) alike, so the settings menu and setup wizard are
+# always pointed at rather than offered once during first-time setup.
+GLOBAL_ACTION_ROWS = [
+    ("settings menu", "/cfq settings"),
+    ("setup wizard", "/cfq setup"),
+]
 
 ACTION_ROWS_TEMPLATE = [
     ("flag / unflag priority", "mark a batch high priority"),
@@ -35,8 +43,9 @@ ACTION_ROWS_TEMPLATE = [
     ("set / remove a dependency", ".dependsOn between batches"),
     ("work off todo/ entries", "runs their check: commands"),
     ("change a setting", "just say it in plain language"),
+] + GLOBAL_ACTION_ROWS + [
     ("full batch list", "bin/cfq dash render --all"),
-    ("view reports", "/rfq"),
+    ("view reports", "/rfq · {path}/.claude/cfq/reports/index.html"),
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
     ("settings, global", "bin/cfq settings list --sources"),
 ]
@@ -163,6 +172,25 @@ def plugins_line(p):
     return icon, detail
 
 
+def setup_hint_line():
+    """`Setup` PRECHECKS line (batch 041 phase 03): a one-time nudge toward `/cfq setup` / `/cfq
+    settings` for a user whose global setup already ran (`setupDone: true`) before the guided
+    wizard/menu existed. Shown at most once per machine -- `setupHintShown` lives in the same
+    schema-less state store as `setupDone`, flipped to true as a side effect of showing it once.
+    `setupDone` still `false` means the wizard itself is about to run instead (Step A), so this
+    line stays silent then -- never both in the same render."""
+    setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
+    if not setup_done:
+        return None
+    hint_shown = cfq_run("settings", "state", "get", "setupHintShown").stdout.strip() == "true"
+    if hint_shown:
+        return None
+    cfq_run("settings", "state", "set", "setupHintShown", "true")
+    return text.status_line(
+        "skip", "Setup", "new: /cfq setup — guided setup and settings menu (/cfq settings)",
+    )
+
+
 def impl_model(settings_json):
     for s in settings_json:
         if s["key"] == "implModels" and s["value"]:
@@ -256,6 +284,10 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     if this_repo is not None:
         action_rows = [(a, b.format(path=this_repo["path"])) for a, b in ACTION_ROWS_TEMPLATE]
         lines += ["", "ACTIONS"] + text.table(action_rows, indent="")
+    else:
+        # No repo (or not registered) -- most of ACTIONS needs a repo, but the settings menu and
+        # setup wizard don't, so they stay visible rather than disappearing along with the rest.
+        lines += ["", "ACTIONS"] + text.table(GLOBAL_ACTION_ROWS, indent="")
 
     eligible = [r for r in repos if r["status"] != "BLOCKED" and r["open"] > 0]
     if eligible:
@@ -337,14 +369,21 @@ def main(argv):
         }))
         return
 
+    if repo:
+        portal_hook.sync(repo)
+
     next_expanded, next_header, next_note = build_next(repo, scan_json["repos"])
 
     d_icon, d_text = dash_line(status, repos_json, this_repo_json)
     p_icon, p_text = plugins_line(plugins_obj)
 
+    hint_line = setup_hint_line()
+
     print("PRECHECKS")
     print(text.status_line(d_icon, "Dash", d_text))
     print(text.status_line(p_icon, "Plugins", p_text))
+    if hint_line:
+        print(hint_line)
     print(render_body(repos_json, this_repo_json, settings_json, all_flag, next_expanded, next_header, next_note))
 
 

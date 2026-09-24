@@ -34,6 +34,6 @@ Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_pref
 (only known to the session itself, from its own system prompt) stays skill-composed, unchanged.
 
 Everything else still has no script behind it and stays composed by the model, following the
-prose rules above: `Failed Attempt`, `Size Gate`, `Write Probe`, `Language` on the `pfq` side,
+prose rules above: `Failed Attempt`, `Size Gate`, `Language` on the `pfq` side,
 `Phases`, `Self-Critique`, `Park`, `Phase Audit`, `Lint`, and the Start Gate's own `Start Gate`
 line.
