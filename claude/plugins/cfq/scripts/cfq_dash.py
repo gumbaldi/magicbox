@@ -172,6 +172,25 @@ def plugins_line(p):
     return icon, detail
 
 
+def setup_hint_line():
+    """`Setup` PRECHECKS line (batch 041 phase 03): a one-time nudge toward `/cfq setup` / `/cfq
+    settings` for a user whose global setup already ran (`setupDone: true`) before the guided
+    wizard/menu existed. Shown at most once per machine -- `setupHintShown` lives in the same
+    schema-less state store as `setupDone`, flipped to true as a side effect of showing it once.
+    `setupDone` still `false` means the wizard itself is about to run instead (Step A), so this
+    line stays silent then -- never both in the same render."""
+    setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
+    if not setup_done:
+        return None
+    hint_shown = cfq_run("settings", "state", "get", "setupHintShown").stdout.strip() == "true"
+    if hint_shown:
+        return None
+    cfq_run("settings", "state", "set", "setupHintShown", "true")
+    return text.status_line(
+        "skip", "Setup", "new: /cfq setup — guided setup and settings menu (/cfq settings)",
+    )
+
+
 def impl_model(settings_json):
     for s in settings_json:
         if s["key"] == "implModels" and s["value"]:
@@ -358,9 +377,13 @@ def main(argv):
     d_icon, d_text = dash_line(status, repos_json, this_repo_json)
     p_icon, p_text = plugins_line(plugins_obj)
 
+    hint_line = setup_hint_line()
+
     print("PRECHECKS")
     print(text.status_line(d_icon, "Dash", d_text))
     print(text.status_line(p_icon, "Plugins", p_text))
+    if hint_line:
+        print(hint_line)
     print(render_body(repos_json, this_repo_json, settings_json, all_flag, next_expanded, next_header, next_note))
 
 

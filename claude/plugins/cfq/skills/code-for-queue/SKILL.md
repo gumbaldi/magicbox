@@ -5,7 +5,7 @@ description: >
   repositories — what is still open, how much is done — manage the current repository's queue,
   and change cfq's configuration. Use for "/cfq", "/code-for-queue", "show my queues", "queue
   status", "cfq settings".
-argument-hint: <settings|repo>
+argument-hint: <settings|setup|repo>
 ---
 
 # Code-for-Queue: Dashboard, Settings, First-Time Setup
@@ -71,29 +71,10 @@ Print the `PRECHECKS` header on entering this step.
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings state get setupDone
 ```
 
-If it hasn't run yet, clarify two things **before** anything else — each its own
-`AskUserQuestion`:
-
-1. *Grill procedure*: step-by-step (one question per round, recommended) vs. classic (all
-   questions of a round at once, saves context — needs `mattpocock-skills`, falls back to
-   step-by-step without it). Write the result to `grillMode`.
-2. *Optional third-party plugins*: for each plugin `.plugins` reports not installed, **offer** it,
-   never install it unasked — what it does, what cfq uses it for, install command and docs are in
-   `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → hand the user the `/plugin` command
-   to run and set the matching switch to `true`. Decline → the switch stays `false`; cfq must work
-   fully without either plugin, no path may run into a dead end without them.
-3. *Ponytail dormant by default* — only when `.plugins.ponytail` is `true` and `.plugins.ponytailMode`
-   is not `off`: offer to set `~/.config/ponytail/config.json`'s `defaultMode` to `off`, copy in
-   `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. Agreement → merge the key into the existing
-   config (create the file/directory if absent, never overwrite unrelated keys). Decline → write
-   nothing; don't ask again this session. This question runs once, here — a session where ponytail
-   gets installed or its mode changes after `setupDone` is already `true` relies on
-   `cfq doctor check`'s advisory line (which already carries the fix command) instead of a second
-   interactive ask.
-
-Afterward set `setupDone` to `true`. Both switches stay changeable later via Step C or the env
-vars, even with a plugin installed. Print the `Setup` status line — `➖ already done` when this
-step didn't run at all.
+Not yet run → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and follow its **Global
+Part** — the same flow Step E below runs by name. Print its own closing status line (`Setup  ✅
+done · <n> changed`) as the `Setup` status line for this step; `➖ already done` when this step
+didn't run at all.
 
 ## Step B — Dashboard (default behavior with no argument)
 
@@ -140,3 +121,11 @@ the global-only rejection, and the `env:repo-legacy` migration note are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:
 `✅ Setting  maintenanceEvery: 50 → 40 (global)`, or `⚠️ Setting  stopUsed set, but
 CFQ_STOP_USED overrides` when an env var shadows the key.
+
+## Step E — Setup Wizard
+
+Argument `setup` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and follow it: its
+**Global Part** always, then — inside a repo — its **Repo Part** once that lands (a later phase);
+outside a repo the global part is the whole wizard. This is the exact flow Step A already runs
+automatically on `setupDone: false`; running it again by name re-walks it, and every question's
+"keep current" option makes an already-configured value a no-op.

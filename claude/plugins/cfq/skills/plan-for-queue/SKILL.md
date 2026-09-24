@@ -57,10 +57,11 @@ regardless of entry count; plan the arguments, leave every inbox entry untouched
 ## Step 4 — Start Block (unconditional, always, before anything else)
 
 Print the `INTERVIEW` header on entering — the preflight already ran at **Inbox**, no new call.
-Run the model-gate check per `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model
-Gate** section, then print `Model Check` as returned. `repo.known` is `false` → show the full
-config overview now, per `${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before the
-call below.
+`setup.globalDone` is `false` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its
+**Global Part** now, before anything else in this step. Run the model-gate check per
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section, then print `Model
+Check` as returned. `repo.known` is `false` → show the full config overview now, per
+`${CLAUDE_PLUGIN_ROOT}/references/config-overview.md`, right before the call below.
 
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
 else, every time — never skip, never infer. Up to three questions: **Interview depth** (always),

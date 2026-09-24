@@ -23,11 +23,25 @@ itself.
 
 ## First-time setup
 
-Run `/cfq` once. It creates `~/.claude/cfq/settings.json` with defaults and
-`repos.json` (the cross-repo registry), and marks `setupDone` so this step only runs once. If
-`ponytail` is installed and not already set to `defaultMode: off`, first-time setup also offers to
-turn it dormant — cfq only ever wakes it for the optional maintenance-run cleanup audit and expects
-it dormant everywhere else; declining changes nothing.
+Run `/cfq` (or `/pfq`) once. Before anything else, it walks the global setup wizard —
+`~/.claude/cfq/settings.json`/`repos.json` already exist with defaults by then, and the wizard
+marks `setupDone` so it doesn't open on its own again. Three choices up front: keep every default
+(fastest — nothing is asked, nothing written beyond `setupDone`), walk through all three areas, or
+pick only some:
+
+- **Models** — which model families `/pfq`/`/ifq` are allowed to run under, and whether `/ifq`
+  runs each phase in its own sub-agent (`orchestratorMode`).
+- **Language defaults** — `codeLanguage`, `docLanguages`, `docLevel`.
+- **Environment & plugins** — `scanRoots`, `frameworkRepo`, the grill procedure, and the two
+  optional third-party plugin offers below (including, when `ponytail` is installed and not
+  already set to `defaultMode: off`, the offer to turn it dormant — cfq only ever wakes it for the
+  optional maintenance-run cleanup audit and expects it dormant everywhere else; declining changes
+  nothing).
+
+Run it again any time via `/cfq setup` — same flow, every question's first option is "keep
+current", so re-running it is a no-op wherever nothing changed. A user whose setup already ran
+before this wizard existed sees a one-time dashboard hint pointing at it instead of it opening
+automatically again.
 
 ## Upgrading
 

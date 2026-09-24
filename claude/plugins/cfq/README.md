@@ -27,7 +27,9 @@ flowchart LR
 /plugin install cfq@magicbox
 ```
 
-Then run `/cfq` once for first-time setup.
+The first `/cfq` or `/pfq` afterward walks the global setup wizard automatically (models, language
+defaults, environment & plugins — or keep every default in one step); run it again any time via
+`/cfq setup`.
 
 Upgrading from a `gumbaclaude` marketplace install: the GitHub repo was renamed from
 `gumbaldi/gumbaclaude` to `gumbaldi/magicbox` (it now hosts skills for other AI providers too, not

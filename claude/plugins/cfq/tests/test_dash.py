@@ -570,6 +570,45 @@ class TestDash(CfqTestCase):
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
 
 
+    # --- Phase 03: one-time `Setup` hint for existing users ---
+
+    def test_setup_hint_shown_once_after_setup_done(self):
+        tmp = self._repos_dir / "hintroot"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+
+        self.run_cfq("settings", "state", "set", "setupDone", "true")
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        first = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        self.assertIn(
+            "➖ Setup", first, f"one-time setup hint line missing on first render:\n{first}"
+        )
+        self.assertIn(
+            "guided setup and settings menu", first, f"hint detail text missing:\n{first}"
+        )
+
+        second = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        self.assertNotIn(
+            "guided setup and settings menu", second,
+            f"hint should not repeat on a second render:\n{second}",
+        )
+
+    def test_setup_hint_absent_when_setup_not_done(self):
+        tmp = self._repos_dir / "nohintroot"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        self.assertNotIn(
+            "guided setup and settings menu", rendered,
+            f"hint must stay silent while setupDone is false -- the wizard runs instead:\n{rendered}",
+        )
+
+
 class TestDashRenderPinnedPreShared(unittest.TestCase):
     """Phase 09: pins `cfq_dash.py`'s current rendered output -- the icon literals in
     `dash_line`/`plugins_line`, the `:<16` PRECHECKS padding, and the 27-width ACTIONS column --
