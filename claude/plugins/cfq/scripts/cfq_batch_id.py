@@ -7,8 +7,11 @@
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
 #        cfq_batch_id.py ready         <batch-dir>
 #
-# `ready` removes the `.planning` heartbeat marker a batch directory carries while `plan-for-queue`
-# is still writing it -- hard delete, no trash, since the marker carries no content. Idempotent.
+# `.planning` is written here, by `allocate`, the moment the batch directory is created --
+# `park` only refreshes it (heartbeat) while it exists, and never re-creates it once `ready`
+# removes it. `ready` removes the `.planning` heartbeat marker a batch directory carries while
+# `plan-for-queue` is still writing it -- hard delete, no trash, since the marker carries no
+# content. Idempotent.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -514,6 +517,12 @@ def cmd_allocate(args):
                 f"inspect {target_dir} and {cf_target} manually, then park under a new slug/date",
             )))
             sys.exit(1)
+
+        # .planning is born here, the moment the directory exists, so a concurrent /ifq scan
+        # never sees an open batch with no marker while pfq is still writing its phase files.
+        # `park` only refreshes it from this point on; `ready` removes it once pfq's lint goes
+        # clean.
+        pathlib.Path(target_dir, ".planning").write_text(render.now_iso() + "\n")
 
         print(render.dump_json(result))
     finally:

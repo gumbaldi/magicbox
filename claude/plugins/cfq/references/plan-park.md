@@ -23,6 +23,13 @@ only when **Start Block**'s flag answer was high), ensures the git-exclude entry
 repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
 several entries (**Inbox**) passes every one of them in the same `park` call.
 
+`.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
+batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
+during this session). Once **Plan Lint** has run `batch ready` and the marker is gone, a later
+`park` call — a correction after that point — leaves it absent and prints an `already ready`
+warning on stderr instead of resurrecting it: re-run `bin/cfq lint` until clean and `batch ready`
+(idempotent) again before **Final Report**.
+
 Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
 snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 

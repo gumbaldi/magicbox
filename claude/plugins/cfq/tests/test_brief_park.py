@@ -514,6 +514,63 @@ class ParkTest(CfqTestCase):
         )
         self.assertNotEqual(proc.returncode, 0, "invalid priority should exit non-zero")
 
+    # ---- planning-marker lifecycle (phase 01 of batch 043: the marker is born at `batch
+    # allocate`, not at `park` -- these three cover park's remaining role, the fallback for a
+    # caller that skips allocate) --------------------------------------------------------------
+
+    def test_park_on_new_dir_writes_planning(self):
+        # a caller that skips `batch allocate` and parks directly still gets a marker, since the
+        # directory park creates itself is brand new
+        batchdir = self.parkrepo / ".claude/cfq/impl/2026-01-10-freshpark"
+        self.assertFalse(batchdir.exists(), "fixture must start without the batch directory")
+        self._park("2026-01-10-freshpark", "normal")
+        self.assertTrue(
+            (batchdir / ".planning").is_file(), "park on a brand-new directory did not write .planning",
+        )
+
+    def test_park_refreshes_existing_planning(self):
+        batchdir = self.parkrepo / ".claude/cfq/impl/2026-01-11-refresh"
+        batchdir.mkdir(parents=True)
+        old = "2026-01-01T00:00:00+00:00\n"
+        (batchdir / ".planning").write_text(old)
+
+        proc = self.run_cfq(
+            "park", str(self.parkrepo), "2026-01-11-refresh", "normal", home=self.park_home,
+        )
+        self.assertEqual(proc.returncode, 0, f"park should exit 0: {proc.stderr}")
+        self.assertEqual(
+            proc.stdout.strip(), str(batchdir), f"stdout must be exactly the batch path: {proc.stdout!r}",
+        )
+        self.assertEqual(proc.stderr, "", f"refreshing an existing marker must not warn: {proc.stderr!r}")
+        self.assertNotEqual(
+            (batchdir / ".planning").read_text(), old, "park did not refresh the existing .planning marker",
+        )
+
+    def test_park_after_ready_does_not_resurrect_planning(self):
+        batch = "2026-01-12-afterready"
+        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
+        self._park(batch, "normal")
+        self.assertTrue((batchdir / ".planning").exists(), "fixture setup: first park must write .planning")
+
+        self.run_cfq("batch", "ready", str(batchdir), home=self.park_home, check=True)
+        self.assertFalse((batchdir / ".planning").exists(), "fixture setup: batch ready must remove .planning")
+
+        proc = self.run_cfq(
+            "park", str(self.parkrepo), batch, "high", home=self.park_home,
+        )
+        self.assertEqual(proc.returncode, 0, f"re-park after ready should still exit 0: {proc.stderr}")
+        self.assertEqual(
+            proc.stdout.strip(), str(batchdir), f"stdout must be exactly the batch path: {proc.stdout!r}",
+        )
+        self.assertFalse(
+            (batchdir / ".planning").exists(), "re-park after `batch ready` must not resurrect .planning",
+        )
+        self.assertIn("already ready", proc.stderr, f"stderr missing the already-ready warning: {proc.stderr!r}")
+        self.assertEqual(
+            (batchdir / ".priority").read_text().strip(), "high",
+            ".priority must still be rewritten from the second call's arguments",
+        )
+
 
 class ParkFromPlanTest(CfqTestCase):
     """`park ... --from-plan <path>` consumes the plan-inbox entry `cfq note list` showed --

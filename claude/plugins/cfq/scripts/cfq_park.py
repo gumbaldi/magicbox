@@ -2,8 +2,11 @@
 # Usage: cfq_park.py <repo-root> <batch-dir-name> <high|normal> [<dependsOn-entry>...]
 #                     [--from-plan <plan-entry-path>]...
 """Parks a batch directory: creates it, writes .priority/.dependsOn, ensures the local git-exclude
-entry, and registers the repo. Idempotent -- safe to re-run with the same arguments. Does not
-write phase files; only the planning session that knows their content does that.
+entry, and registers the repo. Idempotent -- safe to re-run with the same arguments, including the
+`.planning` marker: a re-run during the same plan-for-queue session refreshes its timestamp as a
+heartbeat, but once `batch ready` has removed it (plan-for-queue's lint step went clean), a later
+park call leaves it absent and warns on stderr instead of resurrecting it. Does not write phase
+files; only the planning session that knows their content does that.
 
 Ported from cfq-park.sh -- a port, not a redesign: the CLI contract (verbs, argument order, text
 output, exit codes) is the invariant this file preserves.
@@ -94,12 +97,22 @@ def cmd_park(args):
     subprocess.run(cfq_argv("layout", "ensure", args.repo), stdout=subprocess.DEVNULL, check=True)
 
     d = pathlib.Path(cfq_lib_paths.impl_dir(args.repo)) / args.batch
+    created = not d.exists()
     d.mkdir(parents=True, exist_ok=True)
-    # .planning is written on creation, idempotent (a re-run during the same pfq session
-    # refreshes the timestamp as a heartbeat), and removed by plan-for-queue's lint step once
-    # the batch is complete -- this is what keeps ifq from picking up a batch pfq is still
-    # writing.
-    (d / ".planning").write_text(render.now_iso() + "\n")
+    # .planning is born at `batch allocate` and removed by `batch ready` once plan-for-queue's lint
+    # step goes clean. Park only refreshes an existing marker (heartbeat) -- it never re-creates one
+    # on a directory that already existed without it, because that state means `ready` already ran
+    # and re-setting the marker would silently hide a finished batch from implement-for-queue. A
+    # directory park creates itself (a caller that skipped allocate) is new, so it gets the marker.
+    marker = d / ".planning"
+    if created or marker.exists():
+        marker.write_text(render.now_iso() + "\n")
+    else:
+        print(
+            f"{PROG}: warning: {args.batch} is already ready (no .planning) -- marker not re-set; "
+            "after a correction, re-run `cfq lint` and `cfq batch ready`",
+            file=sys.stderr,
+        )
 
     priority_file = d / ".priority"
     if args.priority == "high":

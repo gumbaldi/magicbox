@@ -51,7 +51,9 @@ with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — 
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
 step) — is never offered either, separately from the `dependsOn` wait list: for every name in
-`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes."
+`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes. If no
+`/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"` clears the marker;
+otherwise it becomes selectable on its own once the marker is older than `sessionStaleSeconds`."
 One line per such batch, no more.
 
 **In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`

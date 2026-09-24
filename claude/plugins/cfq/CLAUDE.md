@@ -117,10 +117,11 @@ exist only to keep the other three sources that also record it — `report.json`
 `CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and the changelog (`changelogFile`) — honest about what
 `done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
 only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
-(written by
-`cfq_park.py` when the batch directory is created, refreshed on every re-park during the same
-`plan-for-queue` session, removed only once `plan-for-queue`'s lint step goes clean — a batch
-younger than 30 minutes with this marker still present is still being written and `implement-for-queue`
+(written by `cfq batch allocate` when the batch directory is created; `park` refreshes it on every
+re-park during the same `plan-for-queue` session but only while it still exists, and never
+re-creates it after `batch ready` has removed it — a re-park at that point warns on stderr instead;
+removed only once `plan-for-queue`'s lint step goes clean — a batch younger than 30 minutes with
+this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
