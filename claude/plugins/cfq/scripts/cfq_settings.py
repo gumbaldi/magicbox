@@ -448,9 +448,7 @@ def _render_menu_overview(groups_out, repo_path):
         if remaining > 0:
             lines.append(f"   … +{remaining}")
         lines.append("")
-    # A trailing all-empty column (the last row's notes cell, or a value cell of "") still gets a
-    # gap inserted ahead of it by text.table() -- rstrip every line rather than special-case it.
-    return "\n".join(ln.rstrip() for ln in lines).rstrip("\n")
+    return "\n".join(lines).rstrip("\n")
 
 
 def _render_menu_group(group_out, repo_path):
@@ -472,7 +470,7 @@ def _render_menu_group(group_out, repo_path):
             " ".join(notes),
         ])
     lines.extend(text.table(rows, indent="  "))
-    return "\n".join(ln.rstrip() for ln in lines)
+    return "\n".join(lines)
 
 
 def cmd_menu(args):
