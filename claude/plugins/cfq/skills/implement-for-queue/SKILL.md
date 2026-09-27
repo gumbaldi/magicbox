@@ -166,10 +166,10 @@ instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` still ha
 orchestrator loop; that part is unchanged.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
-  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing
-  `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a half-finished
-  batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format from
-  **Closing Reports**.
+  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>" --batch "<batch>"`),
+  printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
+  half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
+  from **Closing Reports**.
 - `OK` → next phase, same batch.
 - `WARN` → do not end, do not advance silently — cold-path detail: read
   `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here.

@@ -41,7 +41,7 @@ description naming the budget state so the user sees what they are accepting —
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
 reusing the Context Check's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
 implement-for-queue` short report). **Cancel** — "release the lock and end the session, nothing
-touched", runs `bin/cfq lock release "<repo-root>"`, reports "cancelled before implementation,
+touched", runs `bin/cfq lock release "<repo-root>" --batch "<batch>"`, reports "cancelled before implementation,
 nothing touched", and ends; it never leaves the lock held. No option may be phrased as futile —
 every option offered here must actually do what it says. This same warning line is reused verbatim
 at the Batch Briefing step, above the batch briefing — one wording, two call sites, never two
