@@ -207,6 +207,72 @@ class TelemetryTest(CfqTestCase):
         out = proc.stdout + proc.stderr
         self.assertEqual(out.strip(), "telemetry sync: nothing new", msg=f"second sync = {out!r}")
 
+    def test_record_attaches_only_to_matching_last_phase(self):
+        # routine: report.json's last entry already matches the phase being recorded -- the guard
+        # is a no-op on the normal path, telemetry still attaches exactly as before.
+        cfq_report.append_phase(
+            str(self.batch), '{"phase":"02-bar","status":"green","summary":"test"}',
+            record_telemetry=False,
+        )
+        proc = self._record(str(self.batch), "phase", "02-bar")
+        self.assertEqual(proc.stderr, "", msg="a matching last phase must not warn on stderr")
+        rec = self._last_record()
+        report = json.loads((self.batch / "report.json").read_text())
+        self.assertEqual(
+            report["phases"][-1].get("telemetry"), rec,
+            msg="last entry's own phase matches -- must still gain telemetry",
+        )
+
+        # the repro from batch 032: a phase plan's own verification step names
+        # `telemetry record <dir> phase <slug>` and runs it *before* that phase's own
+        # `phase commit` appends its entry -- report.json's last entry is still the *previous*
+        # phase ("02-bar", carrying the telemetry just attached above) at that point.
+        before = json.loads((self.batch / "report.json").read_text())
+        lines_before = len(self.jsonl.read_text().splitlines())
+        proc = self._record(str(self.batch), "phase", "03-baz")
+        after = json.loads((self.batch / "report.json").read_text())
+        self.assertEqual(
+            after, before,
+            msg="report.json must stay byte-for-byte unchanged when the last phase does not match",
+        )
+        lines_after = len(self.jsonl.read_text().splitlines())
+        self.assertEqual(
+            lines_after, lines_before + 1,
+            msg="the raw record must still land on telemetry.jsonl even when report.json is left alone",
+        )
+        self.assertIn("02-bar", proc.stderr, msg="stderr must name report.json's actual last phase")
+        self.assertIn("03-baz", proc.stderr, msg="stderr must name the phase that was requested")
+        self.assertEqual(proc.returncode, 0, msg="a mismatched last phase must still exit 0")
+
+    def test_record_planning_ignores_phase_guard(self):
+        # edge: kind=="planning" still writes data["planning"] unconditionally, regardless of
+        # whether report.json's last phase entry matches anything -- the guard is phase-only.
+        cfq_report.append_phase(
+            str(self.batch), '{"phase":"02-bar","status":"green","summary":"test"}',
+            record_telemetry=False,
+        )
+        self._record(str(self.batch), "planning")
+        rec = self._last_record()
+        report = json.loads((self.batch / "report.json").read_text())
+        self.assertEqual(
+            report["planning"], rec, msg="planning must attach even with an unrelated last phase"
+        )
+        self.assertNotIn(
+            "telemetry", report["phases"][-1],
+            msg="planning must never attach telemetry to a phase entry",
+        )
+
+    def test_record_empty_phases_list_is_a_noop(self):
+        # edge: report.json exists (e.g. written by a planning-time call) but `phases` is still
+        # empty -- nothing is written to report.json, and the guard must not crash on an empty
+        # list's `[-1]` lookup.
+        report_path = self.batch / "report.json"
+        report_path.write_text(json.dumps({"repo": str(self.repo), "batch": self.batch.name, "phases": []}))
+        proc = self._record(str(self.batch), "phase", "01-foo")
+        self.assertEqual(proc.returncode, 0, msg="an empty phases list must not crash the guard")
+        report = json.loads(report_path.read_text())
+        self.assertEqual(report.get("phases"), [], msg="report.json must stay untouched")
+
     def test_whitelist_rejects_unknown_leaf_field(self):
         # The structural guard's rejection path, asserted directly rather than only ever
         # exercised via acceptance: a stray leaf field must show up as `extra`, not disappear.

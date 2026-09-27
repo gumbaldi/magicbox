@@ -450,9 +450,25 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
     data = json.loads(pathlib.Path(report_path).read_text())
     if kind == "planning":
         data["planning"] = rec
+        render.write_json(report_path, data)
     elif data.get("phases"):
-        data["phases"][-1]["telemetry"] = rec
-    render.write_json(report_path, data)
+        last = data["phases"][-1]
+        # Only attach telemetry to the entry it actually belongs to: a phase plan naming
+        # `telemetry record ... phase <slug>` as its own verification step runs it *before*
+        # `phase commit` appends that phase's own entry, so the last entry in report.json is
+        # still the *previous* phase at that point. Attaching there would silently overwrite
+        # that phase's own telemetry snapshot (see batch 032). The raw record is never lost --
+        # it's already on telemetry.jsonl above -- report.json is simply left untouched.
+        if isinstance(last, dict) and last.get("phase") == phase:
+            last["telemetry"] = rec
+            render.write_json(report_path, data)
+        else:
+            last_phase = last.get("phase") if isinstance(last, dict) else last
+            print(
+                f"{PROG}: report.json's last phase is '{last_phase}', not '{phase}' -- "
+                "telemetry kept in telemetry.jsonl only",
+                file=sys.stderr,
+            )
 
     totals = rec["totals"]
     print(
