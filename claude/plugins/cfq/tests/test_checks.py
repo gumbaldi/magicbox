@@ -29,7 +29,8 @@ class TestLint(CfqTestCase):
         target.touch()
 
         # 01-a: correct -- all headings, one existing absolute path, no issues
-        self._write(dirty / "01-a.md", f"""## Size
+        self._write(dirty / "01-a.md", f"""# Phase A
+## Size
 M
 ## Context
 x
@@ -42,7 +43,8 @@ x
 """)
 
         # 02-b: sections violation -- missing the Verification heading
-        self._write(dirty / "02-b.md", f"""## Size
+        self._write(dirty / "02-b.md", f"""# Phase B
+## Size
 M
 ## Context
 x
@@ -53,7 +55,8 @@ x
 """)
 
         # 03-c: abspath violation -- relative path (existence is not checked for a non-absolute path)
-        self._write(dirty / "03-c.md", """## Size
+        self._write(dirty / "03-c.md", """# Phase C
+## Size
 M
 ## Context
 x
@@ -66,7 +69,8 @@ x
 """)
 
         # 04-d: missing violation -- absolute path, marked "(ändern)", does not exist
-        self._write(dirty / "04-d.md", f"""## Size
+        self._write(dirty / "04-d.md", f"""# Phase D
+## Size
 M
 ## Context
 x
@@ -79,7 +83,8 @@ x
 """)
 
         # 05-e: stale-new violation -- marked "(new)" but the path already exists
-        self._write(dirty / "05-e.md", f"""## Size
+        self._write(dirty / "05-e.md", f"""# Phase E
+## Size
 M
 ## Context
 x
@@ -92,7 +97,8 @@ x
 """)
 
         # 08-g: sections violation -- missing the Size heading
-        self._write(dirty / "08-g.md", f"""## Context
+        self._write(dirty / "08-g.md", f"""# Phase G
+## Context
 x
 ## Affected Files
 - `{target}` (ändern)
@@ -103,7 +109,8 @@ x
 """)
 
         # 09-h: sections violation -- the old German "Größe" heading no longer counts as Size
-        self._write(dirty / "09-h.md", f"""## Größe
+        self._write(dirty / "09-h.md", f"""# Phase H
+## Größe
 M
 ## Context
 x
@@ -116,7 +123,8 @@ x
 """)
 
         # 10-i: verification-cmd violation -- prose only, no fenced code block, no backticked command
-        self._write(dirty / "10-i.md", f"""## Size
+        self._write(dirty / "10-i.md", f"""# Phase I
+## Size
 M
 ## Context
 x
@@ -129,7 +137,8 @@ This step must be verified manually by a human tester.
 """)
 
         # 11-j: verification-expect violation -- a command, but no stated expected result
-        self._write(dirty / "11-j.md", f"""## Size
+        self._write(dirty / "11-j.md", f"""# Phase J
+## Size
 M
 ## Context
 x
@@ -144,7 +153,8 @@ bash tests/foo.sh
 """)
 
         # 12-k: changes-empty violation -- heading present, section body empty
-        self._write(dirty / "12-k.md", f"""## Size
+        self._write(dirty / "12-k.md", f"""# Phase K
+## Size
 M
 ## Context
 x
@@ -156,11 +166,25 @@ x
 """)
 
         # 13-l: files-empty violation -- heading present, no `- `…`` entry
-        self._write(dirty / "13-l.md", """## Size
+        self._write(dirty / "13-l.md", """# Phase L
+## Size
 M
 ## Context
 x
 ## Affected Files
+## Changes
+x
+## Verification
+`bash tests/foo.sh` must exit 0
+""")
+
+        # 14-m: title violation -- no `# ` heading anywhere in the file
+        self._write(dirty / "14-m.md", f"""## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
 ## Changes
 x
 ## Verification
@@ -196,9 +220,11 @@ x
         self.assertEqual(_rule_count(out, "verification-expect"), 1, f"rule verification-expect fired wrong count. Output:\n{out}")
         self.assertEqual(_rule_count(out, "changes-empty"), 1, f"rule changes-empty fired wrong count. Output:\n{out}")
         self.assertEqual(_rule_count(out, "files-empty"), 1, f"rule files-empty fired wrong count. Output:\n{out}")
+        self.assertEqual(_rule_count(out, "title"), 1, f"rule title fired wrong count. Output:\n{out}")
 
         self.assertIsNone(re.search(r"^01-a\.md:", out, re.MULTILINE), "correct file 01-a.md appears in findings")
         self.assertNotIn("07-f.md:", out, f"done/ file content should never be linted, got: {out}")
+        self.assertIn("14-m.md: title: missing # heading", out, f"title finding wrong/missing: {out}")
 
     def test_clean_batch_with_dangling_depends(self):
         qdir = self._repos_dir / "lintrepo2" / ".claude" / "cfq"
@@ -211,7 +237,8 @@ x
         (clean / ".priority").write_text("high")
         (clean / ".dependsOn").write_text("gibtsnicht")
         (clean / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
-        self._write(clean / "01-a.md", f"""## Size
+        self._write(clean / "01-a.md", f"""# Phase A
+## Size
 M
 ## Context
 x
@@ -240,7 +267,8 @@ x
 
         newmarker = qdir / "2026-01-03-newmarker"
         newmarker.mkdir()
-        self._write(newmarker / "01-a.md", f"""## Size
+        self._write(newmarker / "01-a.md", f"""# Phase A
+## Size
 M
 ## Context
 x
@@ -263,7 +291,9 @@ x
         target = self._repos_dir / "existing-target4"
         target.touch()
 
-        phase_body = f"""## Size
+        phase_body = f"""# Phase A
+
+## Size
 
 S
 
@@ -318,6 +348,41 @@ x
         out = proc.stdout + proc.stderr
         self.assertEqual(proc.returncode, 0, f"valid .batch-context.md should pass lint, got {proc.returncode}: {out}")
         self.assertIsNotNone(re.search(r"^OK 1 phases$", out, re.MULTILINE), f"goodctx summary line missing/wrong: {out}")
+
+    def test_missing_title_heading(self):
+        qdir = self._repos_dir / "lintrepo5" / ".claude" / "cfq"
+        qdir.mkdir(parents=True)
+        target = self._repos_dir / "existing-target5"
+        target.touch()
+        phase_body = f"""## Size
+S
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+        batch = qdir / "2026-01-08-notitle"
+        batch.mkdir()
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / "01-a.md").write_text(phase_body)
+
+        proc = self.run_cfq("lint", str(batch))
+        self.assertNotEqual(proc.returncode, 0, "phase file without a # heading should fail lint")
+        out = proc.stdout + proc.stderr
+        self.assertIn("01-a.md: title: missing # heading", out, f"missing title finding not reported: {out}")
+
+        # a done phase file without a title is never inspected for sections at all -- no finding
+        done = batch / "done"
+        done.mkdir()
+        (done / "02-b.md").write_text(phase_body)
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertNotIn("02-b.md:", out, f"done phase file content should never be linted: {out}")
 
 
 class TestSecurity(CfqTestCase):

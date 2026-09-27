@@ -117,7 +117,7 @@ def cmd_brief(args):
     batch_dir = batch_dir.resolve()
     phase_slug = phase_file.stem
     text = phase_file.read_text()
-    fields = parse_phase_body(text)
+    fields = parse_phase_body(text, fallback_title=phase_slug)
     size = fields["size"] or "M"
 
     ctx_path = batch_dir / ".batch-context.md"

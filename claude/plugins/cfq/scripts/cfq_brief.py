@@ -34,12 +34,18 @@ PROG = "cfq_brief.py"
 TITLE_PREFIX_RE = re.compile(r"^# +")
 
 
-def parse_phase_body(text):
+def parse_phase_body(text, fallback_title=None):
     """Mirrors the shell version's `brief_awk`: pulls the first `# ` heading (title), the token
     on the first non-empty line after `## Size`, the first two non-empty lines after `##
     Context` (raw, untruncated), the last path segment of each `- \\`...\\`` bullet under `##
     Affected Files`, and the first non-empty line inside the first fenced code block under `##
-    Verification`."""
+    Verification`.
+
+    A hand-edited phase file that lost its `# ` heading (or never had one) returns `title:
+    fallback_title` instead of `title: None` -- callers pass the phase file's own stem (`NN-slug`)
+    so a missing title degrades to something legible rather than crashing a downstream renderer.
+    `title` stays `None` only when both the heading and `fallback_title` are missing, for the rare
+    caller that doesn't pass one."""
     title = None
     size = None
     g = False
@@ -94,7 +100,7 @@ def parse_phase_body(text):
             check = line
 
     context = "".join(f"{line} " for line in context_lines)
-    return {"title": title, "size": size, "context": context, "files": files, "check": check}
+    return {"title": title or fallback_title, "size": size, "context": context, "files": files, "check": check}
 
 
 def render_phase(num, fields):
@@ -162,12 +168,12 @@ def _overview_rows(d):
 
     rows = []
     for f in done_files:
-        fields = parse_phase_body(f.read_text())
+        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
 
     red_count = 0
     for f in open_files:
-        fields = parse_phase_body(f.read_text())
+        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         status = "red" if ledger.get(f.stem) == "red" else "open"
         if status == "red":
             red_count += 1
@@ -250,7 +256,7 @@ def cmd_brief(args):
             print(f"{PROG}: no phase {args.phase} in {d}", file=sys.stderr)
             sys.exit(1)
         f = matches[0]
-        print(render_phase(phase_num(f), parse_phase_body(f.read_text())))
+        print(render_phase(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
         return
 
     if args.overview:
@@ -279,10 +285,10 @@ def cmd_brief(args):
 
     if args.with_done:
         for f in sorted((d / "done").glob("[0-9][0-9]-*.md")):
-            print(f"✔ {render_brief(phase_num(f), parse_phase_body(f.read_text()))}")
+            print(f"✔ {render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem))}")
 
     for f in files:
-        print(render_brief(phase_num(f), parse_phase_body(f.read_text())))
+        print(render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
 
 
 def build_parser():

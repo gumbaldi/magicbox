@@ -310,6 +310,63 @@ class BriefOrchestratorGateTest(CfqTestCase):
         self.assertIn("PHASE 01 · First phase", proc.stdout, f"announcement missing: {proc.stdout}")
 
 
+class BriefUntitledPhaseTest(CfqTestCase):
+    """A phase file without a `# ` heading no longer crashes `parse_phase_body` -- the title falls
+    back to the file's own stem (`NN-slug`) everywhere brief renders it, see
+    .claude/cfq/impl/044-.../05-phase-title-fallback-and-lint.md."""
+
+    def setUp(self):
+        super().setUp()
+        self.batch = self._repos_dir / "2026-01-08-untitled"
+        self.batch.mkdir(parents=True)
+        (self.batch / "01-normal-step.md").write_text(textwrap.dedent("""\
+            # Normal step
+
+            ## Size
+
+            S
+
+            ## Affected Files
+
+            - `/tmp/example/foo.sh`
+            """))
+        (self.batch / "02-untitled-step.md").write_text(textwrap.dedent("""\
+            ## Size
+
+            M
+
+            ## Affected Files
+
+            - `/tmp/example/bar.sh`
+            """))
+
+    def test_overview_shows_stem_for_untitled_phase(self):
+        out = self.run_cfq("brief", str(self.batch), "--overview", check=True).stdout
+        self.assertIn("02-untitled-step", out, f"overview row for 02 must show the stem fallback: {out}")
+        self.assertNotIn("None", out, f"overview must never print the literal None: {out}")
+
+    def test_with_done_shows_stem_never_none(self):
+        out = self.run_cfq("brief", str(self.batch), "--with-done", check=True).stdout
+        self.assertIn("02-untitled-step", out, f"brief listing must show the stem fallback: {out}")
+        self.assertNotIn("None", out, f"brief listing must never print the literal None: {out}")
+
+    def test_phase_announcement_shows_stem_fallback(self):
+        out = self.run_cfq(
+            "brief", str(self.batch), "--phase", "02", "--classic-fallback", check=True,
+        ).stdout
+        self.assertIn(
+            "PHASE 02 · 02-untitled-step", out, f"--phase announcement must show the stem fallback: {out}",
+        )
+
+    def test_normal_phase_title_regression(self):
+        out = self.run_cfq(
+            "brief", str(self.batch), "--phase", "01", "--classic-fallback", check=True,
+        ).stdout
+        self.assertIn(
+            "PHASE 01 · Normal step", out, f"normal phase's own `# ` title regressed: {out}",
+        )
+
+
 class BriefOverviewTest(CfqTestCase):
     """`bin/cfq brief <batch-dir> --overview` -- the shared batch-overview block `ifq`'s start
     gate (phase 04) and `pfq`'s final report (phase 05) both render, see
