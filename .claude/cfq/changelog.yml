@@ -1177,3 +1177,10 @@
     - phase: "01-planning-marker-lifecycle"
       status: "green"
       summary: ""
+- batchNumber: 44
+  batch: 044-2026-09-27-inbox-fixes-and-visibility
+  branch: cfq/044-2026-09-27-inbox-fixes-and-visibility
+  base: main
+  started: 2026-09-27
+  status: in-progress
+  legacy: false
