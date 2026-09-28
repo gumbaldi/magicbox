@@ -117,6 +117,19 @@ that the phase runs normally if started — wording per `<plugin-root>/reference
 **Phase Announcement**; `batch.consistency == "divergent"` adds one more such line naming the
 repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
 
+## Lint Gate
+
+`lint` is the same `bin/cfq lint <batch-dir>` check `/pfq` already runs at Plan Lint, right before
+handoff — run again here since a plan file is plain Markdown the user may edit by hand between
+`/pfq` and `/ifq`, and a hand edit that breaks its structure would otherwise go unnoticed until a
+later deterministic script misparses it mid-implementation. `lint.clean: false` → print `Lint` (its
+`lint.findings` already rendered as `   └ ` sub-lines) and **end the session immediately** — before
+the lock, the branch, or any file is touched — the user fixes the phase files by hand or re-plans
+the batch with `/pfq`. `lint.warnings` (an unresolvable `.dependsOn`, the same kind of `warn:` line
+`selection.blocked`'s `unknownDeps` already surfaces) never blocks, matching lint's own exit-code
+rule — `lint.clean` stays `true` even when `lint.warnings` is non-empty. `lint.clean: true` → print
+`Lint` and continue straight to lock acquisition.
+
 ## Start Gate
 
 Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is

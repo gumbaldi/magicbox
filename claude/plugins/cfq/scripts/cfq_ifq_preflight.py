@@ -42,6 +42,8 @@ EMPTY_SELECTION_TEMPLATE = {
 
 INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
 
+LINT_OK_RE = re.compile(r"^OK \d+ phases$")
+
 
 def inbox_count_from_overview(overview_text):
     """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
@@ -125,6 +127,31 @@ def plugin_boundaries_line(policy):
     return text.status_entry(
         "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
     )
+
+
+def lint_result(batch_dir):
+    """Runs `bin/cfq lint <batch-dir>` -- the same structural check `/pfq` already runs at Plan
+    Lint, right before handoff -- and splits its stdout into blocking findings and warn-only
+    lines. `clean` mirrors lint's own exit-code rule (a `warn:` line never affects it), so a
+    hand-edited plan file that breaks the structure is caught here instead of only surfacing later
+    when a deterministic script misparses it mid-implementation."""
+    proc = cfq_run("lint", str(batch_dir))
+    lines = [line for line in proc.stdout.splitlines() if line]
+    warnings = [line for line in lines if line.startswith("warn:")]
+    findings = [
+        line for line in lines
+        if not line.startswith("warn:") and not LINT_OK_RE.match(line)
+    ]
+    return {"clean": proc.returncode == 0, "findings": findings, "warnings": warnings}
+
+
+def lint_line(lint_json):
+    """The `Lint` status line -- `done` when clean, `fail` with every finding as a `   └ ` sub-line
+    otherwise. `lint_json['warnings']` never affects this, matching lint's own exit-code rule."""
+    if lint_json["clean"]:
+        return text.status_entry("Lint", "done", "clean")
+    n = len(lint_json["findings"])
+    return text.status_entry("Lint", "fail", f"{n} findings", sub=lint_json["findings"])
 
 
 def start_gate_result(intent, inprogress_name):
@@ -296,6 +323,7 @@ def cmd_preflight(args):
         return
 
     batch_dir = qdir / chosen
+    lint_json = lint_result(batch_dir)
     brief_text = cfq_run("brief", str(batch_dir), "--with-done").stdout.rstrip("\n")
     cand = next(b for b in candidates if b["name"] == chosen)
 
@@ -342,6 +370,7 @@ def cmd_preflight(args):
             chosen=chosen, cand=cand, resume_only=resume_only,
             orchestrator_mode=policy["orchestratorMode"],
         ),
+        lint_line(lint_json),
     ]
     if not start_gate["fire"]:
         status_lines.append(start_gate_line(start_gate, chosen))
@@ -362,6 +391,7 @@ def cmd_preflight(args):
             "dependsOn": cand["dependsOn"], "briefText": brief_text,
             "consistency": cand.get("consistency"),
         },
+        "lint": lint_json,
         "nextPhase": next_phase_json,
         "branch": branch_json,
         "resume": resume_only,

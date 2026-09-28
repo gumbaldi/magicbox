@@ -667,7 +667,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Model Gate", "Plugin Boundaries", "Batch"], msg=f"labels = {labels}"
+            labels, ["Model Gate", "Plugin Boundaries", "Batch", "Lint"], msg=f"labels = {labels}"
         )
 
         # empty_result path (NO_BATCH) still carries the first two, generically shaped, no Batch
@@ -904,6 +904,110 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             headers=["#", "Date", "Topic", "Status"],
         )[-1]
         self.assertIn(expected_row, qtext, msg=f"legacy row = {qtext!r}")
+
+    # ---- lint gate (batch 044 phase 06) --------------------------------------------------------
+
+    def _clean_phase_body(self, target):
+        return f"""# Phase A
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+    def test_lint_clean_batch_routine(self):
+        repo = self._setup_repo("lint-clean")
+        target = self._repos_dir / "lint-clean-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(self._clean_phase_body(target))
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(
+            out["lint"], {"clean": True, "findings": [], "warnings": []}, msg=f"lint = {out['lint']}"
+        )
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "done", msg=f"entry = {entry}")
+
+    def test_lint_dirty_batch_reports_findings_without_blocking_status(self):
+        repo = self._setup_repo("lint-dirty")
+        target = self._repos_dir / "lint-dirty-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(f"""# Phase A
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+x
+""")
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["status"], "OK", msg=f"lint findings must never change the preflight status: {out}"
+        )
+        self.assertFalse(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(
+            out["lint"]["findings"], ["01-a.md: sections: missing Verification heading"],
+            msg=f"lint findings = {out['lint']}",
+        )
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "fail", msg=f"entry = {entry}")
+        self.assertEqual(entry["sub"], out["lint"]["findings"], msg=f"entry = {entry}")
+
+    def test_lint_warn_only_never_reported_as_a_finding(self):
+        repo = self._setup_repo("lint-warn-only")
+        target = self._repos_dir / "lint-warn-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(self._clean_phase_body(target))
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / ".dependsOn").write_text("does-not-exist\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"unknown depends should not block: {out}")
+        self.assertTrue(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(out["lint"]["findings"], [], msg=f"lint = {out['lint']}")
+        self.assertEqual(len(out["lint"]["warnings"]), 1, msg=f"lint = {out['lint']}")
+        self.assertIn(
+            "depends: does-not-exist does not exist", out["lint"]["warnings"][0],
+            msg=f"lint = {out['lint']}",
+        )
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "done", msg=f"entry = {entry}")
+
+    def test_lint_absent_when_no_batch_resolved(self):
+        # NO_BATCH
+        empty_repo = self._setup_repo("lint-no-batch")
+        out = self.json_out(self._run_pf(str(empty_repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"out = {out}")
+        self.assertNotIn("lint", out, msg=f"NO_BATCH result should carry no lint key: {out}")
+
+        # BLOCKED
+        blocked_repo = self._setup_repo("lint-blocked")
+        qdir = blocked_repo / ".claude" / "cfq" / "impl"
+        (qdir / "2026-01-01-a").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked").mkdir(parents=True)
+        (qdir / "2026-01-02-blocked" / "01-b.md").touch()
+        (qdir / "2026-01-02-blocked" / ".dependsOn").write_text("2026-01-01-a\n")
+        out = self.json_out(self._run_pf(str(blocked_repo)))
+        self.assertEqual(out["status"], "BLOCKED", msg=f"out = {out}")
+        self.assertNotIn("lint", out, msg=f"BLOCKED result should carry no lint key: {out}")
 
 
 if __name__ == "__main__":
