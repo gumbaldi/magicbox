@@ -1215,4 +1215,8 @@
       summary: ""
 - batchNumber: 45
   batch: 045-2026-09-27-start-gate-conditional-switch
-  status: parked
+  branch: cfq/045-2026-09-27-start-gate-conditional-switch
+  base: cfq/044-2026-09-27-inbox-fixes-and-visibility
+  started: 2026-09-28
+  status: in-progress
+  legacy: false
