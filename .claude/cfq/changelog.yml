@@ -1230,5 +1230,10 @@
   branch: cfq/046-2026-09-28-phase-parser-section-boundary
   base: cfq/045-2026-09-27-start-gate-conditional-switch
   started: 2026-09-28
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-28
+  phases:
+    - phase: "01-section-boundary-in-phase-parser"
+      status: "green"
+      summary: ""
