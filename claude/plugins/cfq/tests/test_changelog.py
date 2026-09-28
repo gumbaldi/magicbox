@@ -154,6 +154,48 @@ class ChangelogTest(CfqTestCase):
             parsed, 'said: "hi" # not a comment', f"summary did not survive the round trip, got: {parsed}",
         )
 
+    def _finish_and_get_summaries(self, repo_name, batch_slug, phases):
+        """Inits+finishes a throwaway batch with the given phase records, returns the ordered list
+        of `summary:` values rendered for its phases block."""
+        repo = self._plain_repo(repo_name)
+        self.run_cfq(
+            "changelog", "init", str(repo), f"v0.1-{repo_name}", "main", batch_slug, check=True,
+        )
+        batch = self._repos_dir / batch_slug
+        self._write_report(batch, {"phases": phases})
+        self.run_cfq("changelog", "finish", str(repo), f"v0.1-{repo_name}", str(batch), check=True)
+        text = (repo / ".claude/cfq/changelog.yml").read_text()
+        return [
+            json.loads(line[len("      summary: "):]) for line in text.splitlines()
+            if line.startswith("      summary: ")
+        ]
+
+    def test_summary_falls_back_to_implemented(self):
+        summaries = self._finish_and_get_summaries(
+            "implemented-only-repo", "2026-01-06-implemented-only",
+            [{"phase": "01-only-step", "status": "green", "implemented": "Added X"}],
+        )
+        self.assertEqual(summaries, ["Added X"], "implemented-only phase did not fall back correctly")
+
+    def test_implemented_wins_over_summary(self):
+        summaries = self._finish_and_get_summaries(
+            "implemented-and-summary-repo", "2026-01-07-implemented-and-summary",
+            [{
+                "phase": "01-only-step", "status": "green",
+                "implemented": "Added X", "summary": "Reworked Y",
+            }],
+        )
+        self.assertEqual(
+            summaries, ["Added X"], "implemented did not win over summary when both are present",
+        )
+
+    def test_summary_empty_when_neither_field_present(self):
+        summaries = self._finish_and_get_summaries(
+            "neither-field-repo", "2026-01-08-neither-field",
+            [{"phase": "01-only-step", "status": "green"}],
+        )
+        self.assertEqual(summaries, [""], "phase with neither field did not render an empty summary")
+
     def test_numbered_reserve_init_finish_lifecycle(self):
         numbered_repo = self._plain_repo("numbered-repo")
         target = self._target(numbered_repo)

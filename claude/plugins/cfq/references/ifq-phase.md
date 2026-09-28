@@ -12,10 +12,15 @@ one documented `--classic-fallback` override.
 
 ```
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <first two non-empty lines of ## Context>
+  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+           <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Check    <first command line from ## Verification>
 ```
+
+A `## Context` that wraps past 4 lines ends the block in `…` rather than being cut mid-word; a
+short one stays a single `Goal` line, and no `## Context` at all omits the `Goal` line entirely
+rather than printing it empty.
 
 Implementation starts right after — there is no per-phase go-ahead beyond this announcement. What
 still stops a session: the Size Gate's `HANDOFF` verdict (before this step runs), `stopUsed` after
@@ -31,7 +36,8 @@ language — e.g.:
 normally if you start it.
 
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <first two non-empty lines of ## Context>
+  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+           <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Check    <first command line from ## Verification>
 ```
@@ -41,7 +47,7 @@ description naming the budget state so the user sees what they are accepting —
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
 reusing the Context Check's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
 implement-for-queue` short report). **Cancel** — "release the lock and end the session, nothing
-touched", runs `bin/cfq lock release "<repo-root>"`, reports "cancelled before implementation,
+touched", runs `bin/cfq lock release "<repo-root>" --batch "<batch>"`, reports "cancelled before implementation,
 nothing touched", and ends; it never leaves the lock held. No option may be phrased as futile —
 every option offered here must actually do what it says. This same warning line is reused verbatim
 at the Batch Briefing step, above the batch briefing — one wording, two call sites, never two

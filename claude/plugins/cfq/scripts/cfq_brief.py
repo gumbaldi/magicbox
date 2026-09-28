@@ -3,8 +3,10 @@
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
 with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
-block (header, phase count/done/red line, wrapped goal paragraph, phase table) shared by `ifq`'s
-start gate and `pfq`'s final report. Batch mode (default and --with-done) prints an optional
+block (header, phase count/done/red line, wrapped goal paragraph, an optional `.batch-context.md`
+`## Decisions` excerpt, the phase table interleaved with each phase's own `## Context` excerpt, and
+a closing `Plans` line naming the batch directory) shared by `ifq`'s start gate and `pfq`'s final
+report. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -34,12 +36,22 @@ PROG = "cfq_brief.py"
 TITLE_PREFIX_RE = re.compile(r"^# +")
 
 
-def parse_phase_body(text):
+def parse_phase_body(text, fallback_title=None):
     """Mirrors the shell version's `brief_awk`: pulls the first `# ` heading (title), the token
     on the first non-empty line after `## Size`, the first two non-empty lines after `##
     Context` (raw, untruncated), the last path segment of each `- \\`...\\`` bullet under `##
     Affected Files`, and the first non-empty line inside the first fenced code block under `##
-    Verification`."""
+    Verification`. Both the `## Size` token capture and the `## Context` capture (up to two
+    non-empty lines) stop at the next `## ` heading, whichever comes first -- a `## Size` with no
+    token before the next heading leaves `size` as `None` (callers already render that as `M`),
+    and a `## Context` with fewer than two non-empty lines before the next heading leaves
+    `context` covering only what it actually captured.
+
+    A hand-edited phase file that lost its `# ` heading (or never had one) returns `title:
+    fallback_title` instead of `title: None` -- callers pass the phase file's own stem (`NN-slug`)
+    so a missing title degrades to something legible rather than crashing a downstream renderer.
+    `title` stays `None` only when both the heading and `fallback_title` are missing, for the rare
+    caller that doesn't pass one."""
     title = None
     size = None
     g = False
@@ -57,6 +69,9 @@ def parse_phase_body(text):
         if title is None and line.startswith("# "):
             title = TITLE_PREFIX_RE.sub("", line, count=1)
             continue
+        if line.startswith("## "):
+            g = False
+            k = False
         if line.startswith("## Size"):
             g = True
             continue
@@ -94,12 +109,15 @@ def parse_phase_body(text):
             check = line
 
     context = "".join(f"{line} " for line in context_lines)
-    return {"title": title, "size": size, "context": context, "files": files, "check": check}
+    return {"title": title or fallback_title, "size": size, "context": context, "files": files, "check": check}
 
 
 def render_phase(num, fields):
-    goal = fields["context"][:220].rstrip(" ")
-    lines = [f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}", f"  Goal     {goal}"]
+    lines = [f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"]
+    goal_lines = cfq_text.wrap(fields["context"], width=68, max_lines=4)
+    for i, line in enumerate(goal_lines):
+        prefix = "  Goal     " if i == 0 else " " * 11
+        lines.append(f"{prefix}{line}")
     if fields["files"]:
         lines.append(f"  Files    {', '.join(fields['files'])}")
     if fields["check"]:
@@ -151,33 +169,36 @@ def _overview_header(d):
 
 
 def _overview_rows(d):
-    """Table rows plus the done/red counts feeding the count line. Done phases (under `done/`)
-    sort first, ascending by number, then open ones, also ascending -- `sorted(glob(...))` already
-    gives ascending numeric order for `NN-*` names. A done phase is always `done` regardless of
-    what the ledger says about it; an open phase is `red` only when its own last ledger attempt is
-    red, `open` otherwise."""
+    """Table rows, each phase's own `## Context` excerpt (parallel list, same order), plus the
+    done/red counts feeding the count line. Done phases (under `done/`) sort first, ascending by
+    number, then open ones, also ascending -- `sorted(glob(...))` already gives ascending numeric
+    order for `NN-*` names. A done phase is always `done` regardless of what the ledger says about
+    it; an open phase is `red` only when its own last ledger attempt is red, `open` otherwise."""
     ledger = _ledger_status_by_phase(d)
     done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
     open_files = sorted(d.glob("[0-9][0-9]-*.md"))
 
     rows = []
+    contexts = []
     for f in done_files:
-        fields = parse_phase_body(f.read_text())
+        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
+        contexts.append(fields["context"])
 
     red_count = 0
     for f in open_files:
-        fields = parse_phase_body(f.read_text())
+        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         status = "red" if ledger.get(f.stem) == "red" else "open"
         if status == "red":
             red_count += 1
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", status])
+        contexts.append(fields["context"])
 
-    return rows, len(done_files), len(open_files), red_count
+    return rows, contexts, len(done_files), len(open_files), red_count
 
 
 def render_overview(d):
-    rows, done_n, open_n, red_n = _overview_rows(d)
+    rows, contexts, done_n, open_n, red_n = _overview_rows(d)
     planned = done_n + open_n
 
     count_line = f"{planned} phases planned · {done_n} done"
@@ -192,9 +213,23 @@ def render_overview(d):
         lines.extend(cfq_text.wrap(goal, width=68, indent="  ", max_lines=6))
         lines.append("")
 
-    lines.extend(cfq_text.table(
+    decisions = cfq_queue.read_section_full(d, "Decisions", sep=" · ")
+    if decisions is not None:
+        lines.append("  Decisions")
+        lines.extend(cfq_text.wrap(decisions, width=68, indent="    ", max_lines=8))
+
+    table_lines = cfq_text.table(
         rows, headers=["#", "Phase", "Size", "Status"], aligns=["l", "l", "l", "l"],
-    ))
+    )
+    if table_lines:
+        lines.append(table_lines[0])
+        for line, excerpt in zip(table_lines[1:], contexts):
+            lines.append(line)
+            lines.extend(cfq_text.wrap(excerpt, width=66, indent="      ", max_lines=2))
+
+    lines.append("")
+    lines.append(f"  Plans    {d.resolve()}")
+
     return "\n".join(lines)
 
 
@@ -250,7 +285,7 @@ def cmd_brief(args):
             print(f"{PROG}: no phase {args.phase} in {d}", file=sys.stderr)
             sys.exit(1)
         f = matches[0]
-        print(render_phase(phase_num(f), parse_phase_body(f.read_text())))
+        print(render_phase(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
         return
 
     if args.overview:
@@ -279,10 +314,10 @@ def cmd_brief(args):
 
     if args.with_done:
         for f in sorted((d / "done").glob("[0-9][0-9]-*.md")):
-            print(f"✔ {render_brief(phase_num(f), parse_phase_body(f.read_text()))}")
+            print(f"✔ {render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem))}")
 
     for f in files:
-        print(render_brief(phase_num(f), parse_phase_body(f.read_text())))
+        print(render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
 
 
 def build_parser():

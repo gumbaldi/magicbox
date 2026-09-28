@@ -272,7 +272,10 @@ def cmd_finish(args):
             "statusLines": [line for line in status_lines if line is not None],
         }))
     finally:
-        subprocess.run(cfq_argv("lock", "release", str(repo_root)), capture_output=True, text=True)
+        subprocess.run(
+            cfq_argv("lock", "release", str(repo_root), "--batch", batch_dir.name),
+            capture_output=True, text=True,
+        )
 
 
 def build_parser():

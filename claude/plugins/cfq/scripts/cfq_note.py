@@ -4,7 +4,7 @@
 #        cfq_note.py close <repo-root> <entry>... --reason <text>
 #        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
-#        cfq_note.py list <repo-root> [--text | --overview]
+#        cfq_note.py list <repo-root> [--text | --overview | --detail]
 #        cfq_note.py sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S]
 #                           [--close <filename>]...
 """Writes a `plan/` or `todo/` queue entry: `<repo>/.claude/cfq/{plan,todo}/<today>-<slug>.md`.
@@ -49,11 +49,16 @@ before normalisation) differ.
 `plan/*.md` (non-recursive, so `plan/done/` is never listed), sorted by filename ascending, which
 is already oldest-first given the `<YYYY-MM-DD>-<slug>.md` naming. `--from-plan` on `cfq park` is
 the inbox's other half: it consumes the entry `list` showed. `--overview` (mutually exclusive with
-`--text`) is the one-line-per-topic block `pfq`/`ifq` print verbatim at session start: date + title
-only, no excerpt. In `frameworkRepo` it additionally lists the global framework inbox's still-unimported
-entries, tagged `framework` and counted separately in the header -- elsewhere those entries are
-never written into `plan/` in the first place, so there is nothing extra to show. Read-only either
-way: it never imports and never moves anything.
+`--text`/`--detail`) is the one-line-per-topic block `pfq`/`ifq` print verbatim at session start:
+date + title only, no excerpt. In `frameworkRepo` it additionally lists the global framework
+inbox's still-unimported entries, tagged `framework` and counted separately in the header --
+elsewhere those entries are never written into `plan/` in the first place, so there is nothing
+extra to show. `--detail` (also mutually exclusive with `--text`/`--overview`) is the richer,
+per-entry block `pfq` prints when the session's topic draws on inbox entries: same header line as
+`--overview`, then per entry the date/title line, the entry's absolute path, and the first
+paragraph of its body (wrapped, capped) -- so the user sees what each entry is actually about, not
+just its title. Unlike `--overview`, it never folds the framework inbox in -- `pfq` only ever shows
+this for the repo's own inbox. Read-only either way: it never imports and never moves anything.
 
 `sweep <repo-root>` runs every `todo/*.md` card's `check:` line (first match wins; further
 `check:` lines are counted into `extraChecks` and never executed) and classifies each card
@@ -401,6 +406,10 @@ def cmd_list(args):
         _print_overview(args, entries)
         return
 
+    if args.detail:
+        _print_detail(args, entries)
+        return
+
     if not args.text:
         print(render.dump_json(entries))
         return
@@ -441,6 +450,45 @@ def _print_overview(args, entries):
     rows += [[e["date"], e["title"], "framework"] for e in framework_entries]
     for line in cfq_lib_text.table(rows):
         print(line)
+
+
+def _first_paragraph(body_text):
+    """Excerpt rule for `--detail`: drop every line starting with `#` (the title and any `##`
+    subheading), then take the first run of non-empty lines that remains -- the first paragraph,
+    whether it follows a `## Finding` heading or is just the plain text after the title. Returns
+    `""` for a title-only/empty body, never raises."""
+    non_heading = [line for line in body_text.splitlines() if not line.strip().startswith("#")]
+    para = []
+    for line in non_heading:
+        stripped = line.strip()
+        if stripped:
+            para.append(stripped)
+        elif para:
+            break
+    return " ".join(para)
+
+
+def _print_detail(args, entries):
+    """The richer, per-entry block `pfq` prints when the session's topic draws on inbox entries --
+    same header line `_print_overview` uses, then per entry: the date/title line, the entry's
+    absolute path, and the first paragraph of its body (`_first_paragraph`), wrapped at width 68
+    with a 4-space indent and capped at 4 lines (`cfq_lib_text.wrap`'s `max_lines`, same helper
+    `cfq_brief.render_overview` uses for the goal). A blank line separates entries. Unlike
+    `_print_overview`, the framework inbox is never folded in here -- `pfq` only ever shows this
+    for the repo's own inbox. Read-only, like `_print_overview`."""
+    if not entries:
+        print("INBOX  empty")
+        return
+
+    print(f"INBOX  {len(entries)} entries")
+    for i, entry in enumerate(entries):
+        if i > 0:
+            print()
+        print(f"  {entry['date']}  {entry['title']}")
+        print(f"    {entry['path']}")
+        excerpt = _first_paragraph(pathlib.Path(entry["path"]).read_text())
+        for line in cfq_lib_text.wrap(excerpt, width=68, indent="    ", max_lines=4):
+            print(line)
 
 
 CHECK_RE = re.compile(r"^check:\s*(.+)$")
@@ -627,6 +675,7 @@ def build_parser():
     list_group = list_p.add_mutually_exclusive_group()
     list_group.add_argument("--text", action="store_true")
     list_group.add_argument("--overview", action="store_true")
+    list_group.add_argument("--detail", action="store_true")
     list_p.set_defaults(func=cmd_list)
 
     sweep_p = sub.add_parser("sweep")
@@ -650,7 +699,7 @@ def main(argv):
             f"usage: {PROG} plan|todo <repo-root> <slug> <body-file|-> [--framework] | "
             f"close <repo-root> <entry>... --reason <text> | "
             f"merge-todo <repo-root> <branch> | import <repo-root> | "
-            f"list <repo-root> [--text | --overview] | "
+            f"list <repo-root> [--text | --overview | --detail] | "
             f"sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S] "
             f"[--close <filename>]..."
         )

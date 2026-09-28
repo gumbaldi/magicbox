@@ -1,8 +1,9 @@
 # Plan Inbox: Choosing an Entry
 
 Only read when `/pfq` was invoked without arguments and **Inbox** finds at least one entry in
-`<repo-root>/.claude/cfq/plan/`. The list itself was already printed verbatim by **Inbox**
-(`inbox.overview`) — nothing to render again here.
+`<repo-root>/.claude/cfq/plan/`. The compact list itself was already printed verbatim by **Inbox**
+(`inbox.overview`) — before the choice question below, print `inbox.detail` verbatim too, so the
+user sees what each entry is actually about, not just its title.
 
 Ask one `AskUserQuestion`, "There are N planning requests waiting in the queue. How do you want to
 proceed?" (N = `inbox.count`):

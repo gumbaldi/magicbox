@@ -25,10 +25,11 @@ class LockTest(CfqTestCase):
             "lock", "acquire", str(self.repo), batch, env={"CLAUDE_CODE_SESSION_ID": session}
         )
 
-    def release(self, session):
-        return self.run_cfq(
-            "lock", "release", str(self.repo), env={"CLAUDE_CODE_SESSION_ID": session}
-        )
+    def release(self, session, batch=None):
+        argv = ["lock", "release", str(self.repo)]
+        if batch is not None:
+            argv += ["--batch", batch]
+        return self.run_cfq(*argv, env={"CLAUDE_CODE_SESSION_ID": session})
 
     def status(self):
         return self.run_cfq("lock", "status", str(self.repo))
@@ -115,6 +116,39 @@ class LockTest(CfqTestCase):
         proc = self.release("sidE")
         self.assertEqual(proc.stdout.strip(), "FREE", msg="holder release = " + proc.stdout)
         self.assertFalse(self.lock.is_file(), msg="lock file still present after release")
+
+    def test_07a_batch_match_releases_despite_session_change(self):
+        self.acquire("sidA", "b1")
+        proc = self.release("sidB", batch="b1")
+        self.assertEqual(proc.stdout.strip(), "FREE", msg="batch-matched release = " + proc.stdout)
+        self.assertFalse(self.lock.is_file(), msg="lock file still present after batch-matched release")
+        self.assertIn("sidA", proc.stderr, msg="stderr should name the earlier holder = " + proc.stderr)
+
+    def test_07b_batch_mismatch_still_refused(self):
+        self.acquire("sidA", "b1")
+        proc = self.release("sidB", batch="b2")
+        self.assertNotEqual(
+            proc.returncode, 0, msg="batch-mismatched release should fail, got: " + proc.stderr
+        )
+        self.assertTrue(self.lock.is_file(), msg="lock removed by a batch-mismatched release")
+        self.assertIn("sidA", proc.stderr, msg="stderr should name the holder = " + proc.stderr)
+        self.assertIn("b1", proc.stderr, msg="stderr should name the lock's own batch = " + proc.stderr)
+        self.assertIn("b2", proc.stderr, msg="stderr should name the requested batch = " + proc.stderr)
+
+    def test_07c_no_batch_flag_still_refused_as_before(self):
+        self.acquire("sidA", "b1")
+        proc = self.release("sidB")
+        self.assertNotEqual(proc.returncode, 0, msg="foreign release without --batch should fail")
+        self.assertTrue(self.lock.is_file(), msg="lock removed by a foreign release without --batch")
+        self.release("sidA")
+
+    def test_07d_holder_release_with_other_batch_still_frees(self):
+        self.acquire("sidA", "b1")
+        proc = self.release("sidA", batch="b2")
+        self.assertEqual(
+            proc.stdout.strip(), "FREE", msg="holder release with unrelated --batch = " + proc.stdout
+        )
+        self.assertFalse(self.lock.is_file(), msg="lock file still present after holder release")
 
     def test_08_status_free_alive_dead(self):
         proc = self.status()

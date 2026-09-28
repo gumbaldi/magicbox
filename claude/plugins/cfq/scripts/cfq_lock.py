@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_lock.py acquire <repo-root> <batch>
-#        cfq_lock.py release <repo-root>
+#        cfq_lock.py release <repo-root> [--batch <batch>]
 #        cfq_lock.py status <repo-root>
 """One lock per repo: only one implement-for-queue session may work a repo at a time. Liveness
 comes from the holder's transcript mtime, not from a fixed expiry.
@@ -99,7 +99,16 @@ def cmd_release(args):
     holder = data.get("session_id", "")
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown")
     if holder != sid:
-        errors.die(f"{PROG}: lock held by {holder}, not releasing")
+        if args.batch and data.get("batch") == args.batch:
+            print(
+                f"{PROG}: releasing lock for batch {args.batch} held by earlier session {holder}",
+                file=sys.stderr,
+            )
+            os.remove(f)
+            print("FREE")
+            return
+        suffix = f" (lock batch {data.get('batch')}, given {args.batch})" if args.batch else ""
+        errors.die(f"{PROG}: lock held by {holder}, not releasing{suffix}")
     os.remove(f)
     print("FREE")
 
@@ -128,6 +137,7 @@ def build_parser():
 
     p = sub.add_parser("release")
     p.add_argument("repo")
+    p.add_argument("--batch", default=None)
     p.set_defaults(func=cmd_release)
 
     p = sub.add_parser("status")
@@ -142,7 +152,10 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        errors.die(f"usage: {PROG} acquire <repo-root> <batch> | release <repo-root> | status <repo-root>")
+        errors.die(
+            f"usage: {PROG} acquire <repo-root> <batch> | "
+            f"release <repo-root> [--batch <batch>] | status <repo-root>"
+        )
     func(args)
 
 

@@ -33,25 +33,40 @@ def read_priority(batch_dir):
     return "high" if f.read_text().strip() == "high" else ""
 
 
-def read_goal_full(batch_dir):
-    """The batch's whole `## Goal` section body from `.batch-context.md`, its non-empty lines
-    joined by single spaces -- unwrapped and untruncated, unlike `read_goal` below. None if the
-    file is absent, has no `## Goal` heading, or the section is empty."""
+def read_section_full(batch_dir, heading, sep=" "):
+    """The batch's whole `## <heading>` section body from `.batch-context.md`, its non-empty
+    lines (a leading `- ` bullet marker stripped, if present) joined by `sep` -- unwrapped and
+    untruncated. None if the file is absent, has no matching heading, or the section is empty.
+    `read_goal_full` below is a thin `sep=" "` call over this; a `## Decisions` caller instead
+    passes `sep=" · "` so the wrapped output keeps each bullet visibly separated rather than
+    running every dash-stripped line together into one sentence."""
     f = batch_dir / ".batch-context.md"
     if not f.is_file():
         return None
     lines = []
-    in_goal = False
+    in_section = False
+    marker = f"## {heading}"
     for line in f.read_text().splitlines():
-        if line.strip() == "## Goal":
-            in_goal = True
+        if line.strip() == marker:
+            in_section = True
             continue
-        if in_goal and line.startswith("## "):
+        if in_section and line.startswith("## "):
             break
-        if in_goal and line.strip():
-            lines.append(line.strip())
-    goal = " ".join(lines)
-    return goal if goal else None
+        if in_section and line.strip():
+            text = line.strip()
+            if text.startswith("- "):
+                text = text[2:]
+            lines.append(text)
+    body = sep.join(lines)
+    return body if body else None
+
+
+def read_goal_full(batch_dir):
+    """The batch's whole `## Goal` section body from `.batch-context.md`, its non-empty lines
+    joined by single spaces -- unwrapped and untruncated, unlike `read_goal` below. None if the
+    file is absent, has no `## Goal` heading, or the section is empty. Thin call over
+    `read_section_full`, its generalisation to an arbitrary heading."""
+    return read_section_full(batch_dir, "Goal")
 
 
 def read_goal(batch_dir, max_len):
