@@ -214,7 +214,8 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
 
         out = self.json_out(self._run_pf(str(reg)))
         self.assertEqual(
-            out["inbox"], {"count": 0, "imported": 0, "overview": "INBOX  empty"},
+            out["inbox"],
+            {"count": 0, "imported": 0, "overview": "INBOX  empty", "detail": "INBOX  empty"},
             msg=f"inbox = {out['inbox']}",
         )
         line = next(e for e in out["statusLines"] if e["label"] == "Inbox")
@@ -266,6 +267,37 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         out = self.json_out(self._run_pf(str(self._repos_dir / "does-not-exist")))
         self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
         self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
+
+    # ---- inbox.detail (batch 044 phase 07) -----------------------------------------------------
+
+    def test_inbox_detail_matches_real_note_list_call(self):
+        reg = self._repos_dir / "inbox-detail-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+        plan_dir = reg / ".claude" / "cfq" / "plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "2026-01-01-first.md").write_text("# First\n\n## Finding\n\nDo it.\n")
+        (plan_dir / "2026-01-02-second.md").write_text("# Second\n\n## Finding\n\nDo it too.\n")
+
+        out = self.json_out(self._run_pf(str(reg)))
+        direct = self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_note.py"), "list", str(reg), "--detail",
+            env={"HOME": str(self.home)},
+        ).stdout.rstrip("\n")
+        self.assertEqual(
+            out["inbox"]["detail"], direct,
+            msg=f"inbox.detail = {out['inbox']['detail']!r}, direct call = {direct!r}",
+        )
+        # inbox.count/.overview stay unchanged by this addition
+        self.assertEqual(out["inbox"]["count"], 2, msg=f"inbox = {out['inbox']}")
+
+    def test_inbox_detail_empty_plan_dir(self):
+        reg = self._repos_dir / "inbox-detail-empty"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["inbox"]["detail"], "INBOX  empty", msg=f"inbox = {out['inbox']}")
 
     # ---- setup.globalDone (batch 041 phase 03) ------------------------------------------------
 

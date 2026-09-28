@@ -166,7 +166,9 @@ still on the old layout needs an older plugin version to run the migration first
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
   the phase it was working; `pfq` offers those as topics at the start of its next session. Both
   `/pfq` and `/ifq` print the inbox overview (`note list --overview` — date and title, one line
-  per entry) at the start of every session, not only when `/pfq` opens the inbox question; `/ifq`
+  per entry) at the start of every session, not only when `/pfq` opens the inbox question; `/pfq`
+  additionally shows each entry's first paragraph (`note list --detail`) whenever it is about to
+  plan from the inbox, so the user sees what an entry is actually about, not just its title. `/ifq`
   only ever reads it, never imports. A finding about cfq itself, rather than about the repo under
   work, is written with `note plan --framework` instead: it lands in the global framework inbox
   (`~/.claude/cfq/framework-inbox/`), outside every repo, and only `note import`, run by
