@@ -41,7 +41,11 @@ def parse_phase_body(text, fallback_title=None):
     on the first non-empty line after `## Size`, the first two non-empty lines after `##
     Context` (raw, untruncated), the last path segment of each `- \\`...\\`` bullet under `##
     Affected Files`, and the first non-empty line inside the first fenced code block under `##
-    Verification`.
+    Verification`. Both the `## Size` token capture and the `## Context` capture (up to two
+    non-empty lines) stop at the next `## ` heading, whichever comes first -- a `## Size` with no
+    token before the next heading leaves `size` as `None` (callers already render that as `M`),
+    and a `## Context` with fewer than two non-empty lines before the next heading leaves
+    `context` covering only what it actually captured.
 
     A hand-edited phase file that lost its `# ` heading (or never had one) returns `title:
     fallback_title` instead of `title: None` -- callers pass the phase file's own stem (`NN-slug`)
@@ -65,6 +69,9 @@ def parse_phase_body(text, fallback_title=None):
         if title is None and line.startswith("# "):
             title = TITLE_PREFIX_RE.sub("", line, count=1)
             continue
+        if line.startswith("## "):
+            g = False
+            k = False
         if line.startswith("## Size"):
             g = True
             continue

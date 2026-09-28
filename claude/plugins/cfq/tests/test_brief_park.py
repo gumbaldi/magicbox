@@ -11,6 +11,8 @@ import unittest
 
 from cfq_testlib import CfqTestCase
 
+from cfq_brief import parse_phase_body  # noqa: E402
+
 
 class BriefTest(CfqTestCase):
     def setUp(self):
@@ -928,6 +930,100 @@ class ParkFromPlanTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, f"retried park must be a no-op, not an error: {proc.stderr}")
         self.assertEqual((done / self.entry.name).read_text(), first_before, "first entry must stay unchanged")
         self.assertEqual((done / second.name).read_text(), second_before, "second entry must stay unchanged")
+
+
+class ParsePhaseBodySectionBoundaryTest(unittest.TestCase):
+    def test_routine_context_stays_unchanged(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Context
+
+            Line one.
+            Line two.
+
+            ## Affected Files
+
+            - `/tmp/example/foo.sh`
+            """)
+        fields = parse_phase_body(body)
+        self.assertEqual(fields["context"], "Line one. Line two. ")
+        self.assertEqual(fields["files"], ["foo.sh"])
+
+    def test_one_line_context_does_not_swallow_next_heading(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Context
+
+            Only line.
+
+            ## Affected Files
+
+            - `/tmp/example/foo.sh`
+            """)
+        fields = parse_phase_body(body)
+        self.assertEqual(fields["context"], "Only line. ")
+        self.assertNotIn("## Affected Files", fields["context"])
+        self.assertEqual(fields["files"], ["foo.sh"])
+
+    def test_one_line_context_heading_on_very_next_line(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Context
+            Only line.
+            ## Affected Files
+            - `/tmp/example/foo.sh`
+            """)
+        fields = parse_phase_body(body)
+        self.assertEqual(fields["context"], "Only line. ")
+        self.assertNotIn("## Affected Files", fields["context"])
+        self.assertEqual(fields["files"], ["foo.sh"])
+
+    def test_empty_context(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Context
+            ## Affected Files
+            - `/tmp/example/foo.sh`
+            """)
+        fields = parse_phase_body(body)
+        self.assertEqual(fields["context"], "")
+        self.assertEqual(fields["files"], ["foo.sh"])
+
+    def test_empty_size(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Size
+
+            ## Context
+
+            Ctx line.
+            """)
+        fields = parse_phase_body(body)
+        self.assertIsNone(fields["size"])
+        self.assertEqual(fields["context"], "Ctx line. ")
+
+    def test_size_then_verification_still_parses(self):
+        body = textwrap.dedent("""\
+            # Some phase
+
+            ## Size
+
+            S
+
+            ## Verification
+
+            ```bash
+            echo ok
+            ```
+            """)
+        fields = parse_phase_body(body)
+        self.assertEqual(fields["size"], "S")
+        self.assertEqual(fields["check"], "echo ok")
 
 
 if __name__ == "__main__":
