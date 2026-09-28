@@ -1225,3 +1225,10 @@
     - phase: "01-start-gate-conditional-switch"
       status: "green"
       summary: ""
+- batchNumber: 46
+  batch: 046-2026-09-28-phase-parser-section-boundary
+  branch: cfq/046-2026-09-28-phase-parser-section-boundary
+  base: cfq/045-2026-09-27-start-gate-conditional-switch
+  started: 2026-09-28
+  status: in-progress
+  legacy: false
