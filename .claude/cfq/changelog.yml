@@ -1237,3 +1237,10 @@
     - phase: "01-section-boundary-in-phase-parser"
       status: "green"
       summary: ""
+- batchNumber: 47
+  batch: 047-2026-09-28-branch-base-routing-dead-report-code
+  branch: cfq/047-2026-09-28-branch-base-routing-dead-report-code
+  base: main
+  started: 2026-09-28
+  status: in-progress
+  legacy: false
