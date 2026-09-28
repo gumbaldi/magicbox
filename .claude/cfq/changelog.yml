@@ -1242,5 +1242,16 @@
   branch: cfq/047-2026-09-28-branch-base-routing-dead-report-code
   base: main
   started: 2026-09-28
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-09-28
+  phases:
+    - phase: "01-branch-base-ignores-dependson"
+      status: "green"
+      summary: "bin/cfq branch plan (new mode) now always bases a new batch branch on the chain decision (_chain_base()); .dependsOn only flags an unmerged dependency branch missing from that base as an uncontained entry with dependency: true, and never picks the base itself."
+    - phase: "02-framework-findings-never-sendfeedback"
+      status: "green"
+      summary: "Stated the rule that a cfq-framework finding is parked via `note plan --framework`, never sent through `SendFeedback`, explicitly in queue-entries.md's Plan Entry section and in the opening paragraph of both worker SKILL.md files, plus a new design-notes.md rationale section and a plugin.json patch bump"
+    - phase: "03-delete-dead-report-html-renderer"
+      status: "green"
+      summary: "Deleted the unreachable per-batch HTML renderer chain from cfq_report.py (render_report_html and its whole call tree: extract_goal(s), overview_html/OVERVIEW_SECTIONS, phase_table_html, section_list(_code), _finding_html/security_html, skills_str/_tele_pair/telemetry_html, phase_html, REPORT_STYLE_CSS), pruned every helper that became unreferenced as a result (phase_row, phase_topic, fmt_datetime, truncate_words, their two now-solely-supporting regexes, and the _SEVERITY_ORDER constant), removed the tests and imports that only served that chain, rewired the still-live Markdown-subset tests to cfq_lib.markdown directly, fixed cfq_brief.py's stale brief_awk docstring, and updated CLAUDE.md's cfq_portal.py paragraph accordingly."
