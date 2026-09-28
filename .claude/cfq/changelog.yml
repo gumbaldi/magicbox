@@ -1184,3 +1184,6 @@
   started: 2026-09-27
   status: in-progress
   legacy: false
+- batchNumber: 45
+  batch: 045-2026-09-27-start-gate-conditional-switch
+  status: parked
