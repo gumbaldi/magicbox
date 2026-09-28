@@ -3,8 +3,10 @@
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
 with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
-block (header, phase count/done/red line, wrapped goal paragraph, phase table) shared by `ifq`'s
-start gate and `pfq`'s final report. Batch mode (default and --with-done) prints an optional
+block (header, phase count/done/red line, wrapped goal paragraph, an optional `.batch-context.md`
+`## Decisions` excerpt, the phase table interleaved with each phase's own `## Context` excerpt, and
+a closing `Plans` line naming the batch directory) shared by `ifq`'s start gate and `pfq`'s final
+report. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -157,19 +159,21 @@ def _overview_header(d):
 
 
 def _overview_rows(d):
-    """Table rows plus the done/red counts feeding the count line. Done phases (under `done/`)
-    sort first, ascending by number, then open ones, also ascending -- `sorted(glob(...))` already
-    gives ascending numeric order for `NN-*` names. A done phase is always `done` regardless of
-    what the ledger says about it; an open phase is `red` only when its own last ledger attempt is
-    red, `open` otherwise."""
+    """Table rows, each phase's own `## Context` excerpt (parallel list, same order), plus the
+    done/red counts feeding the count line. Done phases (under `done/`) sort first, ascending by
+    number, then open ones, also ascending -- `sorted(glob(...))` already gives ascending numeric
+    order for `NN-*` names. A done phase is always `done` regardless of what the ledger says about
+    it; an open phase is `red` only when its own last ledger attempt is red, `open` otherwise."""
     ledger = _ledger_status_by_phase(d)
     done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
     open_files = sorted(d.glob("[0-9][0-9]-*.md"))
 
     rows = []
+    contexts = []
     for f in done_files:
         fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
+        contexts.append(fields["context"])
 
     red_count = 0
     for f in open_files:
@@ -178,12 +182,13 @@ def _overview_rows(d):
         if status == "red":
             red_count += 1
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", status])
+        contexts.append(fields["context"])
 
-    return rows, len(done_files), len(open_files), red_count
+    return rows, contexts, len(done_files), len(open_files), red_count
 
 
 def render_overview(d):
-    rows, done_n, open_n, red_n = _overview_rows(d)
+    rows, contexts, done_n, open_n, red_n = _overview_rows(d)
     planned = done_n + open_n
 
     count_line = f"{planned} phases planned · {done_n} done"
@@ -198,9 +203,23 @@ def render_overview(d):
         lines.extend(cfq_text.wrap(goal, width=68, indent="  ", max_lines=6))
         lines.append("")
 
-    lines.extend(cfq_text.table(
+    decisions = cfq_queue.read_section_full(d, "Decisions", sep=" · ")
+    if decisions is not None:
+        lines.append("  Decisions")
+        lines.extend(cfq_text.wrap(decisions, width=68, indent="    ", max_lines=8))
+
+    table_lines = cfq_text.table(
         rows, headers=["#", "Phase", "Size", "Status"], aligns=["l", "l", "l", "l"],
-    ))
+    )
+    if table_lines:
+        lines.append(table_lines[0])
+        for line, excerpt in zip(table_lines[1:], contexts):
+            lines.append(line)
+            lines.extend(cfq_text.wrap(excerpt, width=66, indent="      ", max_lines=2))
+
+    lines.append("")
+    lines.append(f"  Plans    {d.resolve()}")
+
     return "\n".join(lines)
 
 

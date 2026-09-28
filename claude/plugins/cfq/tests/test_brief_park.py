@@ -398,6 +398,8 @@ class BriefOverviewTest(CfqTestCase):
             "  01  First phase   S     done",
             "  02  Second phase  M     red",
             "  03  Third phase   L     open",
+            "",
+            f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"mixed overview block wrong: {out}")
 
@@ -414,6 +416,8 @@ class BriefOverviewTest(CfqTestCase):
             "  #   Phase        Size  Status",
             "  01  Alpha phase  M     open",
             "  02  Beta phase   S     open",
+            "",
+            f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(
             out, expected,
@@ -455,8 +459,12 @@ class BriefOverviewTest(CfqTestCase):
             "  word38 word39 word40 word41 word42 word43 word44 word45 word46",
             "  word47 word48 word49 word50 word51 word52 word53 word54 word55…",
             "",
+            "  Decisions",
+            "    irrelevant",
             "  #   Phase    Size  Status",
             "  01  X phase  M     open",
+            "",
+            f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"long-goal overview block wrong: {out}")
         self.assertNotIn(
@@ -474,6 +482,8 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  01  Y phase  M     open",
+            "",
+            f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"legacy unnumbered overview block wrong: {out}")
         self.assertNotIn("None", out, f"legacy header must never print 'None': {out}")
@@ -495,6 +505,8 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  04  X phase  M     open",
+            "",
+            f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(
             out, expected,
@@ -508,6 +520,145 @@ class BriefOverviewTest(CfqTestCase):
 
         proc = self.run_cfq("brief", str(batch), "--overview", "--with-done")
         self.assertNotEqual(proc.returncode, 0, "--overview and --with-done together should exit non-zero")
+
+
+class BriefOverviewDecisionsAndPathTest(CfqTestCase):
+    """`--overview`'s three additions: `.batch-context.md`'s `## Decisions`, each phase's own `##
+    Context` excerpt under its table row, and a closing `Plans` line naming the batch directory --
+    see .claude/cfq/impl/044-.../08-overview-with-decisions-summaries-path.md."""
+
+    def _phase(self, batch, filename, title, size=None, context_lines=None):
+        body = f"# {title}\n"
+        if size is not None:
+            body += f"\n## Size\n\n{size}\n"
+        if context_lines is not None:
+            body += "\n## Context\n\n" + "\n".join(context_lines) + "\n"
+        body += "\n## Affected Files\n"
+        (batch / filename).write_text(body)
+
+    def test_routine_decisions_context_excerpts_and_plans_path(self):
+        batch = self._repos_dir / "013-2026-02-07-decisions"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text(
+            "# Batch Context\n\n"
+            "## Goal\n\nDo the thing well.\n\n"
+            "## Decisions\n\n"
+            "- First decision bullet about something.\n"
+            "- Second decision bullet about something else.\n"
+        )
+        self._phase(
+            batch, "01-first.md", "First phase", "S",
+            context_lines=["First phase context line one.", "First phase context line two."],
+        )
+        self._phase(
+            batch, "02-second.md", "Second phase", "M",
+            context_lines=["Second phase context line one.", "Second phase context line two."],
+        )
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 013 · 2026-02-07 · decisions",
+            "2 phases planned · 0 done",
+            "",
+            "  Do the thing well.",
+            "",
+            "  Decisions",
+            "    First decision bullet about something. · Second decision bullet",
+            "    about something else.",
+            "  #   Phase         Size  Status",
+            "  01  First phase   S     open",
+            "      First phase context line one. First phase context line two.",
+            "  02  Second phase  M     open",
+            "      Second phase context line one. Second phase context line two.",
+            "",
+            f"  Plans    {batch.resolve()}",
+        ])
+        self.assertEqual(out, expected, f"routine decisions/excerpts/path overview block wrong: {out}")
+        self.assertFalse(
+            any(l.endswith(" ") for l in out.splitlines()),
+            f"no overview line may end in a space: {out!r}",
+        )
+
+    def test_no_decisions_section_omits_decisions_label(self):
+        batch = self._repos_dir / "014-2026-02-08-nodecisions"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nJust a goal.\n")
+        self._phase(batch, "01-first.md", "First phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 014 · 2026-02-08 · nodecisions",
+            "1 phases planned · 0 done",
+            "",
+            "  Just a goal.",
+            "",
+            "  #   Phase        Size  Status",
+            "  01  First phase  M     open",
+            "",
+            f"  Plans    {batch.resolve()}",
+        ])
+        self.assertEqual(out, expected, f"no-Decisions overview block wrong: {out}")
+
+    def test_phase_without_context_omits_excerpt_line_not_blank(self):
+        batch = self._repos_dir / "015-2026-02-09-nocontext"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-first.md", "First phase", "S")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 015 · 2026-02-09 · nocontext",
+            "1 phases planned · 0 done",
+            "  #   Phase        Size  Status",
+            "  01  First phase  S     open",
+            "",
+            f"  Plans    {batch.resolve()}",
+        ])
+        self.assertEqual(
+            out, expected,
+            f"a phase without ## Context must have no excerpt line and no stray blank line: {out}",
+        )
+
+    def test_long_decisions_wraps_to_exactly_eight_lines_with_ellipsis(self):
+        batch = self._repos_dir / "016-2026-02-10-longdecisions"
+        batch.mkdir(parents=True)
+        long_decisions = "\n".join(f"- decisionword{i} decisionword{i}" for i in range(20))
+        (batch / ".batch-context.md").write_text(f"# Batch Context\n\n## Decisions\n\n{long_decisions}\n")
+        self._phase(batch, "01-first.md", "First phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        lines = out.splitlines()
+        decisions_idx = lines.index("  Decisions")
+        wrapped = []
+        i = decisions_idx + 1
+        while lines[i].startswith("    "):
+            wrapped.append(lines[i])
+            i += 1
+        self.assertEqual(len(wrapped), 8, f"long decisions must wrap to exactly 8 lines: {out}")
+        self.assertTrue(wrapped[-1].endswith("…"), f"last decisions line must end in an ellipsis: {out}")
+        self.assertFalse(
+            any(l.endswith(" ") for l in out.splitlines()),
+            f"no overview line may end in a space: {out!r}",
+        )
+
+    def test_with_done_and_phase_modes_unaffected_by_decisions_and_context(self):
+        batch = self._repos_dir / "017-2026-02-11-unaffected"
+        done_dir = batch / "done"
+        done_dir.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text(
+            "# Batch Context\n\n## Goal\n\nGoal text.\n\n## Decisions\n\n- Some decision.\n"
+        )
+        self._phase(batch, "done/01-first.md", "First phase", context_lines=["Context line."])
+        self._phase(batch, "02-second.md", "Second phase", context_lines=["Context line."])
+
+        with_done_out = self.run_cfq("brief", str(batch), "--with-done", check=True).stdout
+        self.assertNotIn("Decisions", with_done_out, f"--with-done must not gain the Decisions block: {with_done_out}")
+        self.assertNotIn("Plans", with_done_out, f"--with-done must not gain the Plans line: {with_done_out}")
+
+        phase_out = self.run_cfq(
+            "brief", str(batch), "--phase", "02", "--classic-fallback", check=True,
+        ).stdout
+        self.assertNotIn("Decisions", phase_out, f"--phase must not gain the Decisions block: {phase_out}")
+        self.assertNotIn("Plans", phase_out, f"--phase must not gain the Plans line: {phase_out}")
 
 
 class ParkTest(CfqTestCase):

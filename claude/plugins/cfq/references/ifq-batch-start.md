@@ -104,9 +104,11 @@ with no `goal:` line.
 
 `bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
 later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
-count with done/red breakdown, the wrapped `## Goal` paragraph, then the phase table with a
-`done`/`open`/`red` status column. `--with-done` stays exactly as described above for any caller
-that still wants the old flat listing.
+count with done/red breakdown, the wrapped `## Goal` paragraph, an optional wrapped
+`.batch-context.md` `## Decisions` excerpt, then the phase table with a `done`/`open`/`red` status
+column, each row followed by that phase's own `## Context` excerpt, and a closing `Plans` line
+naming the batch directory so a hand edit knows exactly where to reach in. `--with-done` stays
+exactly as described above for any caller that still wants the old flat listing.
 
 ## Briefing Warnings
 
