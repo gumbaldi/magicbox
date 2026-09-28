@@ -102,6 +102,22 @@ batch's own `.dependsOn` and is missing from the chosen base. An entry appended 
 never became a chain candidate on its own) never flips `baseSource` — it's a warning surfaced in
 the base-branch question, not a vote for a different base.
 
+## pfq/ifq: why framework findings never go through SendFeedback
+
+Reported from `/home/code/git/kankuri` (2026-09-28), more than once: a session — typically in a
+follow-up conversation after `/ifq` or `/pfq` had already finished — drafted a finding about cfq
+itself through the general Claude Code `SendFeedback` tool instead of `bin/cfq note plan
+--framework`. `SendFeedback` reaches the Claude Code product team, not the cfq maintainer, so the
+finding was never seen; the most recent instance was the branch-base finding fixed in batch `047`
+phase 01, itself first reported that way.
+
+The rule already lived in `references/queue-entries.md`'s **Plan Entry** section, but that file is
+a cold-path reference `ifq` only reads when actually parking out-of-scope work — it never covered
+the follow-up-conversation case, since by then the parking step had already run or never runs
+again. The fix states the rule in both worker `SKILL.md` files' opening paragraph, not only in the
+reference: a `SKILL.md` stays in context for the whole conversation, follow-ups included, while the
+reference is loaded only on the parking path itself.
+
 ## pfq: why Phase Quality's five rules exist
 
 One `/ifq` phase burned far more tokens than the task itself required — not the logic, the
