@@ -19,7 +19,9 @@ sites (research before implementing, filtering a green verification run) unchang
 
 The orchestrator's prompt is `bin/cfq worker brief`'s JSON object, verbatim. Read the phase file at
 `phaseFile` and, if `batchContext` is non-null, `.batch-context.md` at that path. Start from those
-— never re-run a preflight, never re-derive a path the briefing already resolved.
+— never re-run a preflight, never re-derive a path the briefing already resolved. `announcement` is
+for the orchestrator's own display before spawning — the worker ignores it and reads the phase file
+directly.
 
 ## Determinism
 

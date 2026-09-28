@@ -1177,3 +1177,63 @@
     - phase: "01-planning-marker-lifecycle"
       status: "green"
       summary: ""
+- batchNumber: 44
+  batch: 044-2026-09-27-inbox-fixes-and-visibility
+  branch: cfq/044-2026-09-27-inbox-fixes-and-visibility
+  base: main
+  started: 2026-09-27
+  status: done
+  legacy: false
+  finished: 2026-09-28
+  phases:
+    - phase: "01-text-table-trailing-whitespace"
+      status: "green"
+      summary: ""
+    - phase: "02-changelog-summary-fallback"
+      status: "green"
+      summary: ""
+    - phase: "03-telemetry-record-phase-guard"
+      status: "green"
+      summary: ""
+    - phase: "04-lock-release-batch-match"
+      status: "green"
+      summary: ""
+    - phase: "05-phase-title-fallback-and-lint"
+      status: "green"
+      summary: ""
+    - phase: "06-ifq-lint-gate"
+      status: "green"
+      summary: ""
+    - phase: "07-pfq-inbox-detail"
+      status: "green"
+      summary: ""
+    - phase: "08-overview-with-decisions-summaries-path"
+      status: "green"
+      summary: ""
+    - phase: "09-orchestrator-phase-announcement"
+      status: "green"
+      summary: ""
+- batchNumber: 45
+  batch: 045-2026-09-27-start-gate-conditional-switch
+  branch: cfq/045-2026-09-27-start-gate-conditional-switch
+  base: cfq/044-2026-09-27-inbox-fixes-and-visibility
+  started: 2026-09-28
+  status: done
+  legacy: false
+  finished: 2026-09-28
+  phases:
+    - phase: "01-start-gate-conditional-switch"
+      status: "green"
+      summary: ""
+- batchNumber: 46
+  batch: 046-2026-09-28-phase-parser-section-boundary
+  branch: cfq/046-2026-09-28-phase-parser-section-boundary
+  base: cfq/045-2026-09-27-start-gate-conditional-switch
+  started: 2026-09-28
+  status: done
+  legacy: false
+  finished: 2026-09-28
+  phases:
+    - phase: "01-section-boundary-in-phase-parser"
+      status: "green"
+      summary: ""

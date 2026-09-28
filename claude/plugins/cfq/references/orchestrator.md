@@ -33,9 +33,13 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 
 ## 2. Spawn
 
-`bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase, then one `cfq-phase-worker`
-sub-agent, the briefing JSON as its prompt verbatim, and `policy.orchestratorModels[0]`
-(`policy.implModels[0]` when `orchestratorModels` is empty) as its model.
+`bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase. Print the briefing's
+`announcement` field verbatim, no rewording — the same rendering classic mode's own phase
+announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase Announcement**), just carried
+in this JSON instead of printed by `bin/cfq brief` directly, since that call refuses while
+`orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent, the briefing JSON as its
+prompt verbatim, and `policy.orchestratorModels[0]` (`policy.implModels[0]` when
+`orchestratorModels` is empty) as its model.
 
 ## 3. On return
 
@@ -72,7 +76,9 @@ as classic mode's **Implementation** step would, and prints one `⚠️` line na
 falling back. Classic mode's own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
 refuses while `orchestratorMode` is still on, so this in-session fallback calls it with
 `--classic-fallback` appended — the flag that is what makes this documented fallback pass the
-gate.
+gate. Its printed block is the same text step 2 already rendered from `announcement` for the
+worker that failed to spawn, so it is not printed again here — the call is made only to satisfy
+classic mode's own Implementation step, never to show a second announcement for the same phase.
 This fallback exists to keep a batch moving on an occasional spawn failure — a *repeated* fallback
 within the same batch is worth investigating, not silently absorbing.
 

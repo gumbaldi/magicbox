@@ -104,9 +104,11 @@ with no `goal:` line.
 
 `bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
 later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
-count with done/red breakdown, the wrapped `## Goal` paragraph, then the phase table with a
-`done`/`open`/`red` status column. `--with-done` stays exactly as described above for any caller
-that still wants the old flat listing.
+count with done/red breakdown, the wrapped `## Goal` paragraph, an optional wrapped
+`.batch-context.md` `## Decisions` excerpt, then the phase table with a `done`/`open`/`red` status
+column, each row followed by that phase's own `## Context` excerpt, and a closing `Plans` line
+naming the batch directory so a hand edit knows exactly where to reach in. `--with-done` stays
+exactly as described above for any caller that still wants the old flat listing.
 
 ## Briefing Warnings
 
@@ -117,6 +119,19 @@ that the phase runs normally if started — wording per `<plugin-root>/reference
 **Phase Announcement**; `batch.consistency == "divergent"` adds one more such line naming the
 repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
 
+## Lint Gate
+
+`lint` is the same `bin/cfq lint <batch-dir>` check `/pfq` already runs at Plan Lint, right before
+handoff — run again here since a plan file is plain Markdown the user may edit by hand between
+`/pfq` and `/ifq`, and a hand edit that breaks its structure would otherwise go unnoticed until a
+later deterministic script misparses it mid-implementation. `lint.clean: false` → print `Lint` (its
+`lint.findings` already rendered as `   └ ` sub-lines) and **end the session immediately** — before
+the lock, the branch, or any file is touched — the user fixes the phase files by hand or re-plans
+the batch with `/pfq`. `lint.warnings` (an unresolvable `.dependsOn`, the same kind of `warn:` line
+`selection.blocked`'s `unknownDeps` already surfaces) never blocks, matching lint's own exit-code
+rule — `lint.clean` stays `true` even when `lint.warnings` is non-empty. `lint.clean: true` → print
+`Lint` and continue straight to lock acquisition.
+
 ## Start Gate
 
 Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is
@@ -125,14 +140,21 @@ brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from
 Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
 rendered exactly as returned — no rewording, nothing between them but a blank line.
 
-**The question**, two-stage, because `AskUserQuestion` caps at four options and a repo may hold
-more than two other open batches:
+**The question** may take a second call, because `AskUserQuestion` caps at four options and a repo
+may hold more than two other open batches — but only when another batch is actually selectable:
 
-- First call, three options: **Start** (recommended, listed first) — proceed to **Lock
-  Acquisition** for the batch just briefed; **Pick a different batch** — opens the second call
-  below; **Cancel** — end the session, nothing touched, no lock taken, no branch checked out.
-  Print `Start Gate` as `➖ cancelled by user` and stop.
-- Second call, only when the user picked the middle option: one option per entry in
+- Other selectable batches = entries of `selection.selectable` other than the batch just briefed
+  (the same set the second call below offers).
+- At least one other selectable batch → first call, three options: **Start** (recommended, listed
+  first) — proceed to **Lock Acquisition** for the batch just briefed; **Pick a different batch** —
+  opens the second call below; **Cancel** — end the session, nothing touched, no lock taken, no
+  branch checked out. Print `Start Gate` as `➖ cancelled by user` and stop.
+- None → first call has only two options: **Start** (recommended, listed first), same effect as
+  above, and **Cancel**, same effect as above. No middle option, no second call possible; the
+  question text says the batch is ready and asks whether to start it — it does not mention picking
+  another batch.
+- Second call, only when the user picked the middle option (so only reachable in the
+  at-least-one-other case): one option per entry in
   `selection.selectable` other than the batch already briefed, each labelled with its number and
   slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
   **not** offered — they are already visible in `queueText` with their own reason and stay

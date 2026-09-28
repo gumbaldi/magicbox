@@ -38,7 +38,10 @@ snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`
 The `RESULT · plan-for-queue` header is preceded by the batch overview block — `bin/cfq brief
 "<batch-dir>" --overview`, printed exactly as returned, no rewording, one blank line between it
 and the header. Above the header, not below: the overview is what the user reads to check the plan
-just written, the `RESULT` list that follows is only the handoff metadata. This is printed at
+just written, the `RESULT` list that follows is only the handoff metadata. The block now also
+carries `.batch-context.md`'s `## Decisions` (when present), each phase's own `## Context` excerpt
+under its table row, and a closing `Plans` line naming the batch directory — the same block, still
+printed verbatim; nothing here composes any of that text itself. This is printed at
 **Final Report**, after **Plan Lint** has gone clean — a batch whose lint still has findings is not
 yet the plan the user gets, and the `.planning` marker is only removed once lint passes; the block
 is never printed earlier, at **Park**.

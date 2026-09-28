@@ -12,6 +12,8 @@ import unittest
 
 from cfq_testlib import CFQ_BIN, CfqTestCase
 
+from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
+
 PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
     # Some phase
 
@@ -87,6 +89,20 @@ class WorkerBriefTest(CfqTestCase):
         self.assertIn("commands", body)
         self.assertIn("phaseCommit", body["commands"])
         self.assertIn("phaseRecordRed", body["commands"])
+        self.assertIn("announcement", body)
+        self.assertTrue(body["announcement"].startswith("PHASE 02 · "), f"announcement: {body['announcement']!r}")
+        self.assertFalse(
+            any(l.endswith(" ") for l in body["announcement"].splitlines()),
+            f"announcement must carry no trailing whitespace: {body['announcement']!r}",
+        )
+
+    def test_announcement_matches_cfq_brief_render_phase(self):
+        body = self.json_out(self._brief("02"))
+        phase_file = self.batch_dir / "02-something.md"
+        expected = render_phase(
+            phase_num(phase_file), parse_phase_body(phase_file.read_text(), fallback_title=phase_file.stem)
+        )
+        self.assertEqual(body["announcement"], expected)
 
     def test_note_plan_framework_command_inserts_flag_after_note_plan(self):
         body = self.json_out(self._brief("02"))
@@ -123,6 +139,7 @@ class WorkerBriefTest(CfqTestCase):
         proc = self._brief("99")
         body = self.json_out(proc)
         self.assertEqual(body["status"], "NO_BATCH", f"unexpected status: {body}")
+        self.assertNotIn("announcement", body, f"NO_BATCH must not carry an announcement: {body}")
 
     def test_missing_batch_directory_is_no_batch(self):
         proc = self.run_cfq(
@@ -131,6 +148,7 @@ class WorkerBriefTest(CfqTestCase):
         )
         body = self.json_out(proc)
         self.assertEqual(body["status"], "NO_BATCH", f"unexpected status: {body}")
+        self.assertNotIn("announcement", body, f"NO_BATCH must not carry an announcement: {body}")
 
 
 class WorkerVerdictTest(CfqTestCase):

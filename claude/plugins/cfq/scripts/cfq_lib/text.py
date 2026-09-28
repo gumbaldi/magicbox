@@ -118,7 +118,10 @@ def table(rows, headers=None, aligns=None, indent="  ", gap=2):
                 continue
             pad = " " * (widths[c] - display_width(cell))
             cells.append(pad + cell if aligns[c] == "r" else cell + pad)
-        lines.append(indent + gap_str.join(cells))
+        # An empty last cell still gets a gap_str joined in ahead of it -- strip it back off so
+        # no line ever carries trailing whitespace, without touching `indent` itself when every
+        # cell in the row is empty (that line becomes indent.rstrip(" "), or "").
+        lines.append((indent + gap_str.join(cells)).rstrip(" "))
     return lines
 
 

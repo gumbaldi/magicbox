@@ -46,13 +46,14 @@ Run the preflight once for the whole session, before anything else:
 ```
 `status: "NO_REPO"` → report and end. Otherwise this result covers every later step too — never
 re-derive or re-run `bin/cfq settings`/`scan`/`registry`/`maintenance`/`note` for anything it
-already carries — its own `note import`/`note list --overview` calls already produced
-`inbox.count`/`.imported`/`.overview`. Print `Inbox` as returned, then `inbox.overview` verbatim
-right after it — always, with or without arguments, zero entries included (`INBOX  empty`).
-Arguments were passed with the invocation (**Arguments**) → don't open the inbox question
-regardless of entry count; plan the arguments, leave every inbox entry untouched. No arguments and
-`inbox.count == 0` → nothing further here. No arguments and `inbox.count > 0` → read
-`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
+already carries — its own `note import`/`note list --overview`/`note list --detail` calls already
+produced `inbox.count`/`.imported`/`.overview`/`.detail`. Print `Inbox` as returned, then
+`inbox.overview` verbatim right after it — always, with or without arguments, zero entries included
+(`INBOX  empty`). Arguments were passed with the invocation (**Arguments**) → don't open the inbox
+question regardless of entry count; plan the arguments, leave every inbox entry untouched, but when
+those arguments refer to or ask about inbox entries, print `inbox.detail` right after
+`inbox.overview` first. No arguments and `inbox.count == 0` → nothing further here. No arguments and
+`inbox.count > 0` → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
 
 ## Step 4 — Start Block (unconditional, always, before anything else)
 

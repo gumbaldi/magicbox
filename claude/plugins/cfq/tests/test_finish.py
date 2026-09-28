@@ -113,6 +113,32 @@ class FinishTest(CfqTestCase):
         lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
         self.assertEqual(lockstatus, "FREE", f"lock not actually released: {lockstatus}")
 
+    def test_lock_held_by_different_session_for_same_batch_still_releases(self):
+        # /clear mid-batch mints a new session id; finish's own `finally` release (phase 04) must
+        # still succeed via --batch matching, not only when the running session happens to be the
+        # lock's own holder.
+        home = self._repos_dir / "home-lockmismatch"
+        home.mkdir()
+        repo = self._new_repo("repo-lockmismatch")
+        name = "2026-01-01-lockmismatch"
+        batch = self._new_batch(repo, name)
+        self.run_cfq(
+            "lock", "acquire", str(repo), name, home=home,
+            env={"CLAUDE_CODE_SESSION_ID": "sidA"}, check=True,
+        )
+
+        out = self.json_out(
+            self.run_cfq(
+                "finish", str(repo), str(batch), "v0.1-lockmismatch", home=home,
+                env={"CLAUDE_CODE_SESSION_ID": "sidB"}, check=True,
+            )
+        )
+        self.assertEqual(out["lock"], "released", f"lock field: {out}")
+        lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
+        self.assertEqual(
+            lockstatus, "FREE", f"lock not released across a session-id change: {lockstatus}",
+        )
+
     def test_mid_sequence_changelog_failure_still_completes(self):
         # Point changelogFile at a path inside a read-only directory -- cfq-changelog.sh finish
         # fails to write, cfq-finish.sh must still complete the rest of the sequence and release

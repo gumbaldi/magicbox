@@ -694,6 +694,95 @@ class NoteListTest(CfqTestCase):
         proc = self.run_cfq("note", "list", str(self.repo), "--overview", "--text")
         self.assertNotEqual(proc.returncode, 0)
 
+    # ---- --detail (batch 044 phase 07) ---------------------------------------------------------
+
+    # Routine: an entry shaped like the real ones (# Title, ## Finding, paragraph, ## Location, ...)
+    # -- the header matches --overview's, then date/title, the absolute path, and the ## Finding
+    # paragraph wrapped and indented.
+    def test_detail_renders_date_title_path_and_excerpt(self):
+        body = (
+            "# Title\n\n"
+            "## Finding\n\n"
+            "This is what happened, described in enough words to be a real paragraph.\n\n"
+            "## Location\n\n"
+            "somewhere/file.py:10\n"
+        )
+        entry = self._write_entry("2026-01-01-first.md", body)
+
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        expected_excerpt = cfq_text.wrap(
+            "This is what happened, described in enough words to be a real paragraph.",
+            width=68, indent="    ", max_lines=4,
+        )
+        expected = "\n".join(
+            ["INBOX  1 entries", "  2026-01-01  Title", f"    {entry}"] + expected_excerpt
+        ) + "\n"
+        self.assertEqual(out, expected)
+        self.assertNotIn("&nbsp;", out, "padding must use real spaces, never HTML entities")
+
+    # Edge: an entry with no ## headings (plain paragraphs after the title) -- its first paragraph.
+    def test_detail_with_no_subheadings_uses_first_paragraph(self):
+        body = "# Plain title\n\nJust a plain first paragraph here.\n\nA second paragraph, unused.\n"
+        self._write_entry("2026-01-01-plain.md", body)
+
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        lines = out.splitlines()
+        self.assertEqual(lines[3], "    Just a plain first paragraph here.")
+        self.assertNotIn("A second paragraph", out)
+
+    # Edge: title only, empty body -- header plus date/title/path lines, no excerpt, no crash.
+    def test_detail_title_only_empty_body_has_no_excerpt(self):
+        entry = self._write_entry("2026-01-01-empty.md", "# Title only\n")
+
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        self.assertEqual(
+            out, f"INBOX  1 entries\n  2026-01-01  Title only\n    {entry}\n",
+        )
+
+    # Excerpt capped at 4 lines, ending in an ellipsis, reusing cfq_text.wrap's max_lines.
+    def test_detail_excerpt_capped_at_four_lines_with_ellipsis(self):
+        long_para = " ".join(f"word{i}" for i in range(80))
+        self._write_entry("2026-01-01-long.md", f"# Long\n\n## Finding\n\n{long_para}\n")
+
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        excerpt_lines = out.splitlines()[3:]
+        self.assertEqual(len(excerpt_lines), 4)
+        self.assertTrue(excerpt_lines[-1].endswith("…"), excerpt_lines[-1])
+
+    # Two entries: a blank line separates them, and the header count matches both.
+    def test_detail_two_entries_separated_by_blank_line(self):
+        p1 = self._write_entry("2026-01-01-first.md", "# First\n\n## Finding\n\nFirst body text.\n")
+        p2 = self._write_entry(
+            "2026-01-02-second.md", "# Second\n\n## Finding\n\nSecond body text.\n"
+        )
+
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        expected = "\n".join([
+            "INBOX  2 entries",
+            "  2026-01-01  First",
+            f"    {p1}",
+            "    First body text.",
+            "",
+            "  2026-01-02  Second",
+            f"    {p2}",
+            "    Second body text.",
+        ]) + "\n"
+        self.assertEqual(out, expected)
+
+    # Empty inbox -- identical to --overview's empty rendering.
+    def test_detail_empty_inbox_matches_overview(self):
+        out = self.run_cfq("note", "list", str(self.repo), "--detail", check=True).stdout
+        self.assertEqual(out, "INBOX  empty\n")
+
+    # --detail is mutually exclusive with --overview and --text alike.
+    def test_detail_and_overview_together_is_a_usage_error(self):
+        proc = self.run_cfq("note", "list", str(self.repo), "--detail", "--overview")
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_detail_and_text_together_is_a_usage_error(self):
+        proc = self.run_cfq("note", "list", str(self.repo), "--detail", "--text")
+        self.assertNotEqual(proc.returncode, 0)
+
 
 class NoteSweepTest(CfqTestCase):
     """Behavior tests for `bin/cfq note sweep` -- runs every `todo/` card's `check:` line and

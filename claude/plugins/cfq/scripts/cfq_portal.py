@@ -463,7 +463,7 @@ def build_plan_payload(batch_dir, batch_record):
     phases = []
     for f in batch_phase_files(batch_dir):
         text = f.read_text()
-        fields = parse_phase_body(text)
+        fields = parse_phase_body(text, fallback_title=f.stem)
         phases.append({
             "slug": f.stem,
             "title": fields.get("title") or "",

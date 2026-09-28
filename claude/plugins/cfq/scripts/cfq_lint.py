@@ -70,6 +70,9 @@ def lint_open_file(f, findings):
     name = f.name
     text = f.read_text()
 
+    if not any(line.startswith("# ") for line in text.split("\n")):
+        findings.append(f"{name}: title: missing # heading")
+
     for heading in ("Context", "Affected Files", "Changes", "Verification", "Size"):
         if not has_heading(text, heading):
             findings.append(f"{name}: sections: missing {heading} heading")

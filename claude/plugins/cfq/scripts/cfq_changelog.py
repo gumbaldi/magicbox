@@ -67,10 +67,13 @@ def phases_yaml(report_path):
 
     blocks = []
     for p in phases:
+        # implemented (current worker schema) then summary (classic-mode / pre-orchestrator
+        # records) -- same fallback order as cfq_report.phase_summary().
+        summary = val(p, "implemented") or val(p, "summary")
         blocks.append(
             "    - phase: " + json.dumps(val(p, "phase"), ensure_ascii=False) + "\n"
             "      status: " + json.dumps(val(p, "status"), ensure_ascii=False) + "\n"
-            "      summary: " + json.dumps(val(p, "summary"), ensure_ascii=False)
+            "      summary: " + json.dumps(summary, ensure_ascii=False)
         )
     return "\n".join(blocks)
 

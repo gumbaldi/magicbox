@@ -125,6 +125,25 @@ class TableTest(unittest.TestCase):
     def test_empty_rows_returns_empty_list_even_with_headers(self):
         self.assertEqual(text.table([], headers=["A", "B"]), [])
 
+    def test_empty_last_cell_drops_trailing_gap(self):
+        rows = text.table([["a", "note"], ["bb", ""]])
+        for line in rows:
+            self.assertFalse(line.endswith(" "))
+        self.assertEqual(rows[0], "  a   note")
+
+    def test_every_row_last_cell_empty_no_trailing_space(self):
+        rows = text.table([["a", ""], ["bb", ""]])
+        self.assertEqual(rows, ["  a", "  bb"])
+
+    def test_right_aligned_middle_column_before_empty_last_cell(self):
+        rows = text.table([["a", "1", ""], ["bb", "22", "x"]], aligns=["l", "r", "l"])
+        self.assertTrue(rows[0].endswith(" 1"))
+        self.assertTrue(rows[1].endswith("x"))
+
+    def test_regression_output_byte_identical_to_before_the_fix(self):
+        rows = text.table([["a", "b"], ["ccc", "d"]])
+        self.assertEqual(rows, ["  a    b", "  ccc  d"])
+
 
 class DisplayWidthTest(unittest.TestCase):
     def test_ascii_string(self):

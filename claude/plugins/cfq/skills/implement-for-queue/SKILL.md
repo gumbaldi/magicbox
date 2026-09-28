@@ -71,6 +71,10 @@ per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, 
 and context excerpt), then show the batch overview and the queue listing, then follow the start
 gate — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
 
+`lint.clean` is `false` → print `Lint` with its findings and end, nothing touched — cold-path
+detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lint Gate** section on first
+use each session and apply it here.
+
 Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`
 (from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
@@ -166,10 +170,10 @@ instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` still ha
 orchestrator loop; that part is unchanged.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
-  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>"`), printing
-  `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a half-finished
-  batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format from
-  **Closing Reports**.
+  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>" --batch "<batch>"`),
+  printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
+  half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
+  from **Closing Reports**.
 - `OK` → next phase, same batch.
 - `WARN` → do not end, do not advance silently — cold-path detail: read
   `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here.
