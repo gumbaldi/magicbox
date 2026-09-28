@@ -8,12 +8,9 @@ import contextlib
 import io
 import json
 import os
-import pathlib
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 
@@ -22,6 +19,7 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_report  # noqa: E402
+from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -32,38 +30,6 @@ class TestReport(CfqTestCase):
 
     def _report_json(self, batch):
         return json.loads((batch / "report.json").read_text())
-
-    def test_extract_goal_matches_parse_phase_body_equivalent(self):
-        # extract_goal is parse_phase_body's "context" field run through truncate_words at a
-        # 320-char budget (raised from 220, which used to cut mid-sentence with no ellipsis) --
-        # this pins the combined result as a literal, word-truncated with a trailing ellipsis.
-        planfile = self._repos_dir / "phase-for-extract-goal.md"
-        planfile.write_text(
-            "# Phase 01 — Something\n\n"
-            "## Size\n\nM\n\n"
-            "## Context\n\n"
-            "This is the first context line and it is reasonably long to help push us toward "
-            "the two hundred and twenty character truncation boundary for testing purposes "
-            "here now.\n"
-            "This is the second context line, also fairly long, to make sure the combined "
-            "length of both lines together comfortably exceeds two hundred twenty characters "
-            "total.\n"
-            "This third line should never be collected because extraction stops after two "
-            "non-empty lines are gathered.\n\n"
-            "## Affected Files\n\n"
-            "- `/tmp/foo.py`\n"
-        )
-        expected = (
-            "This is the first context line and it is reasonably long to help push us toward "
-            "the two hundred and twenty character truncation boundary for testing purposes "
-            "here now. This is the second context line, also fairly long, to make sure the "
-            "combined length of both lines together comfortably exceeds two hundred twenty…"
-        )
-        self.assertEqual(cfq_report.extract_goal(str(planfile)), expected)
-
-    def test_extract_goal_missing_file_returns_empty_string(self):
-        missing = self._repos_dir / "does-not-exist.md"
-        self.assertEqual(cfq_report.extract_goal(str(missing)), "")
 
     def _append_raises(self, dir_, phase_json):
         """Calls append_phase() expecting its errors.die() validation to fire (SystemExit),
@@ -940,12 +906,12 @@ class TestIndexText(CfqTestCase):
             )
 
 
-# ---- phase 01: derivation helpers cfq_report.py's html/detail/index rendering all funnel
-# through -- pure functions over a phase dict, no batch directory, no subprocess.
+# ---- phase 01: derivation helpers cfq_report.py's detail/index rendering all funnel through --
+# pure functions over a phase dict, no batch directory, no subprocess.
 
 class TestDerivations(unittest.TestCase):
     def setUp(self):
-        # fmt_datetime/fmt_short go through datetime.astimezone(), which reads the machine's
+        # fmt_short goes through datetime.astimezone(), which reads the machine's
         # local timezone -- pinned to UTC for the run so the expected strings below are portable.
         self._orig_tz = os.environ.get("TZ")
         os.environ["TZ"] = "UTC"
@@ -1013,20 +979,17 @@ class TestDerivations(unittest.TestCase):
     # -- parse_ts / fmt_* -------------------------------------------------------------------
 
     def test_parse_ts_z_with_fractional_seconds(self):
-        self.assertEqual(cfq_report.fmt_datetime("2026-09-21T13:16:49.329Z"), "2026-09-21 13:16")
         self.assertEqual(cfq_report.fmt_short("2026-09-21T13:16:49.329Z"), "21.09 13:16")
 
     def test_parse_ts_offset_timestamp(self):
-        self.assertEqual(cfq_report.fmt_datetime("2026-01-01T10:30:00+02:00"), "2026-01-01 08:30")
+        self.assertEqual(cfq_report.fmt_short("2026-01-01T10:30:00+02:00"), "01.01 08:30")
 
     def test_parse_ts_empty_string_returns_none_and_empty_display(self):
         self.assertIsNone(cfq_report.parse_ts(""))
-        self.assertEqual(cfq_report.fmt_datetime(""), "")
         self.assertEqual(cfq_report.fmt_short(""), "")
 
     def test_parse_ts_malformed_returns_none_not_an_exception(self):
         self.assertIsNone(cfq_report.parse_ts("not-a-date"))
-        self.assertEqual(cfq_report.fmt_datetime("not-a-date"), "")
         self.assertEqual(cfq_report.fmt_short("not-a-date"), "")
 
     def test_fmt_duration_minutes_and_hours(self):
@@ -1044,174 +1007,18 @@ class TestDerivations(unittest.TestCase):
         self.assertEqual(cfq_report.fmt_int(None), "–")
         self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
 
-    # -- phase_topic --------------------------------------------------------------------------
 
-    def test_phase_topic_leading_number(self):
-        self.assertEqual(cfq_report.phase_topic("01-widget-loader"), "Widget loader")
-
-    def test_phase_topic_two_digit_number_and_short_words(self):
-        self.assertEqual(cfq_report.phase_topic("10-a-b-c"), "A b c")
-
-    def test_phase_topic_no_leading_number(self):
-        self.assertEqual(cfq_report.phase_topic("no-number-here"), "No number here")
-
-    # -- phase_row ----------------------------------------------------------------------------
-
-    def test_phase_row_full_record(self):
-        phase = {
-            "phase": "01-note-sweep-verb", "status": "green", "commit": "9f2b46a2",
-            "telemetry": {
-                "wallclock_s": 73,
-                "until": "2026-09-21T15:16:00+02:00",
-                "totals": {"turns": 23, "output": 11610, "billable_in": 87111, "cache_read": 1582736},
-            },
-        }
-        row = cfq_report.phase_row(phase)
-        self.assertEqual(row["slug"], "01-note-sweep-verb")
-        self.assertEqual(row["nr"], "01")
-        self.assertEqual(row["topic"], "Note sweep verb")
-        self.assertEqual(row["status"], "green")
-        self.assertEqual(row["glyph"], "✅")
-        self.assertEqual(row["finished"], "2026-09-21T15:16:00+02:00")
-        self.assertEqual(row["duration_s"], 73)
-        self.assertEqual(row["duration_disp"], "1:13")
-        self.assertEqual(row["turns"], 23)
-        self.assertEqual(row["out"], 11610)
-        self.assertEqual(row["billable_in"], 87111)
-        self.assertEqual(row["cache_read"], 1582736)
-        self.assertEqual(row["commit"], "9f2b46a2")
-
-    def test_phase_row_without_telemetry_yields_zeros_not_none(self):
-        row = cfq_report.phase_row({"phase": "02-x", "status": "red"})
-        self.assertEqual(row["duration_s"], 0)
-        self.assertEqual(row["duration_disp"], "–")
-        self.assertEqual(row["turns"], 0)
-        self.assertEqual(row["out"], 0)
-        self.assertEqual(row["billable_in"], 0)
-        self.assertEqual(row["cache_read"], 0)
-        self.assertEqual(row["finished"], "")
-        self.assertEqual(row["finished_disp"], "")
-        self.assertEqual(row["commit"], "")
-
-    # -- truncate_words -------------------------------------------------------------------------
-
-    def test_truncate_words_shorter_than_limit_unchanged(self):
-        self.assertEqual(cfq_report.truncate_words("short text", 320), "short text")
-
-    def test_truncate_words_cuts_at_space_before_limit(self):
-        self.assertEqual(
-            cfq_report.truncate_words("one two three four five", 15), "one two three…",
-        )
-
-    def test_truncate_words_single_token_longer_than_limit_hard_cuts(self):
-        self.assertEqual(cfq_report.truncate_words("a" * 30, 10), "a" * 10 + "…")
-
-
-# ---- phase 04: the phase table -- one row per report.json phase record, including every retry
-# attempt. Pure function over literal `phases` lists / report.json dicts, no project-specific
-# nouns, no cfq verbs in the data.
-
-class TestPhaseTable(unittest.TestCase):
-    def setUp(self):
-        # fmt_datetime goes through datetime.astimezone(), which reads the machine's local
-        # timezone -- pinned to UTC so timestamps in the fixtures below are portable.
-        self._orig_tz = os.environ.get("TZ")
-        os.environ["TZ"] = "UTC"
-        time.tzset()
-
-    def tearDown(self):
-        if self._orig_tz is None:
-            os.environ.pop("TZ", None)
-        else:
-            os.environ["TZ"] = self._orig_tz
-        time.tzset()
-
-    def test_routine_two_green_phases_full_telemetry(self):
-        phases = [
-            {
-                "phase": "01-widget-loader", "status": "green",
-                "telemetry": {
-                    "wallclock_s": 73, "until": "2026-09-21T15:16:00+02:00",
-                    "totals": {"turns": 23, "output": 11610, "billable_in": 87111, "cache_read": 1582736},
-                },
-            },
-            {
-                "phase": "02-widget-saver", "status": "green",
-                "telemetry": {
-                    "wallclock_s": 46, "until": "2026-09-21T15:30:00+02:00",
-                    "totals": {"turns": 12, "output": 8868, "billable_in": 20475, "cache_read": 1027912},
-                },
-            },
-        ]
-        html = cfq_report.phase_table_html(phases)
-        self.assertEqual(html.count("<tr class="), 2, "expected exactly one <tr> per phase")
-        self.assertEqual(html.count("✅"), 2, "expected the green glyph in both status cells")
-        self.assertIn('href="#p-01-widget-loader"', html, "topic cell missing anchor to phase 01")
-        self.assertIn('href="#p-02-widget-saver"', html, "topic cell missing anchor to phase 02")
-        # tfoot sums turns/out across both rows: 23+12=35 turns, 11610+8868=20478 out.
-        self.assertIn(">35<", html, "tfoot turns total incorrect")
-        self.assertIn(">20,478<", html, "tfoot out total incorrect")
-
-    def test_retry_three_records_two_phase_numbers(self):
-        # A phase that went red and was re-run appends a second record for the same phase number
-        # -- every attempt gets its own row, in record order.
-        phases = [
-            {"phase": "01-widget-loader", "status": "red",
-             "telemetry": {"wallclock_s": 30, "totals": {"turns": 5, "output": 1000, "billable_in": 2000, "cache_read": 3000}}},
-            {"phase": "01-widget-loader", "status": "green",
-             "telemetry": {"wallclock_s": 40, "totals": {"turns": 6, "output": 1500, "billable_in": 2500, "cache_read": 3500}}},
-            {"phase": "02-widget-saver", "status": "green",
-             "telemetry": {"wallclock_s": 50, "totals": {"turns": 7, "output": 2000, "billable_in": 3000, "cache_read": 4000}}},
-        ]
-        html = cfq_report.phase_table_html(phases)
-        self.assertEqual(html.count("<tr class="), 3, "red-then-green retry must not collapse to two rows")
-        self.assertEqual(html.count('<tr class="red">'), 1)
-        self.assertEqual(html.count('<tr class="green">'), 2)
-        self.assertIn(">18<", html, "tfoot turns total must sum all three attempts (5+6+7)")
-        self.assertIn(">4,500<", html, "tfoot out total must sum all three attempts (1000+1500+2000)")
-
-    def test_missing_telemetry_renders_dash_and_zero_without_raising(self):
-        phases = [{"phase": "03-widget-mover", "status": "green"}]
-        html = cfq_report.phase_table_html(phases)
-        self.assertIn("<td>–</td>", html, "Finished cell should show a dash, not a blank cell")
-        self.assertIn('<td class="n">–</td>', html, "Duration cell should show a dash for zero duration")
-        # 4 zero-derived cells (turns/out/in/cache) in the body row, and the same 4 in the tfoot
-        # total -- the single row's own totals -- for 8 occurrences overall.
-        self.assertEqual(html.count('<td class="n">0</td>'), 8, "turns/out/in/cache should each render 0, not raise")
-        # The footer total is unaffected by the missing telemetry -- it degrades the same way.
-        self.assertIn('<td class="n">–</td><td class="n">0</td><td class="n">0</td>'
-                       '<td class="n">0</td><td class="n">0</td></tr></tfoot>', html)
-
-    def test_empty_phase_list_returns_empty_string(self):
-        self.assertEqual(cfq_report.phase_table_html([]), "")
-        with tempfile.TemporaryDirectory() as td:
-            doc = cfq_report.render_report_html({"batch": "x", "phases": []}, {}, td)
-        self.assertNotIn('<section class="phase-table">', doc, "empty phase list must render no table section")
-        self.assertNotIn("<!-- phase-table -->", doc, "placeholder must not survive into the rendered document")
-
-    def test_anchor_contract_hrefs_match_ids_in_document(self):
-        phases = [
-            {"phase": "01-widget-loader", "status": "green",
-             "telemetry": {"wallclock_s": 30, "totals": {"turns": 5, "output": 1000, "billable_in": 2000, "cache_read": 3000}}},
-            {"phase": "02-widget-saver", "status": "red",
-             "telemetry": {"wallclock_s": 40, "totals": {"turns": 6, "output": 1500, "billable_in": 2500, "cache_read": 3500}}},
-        ]
-        with tempfile.TemporaryDirectory() as td:
-            doc = cfq_report.render_report_html({"batch": "x", "phases": phases}, {}, td)
-        hrefs = set(re.findall(r'href="#(p-[^"]+)"', doc))
-        ids = set(re.findall(r'id="(p-[^"]+)"', doc))
-        self.assertTrue(hrefs, "no phase-table anchors found in the rendered document")
-        self.assertEqual(hrefs, ids, "every phase-table href must have a matching section.phase id, and vice versa")
-
-
-# ---- phase 03: the Markdown subset renderer for .batch-context.md -> the report's Overview
-# section. Pure functions over literal strings, no files, no project-specific nouns.
+# ---- cfq_lib.markdown's base subset (the renderer batch 040 phase 01 split out of this module)
+# -- still live, used by cfq_portal.py's pre-rendered phase-file/queue-entry bodies. Pure
+# functions over literal strings, no files, no project-specific nouns. `MarkdownExtensionTest` in
+# tests/test_portal.py covers the extensions cfq_portal.py added on top (keep_h1, ordered lists);
+# this class covers the base subset this module used to render itself.
 
 class TestMarkdownSubset(unittest.TestCase):
     # -- md_min: routine / structural cases --------------------------------------------------
 
     def test_routine_heading_paragraph_and_list(self):
-        out = cfq_report.md_min(
+        out = cfq_lib_markdown.md_min(
             "## Heading\n\nA paragraph.\n\n- one\n- two\n- three\n"
         )
         self.assertIn("<h3>Heading</h3>", out)
@@ -1222,7 +1029,7 @@ class TestMarkdownSubset(unittest.TestCase):
         self.assertIn("<li>three</li>", out)
 
     def test_wrapped_bullet_continuation_stays_one_li_not_a_paragraph(self):
-        out = cfq_report.md_min("- first line of the item\n  wraps onto this line\n")
+        out = cfq_lib_markdown.md_min("- first line of the item\n  wraps onto this line\n")
         self.assertEqual(out.count("<li>"), 1)
         self.assertNotIn("<p>", out)
         self.assertIn("<li>first line of the item wraps onto this line</li>", out)
@@ -1230,11 +1037,11 @@ class TestMarkdownSubset(unittest.TestCase):
     # -- md_inline -----------------------------------------------------------------------------
 
     def test_inline_bold_and_code(self):
-        self.assertEqual(cfq_report.md_inline("**bold**"), "<strong>bold</strong>")
-        self.assertEqual(cfq_report.md_inline("`code`"), "<code>code</code>")
+        self.assertEqual(cfq_lib_markdown.md_inline("**bold**"), "<strong>bold</strong>")
+        self.assertEqual(cfq_lib_markdown.md_inline("`code`"), "<code>code</code>")
 
     def test_inline_backtick_span_wins_over_bold_inside_it(self):
-        out = cfq_report.md_inline("`a **b** c`")
+        out = cfq_lib_markdown.md_inline("`a **b** c`")
         self.assertNotIn("<strong>", out)
         self.assertEqual(out, "<code>a **b** c</code>")
 
@@ -1243,236 +1050,31 @@ class TestMarkdownSubset(unittest.TestCase):
     def test_escaping_happens_before_this_function_is_reached(self):
         # md_min escapes each emitted value itself (via esc()) -- feeding it raw HTML must come
         # out neutralised, never as a literal live tag.
-        out = cfq_report.md_min("A line with <script>alert(1)</script> in it.")
+        out = cfq_lib_markdown.md_min("A line with <script>alert(1)</script> in it.")
         self.assertIn("&lt;script&gt;", out)
         self.assertNotIn("<script", out)
 
     # -- edge cases ------------------------------------------------------------------------------
 
     def test_empty_string_returns_empty(self):
-        self.assertEqual(cfq_report.md_min(""), "")
+        self.assertEqual(cfq_lib_markdown.md_min(""), "")
 
     def test_only_blank_lines_returns_empty(self):
-        self.assertEqual(cfq_report.md_min("\n\n\n"), "")
+        self.assertEqual(cfq_lib_markdown.md_min("\n\n\n"), "")
 
     def test_single_hash_title_alone_is_skipped_entirely(self):
-        out = cfq_report.md_min("# Batch Context\n")
+        out = cfq_lib_markdown.md_min("# Batch Context\n")
         self.assertEqual(out, "")
 
     # -- fall-through: outside the documented subset ------------------------------------------
 
     def test_blockquote_and_table_line_fall_back_to_paragraph_text(self):
-        out = cfq_report.md_min("> a quote\n\n| a | table |\n")
+        out = cfq_lib_markdown.md_min("> a quote\n\n| a | table |\n")
         self.assertNotIn("<blockquote", out)
         self.assertNotIn("<table", out)
         self.assertIn("<p>", out)
         self.assertIn("&gt; a quote", out)
         self.assertIn("| a | table |", out)
-
-
-class TestOverview(unittest.TestCase):
-    def _dir_with_context(self, tmp_path, body):
-        (tmp_path).mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".batch-context.md").write_text(body)
-        return str(tmp_path)
-
-    def test_all_five_sections_renders_only_goal_decisions_non_goals(self):
-        with tempfile.TemporaryDirectory() as td:
-            d = self._dir_with_context(pathlib.Path(td), (
-                "# Batch Context\n\n"
-                "## Goal\n\nMake it work.\n\n"
-                "## Decisions\n\n- **One.** Do the thing.\n\n"
-                "## Invariants\n\n- Never break this.\n\n"
-                "## Cross-Phase Contracts\n\n- Phase 01 -> all.\n\n"
-                "## Non-Goals\n\n- Not doing that.\n"
-            ))
-            out = cfq_report.overview_html(d)
-            self.assertIn('<section class="overview">', out)
-            self.assertIn("<h3>Goal</h3>", out)
-            self.assertIn("<h3>Decisions</h3>", out)
-            self.assertIn("<h3>Non-Goals</h3>", out)
-            self.assertNotIn("Invariants", out)
-            self.assertNotIn("Cross-Phase Contracts", out)
-
-    def test_only_goal_present_no_empty_headings_for_the_rest(self):
-        with tempfile.TemporaryDirectory() as td:
-            d = self._dir_with_context(pathlib.Path(td), "# Batch Context\n\n## Goal\n\nJust this.\n")
-            out = cfq_report.overview_html(d)
-            self.assertIn("<h3>Goal</h3>", out)
-            self.assertNotIn("<h3>Decisions</h3>", out)
-            self.assertNotIn("<h3>Non-Goals</h3>", out)
-
-    def test_no_batch_context_file_returns_empty_and_html_has_no_section(self):
-        with tempfile.TemporaryDirectory() as td:
-            d = str(pathlib.Path(td))
-            self.assertEqual(cfq_report.overview_html(d), "")
-            doc = cfq_report.render_report_html(
-                {"batch": "x", "phases": []}, {}, d,
-            )
-            self.assertNotIn('<section class="overview">', doc)
-            self.assertIn("<!doctype html>", doc)
-
-    def test_lowercase_heading_still_found(self):
-        with tempfile.TemporaryDirectory() as td:
-            d = self._dir_with_context(pathlib.Path(td), "# Batch Context\n\n## non-goals\n\n- x\n")
-            out = cfq_report.overview_html(d)
-            self.assertIn("<h3>Non-Goals</h3>", out)
-
-
-# ---- phase 05: `triggers`/`filesTouched`/`parkedPlanEntries` sections in phase_html, plus the
-# `security` block -- recorded data report.json already carries but the HTML never rendered.
-
-class TestPhaseExtras(unittest.TestCase):
-    def _phase(self, **overrides):
-        base = {"phase": "01-a", "status": "green"}
-        base.update(overrides)
-        return base
-
-    def test_all_five_arrays_populated_render_in_order(self):
-        phase = self._phase(
-            triggers=["omitted"],
-            deviations=["did X instead of Y"],
-            errors=["boom"],
-            filesTouched=["src/widget.py"],
-            parkedPlanEntries=["plan/2026-09-21-followup.md"],
-        )
-        html = cfq_report.phase_html(phase, {})
-        headings = re.findall(r"<h4>([^<]*)</h4>", html)
-        self.assertEqual(
-            headings,
-            ["Triggers", "Deviations", "Errors", "Files touched", "Parked plan entries"],
-        )
-
-    def test_triggers_empty_absent_and_null_render_no_heading(self):
-        for label, kwargs in (("empty", {"triggers": []}), ("absent", {}), ("null", {"triggers": None})):
-            with self.subTest(label=label):
-                phase = self._phase(
-                    deviations=["d"], errors=["e"], filesTouched=["f"], parkedPlanEntries=["p"], **kwargs,
-                )
-                html = cfq_report.phase_html(phase, {})
-                self.assertNotIn("<h4>Triggers</h4>", html)
-                self.assertIn("<h4>Deviations</h4>", html)
-                self.assertIn("<h4>Errors</h4>", html)
-                self.assertIn("<h4>Files touched</h4>", html)
-                self.assertIn("<h4>Parked plan entries</h4>", html)
-
-    def test_files_touched_empty_absent_and_null_render_no_heading(self):
-        for label, kwargs in (("empty", {"filesTouched": []}), ("absent", {}), ("null", {"filesTouched": None})):
-            with self.subTest(label=label):
-                phase = self._phase(
-                    triggers=["t"], deviations=["d"], errors=["e"], parkedPlanEntries=["p"], **kwargs,
-                )
-                html = cfq_report.phase_html(phase, {})
-                self.assertNotIn("<h4>Files touched</h4>", html)
-                self.assertIn("<h4>Triggers</h4>", html)
-                self.assertIn("<h4>Deviations</h4>", html)
-                self.assertIn("<h4>Errors</h4>", html)
-                self.assertIn("<h4>Parked plan entries</h4>", html)
-
-    def test_parked_plan_entries_empty_absent_and_null_render_no_heading(self):
-        for label, kwargs in (
-            ("empty", {"parkedPlanEntries": []}), ("absent", {}), ("null", {"parkedPlanEntries": None}),
-        ):
-            with self.subTest(label=label):
-                phase = self._phase(
-                    triggers=["t"], deviations=["d"], errors=["e"], filesTouched=["f"], **kwargs,
-                )
-                html = cfq_report.phase_html(phase, {})
-                self.assertNotIn("<h4>Parked plan entries</h4>", html)
-                self.assertIn("<h4>Triggers</h4>", html)
-                self.assertIn("<h4>Deviations</h4>", html)
-                self.assertIn("<h4>Errors</h4>", html)
-                self.assertIn("<h4>Files touched</h4>", html)
-
-    def test_files_touched_entries_wrapped_in_code_triggers_are_not(self):
-        phase = self._phase(triggers=["dependency"], filesTouched=["src/widget.py"])
-        html = cfq_report.phase_html(phase, {})
-        self.assertIn("<li><code>src/widget.py</code></li>", html)
-        self.assertIn("<li>dependency</li>", html)
-
-    def test_entry_with_markup_is_escaped(self):
-        phase = self._phase(triggers=["<b>x</b>"], filesTouched=["<b>x</b>"])
-        html = cfq_report.phase_html(phase, {})
-        self.assertIn("&lt;b&gt;", html)
-        self.assertNotIn("<b>x</b>", html)
-
-
-class TestSecuritySection(unittest.TestCase):
-    def setUp(self):
-        # fmt_datetime goes through datetime.astimezone(), which reads the machine's local
-        # timezone -- pinned to UTC so the snapshot timestamp below is portable.
-        self._orig_tz = os.environ.get("TZ")
-        os.environ["TZ"] = "UTC"
-        time.tzset()
-
-    def tearDown(self):
-        if self._orig_tz is None:
-            os.environ.pop("TZ", None)
-        else:
-            os.environ["TZ"] = self._orig_tz
-        time.tzset()
-
-    def test_available_false_with_hint_renders_one_muted_line_no_counts_grid(self):
-        data = {"security": [{
-            "available": False, "counts": {}, "findings": [],
-            "hint": "Dependabot and code scanning return nothing for this repo",
-            "at": "2026-09-21T15:02:00+02:00",
-        }]}
-        html = cfq_report.security_html(data)
-        self.assertIn('<section class="security">', html)
-        self.assertEqual(html.count("<p"), 1)
-        self.assertIn("Dependabot and code scanning return nothing for this repo", html)
-        self.assertNotIn('<dl class="meta">', html)
-
-    def test_available_true_with_counts_and_two_findings_renders_grid_and_list(self):
-        data = {"security": [{
-            "available": True,
-            "counts": {"critical": 1, "high": 2, "low": 0},
-            "findings": [
-                {"severity": "high", "title": "Outdated dependency"},
-                "A bare-string finding",
-            ],
-        }]}
-        html = cfq_report.security_html(data)
-        self.assertIn('<dl class="meta">', html)
-        self.assertEqual(html.count("<li"), 2)
-        self.assertIn("A bare-string finding", html)
-
-    def test_available_true_empty_counts_and_findings_is_nothing_to_show(self):
-        data = {"security": [{"available": True, "counts": {}, "findings": []}]}
-        html = cfq_report.security_html(data)
-        self.assertNotIn("<ul>", html)
-        self.assertNotIn('<dl class="meta">', html)
-
-    def test_missing_or_empty_security_key_returns_empty_string_and_no_section(self):
-        for data in ({}, {"security": []}):
-            self.assertEqual(cfq_report.security_html(data), "")
-        with tempfile.TemporaryDirectory() as td:
-            doc = cfq_report.render_report_html({"batch": "x", "phases": []}, {}, td)
-        self.assertNotIn('<section class="security">', doc)
-
-    def test_last_entry_used_when_multiple_snapshots(self):
-        data = {"security": [
-            {"available": False, "hint": "first"},
-            {"available": True, "counts": {"critical": 3}, "findings": []},
-        ]}
-        html = cfq_report.security_html(data)
-        self.assertIn('<dl class="meta">', html)
-        self.assertNotIn("first", html)
-
-    def test_section_placed_between_phase_table_and_main(self):
-        data = {
-            "batch": "x",
-            "security": [{"available": True, "counts": {"critical": 1}, "findings": []}],
-            "phases": [{"phase": "01-a", "status": "green"}],
-        }
-        with tempfile.TemporaryDirectory() as td:
-            doc = cfq_report.render_report_html(data, {}, td)
-        table_idx = doc.index('<section class="phase-table">')
-        security_idx = doc.index('<section class="security">')
-        main_idx = doc.index("<main>")
-        self.assertLess(table_idx, security_idx, "security section must come after the phase table")
-        self.assertLess(security_idx, main_idx, "security section must come before <main>")
 
 
 if __name__ == "__main__":
