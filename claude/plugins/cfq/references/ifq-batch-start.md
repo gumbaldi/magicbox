@@ -140,14 +140,21 @@ brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from
 Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
 rendered exactly as returned — no rewording, nothing between them but a blank line.
 
-**The question**, two-stage, because `AskUserQuestion` caps at four options and a repo may hold
-more than two other open batches:
+**The question** may take a second call, because `AskUserQuestion` caps at four options and a repo
+may hold more than two other open batches — but only when another batch is actually selectable:
 
-- First call, three options: **Start** (recommended, listed first) — proceed to **Lock
-  Acquisition** for the batch just briefed; **Pick a different batch** — opens the second call
-  below; **Cancel** — end the session, nothing touched, no lock taken, no branch checked out.
-  Print `Start Gate` as `➖ cancelled by user` and stop.
-- Second call, only when the user picked the middle option: one option per entry in
+- Other selectable batches = entries of `selection.selectable` other than the batch just briefed
+  (the same set the second call below offers).
+- At least one other selectable batch → first call, three options: **Start** (recommended, listed
+  first) — proceed to **Lock Acquisition** for the batch just briefed; **Pick a different batch** —
+  opens the second call below; **Cancel** — end the session, nothing touched, no lock taken, no
+  branch checked out. Print `Start Gate` as `➖ cancelled by user` and stop.
+- None → first call has only two options: **Start** (recommended, listed first), same effect as
+  above, and **Cancel**, same effect as above. No middle option, no second call possible; the
+  question text says the batch is ready and asks whether to start it — it does not mention picking
+  another batch.
+- Second call, only when the user picked the middle option (so only reachable in the
+  at-least-one-other case): one option per entry in
   `selection.selectable` other than the batch already briefed, each labelled with its number and
   slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
   **not** offered — they are already visible in `queueText` with their own reason and stay
