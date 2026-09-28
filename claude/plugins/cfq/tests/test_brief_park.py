@@ -94,6 +94,37 @@ class BriefTest(CfqTestCase):
             f"--phase 02 should omit Check line entirely: {out}",
         )
 
+    def test_phase_announcement_wraps_long_goal_across_lines(self):
+        batch = self._repos_dir / "2026-01-05-longgoal"
+        batch.mkdir(parents=True)
+        long_context = " ".join(f"word{i:03d}" for i in range(60))
+        (batch / "01-longcontext.md").write_text(
+            "# Long context phase\n\n## Context\n\n" + long_context + "\n\n"
+            "## Affected Files\n\n- `/tmp/example/only.sh`\n"
+        )
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout
+        lines = out.splitlines()
+        self.assertFalse(any(l.endswith(" ") for l in lines), f"trailing whitespace in: {out}")
+        goal_lines = [l for l in lines if l.startswith("  Goal     ") or l.startswith(" " * 11)]
+        self.assertGreater(len(goal_lines), 1, f"long context should wrap to several lines: {out}")
+        self.assertLessEqual(len(goal_lines), 4, f"Goal block must not exceed 4 lines: {out}")
+        self.assertTrue(goal_lines[0].startswith("  Goal     "), f"first Goal line missing prefix: {out}")
+        for continuation in goal_lines[1:]:
+            self.assertTrue(
+                continuation.startswith(" " * 11) and not continuation.startswith("  Goal"),
+                f"continuation line must be indented, not re-labelled: {out}",
+            )
+        self.assertTrue(goal_lines[-1].endswith("…"), f"truncated Goal block must end in an ellipsis: {out}")
+
+    def test_phase_announcement_no_context_omits_goal_line(self):
+        out = self.run_cfq("brief", str(self.batch), "--phase", "02", check=True).stdout
+        lines = out.splitlines()
+        self.assertFalse(
+            any(l.startswith("  Goal") for l in lines),
+            f"--phase 02 has no ## Context, Goal line must be omitted entirely: {out}",
+        )
+        self.assertFalse(any(l.endswith(" ") for l in lines), f"trailing whitespace in: {out}")
+
     def test_phase_announcement_unknown_number(self):
         proc = self.run_cfq("brief", str(self.batch), "--phase", "99")
         self.assertNotEqual(proc.returncode, 0, "--phase 99 should exit non-zero")

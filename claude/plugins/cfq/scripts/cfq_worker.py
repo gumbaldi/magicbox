@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_brief import parse_phase_body  # noqa: E402
+from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
@@ -165,6 +165,7 @@ def cmd_brief(args):
         "failedAttempt": failed_attempt,
         "priorDeviations": prior_deviations,
         "commands": commands,
+        "announcement": render_phase(phase_num(phase_file), fields),
     }))
 
 

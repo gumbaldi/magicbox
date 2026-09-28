@@ -106,8 +106,11 @@ def parse_phase_body(text, fallback_title=None):
 
 
 def render_phase(num, fields):
-    goal = fields["context"][:220].rstrip(" ")
-    lines = [f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}", f"  Goal     {goal}"]
+    lines = [f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"]
+    goal_lines = cfq_text.wrap(fields["context"], width=68, max_lines=4)
+    for i, line in enumerate(goal_lines):
+        prefix = "  Goal     " if i == 0 else " " * 11
+        lines.append(f"{prefix}{line}")
     if fields["files"]:
         lines.append(f"  Files    {', '.join(fields['files'])}")
     if fields["check"]:
