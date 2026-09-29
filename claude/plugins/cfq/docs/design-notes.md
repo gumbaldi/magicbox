@@ -68,13 +68,55 @@ self-critique questions have the same shape.
 
 ## ifq: why the base-branch question always fires
 
-`new`-branch base resolution used to ask only for the `ambiguous` and `newerCandidate` cases,
-picking `dependsOn`/`highestBatch`/`main` silently the rest of the time. That hid a real decision:
-unmerged batches chain onto each other, so which branch a new one builds on decides which earlier,
-still-unmerged work it inherits — a silent pick could carry work the user didn't expect to see
-land in this batch, with no chance to notice before the branch was already cut. Asking every time,
-with the derived base recommended first, keeps that choice visible without changing which branch
-usually gets picked in practice — decided in the same interview that added `resume`/`start`.
+`new`-branch base resolution used to ask only for the `newerCandidate` case, picking
+`highestBatch`/`main` silently the rest of the time. That hid a real decision: unmerged batches
+chain onto each other, so which branch a new one builds on decides which earlier, still-unmerged
+work it inherits — a silent pick could carry work the user didn't expect to see land in this batch,
+with no chance to notice before the branch was already cut. Asking every time, with the derived
+base recommended first, keeps that choice visible without changing which branch usually gets picked
+in practice — decided in the same interview that added `resume`/`start`.
+
+## ifq: why `.dependsOn` never picks the base branch
+
+Reported from `/home/code/git/kankuri` (batch 031 depending on 028, 2026-09-28): the new branch was
+recommended on the stale dependency branch `cfq/028-…` while newer unmerged batch branches
+`cfq/029-…` and `cfq/030-…` already existed — `bin/cfq branch plan` used to derive the base from
+`.dependsOn` first (two now-removed `baseSource` values named after the dependency chain itself)
+and only fall back to the chain decision (`_chain_base()`) when no unmerged dependency branch
+existed at all.
+
+`.dependsOn` is a selection gate, not a base-branch signal: a batch whose dependency isn't yet in
+`impl/done/` is already never offered by `/ifq` (**Batch Selection Rules** in
+`references/ifq-batch-start.md`), so by the time a branch is actually cut for a batch, every
+dependency it names is already implemented — its work is either already folded into the newest
+unmerged batch branch (the routine case) or already merged into `main`. Basing on the dependency
+branch itself could then only ever produce a base *older* than the one the chain decision would
+already pick, exactly the kankuri incident. The fix removes both of those `baseSource` values
+entirely — the chain decision (`_chain_base()`) is now the only base path, unconditional.
+
+The rare case an unmerged dependency branch does diverge from the chain — most commonly a
+non-numbered branch the chain logic never considers as a candidate at all, or one abandoned in
+favor of a parallel branch — still needs a safety net rather than silently vanishing: every
+`uncontained` entry gained a `dependency` boolean, `true` when that branch is also named by the
+batch's own `.dependsOn` and is missing from the chosen base. An entry appended this way (one that
+never became a chain candidate on its own) never flips `baseSource` — it's a warning surfaced in
+the base-branch question, not a vote for a different base.
+
+## pfq/ifq: why framework findings never go through SendFeedback
+
+Reported from `/home/code/git/kankuri` (2026-09-28), more than once: a session — typically in a
+follow-up conversation after `/ifq` or `/pfq` had already finished — drafted a finding about cfq
+itself through the general Claude Code `SendFeedback` tool instead of `bin/cfq note plan
+--framework`. `SendFeedback` reaches the Claude Code product team, not the cfq maintainer, so the
+finding was never seen; the most recent instance was the branch-base finding fixed in batch `047`
+phase 01, itself first reported that way.
+
+The rule already lived in `references/queue-entries.md`'s **Plan Entry** section, but that file is
+a cold-path reference `ifq` only reads when actually parking out-of-scope work — it never covered
+the follow-up-conversation case, since by then the parking step had already run or never runs
+again. The fix states the rule in both worker `SKILL.md` files' opening paragraph, not only in the
+reference: a `SKILL.md` stays in context for the whole conversation, follow-ups included, while the
+reference is loaded only on the parking path itself.
 
 ## pfq: why Phase Quality's five rules exist
 

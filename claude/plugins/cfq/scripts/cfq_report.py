@@ -11,9 +11,6 @@
 
 Ported from cfq-report.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 JSON shapes, text output, exit codes, error objects) is the invariant this file preserves.
-`html.escape()`-equivalent output (`html_escape_jq`) is applied everywhere the shell version's
-`@html` jq filter ran, matching jq's exact five-character escape table rather than Python's own
-`html.escape` (which spells the apostrophe differently).
 """
 
 import argparse
@@ -28,38 +25,13 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
-from cfq_lib.markdown import esc, html_escape_jq, md_inline, md_min  # noqa: E402,F401
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-
-# Shared by html's per-batch report and its collected index.html, and (batch 040 phase 02) by the
-# portal viewer shell -- one visual language, not three. The stylesheet itself now lives at
-# `portal/style.css` (moved there verbatim, then extended for the viewer's own overview/cost-tree
-# markup); this constant reads it back rather than holding a second copy, so the two HTML verbs
-# below keep working unchanged while the viewer owns the source file. Every colour is a custom
-# property defined on bare :root; the dark-mode and print @media blocks only ever redefine tokens
-# that already exist there (tests/test_report.py asserts this structurally) -- no colour gets its
-# only definition inside a media query.
-
-
-def _load_report_style_css():
-    """Reads `portal/style.css`, one level up from `scripts/` (this file's own directory) --
-    the same relative layout in a checkout and in an installed plugin cache. A missing or
-    unreadable file degrades to "" rather than raising: a report or index page would rather ship
-    unstyled than fail outright over a stylesheet."""
-    try:
-        return (SCRIPT_DIR.parent / "portal" / "style.css").read_text()
-    except OSError:
-        return ""
-
-
-REPORT_STYLE_CSS = _load_report_style_css()
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
@@ -278,8 +250,8 @@ def phase_layer_sums(tel):
     `subagent` only when `subagent_worker` is entirely absent -- the same shim `cmd_summary`
     applied before this helper existed), `main_explore` = `subagent_explore`, `worker_explore` =
     empty (no such split existed before schema 2). This is the one place both `cmd_summary` and
-    `telemetry_html` read a phase's layer split from -- no subtraction anywhere downstream, since
-    every layer here is already its own disjoint pool."""
+    `cfq_portal.py`'s own cost aggregation read a phase's layer split from -- no subtraction
+    anywhere downstream, since every layer here is already its own disjoint pool."""
     tel = tel if isinstance(tel, dict) else {}
     layers = tel.get("layers")
     if isinstance(layers, dict):
@@ -403,11 +375,10 @@ def _tsv_field(v):
     return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
 
 
-# ---- report derivations: status glyph, summary, timestamps, formatting, topic, row ---------
+# ---- report derivations: status glyph, summary, timestamps, formatting ---------------------
 #
-# Everything phases 02-07 render is derived here, once, from a phase dict -- pure functions, no
-# I/O, so they're testable without a batch directory or a subprocess (see tests/test_report.py's
-# TestDerivations).
+# Pure functions over a phase dict, no I/O, feeding `report summary`/`report index`/`report
+# detail` and `cfq_portal.py` (see tests/test_report.py's TestDerivations).
 
 # The cfq icon set from references/output-format.md -- shape-coded, not colour-coded, so the
 # status survives a colourblind reader and a monochrome print alike.
@@ -476,15 +447,9 @@ def parse_ts(iso):
         return None
 
 
-def fmt_datetime(iso):
-    """`"2026-09-21T13:16:49.329Z"` -> `"2026-09-21 15:16"` (local time) -- the HTML report's
-    format. "" when `parse_ts` fails."""
-    dt = parse_ts(iso)
-    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
-
-
 def fmt_short(iso):
-    """Same source as `fmt_datetime`, the terminal table's compact format: `"21.09 15:16"`."""
+    """`"2026-09-21T13:16:49.329Z"` -> `"21.09 13:16"` (local time) -- `report index --text`'s
+    compact date column. "" when `parse_ts` fails."""
     dt = parse_ts(iso)
     return dt.strftime("%d.%m %H:%M") if dt else ""
 
@@ -524,73 +489,7 @@ def fmt_tokens(n):
     return f"{k / 1000.0:.1f}M"
 
 
-_LEADING_NUMBER_RE = re.compile(r"^\d+-")
-_LEADING_DIGITS_RE = re.compile(r"^(\d+)")
-
-
-def phase_topic(phase_id):
-    """`"01-note-sweep-verb"` -> `"Note sweep verb"`. Strips a leading `NN-`, replaces `-` with
-    spaces, uppercases the first character only -- deliberately not title case, so `"cfq"` and
-    `"rfq"` stay lowercase mid-sentence. An id with no leading number is used as-is after the
-    hyphen replacement."""
-    if not isinstance(phase_id, str):
-        return ""
-    rest = _LEADING_NUMBER_RE.sub("", phase_id, count=1)
-    words = rest.replace("-", " ")
-    if not words:
-        return ""
-    return words[0].upper() + words[1:]
-
-
-def phase_row(phase):
-    """The single row object phases 04 and 06 both build their tables from. Every numeric field
-    goes through `_totals_field` (or its `render.jq_alt` equivalent) so a phase without telemetry
-    yields zeros rather than None, exactly as `build_index_rows` already treats them."""
-    phase = phase if isinstance(phase, dict) else {}
-    phase_id = render.jq_alt(phase.get("phase"), "")
-    status = render.jq_alt(phase.get("status"), "")
-    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
-    nr = m.group(1) if m else ""
-    tel = phase.get("telemetry") if isinstance(phase.get("telemetry"), dict) else {}
-    totals = tel.get("totals") if isinstance(tel.get("totals"), dict) else {}
-    finished = phase_finished(phase)
-    duration_s = int(render.jq_alt(tel.get("wallclock_s"), 0))
-    return {
-        "slug": phase_id,
-        "nr": nr,
-        "topic": phase_topic(phase_id),
-        "status": status,
-        "glyph": status_glyph(status),
-        "finished": finished,
-        "finished_disp": fmt_datetime(finished),
-        "duration_s": duration_s,
-        "duration_disp": fmt_duration(duration_s),
-        "turns": _totals_field(totals, "turns"),
-        "out": _totals_field(totals, "output"),
-        "billable_in": _totals_field(totals, "billable_in"),
-        "cache_read": _totals_field(totals, "cache_read"),
-        "commit": render.jq_alt(phase.get("commit"), ""),
-    }
-
-
-def truncate_words(text, limit):
-    """Cut at the last space at or before `limit` and append a horizontal ellipsis. Text that
-    already fits is returned unchanged, without an ellipsis. A `limit`-length prefix with no
-    space in it falls back to a hard cut at `limit` plus the ellipsis, so a long unbroken token
-    cannot return an empty string."""
-    text = text or ""
-    if len(text) <= limit:
-        return text
-    idx = text.rfind(" ", 0, limit)
-    cut = idx if idx != -1 else limit
-    return text[:cut] + "…"
-
-
-# ---- markdown subset: .batch-context.md -> the report's Overview section -------------------
-#
-# `md_min`/`md_inline` themselves live in `cfq_lib/markdown.py` (imported above), shared with
-# `cfq_portal.py`'s pre-rendered phase-file / queue-entry bodies -- see that module's own
-# docstring for what the subset covers.
+# ---- .batch-context.md -> {heading: body}, read by cfq_portal.py -----------------------------
 
 _MD_SECTION_RE = re.compile(r"^##\s+(.*)$", re.M)
 
@@ -612,364 +511,7 @@ def read_batch_context(dir_):
     return sections
 
 
-OVERVIEW_SECTIONS = [("goal", "Goal"), ("decisions", "Decisions"), ("non-goals", "Non-Goals")]
-
-
-def overview_html(dir_):
-    """`## Invariants` and `## Cross-Phase Contracts` are deliberately excluded -- they are
-    instructions to the implementer, and the report is read after the implementation is done.
-    Returns "" when the file is missing or none of the three sections has content, so a batch
-    predating `.batch-context.md` gets no overview section at all, not an empty box."""
-    sections = read_batch_context(dir_)
-    body_parts = []
-    for key, label in OVERVIEW_SECTIONS:
-        body = sections.get(key, "")
-        if not body:
-            continue
-        body_parts.append(f"<h3>{label}</h3>{md_min(body)}")
-    if not body_parts:
-        return ""
-    return '<section class="overview"><h2>Overview</h2>' + "".join(body_parts) + "</section>"
-
-
-# ---- phase 04: the phase table -- one row per report.json phase record ----------------------
-#
-# `phases` is an append log, not a set: a phase that went red and was re-run appends a second
-# record for the same phase number (`append_phase`, `outcome()`). Every attempt gets its own row,
-# in record order, so a red attempt followed by a green one is visible rather than overwritten.
-
-def phase_table_html(phases):
-    """A table over every phase record's `phase_row()` -- full token balance, one row per
-    attempt. Returns "" for an empty phase list (a batch whose only report.json content is the
-    planning security snapshot gets no empty table)."""
-    rows = [phase_row(p) for p in phases if isinstance(p, dict)]
-    if not rows:
-        return ""
-
-    body_rows = []
-    tot_duration = tot_turns = tot_out = tot_in = tot_cache = 0
-    for row in rows:
-        tot_duration += row["duration_s"]
-        tot_turns += row["turns"]
-        tot_out += row["out"]
-        tot_in += row["billable_in"]
-        tot_cache += row["cache_read"]
-        finished_disp = row["finished_disp"] or "–"
-        body_rows.append(
-            f'<tr class="{esc(row["status"])}">'
-            f'<td class="c">{esc(row["glyph"])}</td><td class="c">{esc(row["nr"])}</td>'
-            f'<td><a href="#p-{esc(row["slug"])}">{esc(row["topic"])}</a></td>'
-            f'<td>{esc(finished_disp)}</td>'
-            f'<td class="n">{esc(row["duration_disp"])}</td>'
-            f'<td class="n">{esc(fmt_int(row["turns"]))}</td>'
-            f'<td class="n">{esc(fmt_int(row["out"]))}</td>'
-            f'<td class="n">{esc(fmt_int(row["billable_in"]))}</td>'
-            f'<td class="n">{esc(fmt_int(row["cache_read"]))}</td>'
-            '</tr>'
-        )
-
-    tfoot = (
-        '<tfoot><tr>'
-        '<td class="c"></td><td class="c"></td><th scope="row">Total</th><td></td>'
-        f'<td class="n">{esc(fmt_duration(tot_duration))}</td>'
-        f'<td class="n">{esc(fmt_int(tot_turns))}</td>'
-        f'<td class="n">{esc(fmt_int(tot_out))}</td>'
-        f'<td class="n">{esc(fmt_int(tot_in))}</td>'
-        f'<td class="n">{esc(fmt_int(tot_cache))}</td>'
-        '</tr></tfoot>'
-    )
-
-    return (
-        '<section class="phase-table"><h2>Phases</h2><div class="tscroll"><table>'
-        '<thead><tr>'
-        '<th class="c"><span class="sr">Status</span>·</th><th class="c">#</th><th>Topic</th>'
-        '<th>Finished</th><th class="n">Duration</th><th class="n">Turns</th>'
-        '<th class="n">Out</th><th class="n">In</th><th class="n">Cache</th>'
-        '</tr></thead>'
-        f'<tbody>{"".join(body_rows)}</tbody>'
-        f'{tfoot}'
-        '</table></div></section>'
-    )
-
-
 # ---- verb: html -----------------------------------------------------------------------------
-
-def extract_goal(planfile):
-    """First two non-empty lines after a `## Context` heading, word-truncated to 320 chars --
-    same extraction as cfq_brief.py's `parse_phase_body`. Budget raised from 220 (which cut
-    mid-sentence with no ellipsis) so two full sentences of context fit."""
-    try:
-        text = pathlib.Path(planfile).read_text()
-    except OSError:
-        return ""
-    return truncate_words(parse_phase_body(text)["context"], 320)
-
-
-def extract_goals(dir_, data):
-    phase_ids = sorted({
-        p.get("phase") for p in data.get("phases", [])
-        if isinstance(p, dict) and p.get("phase")
-    })
-    goals = {}
-    for p in phase_ids:
-        planfile = os.path.join(dir_, "done", f"{p}.md")
-        if not os.path.isfile(planfile):
-            planfile = os.path.join(dir_, f"{p}.md")
-        if not os.path.isfile(planfile):
-            continue
-        goal = extract_goal(planfile)
-        if goal:
-            goals[p] = goal
-    return goals
-
-
-def section_list(items, title):
-    items = render.jq_alt(items, [])
-    if not isinstance(items, list) or len(items) == 0:
-        return ""
-    lis = "".join(f"<li>{esc(x)}</li>" for x in items)
-    return f"<h4>{title}</h4><ul>{lis}</ul>"
-
-
-def section_list_code(items, title):
-    """section_list for entries that are paths or identifiers -- same empty-list contract, each
-    item wrapped in <code>."""
-    items = render.jq_alt(items, [])
-    if not isinstance(items, list) or len(items) == 0:
-        return ""
-    lis = "".join(f"<li><code>{esc(x)}</code></li>" for x in items)
-    return f"<h4>{title}</h4><ul>{lis}</ul>"
-
-
-# ---- phase 05: the Security section -- the planning-time snapshot `report security` writes,
-# rendered once at batch level between the phase table and the phase list.
-
-def _finding_html(finding):
-    """A finding renders from the keys it actually has: `severity` and `title` first (joined with
-    a space), everything else folded into a muted trailing clause. A bare string renders as
-    itself -- both shapes `/pfq`'s Security Check snapshot can carry."""
-    if isinstance(finding, str):
-        return f"<li>{esc(finding)}</li>"
-    if not isinstance(finding, dict):
-        return ""
-    head = " ".join(esc(finding[k]) for k in ("severity", "title") if finding.get(k) not in (None, ""))
-    rest_keys = sorted(k for k in finding.keys() if k not in ("severity", "title"))
-    rest = ", ".join(f"{esc(k)}: {esc(finding[k])}" for k in rest_keys)
-    if head and rest:
-        return f'<li>{head} <span class="muted">({rest})</span></li>'
-    if head:
-        return f"<li>{head}</li>"
-    if rest:
-        return f'<li><span class="muted">{rest}</span></li>'
-    return "<li></li>"
-
-
-_SEVERITY_ORDER = ["critical", "high", "moderate", "low"]
-
-
-def security_html(data):
-    """The **last** snapshot in `data["security"]` -- a batch can accumulate more than one, from
-    planning time onward. Missing key or empty list -> "", no section (same empty-section rule as
-    `section_list`). `available: false`, or `available: true` with nothing in `counts` or
-    `findings`, both render as one muted line; `available: true` with something to show renders
-    `counts` as the header's `<dl class="meta">` grid, then `findings` as a list (or one muted
-    "No findings." line when the list itself is empty but counts are not)."""
-    entries = render.jq_alt(data.get("security") if isinstance(data, dict) else None, [])
-    if not isinstance(entries, list) or not entries:
-        return ""
-    entry = entries[-1]
-    if not isinstance(entry, dict):
-        return ""
-    counts = entry.get("counts") if isinstance(entry.get("counts"), dict) else {}
-    findings = entry.get("findings") if isinstance(entry.get("findings"), list) else []
-    available = bool(entry.get("available"))
-
-    if not available or (not counts and not findings):
-        hint = render.jq_alt(entry.get("hint"), "")
-        at = fmt_datetime(entry.get("at"))
-        when = f" ({at})" if at else ""
-        return (
-            '<section class="security"><h2>Security</h2>'
-            f'<p class="muted">Not available{when} — {esc(hint)}</p></section>'
-        )
-
-    keys = [k for k in _SEVERITY_ORDER if k in counts] + sorted(k for k in counts if k not in _SEVERITY_ORDER)
-    counts_html = "".join(
-        f"<div><dt>{esc(k.capitalize())}</dt><dd>{esc(fmt_int(counts[k]))}</dd></div>" for k in keys
-    )
-    grid = f'<dl class="meta">{counts_html}</dl>' if counts_html else ""
-    if findings:
-        body = f'<ul>{"".join(_finding_html(f) for f in findings)}</ul>'
-    else:
-        body = '<p class="muted">No findings.</p>'
-    return f'<section class="security"><h2>Security</h2>{grid}{body}</section>'
-
-
-def skills_str(t):
-    by_skill = t.get("by_skill") if isinstance(t, dict) else None
-    if not isinstance(by_skill, dict):
-        return "-"
-    return ", ".join(sorted(k for k in by_skill.keys() if k != "-"))
-
-
-def _tele_pair(label, value):
-    """One `<dl class="tele">`/`<dl class="meta">` row, or "" when `value` is empty/the `-`
-    sentinel -- the one rule both the header and the per-phase telemetry grid share: a pair with
-    nothing to say is not rendered, never shown as an empty `<dd>`."""
-    if value in ("", "-"):
-        return ""
-    return f"<div><dt>{esc(label)}</dt><dd>{esc(value)}</dd></div>"
-
-
-def telemetry_html(phase):
-    t = phase.get("telemetry")
-    if not isinstance(t, dict):
-        return ""
-    totals = t.get("totals") if isinstance(t.get("totals"), dict) else {}
-    by_model = t.get("by_model") if isinstance(t.get("by_model"), dict) else {}
-    by_effort = t.get("by_effort") if isinstance(t.get("by_effort"), dict) else {}
-    pairs = [
-        ("Turns", fmt_int(_totals_field(totals, "turns"))),
-        ("Duration", fmt_duration(render.jq_alt(t.get("wallclock_s"), 0))),
-        ("Out", fmt_int(_totals_field(totals, "output"))),
-        ("In", fmt_int(_totals_field(totals, "billable_in"))),
-        ("Cache read", fmt_int(_totals_field(totals, "cache_read"))),
-        ("Model", ", ".join(sorted(by_model.keys()))),
-        ("Effort", ", ".join(sorted(by_effort.keys()))),
-    ]
-    # Additive, same rule as `report summary`'s fields 12-15: a record with no `mode` (every one
-    # written before phase 02) must render exactly as it did before -- no empty "Mode" column, no
-    # "None". `mode` can be "" for a planning-only record, which stays omitted too.
-    mode = render.jq_alt(t.get("mode"), "")
-    if mode:
-        pairs.append(("Mode", mode))
-    pairs.append(("Skills", skills_str(t)))
-    # `main` vs `worker`, straight from the same layer reader `cmd_summary` uses -- no
-    # subtraction, so this can never show a negative split. Gated on the `worker` layer itself
-    # (not the collapsed `subagent`, which also holds Explore turns), so a phase that only ran
-    # Explore agents renders no split line at all, matching `cmd_summary`'s own gate.
-    layers = phase_layer_sums(t)
-    worker_turns = _totals_field(layers["worker"], "turns")
-    worker_output = _totals_field(layers["worker"], "output")
-    if worker_turns or worker_output:
-        main_turns = _totals_field(layers["main"], "turns")
-        main_output = _totals_field(layers["main"], "output")
-        pairs.append((
-            "Orchestrator / worker",
-            f"{fmt_int(main_turns)}/{fmt_int(worker_turns)} turns · "
-            f"{fmt_int(main_output)}/{fmt_int(worker_output)} out",
-        ))
-    rows = "".join(_tele_pair(label, value) for label, value in pairs)
-    if not rows:
-        return ""
-    return f'<dl class="tele">{rows}</dl>'
-
-
-def phase_html(phase, goals):
-    status = phase.get("status") or ""
-    phase_id = phase.get("phase")
-    glyph = status_glyph(status)
-    m = _LEADING_DIGITS_RE.match(phase_id) if isinstance(phase_id, str) else None
-    nr = m.group(1) if m else ""
-    topic = phase_topic(phase_id)
-    goal = goals.get(phase_id or "", "")
-    parts = [
-        f'<section class="phase {status}" id="p-{esc(phase_id)}">',
-        f'<h3><span class="badge {status}">{esc(glyph)} {html_escape_jq(status.upper())}</span> '
-        f'<span class="num">{esc(nr)}</span> {esc(topic)}</h3>',
-        f'<p class="slug">{esc(phase_id)}</p>',
-    ]
-    if goal:
-        parts.append(f'<p class="goal">{esc(goal)}</p>')
-    summary = phase_summary(phase)
-    if summary:
-        parts.append(f'<p>{esc(summary)}</p>')
-    parts.append(telemetry_html(phase))
-    parts.append(section_list(phase.get("triggers"), "Triggers"))
-    parts.append(section_list(phase.get("deviations"), "Deviations"))
-    parts.append(section_list(phase.get("errors"), "Errors"))
-    parts.append(section_list_code(phase.get("filesTouched"), "Files touched"))
-    parts.append(section_list_code(phase.get("parkedPlanEntries"), "Parked plan entries"))
-    verification = render.jq_alt(phase.get("verification"), "")
-    if verification != "":
-        parts.append(f'<p class="verification"><code>{esc(phase.get("verification"))}</code></p>')
-    commit = render.jq_alt(phase.get("commit"), "")
-    if commit != "":
-        parts.append(f'<p class="commit">Commit: <code>{esc(phase.get("commit"))}</code></p>')
-    parts.append("</section>")
-    return "".join(parts)
-
-
-def render_report_html(data, goals, dir_):
-    batch = data.get("batch")
-    phases = data.get("phases", [])
-    green_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
-    red_n = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
-
-    status = outcome(phases)
-    header_badge = (
-        f'<span class="badge {status.lower()}">{esc(status_glyph(status))} '
-        f'{html_escape_jq(status)}</span>'
-    )
-
-    repo = render.jq_alt(data.get("repo"), "")
-    repo_base = os.path.basename(repo.rstrip("/")) if repo else ""
-    started = fmt_datetime(data.get("started"))
-    finished = fmt_datetime(batch_finished(data))
-
-    meta_rows = [f'<div><dt>Repo</dt><dd title="{esc(repo)}">{esc(repo_base)}</dd></div>']
-    meta_rows.append(_tele_pair("Started", started))
-    meta_rows.append(_tele_pair("Finished", finished))
-    meta_rows.append(_tele_pair("Phases", f"{len(phases)} · {green_n} green · {red_n} red"))
-
-    planning = data.get("planning")
-    if planning is not None:
-        totals = planning.get("totals") if isinstance(planning, dict) else None
-        by_model = planning.get("by_model") if isinstance(planning, dict) else None
-        model_join = ", ".join(sorted(by_model.keys())) if isinstance(by_model, dict) else ""
-        planning_val = (
-            f"{fmt_int(_totals_field(totals, 'output'))} out · "
-            f"{fmt_int(_totals_field(totals, 'turns'))} turns"
-        )
-        if model_join:
-            planning_val += f" · {model_join}"
-        meta_rows.append(_tele_pair("Planning", planning_val))
-
-    impl_outputs, impl_turns, impl_models = [], [], set()
-    for p in phases:
-        tel = p.get("telemetry") if isinstance(p, dict) else None
-        totals = tel.get("totals") if isinstance(tel, dict) else None
-        impl_outputs.append(_totals_field(totals, "output"))
-        impl_turns.append(_totals_field(totals, "turns"))
-        by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
-        if isinstance(by_model, dict):
-            impl_models.update(by_model.keys())
-    impl_out_total, impl_turns_total = sum(impl_outputs), sum(impl_turns)
-    if impl_out_total or impl_turns_total or impl_models:
-        impl_val = f"{fmt_int(impl_out_total)} out · {fmt_int(impl_turns_total)} turns"
-        if impl_models:
-            impl_val += f" · {', '.join(sorted(impl_models))}"
-        meta_rows.append(_tele_pair("Implementation", impl_val))
-
-    header = (
-        '<header class="batch"><div class="ident">'
-        f'<h1>{esc(batch)}</h1> {header_badge}</div>'
-        f'<dl class="meta">{"".join(meta_rows)}</dl></header>'
-    )
-
-    body = "".join(phase_html(p, goals) for p in phases if isinstance(p, dict))
-
-    return (
-        '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(batch) + ' report</title>'
-        '<style>' + REPORT_STYLE_CSS + '</style></head><body>'
-        + header
-        + overview_html(dir_)
-        + phase_table_html(phases)
-        + security_html(data)
-        + '<main>' + body + '</main>'
-        + '</body></html>'
-    )
-
 
 def cmd_html(args):
     """Batch 040 phase 05: a thin alias over `portal sync` -- the portal (`cfq_portal.py`) is now

@@ -37,12 +37,12 @@ TITLE_PREFIX_RE = re.compile(r"^# +")
 
 
 def parse_phase_body(text, fallback_title=None):
-    """Mirrors the shell version's `brief_awk`: pulls the first `# ` heading (title), the token
-    on the first non-empty line after `## Size`, the first two non-empty lines after `##
-    Context` (raw, untruncated), the last path segment of each `- \\`...\\`` bullet under `##
-    Affected Files`, and the first non-empty line inside the first fenced code block under `##
-    Verification`. Both the `## Size` token capture and the `## Context` capture (up to two
-    non-empty lines) stop at the next `## ` heading, whichever comes first -- a `## Size` with no
+    """Pulls the first `# ` heading (title), the token on the first non-empty line after `##
+    Size`, the first two non-empty lines after `## Context` (raw, untruncated), the last path
+    segment of each `- \\`...\\`` bullet under `## Affected Files`, and the first non-empty line
+    inside the first fenced code block under `## Verification`. Both the `## Size` token capture
+    and the `## Context` capture (up to two non-empty lines) stop at the next `## ` heading,
+    whichever comes first -- a `## Size` with no
     token before the next heading leaves `size` as `None` (callers already render that as `M`),
     and a `## Context` with fewer than two non-empty lines before the next heading leaves
     `context` covering only what it actually captured.

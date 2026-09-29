@@ -50,8 +50,13 @@ worked on; it stays a framework finding even when no file can be named, since th
 behaviour. A finding about *this* repo's cfq settings (a wrong `codeLanguage`, a missing per-repo
 override) is **not** a framework finding, it belongs to the repo. An ordinary finding uses the call
 above; a framework finding adds the `--framework` flag right after `note plan` — the flag decides
-routing, the caller never picks a target repo or path. A framework entry's `## Origin` additionally
-names the repo the finding was made in, since the entry leaves that repo.
+routing, the caller never picks a target repo or path. A framework finding is never reported
+through `SendFeedback` or any other product-feedback channel — that channel reaches Claude Code's
+maintainers, not cfq's; `note plan --framework` is the only route, and this holds in a follow-up
+conversation after a `pfq`/`ifq` run has ended just as much as mid-phase. `SendFeedback` stays
+correct for a problem with Claude Code itself (a harness tool, the model's own behaviour) that is
+not about cfq. A framework entry's `## Origin` additionally names the repo the finding was made
+in, since the entry leaves that repo.
 
 ## Closing a Plan Entry (`note close`)
 
