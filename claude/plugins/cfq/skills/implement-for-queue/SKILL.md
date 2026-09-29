@@ -10,7 +10,9 @@ argument-hint: <batch or phase>
 
 # Implement-for-Queue: Work Off a Batch Phase by Phase
 
-Always answer in the user's language.
+Always answer in the user's language. A finding about cfq itself — during this session or in a
+follow-up conversation after it — is parked with `bin/cfq note plan --framework` per
+`${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`'s **Plan Entry**, never sent through `SendFeedback`.
 
 ## Output Format
 

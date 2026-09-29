@@ -8,19 +8,23 @@ no pseudo-version increment, no identity derived from Git branch history.
 `check` resolves and judges one named branch (for a free-text base-branch answer) -- also
 read-only, no dispatcher entry of its own since `branch` is already the noun.
 
-On `new`, `base`/`baseRef` are derived from the batch's own `.dependsOn` rather than picked from
-`candidates` by newest commit: `baseSource` is `"dependsOn"` (the one unmerged dependency branch
-that contains every other unmerged one), `"ambiguous"` (no single one does -- falls back to the
-old newest-`lastCommit` candidate, now the exceptional case instead of the default),
-`"highestBatch"` (no unmerged dependency branch -- chains onto the highest-numbered unmerged
-`cfq/<NNN>-...` branch among `candidates` instead, so repos that keep `main` frozen and
-accumulate batches as a chain don't reset to a stale `main`), `"newerCandidate"` (same base as
-`"highestBatch"`, but another unmerged cfq branch not contained in it has a newer commit -- the
-caller asks which to use), or `"main"` (bootstrap only: no unmerged numbered `cfq/` branch exists
-at all). `uncontained` (`new`-mode only) lists every other unmerged cfq branch not contained in
-the chosen base, `{"name", "lastCommit", "newer"}` -- `"newerCandidate"` fires when at least one
-entry has `newer: true`; older entries are still listed, but only ever surfaced as a warning.
-`uncontained` is `[]` for `"dependsOn"`/`"ambiguous"` and in every other mode.
+On `new`, `base`/`baseRef` are always the chain decision (`_chain_base()`) -- `.dependsOn` never
+picks the base. It only gates *when* a batch is selectable (a batch whose dependency is not in
+`impl/done/` is already never offered by `ifq`); by the time a branch is cut for a batch, every
+dependency is implemented and its work is either in the newest unmerged batch branch or already in
+`main`. `baseSource` is `"highestBatch"` (chains onto the highest-numbered unmerged
+`cfq/<NNN>-...` branch among `candidates`, so repos that keep `main` frozen and accumulate batches
+as a chain don't reset to a stale `main`), `"newerCandidate"` (same base as `"highestBatch"`, but
+another unmerged cfq branch not contained in it has a newer commit -- the caller asks which to
+use), or `"main"` (bootstrap only: no unmerged numbered `cfq/` branch exists at all). `uncontained`
+(`new`-mode only) lists every other unmerged cfq branch not contained in the chosen base,
+`{"name", "lastCommit", "newer", "dependency"}` -- `"newerCandidate"` fires when at least one entry
+has `newer: true`; older entries are still listed, but only ever surfaced as a warning. `dependency`
+is the safety net for the rare case where an unmerged `.dependsOn` branch is missing from the
+chosen base (e.g. a non-numbered branch the chain logic never considers, or one abandoned in favor
+of a parallel branch): `true` on that entry, appended if the branch wasn't already an `uncontained`
+entry on its own -- appending never changes `baseSource`. `uncontained` is `[]` in every mode other
+than `new`.
 
 Ported from cfq-branch.sh -- a port, not a redesign: the CLI contract (verbs, argument order, JSON
 shapes, exit codes) is the invariant this file preserves. The remote-is-source-of-truth rule
@@ -359,16 +363,12 @@ def _highest_cfq_branch(candidate_names):
     return highest_name
 
 
-def _dependency_base(repo, batch_name, rchecked, main_ref):
-    """Derives (name, ref, local_only, baseSource) from the batch's `.dependsOn` -- each dep's
-    branch (persisted `changelog branch-for`, else `cfq/<dep>`) is kept when its ref exists
-    (origin first, local when offline) and it is not already an ancestor of `main_ref` (merged
-    deps contribute nothing, same as no dep at all). No unmerged dep branch -> `("main", main_ref,
-    False, "main")` -- the caller turns this into the chain decision (`_chain_base()`), not a
-    final answer on its own. Exactly one branch among the unmerged set that contains every other
-    one (a chain, or a lone dependency) -> that branch, `baseSource: "dependsOn"`. Otherwise ->
-    `(None, None, None, "ambiguous")`, leaving the caller's own newest-candidate fallback in
-    charge, unchanged from before this derivation existed."""
+def _unmerged_dependency_branches(repo, batch_name, rchecked, main_ref):
+    """Every `.dependsOn` entry whose branch exists (persisted `changelog branch-for`, else
+    `cfq/<dep>`; origin first, local when offline) and is not already an ancestor of `main_ref` --
+    merged deps contribute nothing, same as no dep at all. Returns `(name, ref)` pairs. `.dependsOn`
+    no longer picks a base (see the module docstring) -- this is only the input to the safety net in
+    `_emit_new()` that flags an unmerged dependency branch missing from the chosen base."""
     batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch_name
     deps = queue.read_depends(batch_dir)
 
@@ -380,9 +380,9 @@ def _dependency_base(repo, batch_name, rchecked, main_ref):
         origin_ref = f"refs/remotes/origin/{name}"
         local_ref = f"refs/heads/{name}"
         if rchecked and ref_exists(repo, origin_ref):
-            ref, local_only = origin_ref, False
+            ref = origin_ref
         elif ref_exists(repo, local_ref):
-            ref, local_only = local_ref, True
+            ref = local_ref
         else:
             continue  # dep names no branch that exists anywhere -- ignored
 
@@ -391,35 +391,25 @@ def _dependency_base(repo, batch_name, rchecked, main_ref):
         ).returncode == 0:
             continue  # dep already merged into main -- contributes nothing
 
-        unmerged.append((name, ref, local_only))
+        unmerged.append((name, ref))
 
-    if not unmerged:
-        return "main", main_ref, False, "main"
-
-    for name, ref, local_only in unmerged:
-        contains_all_others = all(
-            other_ref == ref
-            or git(repo, "merge-base", "--is-ancestor", other_ref, ref, check=False).returncode == 0
-            for _, other_ref, _ in unmerged
-        )
-        if contains_all_others:
-            return name, ref, local_only, "dependsOn"
-
-    return None, None, None, "ambiguous"
+    return unmerged
 
 
 def _chain_base(repo, cand_objs):
-    """Applied only when `_dependency_base()` returned `baseSource: "main"` (no unmerged
-    `.dependsOn` branch, or every dep merged/missing) -- chains onto the highest-numbered unmerged
+    """The only base decision `new` mode makes -- `.dependsOn` never picks the base (see the
+    module docstring), it only gates selection. Chains onto the highest-numbered unmerged
     `cfq/<NNN>-...` branch among `cand_objs` instead of resetting to `main`, so repos that keep
     `main` frozen and accumulate cfq batches as a chain don't get a stale base. `cand_objs` is
     already filtered/ranked (descending `lastCommit`, `_lastEpoch` still present -- the caller
-    deletes it only after this decision is made). Chain candidates are `cfq/`-prefixed entries
-    whose remainder parses as a batch number and whose `aheadOfMain > 0`; a non-`cfq/` branch or a
-    fully-merged cfq branch (`aheadOfMain == 0`) is never chosen silently. No chain candidate ->
-    `None` (bootstrap case, caller keeps `baseSource: "main"`). Otherwise the highest-numbered
-    chain candidate is the base (`baseSource: "highestBatch"`); every other chain candidate not
-    contained in it (`merge-base --is-ancestor`) becomes one `uncontained` entry, in the same
+    deletes it only after this decision is made, and after the `.dependsOn` safety net that runs
+    on top of it). Chain candidates are `cfq/`-prefixed entries whose remainder parses as a batch
+    number and whose `aheadOfMain > 0`; a non-`cfq/` branch or a fully-merged cfq branch
+    (`aheadOfMain == 0`) is never chosen silently. No chain candidate -> `None` (bootstrap case,
+    caller keeps `baseSource: "main"`). Otherwise the highest-numbered chain candidate is the base
+    (`baseSource: "highestBatch"`); every other chain candidate not contained in it (`merge-base
+    --is-ancestor`) becomes one `uncontained` entry, `dependency: False` (the caller's own
+    `.dependsOn` safety net is the only thing that ever sets this `True`), in the same
     (descending-`lastCommit`) order as `cand_objs` -- `newer: true` when its commit epoch is
     strictly greater than the base's, which also flips `baseSource` to `"newerCandidate"` (the
     base itself is unchanged -- it stays the recommendation, the caller asks). An older
@@ -446,7 +436,9 @@ def _chain_base(repo, cand_objs):
         if contained:
             continue
         newer = c["_lastEpoch"] > base["_lastEpoch"]
-        uncontained.append({"name": c["name"], "lastCommit": c["lastCommit"], "newer": newer})
+        uncontained.append({
+            "name": c["name"], "lastCommit": c["lastCommit"], "newer": newer, "dependency": False,
+        })
         if newer:
             base_source = "newerCandidate"
 
@@ -499,21 +491,36 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     cand_objs.sort(key=lambda c: c["_lastEpoch"])
     cand_objs.reverse()
 
-    base_name, base_ref, base_local_only, base_source = _dependency_base(
-        repo, batch_name, rchecked, main_ref
-    )
+    base_name, base_ref, base_local_only, base_source = "main", main_ref, False, "main"
     uncontained = []
-    if base_source == "ambiguous":
-        if not cand_objs:
-            base_name, base_ref, base_local_only = "main", main_ref, False
+    chained = _chain_base(repo, cand_objs)
+    if chained is not None:
+        base_name, base_ref, base_local_only, base_source, uncontained = chained
+
+    # Safety net: `.dependsOn` never picks the base above, but an unmerged dependency branch
+    # missing from the chosen base is still worth flagging explicitly (the rare case where it
+    # never became a chain candidate at all -- a non-numbered branch, or one abandoned in favor of
+    # a parallel branch). Runs after the base is fixed and before `_lastEpoch` is stripped below,
+    # since it still needs `git log` on the base ref for the same "newer" comparison `_chain_base`
+    # makes. Appending an entry here never changes `base_source`.
+    dependency_branches = _unmerged_dependency_branches(repo, batch_name, rchecked, main_ref)
+    if dependency_branches:
+        base_epoch = int(git(repo, "log", "-1", "--format=%ct", base_ref).stdout.strip())
+    for dep_name, dep_ref in dependency_branches:
+        if git(
+            repo, "merge-base", "--is-ancestor", dep_ref, base_ref, check=False
+        ).returncode == 0:
+            continue  # already contained in the chosen base -- nothing to flag
+        existing_entry = next((u for u in uncontained if u["name"] == dep_name), None)
+        if existing_entry is not None:
+            existing_entry["dependency"] = True
         else:
-            base_name = cand_objs[0]["name"]
-            base_ref = cand_objs[0]["ref"]
-            base_local_only = cand_objs[0]["localOnly"]
-    elif base_source == "main":
-        chained = _chain_base(repo, cand_objs)
-        if chained is not None:
-            base_name, base_ref, base_local_only, base_source, uncontained = chained
+            dep_last_commit = git(repo, "log", "-1", "--format=%cI", dep_ref).stdout.strip()
+            dep_epoch = int(git(repo, "log", "-1", "--format=%ct", dep_ref).stdout.strip())
+            uncontained.append({
+                "name": dep_name, "lastCommit": dep_last_commit,
+                "newer": dep_epoch > base_epoch, "dependency": True,
+            })
 
     for c in cand_objs:
         del c["_lastEpoch"]

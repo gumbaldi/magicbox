@@ -164,7 +164,7 @@ may hold more than two other open batches — but only when another batch is act
   answer naming a batch that is not in `selection.selectable` is reported against `queueText`'s
   own reason for that batch and the question is asked once more; a second miss ends the session
   without touching anything, mirroring **Branch and Changelog on Go-Ahead**'s free-text
-  resolution for the `ambiguous` base-branch question — point at that paragraph, don't repeat it.
+  resolution for the base-branch question — point at that paragraph, don't repeat it.
 - On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
   <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
   second time for the freshly chosen batch, because choosing it *was* the confirmation.
@@ -213,21 +213,23 @@ deciding, so a stale local `main`/branch never gets silently proposed as a base.
 `aheadOfMain`, `behindRemote`, `aheadRemote`, `localOnly`, `highestBatch`, `mergedIntoOriginMain`,
 `lastCommit`), ranked by `lastCommit` descending, kept for the base question below (recommended
 first, then up to two more, then `main`) and for the free-text answer's resolution. `base`/
-`baseRef` are derived from the batch's own `.dependsOn`, in a `baseSource` field:
+`baseRef` are always the chain decision — the batch's own `.dependsOn` only gates *when* a batch is
+selectable (a blocked batch never reaches `/ifq` at all) and never picks the base — in a
+`baseSource` field:
 
-- `"dependsOn"` — the one unmerged dependency branch that contains every other unmerged one;
-- `"ambiguous"` — no single dependency branch contains all the others (falls back to
-  `candidates`' newest-`lastCommit` recommendation, unchanged);
-- `"highestBatch"` — no unmerged dependency branch: the new batch chains onto the
-  highest-numbered unmerged `cfq/<NNN>-…` branch (non-`cfq/` branches are never chosen here);
+- `"highestBatch"` — the new batch chains onto the highest-numbered unmerged `cfq/<NNN>-…` branch
+  (non-`cfq/` branches are never chosen here);
 - `"newerCandidate"` — same base as `highestBatch`, but another unmerged `cfq/` branch that is
   not contained in it has a newer commit;
 - `"main"` — bootstrap only: no unmerged numbered `cfq/` branch exists (`base: "main"`, `baseRef`
   pointing at `origin/main`).
 
-Every response additionally carries `uncontained` — array of `{"name", "lastCommit", "newer"}`,
-unmerged `cfq/` branches whose tip is not in the chosen base, empty unless `baseSource` is
-`highestBatch`/`newerCandidate`, always `[]` on `continue`/`off` — plus `remoteChecked` (bool),
+Every response additionally carries `uncontained` — array of `{"name", "lastCommit", "newer",
+"dependency"}`, every unmerged numbered `cfq/` branch not contained in the chosen base, plus any
+unmerged `.dependsOn` branch not contained in it either (`dependency: true` — the safety net for
+the rare case where a dependency branch never became a chain candidate on its own, e.g. a
+non-numbered branch, or one abandoned in favor of a parallel branch), always `[]` on
+`continue`/`off` — plus `remoteChecked` (bool),
 `remoteWarning` (string or `null`, set only when the chosen base — local `main` on `new`, the
 persisted branch on `continue` — has commits `origin` doesn't and the gap can't be auto-resolved),
 `remoteState` (`"synced"`/`"ahead"`/`"behind"`/`"diverged"`/`"unknown"` — the chosen base's own
@@ -265,13 +267,12 @@ on `mode` to read any of the three.
   changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
   the `new` path.
 - **`new`** → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question
-  Context**, fires for every `baseSource` — none of the four resolves silently any more. What it
+  Context**, fires for every `baseSource` — none of the three resolves silently. What it
   is about: a new branch `<branch>` is created for batch `<batch>`. The problem: which existing
   branch it builds on decides which earlier, unmerged work it contains. Options, `base`
   recommended first, always:
   - First, labelled `(Recommended)`: `base`, described by `baseSource` in plain words —
-    `"dependsOn"` → "the batch this one depends on"; `"highestBatch"`/`"newerCandidate"` → "the
-    highest unmerged batch"; `"ambiguous"` → "the newest unmerged branch"; `"main"` → "main — no
+    `"highestBatch"`/`"newerCandidate"` → "the highest unmerged batch"; `"main"` → "main — no
     unmerged batch".
   - Then up to two further entries from `candidates` (already ranked, skipping `base`), each
     described by `aheadOfMain`, `lastCommit`, and `local only` / `already contained in
@@ -279,12 +280,16 @@ on `mode` to read any of the three.
   - `main`, when it is neither `base` nor among those two.
 
   A non-empty `uncontained` and `baseSource: "newerCandidate"` fold their warnings into the
-  question text instead of surfacing as a separate special case: name every `uncontained` entry's
-  `lastCommit` ("`<name>` has commits not in `<base>`"), and, on `newerCandidate`, that a newer
-  unmerged `cfq/` branch exists than the highest batch number. The `   └ ⚠️` sub-line under
-  `Branch` per `uncontained` entry — "`<name>` has commits not in `<base>` (last commit
-  `<lastCommit>`)" — still prints after the checkout, regardless of which option was picked; name
-  `baseSource` in the `Branch` status line itself either way.
+  question text instead of surfacing as a separate special case. An `uncontained` entry with
+  `dependency: true` is named first, worded as a missing dependency rather than a generic
+  warning: "`<name>` is a dependency of this batch and is not in `<base>`". Every other
+  `uncontained` entry names its `lastCommit` ("`<name>` has commits not in `<base>`"), and, on
+  `newerCandidate`, the question text also says that a newer unmerged `cfq/` branch exists than
+  the highest batch number. The `   └ ⚠️` sub-line under `Branch` per `uncontained` entry prints
+  after the checkout regardless of which option was picked, using the same wording split: "`<name>`
+  is a dependency of this batch and is not in `<base>`" when `dependency: true`, else "`<name>` has
+  commits not in `<base>` (last commit `<lastCommit>`)"; name `baseSource` in the `Branch` status
+  line itself either way.
 
   The free-text answer (`AskUserQuestion`'s built-in "Other") is resolved with `bin/cfq branch
   check "<repo-root>" "<name>"`: `UNRESOLVED` → ask once more naming the unresolvable input; a

@@ -295,11 +295,11 @@ builder) for batch status/open/done/blocked/planning rather than re-deriving it,
 `cfq_report.phase_layer_sums()` (batch 038's four-layer cost split, schema-1 fallback included) for
 every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, one
 level of bullets or ordered items, paragraphs, fenced code blocks, `**bold**`/`` `code` ``, nothing
-else) moved out of `cfq_report.py` into its own module here, since both `cfq_report.py`'s Overview
-section (a still-standing but now unreachable-from-any-CLI-verb pure-function pipeline, kept for its
-own direct pure-function test coverage rather than deleted outright) and `cfq_portal.py`'s
-pre-rendered phase-file/queue-entry bodies share it — `cfq_report.py` imports
-`esc`/`html_escape_jq`/`md_min`/`md_inline` back rather than keeping a second copy.
+else) moved out of `cfq_report.py` into its own module here, originally shared with
+`cfq_report.py`'s own Overview-section renderer; that renderer had no production caller left once
+`report html` became a thin `portal sync` alias (batch 040 phase 05) and was deleted as dead code
+(batch 047 phase 03) — `read_batch_context` itself stayed, still used directly by `cfq_portal.py`,
+so `cfq_lib/markdown.py` is now used by `cfq_portal.py` alone.
 
 With `reportDir` set, `sync()` additionally mirrors every data file into
 `<reportDir>/<repo-basename>[-<hash>]/data/…` and installs one global viewer shell at `reportDir`

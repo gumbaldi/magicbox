@@ -537,6 +537,9 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
             out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
         )
         self.assertFalse(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
+        self.assertFalse(
+            out["uncontained"][0]["dependency"], msg=f"uncontained dependency -> {out}"
+        )
 
     def test_remote_only_candidate_still_listed(self):
         # Branch pushed, local ref then deleted -> still listed, localOnly false, ref points at
@@ -576,6 +579,9 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
             msg=f"uncontained name -> {out}",
         )
         self.assertTrue(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
+        self.assertFalse(
+            out["uncontained"][0]["dependency"], msg=f"uncontained dependency -> {out}"
+        )
 
     def test_older_uncontained_branch_only_warns(self):
         # Two independently-branched cfq branches, the higher-numbered one has the newer commit
@@ -590,6 +596,9 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
             out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
         )
         self.assertFalse(out["uncontained"][0]["newer"], msg=f"uncontained newer -> {out}")
+        self.assertFalse(
+            out["uncontained"][0]["dependency"], msg=f"uncontained dependency -> {out}"
+        )
 
     def test_non_cfq_branch_never_chained(self):
         # Only a non-cfq/ branch is ahead of main -> never chosen as base silently, base stays
@@ -682,23 +691,67 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         names = {c["name"] for c in out["candidates"]}
         self.assertNotIn("HEAD", names, msg=f"origin/HEAD leaked into candidates -> {out}")
 
-    def test_dependson_unmerged_branch_wins_over_newest_candidate(self):
-        # A `.dependsOn` entry with an unmerged branch wins the base even though an unrelated
-        # branch has a newer commit -- the newest-commit heuristic is demoted to a fallback.
+    def test_dependson_dependency_already_in_newest_branch(self):
+        # The reported incident (kankuri batch 031 depending on 028 while 029/030 existed): the
+        # dependency's branch already sits inside the newest unmerged chain branch. `.dependsOn`
+        # still never picks the base -- it stays the chain decision -- and since the dependency is
+        # fully contained, no `uncontained` warning fires either.
+        self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
+        self.run_clean(
+            "git", "checkout", "-q", "-b", "cfq/002-2026-01-02-b", "cfq/001-2026-01-01-a",
+            cwd=self.repo,
+        )
+        env_b = {"GIT_AUTHOR_DATE": "2026-01-02T00:00:00", "GIT_COMMITTER_DATE": "2026-01-02T00:00:00"}
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "b", cwd=self.repo, env=env_b,
+        )
+        self.run_clean("git", "push", "-q", "-u", "origin", "cfq/002-2026-01-02-b", cwd=self.repo)
+        self.run_clean(
+            "git", "checkout", "-q", "-b", "cfq/003-2026-01-03-c", "cfq/002-2026-01-02-b",
+            cwd=self.repo,
+        )
+        env_c = {"GIT_AUTHOR_DATE": "2026-01-03T00:00:00", "GIT_COMMITTER_DATE": "2026-01-03T00:00:00"}
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "c", cwd=self.repo, env=env_c,
+        )
+        self.run_clean("git", "push", "-q", "-u", "origin", "cfq/003-2026-01-03-c", cwd=self.repo)
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self._depends_on("2026-02-10-topic", "001-2026-01-01-a")
+        out = self.json_out(self._plan("2026-02-10-topic"))
+        self.assertEqual(out["base"], "cfq/003-2026-01-03-c", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
+        self.assertIn(
+            out["baseSource"], {"highestBatch", "newerCandidate", "main"},
+            msg=f"baseSource must never be dependsOn/ambiguous -> {out}",
+        )
+
+    def test_dependson_missing_from_base_flagged_as_dependency(self):
+        # A `.dependsOn` entry and an unrelated branch, both branched independently from main --
+        # the base is still the chain decision (the newer, higher-numbered branch), and the
+        # dependency branch missing from it is flagged explicitly rather than silently promoted to
+        # base.
         self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
         self._branch("cfq/999-2026-01-09-newer-unrelated", "2026-01-09T00:00:00")
         self._depends_on("2026-02-10-topic", "001-2026-01-01-a")
         out = self.json_out(self._plan("2026-02-10-topic"))
-        self.assertEqual(out["base"], "cfq/001-2026-01-01-a", msg=f"base -> {out}")
         self.assertEqual(
-            out["baseRef"], "refs/remotes/origin/cfq/001-2026-01-01-a", msg=f"baseRef -> {out}"
+            out["base"], "cfq/999-2026-01-09-newer-unrelated", msg=f"base -> {out}"
         )
-        self.assertEqual(out["baseSource"], "dependsOn", msg=f"baseSource -> {out}")
-        self.assertEqual(out["uncontained"], [], msg=f"dependsOn uncontained -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        self.assertEqual(
+            out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
+        )
+        self.assertTrue(
+            out["uncontained"][0]["dependency"], msg=f"uncontained dependency -> {out}"
+        )
 
-    def test_dependson_chain_prefers_the_branch_built_on_the_other(self):
+    def test_dependson_chain_dependency_contained_in_base(self):
         # Two deps where the second was branched from the first -> the second contains the first,
-        # so it is the base -- not `main`, not an ambiguous pick.
+        # so the chain decision already lands on it and no `uncontained` entry fires.
         self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
         self.run_clean(
             "git", "checkout", "-q", "-b", "cfq/002-2026-01-02-b", "cfq/001-2026-01-01-a",
@@ -714,7 +767,8 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self._depends_on("2026-02-11-topic", "001-2026-01-01-a", "002-2026-01-02-b")
         out = self.json_out(self._plan("2026-02-11-topic"))
         self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "dependsOn", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
     def test_dependson_merged_dep_falls_back_to_main(self):
         # A dep whose branch is already an ancestor of origin/main contributes nothing -> base
@@ -745,15 +799,41 @@ class BranchPlanRemoteCandidatesTest(CfqTestCase):
         self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
         self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
 
-    def test_dependson_ambiguous_falls_back_to_newest_candidate(self):
+    def test_dependson_two_independent_deps_one_flagged(self):
         # Two unmerged dep branches, neither containing the other (both branched independently
-        # from main) -> ambiguous, base falls back to today's newest-commit candidate.
+        # from main) -> the chain decision picks the higher-numbered one, the other is flagged as
+        # a missing dependency rather than resolving the base by way of `.dependsOn` itself.
         self._branch("cfq/001-2026-01-01-a", "2026-01-01T00:00:00")
         self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
         self._depends_on("2026-02-13-topic", "001-2026-01-01-a", "002-2026-01-02-b")
         out = self.json_out(self._plan("2026-02-13-topic"))
-        self.assertEqual(out["baseSource"], "ambiguous", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
         self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        self.assertEqual(
+            out["uncontained"][0]["name"], "cfq/001-2026-01-01-a", msg=f"uncontained name -> {out}"
+        )
+        self.assertTrue(
+            out["uncontained"][0]["dependency"], msg=f"uncontained dependency -> {out}"
+        )
+
+    def test_dependson_non_numbered_branch_appended_as_dependency(self):
+        # A dependency branch that never parses as a batch number (a legacy, non-numbered slug) is
+        # not a chain candidate on its own -- the chain decision lands on the numbered branch, and
+        # the dependency is appended to `uncontained` rather than silently dropped. Appending never
+        # flips `baseSource`.
+        self._branch("cfq/2026-01-01-legacy", "2026-01-01T00:00:00")
+        self._branch("cfq/002-2026-01-02-b", "2026-01-02T00:00:00")
+        self._depends_on("2026-02-14-topic", "2026-01-01-legacy")
+        out = self.json_out(self._plan("2026-02-14-topic"))
+        self.assertEqual(out["base"], "cfq/002-2026-01-02-b", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
+        entry = out["uncontained"][0]
+        self.assertEqual(entry["name"], "cfq/2026-01-01-legacy", msg=f"uncontained name -> {out}")
+        self.assertTrue(entry["dependency"], msg=f"uncontained dependency -> {out}")
+        self.assertIn("lastCommit", entry, msg=f"uncontained lastCommit -> {out}")
+        self.assertFalse(entry["newer"], msg=f"uncontained newer -> {out}")
 
     def test_dependson_missing_branch_ignored(self):
         # A dep whose branch exists nowhere is ignored, not an error -> base main.
