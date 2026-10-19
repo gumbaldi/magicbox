@@ -244,7 +244,7 @@ def cmd_preflight(args):
         if r.get("path") == repo:
             candidates = [
                 b for b in r.get("batches", [])
-                if not b["archived"] and (b["open"] > 0 or b["done"] > 0)
+                if not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b.get("skipped", 0) > 0)
             ]
             break
 

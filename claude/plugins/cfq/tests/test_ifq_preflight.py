@@ -19,6 +19,8 @@ from cfq_lib import text  # noqa: E402
 
 
 class IfqPreflightTest(CfqTestCase):
+    auto_status = True
+
     def setUp(self):
         super().setUp()
         # Copies the whole scripts/ dir so cfq_ifq_preflight.py's own script_dir resolution
@@ -371,6 +373,41 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["batch"]["name"], "2026-01-01-unfinished", msg=f"batch = {out}")
         self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
         self.assertIsNone(out["contextGate"], msg=f"contextGate should be null: {out}")
+
+    def test_batch_with_every_remaining_phase_skipped_is_still_selected(self):
+        repo = self._setup_repo("all-skipped")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-skipped"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / "02-b.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(batch, **{"01_a": "done", "02_b": "skipped"})
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"all-remaining-skipped status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-01-skipped", msg=f"batch = {out}")
+
+    def test_batch_without_readable_status_file_is_not_offered(self):
+        self.auto_status = False
+        repo = self._setup_repo("no-status-file")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        broken = qdir / "2026-01-01-broken"
+        broken.mkdir(parents=True)
+        (broken / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        bad = qdir / "2026-01-02-badjson"
+        bad.mkdir(parents=True)
+        (bad / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (bad / "status.json").write_text("{not json")
+        good = qdir / "2026-01-03-good"
+        good.mkdir(parents=True)
+        (good / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(good)
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-03-good", msg=f"batch = {out}")
+        offered = [x["name"] for x in out["selection"]["selectable"]]
+        self.assertNotIn("2026-01-01-broken", offered, msg=f"selectable = {offered}")
+        self.assertNotIn("2026-01-02-badjson", offered, msg=f"selectable = {offered}")
 
     def test_all_done_not_finished_batch_still_blocks_a_dependent(self):
         repo = self._setup_repo("unfinished-blocks-dependent")

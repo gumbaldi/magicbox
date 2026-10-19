@@ -5,10 +5,12 @@ import os
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, write_status
 
 
 class ScanTest(CfqTestCase):
+    auto_status = True
+
     def setUp(self):
         super().setUp()
         self.tmp = self._repos_dir
@@ -127,7 +129,9 @@ class ScanTest(CfqTestCase):
                     "name": "2026-01-01-demo",
                     "priority": "high",
                     "open": 2,
+                    "error": 0,
                     "done": 1,
+                    "skipped": 0,
                     "archived": False,
                     "report": True,
                     "dependsOn": [],
@@ -150,7 +154,9 @@ class ScanTest(CfqTestCase):
                     "name": "2026-01-02-demo",
                     "priority": "",
                     "open": 0,
+                    "error": 0,
                     "done": 2,
+                    "skipped": 0,
                     "archived": True,
                     "report": False,
                     "dependsOn": [],
@@ -383,6 +389,8 @@ class ScanTest(CfqTestCase):
 
 
 class ScanNextTest(CfqTestCase):
+    auto_status = True
+
     """`bin/cfq scan --format=next` — the ranking `/ifq` would pick, moved out of
     cfq_ifq_preflight.py so `/cfq`'s dashboard can show the same answer."""
 
@@ -562,3 +570,94 @@ class ScanNextTest(CfqTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScanStatusCountsTest(CfqTestCase):
+    """Phase 04: the counts come from status.json -- done/error/skipped are told apart, a batch
+    without a readable status.json is reported with zero counts and never aborts the scan."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = self._repos_dir
+
+    def _impl(self, repo):
+        return self.tmp / repo / ".claude" / "cfq" / "impl"
+
+    def _batch(self, repo, name, phases, archived=False):
+        impl = self._impl(repo)
+        bdir = (impl / "done" / name) if archived else (impl / name)
+        bdir.mkdir(parents=True)
+        for slug in phases:
+            (bdir / f"{slug}.md").touch()
+        return bdir
+
+    def _scan(self, fmt=None):
+        args = ["scan"] + ([f"--format={fmt}"] if fmt else [])
+        return json.loads(self.run_cfq(*args, env={"CFQ_SCAN_ROOTS": str(self.tmp)}).stdout)
+
+    def _batches(self, data, repo):
+        r = next(r for r in data["repos"] if r["path"] == str(self.tmp / repo))
+        return {b["name"]: b for b in r["batches"]}
+
+    def test_routine_counts_every_status(self):
+        b = self._batch("repo-mixed", "2026-05-01-mixed", ["01-a", "02-b", "03-c", "04-d"])
+        write_status(b, **{"01_a": "done", "02_b": "error", "03_c": "skipped"})
+
+        rec = self._batches(self._scan(), "repo-mixed")["2026-05-01-mixed"]
+        self.assertEqual(
+            (rec["open"], rec["error"], rec["done"], rec["skipped"], rec["inProgress"]),
+            (2, 1, 1, 1, True), msg=rec,
+        )
+
+    def test_only_error_is_in_progress_only_skipped_is_not(self):
+        err = self._batch("repo-edge", "2026-05-01-err", ["01-a", "02-b"])
+        write_status(err, **{"01_a": "error"})
+        skp = self._batch("repo-edge", "2026-05-02-skp", ["01-a", "02-b"])
+        write_status(skp, **{"01_a": "skipped"})
+
+        recs = self._batches(self._scan(), "repo-edge")
+        self.assertTrue(recs["2026-05-01-err"]["inProgress"], msg=recs)
+        self.assertEqual(recs["2026-05-01-err"]["open"], 2, msg=recs)
+        self.assertFalse(recs["2026-05-02-skp"]["inProgress"], msg=recs)
+        self.assertEqual(recs["2026-05-02-skp"]["skipped"], 1, msg=recs)
+
+    def test_archived_batch_reports_done_and_skipped(self):
+        b = self._batch("repo-arch", "2026-05-01-arch", ["01-a", "02-b", "03-c"], archived=True)
+        write_status(b, **{"01_a": "done", "02_b": "done", "03_c": "skipped"})
+
+        rec = self._batches(self._scan(), "repo-arch")["2026-05-01-arch"]
+        self.assertEqual((rec["open"], rec["done"], rec["skipped"]), (0, 2, 1), msg=rec)
+        self.assertTrue(rec["archived"], msg=rec)
+
+    def test_all_skipped_batch_is_still_a_next_candidate(self):
+        b = self._batch("repo-allskip", "2026-05-01-allskip", ["01-a", "02-b"])
+        write_status(b, **{"01_a": "skipped", "02_b": "skipped"})
+
+        rec = self._batches(self._scan(), "repo-allskip")["2026-05-01-allskip"]
+        self.assertEqual((rec["open"], rec["done"], rec["skipped"]), (0, 0, 2), msg=rec)
+        nxt = next(r for r in self._scan("next")["repos"] if r["path"] == str(self.tmp / "repo-allskip"))
+        self.assertEqual(nxt["next"], "2026-05-01-allskip", msg=nxt)
+
+    def test_missing_or_invalid_status_file_yields_zero_counts_and_unknown(self):
+        self._batch("repo-broken", "2026-05-01-nostatus", ["01-a", "02-b"])
+        bad = self._batch("repo-broken", "2026-05-02-badjson", ["01-a"])
+        (bad / "status.json").write_text("{not json")
+        good = self._batch("repo-broken", "2026-05-03-good", ["01-a"])
+        write_status(good)
+        other = self._batch("repo-other", "2026-05-01-fine", ["01-a"])
+        write_status(other)
+
+        data = self._scan()
+        recs = self._batches(data, "repo-broken")
+        for name in ("2026-05-01-nostatus", "2026-05-02-badjson"):
+            rec = recs[name]
+            self.assertEqual(
+                (rec["open"], rec["error"], rec["done"], rec["skipped"], rec["inProgress"],
+                 rec["consistency"]),
+                (0, 0, 0, 0, False, "unknown"), msg=rec,
+            )
+        self.assertEqual(recs["2026-05-03-good"]["open"], 1, msg=recs)
+        self.assertIn("2026-05-01-fine", self._batches(data, "repo-other"))
+
+        nxt = {r["path"]: r for r in self._scan("next")["repos"]}
+        self.assertEqual(nxt[str(self.tmp / "repo-broken")]["next"], "2026-05-03-good", msg=nxt)

@@ -19,7 +19,7 @@ SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from cfq_lib import phase_state, text as cfq_text  # noqa: E402
+from cfq_lib import phase_state, queue as cfq_queue, text as cfq_text  # noqa: E402
 
 
 def write_status(batch_dir, _overrides=None, **overrides):
@@ -44,7 +44,32 @@ def write_status(batch_dir, _overrides=None, **overrides):
                 phase_state.transition(batch_dir, slug, spec["status"], reason=spec.get("reason"))
 
 
+def write_status_under(root):
+    """write_status() for every batch directory under every `.claude/cfq/impl` below `root`:
+    plan files without an entry are adopted, an existing entry is never changed. A batch in
+    `impl/done/` (archived) ends with every phase `done`. Used by the test classes that set
+    `auto_status` to give their many ad-hoc batch fixtures a status.json in one place."""
+    root = pathlib.Path(root)
+    for impl in root.rglob(".claude/cfq/impl"):
+        for batch in cfq_queue.list_batch_dirs(impl):
+            write_status(batch)
+        for batch in cfq_queue.list_batch_dirs(impl / "done"):
+            write_status(batch)
+            for slug, entry in phase_state.load(batch)["phases"].items():
+                if entry["status"] in phase_state.PENDING:
+                    phase_state.transition(batch, slug, "done")
+
+
 class CfqTestCase(unittest.TestCase):
+    # A test class sets this True to have every run_cfq()/run_clean() call first give each batch
+    # fixture under self._repos_dir its status.json; a test that needs a batch WITHOUT one sets
+    # `self.auto_status = False` for its own duration.
+    auto_status = False
+
+    def _prepare_status(self):
+        if self.auto_status:
+            write_status_under(self._repos_dir)
+
     def setUp(self):
         """Both roots are .resolve()d immediately: on macOS the system temp dir sits under
         /var, itself a symlink to /private/var, so the raw tempfile path and the canonical path
@@ -79,6 +104,7 @@ class CfqTestCase(unittest.TestCase):
         return env
 
     def run_cfq(self, *args, home=None, env=None, cwd=None, check=False):
+        self._prepare_status()
         run_env = self._base_env()
         run_env["HOME"] = str(home if home is not None else self.home)
         if env:
@@ -93,6 +119,7 @@ class CfqTestCase(unittest.TestCase):
         )
 
     def run_clean(self, *args, env=None, cwd=None, check=False):
+        self._prepare_status()
         run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", ""), "CFQ_PORTAL_SYNC": "0"}
         if env:
             run_env.update(env)

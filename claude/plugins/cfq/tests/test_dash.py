@@ -11,7 +11,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -35,6 +35,8 @@ DASHBOARD_MD = Path(__file__).resolve().parents[1] / "references" / "dashboard.m
 
 
 class TestDash(CfqTestCase):
+    auto_status = True
+
     def _plain_repo(self, path):
         path.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", "-q"], cwd=path, check=True)
@@ -285,6 +287,32 @@ class TestDash(CfqTestCase):
         self.assertIn(
             "0/2 | IN_PROGRESS", rendered, f"unfinished batch status wrong:\n{rendered}"
         )
+
+    def test_batch_row_shows_skipped_suffix_only_when_present(self):
+        tmp = self._repos_dir / "skippedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        with_skip = self._open_batch(repo, "2026-05-01-with-skip", open_nums=("01", "02"), done_nums=("00",))
+        write_status(with_skip, **{"01_phase": "skipped"})
+        plain = self._open_batch(repo, "2026-05-02-plain", open_nums=("01", "02"), done_nums=("00",))
+        write_status(plain)
+
+        rendered = self.run_cfq("dash", "render", str(repo), env={"CFQ_SCAN_ROOTS": str(tmp)}).stdout
+
+        self.assertIn("| 1/1 · 1 skipped | IN_PROGRESS |", rendered, f"skipped suffix missing:\n{rendered}")
+        self.assertIn("| 2/1 | IN_PROGRESS |", rendered, f"plain batch row changed:\n{rendered}")
+
+    def test_all_skipped_batch_is_still_listed(self):
+        tmp = self._repos_dir / "allskippedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        b = self._open_batch(repo, "2026-05-01-allskip", open_nums=("01", "02"))
+        write_status(b, **{"01_phase": "skipped", "02_phase": "skipped"})
+
+        rendered = self.run_cfq("dash", "render", str(repo), env={"CFQ_SCAN_ROOTS": str(tmp)}).stdout
+
+        self.assertIn("| 2026-05-01-allskip |", rendered, f"all-skipped batch row missing:\n{rendered}")
+        self.assertIn("0/0 · 2 skipped | OK |", rendered, f"all-skipped batch row wrong:\n{rendered}")
 
     def test_this_repo_all_flag_lists_archived_too(self):
         # --all: every batch shown, archived included, no summary line, expansion unchanged.
@@ -689,7 +717,7 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
         this_repo = {
             "path": "/x/repo-a", "name": "repo-a",
             "batches": [{
-                "name": "2026-01-01-demo", "priority": "", "open": 1, "done": 0,
+                "name": "2026-01-01-demo", "priority": "", "open": 1, "done": 0, "skipped": 0,
                 "archived": False, "status": "OK",
             }],
         }

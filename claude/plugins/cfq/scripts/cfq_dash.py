@@ -126,7 +126,7 @@ def this_repo_rollup(scan_repos, repo):
         "path": r["path"], "name": r["path"].split("/")[-1],
         "batches": [
             {"name": b["name"], "priority": b["priority"], "open": b["open"], "done": b["done"],
-             "archived": b["archived"], "status": batch_status(b)}
+             "skipped": b.get("skipped", 0), "archived": b["archived"], "status": batch_status(b)}
             for b in r["batches"]
         ],
     }
@@ -247,13 +247,14 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     if this_repo is not None:
         rows = [
             b for b in this_repo["batches"]
-            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0))
+            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b["skipped"] > 0))
         ]
         if rows:
             table = ["", f"THIS REPO · {this_repo['name']}", "| Batch | Priority | Open/Done | Status |", "|---|---|---|---|"]
             for b in rows:
                 prio = b["priority"] if b["priority"] != "" else "-"
-                table.append(f"| {b['name']} | {prio} | {b['open']}/{b['done']} | {b['status']} |")
+                skipped = f" · {b['skipped']} skipped" if b["skipped"] else ""
+                table.append(f"| {b['name']} | {prio} | {b['open']}/{b['done']}{skipped} | {b['status']} |")
         else:
             table = ["", f"THIS REPO · {this_repo['name']}"]
 

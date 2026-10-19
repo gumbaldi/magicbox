@@ -143,6 +143,8 @@ def ledger_phase(slug, status, telemetry=None, **extra):
 
 
 class PortalTest(CfqTestCase):
+    auto_status = True
+
     # ---- fixture builders --------------------------------------------------------------------
 
     def _cfq(self, repo):

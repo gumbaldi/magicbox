@@ -16,6 +16,8 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT
 
 
 class PfqPreflightTest(CfqTestCase):
+    auto_status = True
+
     def setUp(self):
         super().setUp()
         # Copies the whole scripts/ dir so cfq_pfq_preflight.py's own script_dir resolution (and
