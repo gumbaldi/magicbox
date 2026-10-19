@@ -169,7 +169,8 @@ def archived_batch_record(batch_dir):
         "name": batch_dir.name,
         "priority": cfq_queue.read_priority(batch_dir),
         "open": 0,
-        "done": md_count(batch_dir, "[0-9][0-9]-*.md"),
+        # Finished phases live in done/; a batch archived before that layout kept them in its root.
+        "done": md_count(batch_dir / "done", "[0-9][0-9]-*.md") + md_count(batch_dir, "[0-9][0-9]-*.md"),
         "archived": True,
         "report": (batch_dir / "report.json").is_file(),
         "dependsOn": [],

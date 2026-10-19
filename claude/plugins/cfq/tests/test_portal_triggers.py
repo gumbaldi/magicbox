@@ -41,9 +41,9 @@ class PortalTriggersTest(CfqTestCase):
         self.assertEqual(park.stdout.strip(), str(batch_dir))
 
         queue_path = self._data(repo) / "queue.js"
-        plan_path = self._data(repo) / "batch" / f"{batch_name}.plan.js"
+        plan_path = self._data(repo) / "batch" / f"{batch_name}.js"
         self.assertTrue(queue_path.is_file(), "park should trigger a portal sync")
-        self.assertTrue(plan_path.is_file(), "park should write the batch's own plan.js")
+        self.assertTrue(plan_path.is_file(), "park should write the batch's own data file")
         queue = self._payload(queue_path)
         self.assertIn(batch_name, [b["name"] for b in queue["batches"]], "queue.js should list the batch")
 
@@ -70,10 +70,11 @@ class PortalTriggersTest(CfqTestCase):
         )
         self.assertEqual(self.json_out(commit)["status"], "OK")
 
-        impl_path = self._data(repo) / "batch" / f"{batch_name}.impl.js"
-        self.assertTrue(impl_path.is_file(), "phase commit should write the batch's own impl.js")
+        impl_path = self._data(repo) / "batch" / f"{batch_name}.js"
+        self.assertTrue(impl_path.is_file(), "phase commit should write the batch's own data file")
         impl = self._payload(impl_path)
-        self.assertEqual([p["phase"] for p in impl["phases"]], ["01-a"])
+        self.assertEqual([p["slug"] for p in impl["phases"]], ["01-a"])
+        self.assertEqual([len(p["attempts"]) for p in impl["phases"]], [1])
 
         finish = self.run_cfq(
             "finish", str(repo), str(batch_dir), "v0.1-widget", home=home, env=ON, check=True,
@@ -107,10 +108,12 @@ class PortalTriggersTest(CfqTestCase):
             "note", "close", str(repo), entry_path, "--reason", "done elsewhere",
             home=home, env=ON, check=True,
         )
-        self.assertEqual(
-            list(entry_dir.glob("plan-*.js")), [],
-            "note close should re-sync and drop the closed entry's data file",
-        )
+        # a closed entry stays in the archive: same data file, now marked done with its reason
+        closed_files = list(entry_dir.glob("plan-*.js"))
+        self.assertEqual(len(closed_files), 1, "note close should keep the closed entry's data file")
+        closed = self._payload(closed_files[0])
+        self.assertEqual(closed["state"], "done")
+        self.assertIn("done elsewhere", closed["closed"])
 
     # ---- edge: htmlReport=false turns every automatic sync off, no reports/ at all -------------
 
@@ -191,9 +194,9 @@ class PortalTriggersTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
         self.assertEqual(self._telemetry_of(batch_dir)["settled"], True)
-        impl = self._payload(self._data(repo) / "batch" / "2026-01-01-widget.impl.js")
+        batch = self._payload(self._data(repo) / "batch" / "2026-01-01-widget.js")
         self.assertTrue(
-            impl["phases"][0]["telemetry"]["settled"],
+            batch["phases"][0]["attempts"][0]["settled"],
             "the portal sync that follows must already see the settled record",
         )
 

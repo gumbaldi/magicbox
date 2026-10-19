@@ -598,12 +598,11 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_turns.append(_totals_field(totals, "turns"))
             phase_billable_in.append(_totals_field(totals, "billable_in"))
 
-        # Batch 040 phase 05: `rendered` means "the portal has this batch's data" -- checked
-        # directly against the one file `portal sync` writes for a batch with a report.json
-        # (`build_impl_payload`) -- rather than "an HTML file was rendered", which no longer
-        # exists as a concept. `href` is the batch's portal route when rendered, "" otherwise, same
+        # `rendered` means "the portal has this batch's data" -- checked directly against the one
+        # file `portal sync` writes for a batch (`data/batch/<name>.js`, also for a batch without a
+        # report.json). `href` is the batch's portal route when rendered, "" otherwise, same
         # empty-string contract `row_html`/`_index_group_lines` already relied on.
-        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.impl.js")
+        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.js")
         rendered = impl_data.is_file()
         href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
 

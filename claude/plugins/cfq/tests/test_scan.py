@@ -496,6 +496,26 @@ class ScanNextTest(CfqTestCase):
         self.assertEqual(r["blocked"], [], msg=r)
         self.assertEqual(r["planning"], [], msg=r)
 
+    def test_archived_batch_counts_its_phases_from_done_and_root(self):
+        done_dir = self.tmp / "repo-archived-count" / ".claude" / "cfq" / "impl" / "done"
+        # current layout: every finished phase moved into the batch's own done/
+        modern = done_dir / "2026-02-01-modern"
+        (modern / "done").mkdir(parents=True)
+        for name in ("01-a.md", "02-b.md", "03-c.md"):
+            (modern / "done" / name).touch()
+        # pre-done/ layout: two phase files still in the root, one in done/
+        legacy = done_dir / "2026-02-02-legacy"
+        (legacy / "done").mkdir(parents=True)
+        (legacy / "01-a.md").touch()
+        (legacy / "02-b.md").touch()
+        (legacy / "done" / "03-c.md").touch()
+
+        scan = json.loads(self.run_cfq("scan", env={"CFQ_SCAN_ROOTS": str(self.tmp)}).stdout)
+        repo = next(r for r in scan["repos"] if r["path"] == str(self.tmp / "repo-archived-count"))
+        by_name = {b["name"]: b for b in repo["batches"]}
+        self.assertEqual((by_name["2026-02-01-modern"]["done"], by_name["2026-02-01-modern"]["open"]), (3, 0))
+        self.assertEqual((by_name["2026-02-02-legacy"]["done"], by_name["2026-02-02-legacy"]["open"]), (3, 0))
+
     def test_all_done_not_finished_counts_toward_multiple_in_progress(self):
         impl = self.tmp / "repo-multi-unfinished" / ".claude" / "cfq" / "impl"
         (impl / "2026-04-01-a" / "done").mkdir(parents=True)

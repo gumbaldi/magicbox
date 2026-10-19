@@ -362,7 +362,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             "html alias must not write a flat <batch>.html file",
         )
         self.assertTrue(
-            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.impl.js").is_file(),
+            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.js").is_file(),
             "html alias did not sync this batch's own data into the portal",
         )
         self.assertTrue(
@@ -863,7 +863,7 @@ class TestIndexText(CfqTestCase):
         # dropping the one data file `portal sync` would have written, rather than a `.html` file.
         data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
         data_dir.mkdir(parents=True)
-        (data_dir / "2026-05-01-rendered.impl.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-01-rendered.js").write_text("window.CFQ_DATA = {};")
 
         text = self._run_text()
         self.assertNotIn("file://", text, f"a file:// line leaked into the listing:\n{text}")
@@ -874,6 +874,29 @@ class TestIndexText(CfqTestCase):
         unrendered_cells = [c.strip() for c in unrendered_row.strip("|").split("|")]
         self.assertEqual(rendered_cells[-1], "✓", f"rendered row missing its marker: {rendered_row!r}")
         self.assertEqual(unrendered_cells[-1], "", f"unrendered row should have an empty marker: {unrendered_row!r}")
+
+    def test_rendered_and_href_follow_the_batch_data_file(self):
+        self._batch(
+            "repo-a", "2026-05-01-with-data", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-without-data", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")],
+        )
+        data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
+        data_dir.mkdir(parents=True)
+        # only the one file the portal's loader fetches for a batch counts -- the legacy
+        # `<name>.impl.js` name must not make the other batch look rendered
+        (data_dir / "2026-05-01-with-data.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-02-without-data.impl.js").write_text("window.CFQ_DATA = {};")
+
+        rows = {r["batch"]: r for r in self.json_out(self.run_cfq(
+            "report", "index", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ))}
+        with_data, without_data = rows["2026-05-01-with-data"], rows["2026-05-02-without-data"]
+        self.assertTrue(with_data["rendered"])
+        self.assertTrue(with_data["href"].endswith("/index.html#/batch/2026-05-01-with-data"), with_data["href"])
+        self.assertFalse(without_data["rendered"])
+        self.assertEqual(without_data["href"], "")
 
     def test_date_is_the_phase_finish_not_the_batch_start(self):
         self._batch(

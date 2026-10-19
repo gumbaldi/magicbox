@@ -345,7 +345,7 @@ class FinishTest(CfqTestCase):
             f"report line: {report_line}",
         )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmlon.impl.js").is_file(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmlon.js").is_file(),
             "htmlReport=true should auto-sync this batch's own data into the portal",
         )
         self.assertFalse(
@@ -377,7 +377,7 @@ class FinishTest(CfqTestCase):
             "explicit htmlReport=false must not auto-render report.html",
         )
         self.assertFalse(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmloff.impl.js").exists(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmloff.js").exists(),
             "explicit htmlReport=false must not sync the portal either",
         )
 
@@ -394,7 +394,7 @@ class FinishTest(CfqTestCase):
             "finish", str(repo), str(batch), "v0.1-htmldefault", home=home, env=ON, check=True,
         )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmldefault.impl.js").is_file(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmldefault.js").is_file(),
             "default htmlReport=true should auto-sync this batch's own data into the portal",
         )
 

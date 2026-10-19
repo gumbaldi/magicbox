@@ -298,13 +298,15 @@ first, not take this paragraph on faith.
 
 **`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`**, and, since
 batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo-root> [--batch
-<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes one `.js` file per batch's
-plan, one per batch's implementation report, and one per open `todo`/`plan` entry into
-`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview, alongside the fixed viewer
-shell (`index.html`/`assets/viewer.js`/`assets/style.css`, `install_shell()`, copied in from the
+<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes one `.js` file per batch
+(`batch/<name>.js`: context, phases with their attempts, cost, notes, closing result) and one per
+`todo`/`plan` entry, open and closed (`entry/<id>.js`, the archive), into
+`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview and `data/site.js`,
+alongside the fixed viewer shell (`index.html`/`assets/viewer.js`/`assets/style.css`, `install_shell()`, copied in from the
 plugin's own `portal/` source whenever the installed `.portal-version` stamp differs from the
 running plugin's own version). Every data file registers a JSON payload on
-`window.CFQ_DATA["<key>"]` rather than being `fetch()`-ed — a browser blocks `fetch()` of a local
+`window.CFQ_DATA["<key>"]` (a file's path below `data/` is always its key plus `.js`, which is how
+the viewer finds it) rather than being `fetch()`-ed — a browser blocks `fetch()` of a local
 JSON file under `file://`, but a `<script src>` tag still works. Payloads are deterministic (sorted
 object keys, no timestamp beyond one already in the source data) and written only when their
 content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern as
@@ -330,7 +332,7 @@ after its own mutation succeeds, gated on `htmlReport` and never touching the tr
 exit code or stdout (batch 040 phase 04). `cfq_report.py`'s `html` verb is now a thin alias over
 `portal sync <repo> --batch <b>`, printing the batch's own portal route rather than writing a
 `<batch>.html`/`report.html` file of its own; `report index`'s `rendered`/`href` fields read the
-same portal data rather than a rendered file's presence. `portal rebuild <repo-root> --migrate` is
+same portal data (`data/batch/<name>.js`) rather than a rendered file's presence. `portal rebuild <repo-root> --migrate` is
 the one-time cleanup for a repo that still carries the old per-batch HTML files `report html` used
 to write — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror
 directory under `reportDir` when set) whose name matches a batch's own shape, never touching
