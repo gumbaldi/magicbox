@@ -19,7 +19,29 @@ SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from cfq_lib import text as cfq_text  # noqa: E402
+from cfq_lib import phase_state, text as cfq_text  # noqa: E402
+
+
+def write_status(batch_dir, _overrides=None, **overrides):
+    """Builds a batch directory's status.json from the plan files lying in it: every file is
+    adopted as `open` (or by its done/ or skipped/ location), then each override moves a phase
+    through phase_state.transition(). Keys are slugs; with keyword arguments write the hyphen as
+    an underscore (`write_status(d, **{"01_a": "done"})`), or pass a plain dict as the second
+    argument. A value is a status, a list of statuses applied in order (`["error", "skipped"]`),
+    or a dict `{"status": ..., "reason": ...}`."""
+    batch_dir = pathlib.Path(batch_dir)
+    phase_state.init(batch_dir)
+    phase_state.sync_files(batch_dir)
+    known = phase_state.load(batch_dir)["phases"]
+    merged = dict(_overrides or {})
+    merged.update(overrides)
+    for key, value in merged.items():
+        slug = key if key in known else key.replace("_", "-")
+        steps = value if isinstance(value, list) else [value]
+        for step in steps:
+            spec = step if isinstance(step, dict) else {"status": step}
+            if phase_state.load(batch_dir)["phases"][slug]["status"] != spec["status"]:
+                phase_state.transition(batch_dir, slug, spec["status"], reason=spec.get("reason"))
 
 
 class CfqTestCase(unittest.TestCase):
