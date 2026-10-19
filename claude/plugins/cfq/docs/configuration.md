@@ -195,14 +195,18 @@ still runs on the cheap default.
 ## Report collection layout
 
 Every repo keeps its own report portal at `<repo>/.claude/cfq/reports/index.html` — a fixed viewer
-shell (`index.html`, `assets/`) plus plain data files under `data/`, one per batch's plan and
-implementation report and one per open `todo`/`plan` entry (`bin/cfq portal sync`/`rebuild`). It's
-stable across archiving, since the batch name — not the batch's `impl/`-vs-`impl/done/` location —
-is the only thing a batch's own data-file path depends on. With `reportDir` set to an absolute
-path, every repo's sync additionally mirrors its own data into
+shell (`index.html`, `assets/`) plus plain data files under `data/` (`bin/cfq portal
+sync`/`rebuild`): `site.js` (repo name, commit URL, plugin version), `queue.js` (the overview of
+every batch and entry), `batch/<name>.js` (one per batch: plan, results, cost, notes, closing) and
+`entry/<id>.js` (one per todo card or plan entry, open and closed). A data file's path below
+`data/` is always its key plus `.js`, and `<id>` is the kind and file stem (`todo-2026-10-04-x`).
+It's stable across archiving, since the batch name — not the batch's `impl/`-vs-`impl/done/`
+location — is the only thing a batch's own data-file path depends on. With `reportDir` set to an
+absolute path, every repo's sync additionally mirrors its own data into
 `<reportDir>/<repo-basename>[-<hash>]/data/…` (a short hash suffix only on a name collision between
-two different repos) and installs one global viewer shell at `<reportDir>/` itself, whose
-`index.html` renders a cross-repo index over every mirrored repo instead of one repo's own overview
+two different repos) and installs one global viewer shell at `<reportDir>/` itself, plus a
+`data/repos.js` listing the mirrored repos; its `index.html` renders a cross-repo index over every
+mirrored repo instead of one repo's own overview
 — a location reachable outside any one queue's own git-excluded directory and shared across repos,
 a WSL user opening reports from Windows Explorer, for example. Either way, `bin/cfq report html
 <batch-dir>` (`/rfq`'s own drill-down call) always syncs that one batch fresh and prints its

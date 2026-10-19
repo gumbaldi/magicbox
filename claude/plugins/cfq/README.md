@@ -146,10 +146,11 @@ batch.
   todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
     <YYYY-MM-DD>-<slug>.md
     done/
-  reports/               # rendered HTML reports, default reportDir — rfq renders on request
-    <batch>.html
-    index.html           # regenerated on every render, this repo's batches only
-  telemetry.jsonl        # one record per planning session and per phase
+  reports/               # the report portal, kept current by `portal sync`
+    index.html           # fixed viewer shell
+    assets/              # viewer scripts and stylesheet
+    data/                # site.js, queue.js, batch/<name>.js, entry/<id>.js
+  telemetry.jsonl        # one record per planning session and per phase, one more per settle
   .lock                  # held by the running ifq session
   .maintenance           # marker for the periodic maintenance run
 ```
@@ -243,13 +244,14 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
-| `report` | The per-phase telemetry ledger (`report.json`) — `append`, `set-commit`, `skills`, `summary`. |
+| `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild [--migrate]` rewrites everything. |
+| `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`, plus `index`, `detail` and `html` for `/rfq`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
 | `scan` | Every registered/discovered repo's queues, counted live from disk. |
 | `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
 | `settings` | The global/repo/env settings tiers. |
-| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase. |
+| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase — `record`, `sync`, `show`, and `settle`, which recomputes provisional records once their session has ended. |
 | `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
 
 ## Hook contract
@@ -336,41 +338,70 @@ detail column.
 
 ## Reports
 
-Every phase `ifq` finishes — green or red — is recorded to `<batch-dir>/report.json`: which
-phases went green, which failed, where the implementation departed from the plan, what broke,
-which verification ran, and the commit SHA. It lives in the batch directory, so it travels with
-the batch into `done/` and is covered by the same `.git/info/exclude` entry as the rest of the
-queue.
+Every phase `ifq` finishes — green or red — is recorded to `<batch-dir>/report.json`. A phase
+entry holds the summary, the verification that ran, the deviations from the plan, optional
+observations (the one model-written addition: anything else that stood out), the diffstat of its
+commit (files, insertions, deletions, per path), the errors of a red run, the commit SHA, and the
+telemetry per model and per layer (session, worker, sub-agents). The batch itself records the
+planning cost, the ledger of `plan/` and `todo/` notes written during the work, the `plan/`
+entries the batch was parked from (`fromPlan`), and a `finish` snapshot taken when the batch
+closed (language findings, maintenance, security, changelog, errors). Everything except the
+summary, deviations and observations is written by scripts, at zero model-token cost. The file
+lives in the batch directory, so it travels with the batch into `done/` and is covered by the same
+`.git/info/exclude` entry as the rest of the queue.
 
 Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
 by default (`--limit 0` for the full history) with a marker column showing which batches already
-have their data in the report portal — or drill into a single batch for the portal's own detail
-view.
+have their data in the report portal — or drill into a single batch for the portal's own batch
+page.
 
 ## Report portal
 
-`<repo>/.claude/cfq/reports/index.html` is a single-page viewer over every batch this repo's queue
-has ever planned or implemented, plus its open `todo`/`plan` entries — a queue overview, a
-per-batch plan and implementation detail page, and a cost-by-agent-layer breakdown, all rendered
-client-side from plain data files `bin/cfq portal sync` writes alongside the fixed viewer shell.
-It's kept current as a side effect of the mutating verbs that already run during `pfq`/`ifq`
-(park, phase commit, `finish`, …) — at zero model-token cost, since nothing is rendered by the
-model itself, and a resync that changes nothing writes nothing. Set `reportDir` to an absolute
-path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a cross-repo index
-across every repo that mirrors into it (`## Report collection layout` in `docs/configuration.md`).
-`htmlReport: false` turns every automatic sync off — `/rfq`'s `report html` verb still syncs a
-single batch on request even then, so the portal always stays reachable, just not kept current in
-the background.
+`<repo>/.claude/cfq/reports/index.html` is the one place to inspect a repo's whole queue: a
+single-page viewer over every batch the queue has planned or implemented, plus its todo cards and
+plan-inbox entries, open and closed. It is rendered client-side from plain data files
+`bin/cfq portal sync` writes alongside the fixed viewer shell. Every number is turns and tokens
+(input, output, cache read, cache creation) split by model — never a currency, there is no price
+table. Dates and numbers follow the browser's locale.
+
+- **Overview** — a KPI strip (batches in progress, planned and done, open todos, plan inbox,
+  flags, deviations, tokens), tabs for batches, todos, plan inbox and archive, a sortable batch table with status,
+  progress, dates, cost, deviations and flags, and two charts: cost per batch and a size
+  calibration (turns and output per phase against its planned `S`/`M`/`L`).
+- **Batch page** — a header with status, branch, merge state and flags, then the tabs Phases,
+  Cost, Plan context, Notes and Closing. Phases holds a timeline and the phase table; opening a
+  phase shows its result (summary, verification, deviations, observations, errors), its plan, its
+  cost per model and layer, and its files with the diffstat. Cost splits a batch into planning and
+  phases, by model, and by agent. Notes lists the `plan/` and `todo/` entries written during the
+  work; Closing shows the `finish` snapshot.
+- **Entry page** — the full text of one todo card or plan entry, with the batch and phase it
+  came from and, for a plan entry, the batch it was parked into.
+
+The portal is kept current as a side effect of the mutating verbs that already run during
+`pfq`/`ifq` (park, phase commit, `finish`, …) — at zero model-token cost, since nothing is
+rendered by the model itself, and a resync that changes nothing writes nothing. Set `reportDir` to
+an absolute path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a
+cross-repo index across every repo that mirrors into it (`## Report collection layout` in
+`docs/configuration.md`). `htmlReport: false` turns every automatic sync off — `/rfq`'s
+`report html` verb still syncs a single batch on request even then, so the portal always stays
+reachable, just not kept current in the background.
 
 ## Telemetry
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
-by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the subagent share
-— plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or `classic`,
-empty for a planning record) derived from what actually ran, not from the `orchestratorMode`
-setting. `subagent` counts the sub-agents' own turns — read from each phase worker's own
-`subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own; the two are not to
-be added blindly.
+by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the sub-agent
+share — plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or
+`classic`, empty for a planning record) derived from what actually ran, not from the
+`orchestratorMode` setting. Usage is counted once per API response, not once per transcript line.
+Every sub-agent is its own node, attributed to the session that spawned it through the spawning
+tool call, and every node and layer (session, session's Explore agents, worker, worker's Explore
+agents) carries its split by model. `subagent` counts the sub-agents' own turns — read from each
+phase worker's own `subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own;
+the two are not to be added blindly.
+
+A record is written when the phase commits and is `provisional` then, because the session goes on
+after the commit. The next cfq mutation in the repo settles it once its session has ended,
+recomputing it from the finished transcripts (`telemetry settle`); there is no hook of its own.
 
 What's deliberately **not** recorded: no prompt text, no responses, no tool arguments, no file
 contents. Numbers, timestamps and names only.
@@ -381,7 +412,7 @@ Optionally, point `telemetrySyncRepo` at a dedicated telemetry git repo: cfq the
 lines to `<repo-name>.jsonl` there, commits and pushes, at the end of every planning or
 implementation session. Failures there are never fatal.
 
-cfq only collects this data — it doesn't analyze it.
+cfq only collects this data — it doesn't analyze it beyond the portal's own flags and baselines.
 
 ## Security
 

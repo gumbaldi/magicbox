@@ -20,7 +20,8 @@ phase 02; `cfq_batch_id.py`'s `verify`/`recover` verbs (plus the CLI-less `cfq_l
 added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` verb,
 and `cfq_report.py`'s `skills` verb added as batch `019`
 phase 04; `cfq_guard.py` (new) added as batch `019` phase 06; `cfq_portal.py` (new, plus the
-CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01) —
+CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01;
+the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`) —
 `bin/cfq` itself stays shell by
 design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
@@ -100,7 +101,12 @@ owns directory creation and the Git-state policy below):
 (optional, present only when the batch is flagged and then contains exactly `high`), `.dependsOn`
 (optional, one batch directory name per line — blocks this batch
 until every named one is in `impl/done/`; an unresolvable name is reported, never blocking),
-`report.json` (per-phase implementation report plus telemetry, closed onto the ledger together
+`report.json` (per-phase implementation report plus telemetry — a phase entry also carries
+`diffstat` (`{files, insertions, deletions, paths}`, computed from the commit by `phase commit`) and
+the optional model-written `observations`; the top level carries `planning` (the planning
+session's telemetry), `finish` (the closing snapshot `cfq finish` takes), `notes` (the ledger of
+`plan/`/`todo/` entries written during the batch, appended by `cfq note`) and `fromPlan` (the
+`plan/` entries `park --from-plan` consumed) — closed onto the ledger together
 with the file's move into `done/` and the phase's own Git commit by the single transactional call
 `cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
 whatever is already staged (never runs `git add` itself), moves the `.md` file, appends the ledger
@@ -220,31 +226,37 @@ a phase-worker sub-agent's activity is never counted as an Explore agent's, or v
 downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker
 split, and `bin/cfq telemetry show --session`'s `layers` object.
 
-**Schema 2 additionally records every sub-agent as its own node, grouped into four cost layers.**
-`by_agent`/`subagent`/`subagent_worker`/`subagent_explore` keep their existing meaning — schema 2
-is additive, not a replacement. `agents` lists one entry per `agent-<id>.jsonl` attributed to the
-record (`collect_agent_nodes()`): the agent's root (the depth-1 ancestor, walked via
-`parentAgentId`) names its spawning `Agent` call by `toolUseId`, and the record owns the agent when
-that call's main-transcript timestamp is inside the record's `(since, upper]` window — without a
-usable link, when the agent's own first response is. All responses of an attributed agent count,
-never clipped by timestamp. Read together with its sibling
-`agent-<id>.meta.json` (`agentType`, `description`, `spawnDepth`, `toolUseId`, `parentAgentId` at depth ≥ 2) —
-a missing or unreadable meta falls back to depth 1, type from the turn's own `attributionAgent`, no
-parent, the same attribution `by_agent` already uses. `layers` sums those nodes (plus the session's
-own transcript as `main`) into the tree the report reads: `main` (the session), `main_explore`
-(sub-agents the session spawned directly), `worker` (each `cfq:cfq-phase-worker` instance),
-`worker_explore` (sub-agents a worker spawned — resolved by walking `parentAgentId` up through
-every meta file in the directory, `_resolve_layer()`, not only the ones with turns in this
-window, so a depth-≥3 agent still resolves through an intermediate parent). Each layer carries
-`sums()`, `models`, `efforts` and `count` (number of agents; always `1` for `main`). Invariant,
-asserted per fixture in `tests/test_telemetry.py`: `main + main_explore + worker + worker_explore`
-== `totals + subagent`, field by field — this holds structurally because every listed agent's
-turns land in exactly one of the three non-`main` layers. Records are still appended to
-`telemetry.jsonl` exactly as before, so `telemetry sync` carries `agents`/`layers` into the
-telemetry repo without any change on its own part; only a reader that cares about the new fields
-needs to look at `schema` to tell schema-2 records from the 1s that came before them.
+**Schema 3 counts per API response and records every sub-agent as its own node, grouped into four
+cost layers.** Claude Code writes one transcript line per content block of a response, each
+repeating that response's `message.id` and usage, so `collapse_responses()` reduces the lines to
+one entry per `message.id` before anything is summed; a `turn` is a response, never a line. A
+record written under the older per-line counting carries `schema` 1 or 2 and is about twice too
+high. `by_agent`/`subagent`/`subagent_worker`/`subagent_explore` keep their existing meaning.
+`agents` lists one entry per `agent-<id>.jsonl` attributed to the record
+(`collect_agent_nodes()`): the agent's root (the depth-1 ancestor, walked via `parentAgentId`)
+names its spawning `Agent` call by `toolUseId`, and the record owns the agent when the main
+transcript's timestamp for that call is inside the record's `(since, upper]` span — the spawning
+call, not the agent's own activity, decides which record an agent belongs to; only an agent
+without a usable link falls back to its own first response. All responses of an attributed agent
+count, never clipped by timestamp. Read together with its sibling `agent-<id>.meta.json`
+(`agentType`, `description`, `spawnDepth`, `toolUseId`, `parentAgentId` at depth ≥ 2) — a missing
+or unreadable meta falls back to depth 1, type from the turn's own `attributionAgent`, no parent.
+Every node and every layer carries `by_model: {<model>: T}` next to its totals, which is what the
+portal's cost-by-model views read. `layers` sums the nodes (plus the session's own transcript as
+`main`) into the tree the report reads: `main` (the session), `main_explore` (sub-agents the
+session spawned directly), `worker` (each `cfq:cfq-phase-worker` instance), `worker_explore`
+(sub-agents a worker spawned — resolved by walking `parentAgentId` up through every meta file in
+the directory, `_resolve_layer()`, not only the ones with turns in this window, so a depth-≥3
+agent still resolves through an intermediate parent). Each layer carries `sums()`, `models`,
+`efforts`, `by_model` and `count` (number of agents; always `1` for `main`). Invariant, asserted per
+fixture in `tests/test_telemetry.py`: `main + main_explore + worker + worker_explore` == `totals +
+subagent`, field by field — this holds structurally because every listed agent's turns land in
+exactly one of the three non-`main` layers. Records are appended to `telemetry.jsonl` as before,
+so `telemetry sync` carries the new fields into the telemetry repo without any change on its own
+part; only a reader that cares needs to look at `schema`.
 
-**Schema 3 records are provisional until their session has ended.** `build_record()` writes `since`
+**Schema 3 records are provisional until their session has ended (`since`, `settled`, `rev`).**
+`build_record()` writes `since`
 (the window's lower bound), `settled: false` and `rev: 1`. The session goes on after the commit
 (the worker's closing message, the orchestrator's summary), so `cfq telemetry settle <repo-root>`
 recomputes each such record once its session is over — transcript and `subagents/` quiet for
@@ -298,54 +310,70 @@ first, not take this paragraph on faith.
 
 **`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`**, and, since
 batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo-root> [--batch
-<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes one `.js` file per batch
-(`batch/<name>.js`: context, phases with their attempts, cost, notes, closing result) and one per
-`todo`/`plan` entry, open and closed (`entry/<id>.js`, the archive), into
-`<repo>/.claude/cfq/reports/data/`, plus a `data/queue.js` repo overview and `data/site.js`,
-alongside the fixed viewer shell (`install_shell()` copies `portal/index.html` to the root and every other
-file in `portal/` to `assets/`, removing `assets/` files `portal/` no longer has, whenever the installed
-`.portal-version` stamp differs from the running plugin's own version). The viewer is several plain
-scripts on one shared `CFQ` namespace (`core.js` first, `app.js` last — router, route table and
-data-path rules; `overview.js` — KPI strip and the sortable batch table; later views register through
-`CFQ.core.register(slot, item)` instead of editing earlier files; `charts.js` draws the inline-SVG
-charts and `overview-charts.js` registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page -- header, tab bar, phase table with per-phase detail -- and registers its own `batchTab`/`phaseTab` items; `batch-cost.js`, `batch-notes.js` and `timeline.js` register the Cost tab and sub-tab, the Notes and Closing tabs and the `batchPhasesTop` timeline); `entry.js` draws the todo-card/plan-entry page and `repos.js` the cross-repo index of a `reportDir` mirror, `tests/js/e2e.test.mjs` walks every view over the files a real `portal sync` wrote (run by `tests/test_portal_viewer.py`); `tests/js/helpers.mjs` holds the
-fake DOM and the contract-shaped fixtures every viewer test file shares. Every data file registers a JSON payload on
-`window.CFQ_DATA["<key>"]` (a file's path below `data/` is always its key plus `.js`, which is how
-the viewer finds it) rather than being `fetch()`-ed — a browser blocks `fetch()` of a local
-JSON file under `file://`, but a `<script src>` tag still works. Payloads are deterministic (sorted
-object keys, no timestamp beyond one already in the source data) and written only when their
-content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern as
-`cfq_lib.render.write_json`), so a `sync` that changes nothing writes nothing and reports
-`{"written": [], "unchanged": <n>, "removed": []}`; a batch or entry whose source is gone loses its
-data file the same way. `sync` reuses `cfq_scan.scan_repo()` (the dashboard's own per-repo record
-builder) for batch status/open/done/blocked/planning rather than re-deriving it, and
-`cfq_report.phase_layer_sums()` (batch 038's four-layer cost split, schema-1 fallback included) for
-every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, lists nested up to
-three levels, paragraphs, fenced and indented code blocks, block quotes, pipe tables, `---` rules,
-`check:` lines, `**bold**`/`*emphasis*`/`` `code` ``; no links) moved out of `cfq_report.py` into its own module here, originally shared with
-`cfq_report.py`'s own Overview-section renderer; that renderer had no production caller left once
-`report html` became a thin `portal sync` alias (batch 040 phase 05) and was deleted as dead code
-(batch 047 phase 03) — `read_batch_context` itself stayed, still used directly by `cfq_portal.py`,
-so `cfq_lib/markdown.py` is now used by `cfq_portal.py` alone.
+<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes into
+`<repo>/.claude/cfq/reports/data/`: `site.js` (repo, commit URL, plugin version), `queue.js` (the
+repo overview — totals, per-size baselines, calibration points, one row per batch and per entry),
+`batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags) and
+`entry/<id>.js` (one per `todo`/`plan` entry, open and closed — the archive; `<id>` is
+`<kind>-<file stem>`). Every data file registers a JSON payload on `window.CFQ_DATA["<key>"]`
+rather than being `fetch()`-ed — a browser blocks `fetch()` of a local JSON file under `file://`,
+but a `<script src>` tag still works — and **a file's path below `data/` is always its key plus
+`.js`**, which is how the viewer finds it and how a file whose source is gone is recognized as
+stale; a writer and a loader that disagree on that path produce a page that renders empty, which
+is exactly what the pre-`050` viewer did. Payloads are deterministic (sorted object keys, no
+timestamp beyond one already in the source data) and written only when their content changed
+(`write_if_changed()`, the same tmp-file-plus-`os.replace` pattern as `cfq_lib.render.write_json`),
+so a `sync` that changes nothing writes nothing and reports `{"written": [], "unchanged": <n>,
+"removed": []}`. `sync` reuses `cfq_scan.scan_repo()` (the dashboard's own per-repo record builder)
+for batch status/open/done/blocked/planning rather than re-deriving it, and
+`cfq_report.phase_layer_sums()` (four-layer cost split, per-model split included) for every cost
+total it writes; the merge state comes from the merge todo card and the changelog, never from a
+git call at sync time. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, lists nested
+up to three levels, paragraphs, fenced and indented code blocks, block quotes, pipe tables, `---`
+rules, `check:` lines, `**bold**`/`*emphasis*`/`` `code` ``; no links) produces the `…Html` fields,
+the only values the viewer inserts as HTML — every other value reaches the DOM through
+`textContent`. It is used by `cfq_portal.py` alone; `cfq_report.py`'s old Overview renderer was
+deleted as dead code (batch 047 phase 03).
 
-`cfq_lib/flags.py` derives the portal's flags (`warn`/`info`, thresholds as constants) and the per-size
-baselines and calibration points in `queue.js` as pure functions over the batch payloads; `sync()`
-reads a batch outside the `--batch` filter back from its data file and only recomputes its `flags`.
+`cfq_lib/flags.py` derives the portal's flags (`warn`/`info`, thresholds as module constants, not
+settings) and the per-size baselines and calibration points in `queue.js` as pure functions over the
+batch payloads; `sync()` reads a batch outside the `--batch` filter back from its data file and only
+recomputes its `flags`.
+
+The viewer shell is every file in the plugin's `portal/` directory: `install_shell()` globs the
+directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new
+script needs no registration, and runs whenever `reports/.portal-version` differs from the running
+plugin's own version. The same version change deletes what the new version no longer ships — files in
+`assets/` that `portal/` lacks and the flat `<batch>.html` files the retired per-batch renderer left
+under `reports/` (`remove_legacy_html()`) — and reports both in `removed`; an unchanged version
+copies and removes nothing. The viewer is several plain scripts on one shared `CFQ` namespace
+(`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — KPI strip
+and the sortable batch table; later views register through `CFQ.core.register(slot, item)` instead
+of editing earlier files; `charts.js` draws the inline-SVG charts and `overview-charts.js`
+registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page
+— header, tab bar, phase table with per-phase detail — and registers its own `batchTab`/`phaseTab`
+items; `batch-cost.js`, `batch-notes.js` and `timeline.js` register the Cost tab and sub-tab, the
+Notes and Closing tabs and the `batchPhasesTop` timeline; `entry.js` draws the todo-card/plan-entry
+page and `repos.js` the cross-repo index of a `reportDir` mirror). `tests/js/*.test.mjs` run under
+Node over a fake DOM (`tests/js/helpers.mjs`, which also holds the contract-shaped fixtures every
+viewer test file shares); `tests/js/e2e.test.mjs` walks every view over the files a real `portal
+sync` wrote; `tests/test_portal_viewer.py` runs them. No CDN, no build step, charts are hand-written
+SVG.
 
 With `reportDir` set, `sync()` additionally mirrors every data file into
-`<reportDir>/<repo-basename>[-<hash>]/data/…` and installs one global viewer shell at `reportDir`
-itself (batch 040 phase 03); every batch-affecting `bin/cfq` mutation (`park`, `phase`
-`record`/`commit`/`reopen`, `lock acquire`, `finish`, `batch ready`, `trash put`/`restore`,
-`note`'s mutating verbs, `dash render`) fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect
-after its own mutation succeeds, gated on `htmlReport` and never touching the triggering verb's own
-exit code or stdout (batch 040 phase 04). `cfq_report.py`'s `html` verb is now a thin alias over
-`portal sync <repo> --batch <b>`, printing the batch's own portal route rather than writing a
-`<batch>.html`/`report.html` file of its own; `report index`'s `rendered`/`href` fields read the
-same portal data (`data/batch/<name>.js`) rather than a rendered file's presence. `portal rebuild <repo-root> --migrate` is
-the one-time cleanup for a repo that still carries the old per-batch HTML files `report html` used
-to write — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror
-directory under `reportDir` when set) whose name matches a batch's own shape, never touching
-`assets/`, `data/`, or the portal's own `index.html`.
+`<reportDir>/<repo-basename>[-<hash>]/data/…`, writes `<reportDir>/data/repos.js` (the list of
+mirrored repos) and installs one global viewer shell at `reportDir` itself (batch 040 phase 03);
+every batch-affecting `bin/cfq` mutation (`park`, `phase` `record`/`commit`/`reopen`, `lock
+acquire`, `finish`, `batch ready`, `trash put`/`restore`, `note`'s mutating verbs, `dash render`)
+fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect after its own mutation succeeds — first
+`telemetry settle`, then the portal sync, the latter gated on `htmlReport` and neither touching
+the triggering verb's own exit code or stdout. `cfq_report.py`'s `html` verb is a thin alias over
+`portal sync <repo> --batch <b>`, printing the batch's own portal route; `report index`'s
+`rendered`/`href` fields read the same portal data (`data/batch/<name>.js`). `portal rebuild
+<repo-root> --migrate` is the one-time cleanup for a repo that still carries the old per-batch HTML
+files — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror directory
+under `reportDir` when set) whose name matches a batch's own shape, never touching `assets/`,
+`data/`, or the portal's own `index.html`.
 
 ## Conventions
 
