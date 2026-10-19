@@ -126,6 +126,8 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   corrects the phase files and names each correction in the status line. Only a correction that
   would drop a phase or remove a capability the user named in the interview goes to one
   `AskUserQuestion`.
+- **After a review revision.** Whether the audit runs again after a change at the review gate is
+  decided by `<plugin-root>/references/plan-review.md`'s **Re-check**.
 - **Renumbering after a correction.** A correction that reorders phases renames the files so the
   numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
   phase. This happens before **Plan Lint**.
