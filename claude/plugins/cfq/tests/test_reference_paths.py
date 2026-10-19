@@ -339,6 +339,75 @@ def check_descriptions_have_no_angle_brackets(root):
     return fails
 
 
+# 15. Added by Phase 07 (batch 053): the implement-for-queue SKILL.md carries only what both modes
+#     share. Each mode's per-phase loop lives in its own reference file, named from the SKILL.md.
+IFQ_MODE_FILES = ("references/orchestrator.md", "references/ifq-classic.md")
+IFQ_FORBIDDEN_HEADINGS = ("Size Gate", "Earlier Failed Attempt", "Commit & Push")
+
+
+def check_ifq_skill_is_mode_neutral(root):
+    fails = []
+    f = root / "skills" / "implement-for-queue" / "SKILL.md"
+    if not f.is_file():
+        return fails
+    text = f.read_text()
+    for needle in IFQ_MODE_FILES:
+        if needle not in text:
+            fails.append(f"FAIL: {f} does not name {needle}")
+    if "cold-path detail" in text:
+        fails.append(f"FAIL: {f} contains 'cold-path detail', name the condition instead")
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not line.startswith("## "):
+            continue
+        for needle in IFQ_FORBIDDEN_HEADINGS:
+            if needle in line:
+                fails.append(f"FAIL: {f}:{lineno} classic-loop heading in the SKILL.md: {needle!r}")
+    return fails
+
+
+# 16. Added by Phase 07 (batch 053): each moved section occurs exactly once as a `## ` or `### `
+#     heading across skills/*/SKILL.md and references/*.md -- proof that a moved block arrived and
+#     its source copy is gone. Substring match, so a step prefix does not hide a heading.
+MOVED_SECTIONS = (
+    "Start Gate",
+    "Lock Acquisition",
+    "Resume Snapshot",
+    "Branch and Changelog on Go-Ahead",
+    "Batch Selection Rules",
+    "Lint Gate",
+    "Earlier Failed Attempt",
+    "Size Gate",
+)
+
+
+def _h2_h3_headings(text):
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and (line.startswith("## ") or line.startswith("### ")):
+            yield line.lstrip("#").strip()
+
+
+def check_moved_sections_exist_once(root):
+    fails = []
+    files = sorted(root.glob("skills/*/SKILL.md")) + sorted(root.glob("references/*.md"))
+    found = {name: [] for name in MOVED_SECTIONS}
+    for f in files:
+        for heading in _h2_h3_headings(f.read_text()):
+            for name in MOVED_SECTIONS:
+                if name in heading:
+                    found[name].append(f.name)
+    for name, where in found.items():
+        if len(where) != 1:
+            fails.append(
+                f"FAIL: heading {name!r} occurs {len(where)} times (expected exactly 1): "
+                + ", ".join(where or ["nowhere"])
+            )
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -355,6 +424,8 @@ def run_all(root):
     fails += check_no_history_wording(root)
     fails += check_single_term_for_queue_items(root)
     fails += check_descriptions_have_no_angle_brackets(root)
+    fails += check_ifq_skill_is_mode_neutral(root)
+    fails += check_moved_sections_exist_once(root)
     return fails
 
 
@@ -682,6 +753,79 @@ class ReferencePathsTest(CfqTestCase):
         self.assertIn("bad/SKILL.md", joined, msg="check 14 self-test did not catch '<' in a folded description")
         self.assertIn("a.md", joined, msg="check 14 self-test did not catch '<' in a single-line description")
         self.assertNotIn("good/SKILL.md", joined, msg="check 14 self-test false-flagged argument-hint or the fold marker")
+
+    def test_ifq_skill_is_mode_neutral(self):
+        bad = self._repos_dir / "f15-bad"
+        good = self._repos_dir / "f15-good"
+        for d in (bad, good):
+            (d / "skills" / "implement-for-queue").mkdir(parents=True)
+        (bad / "skills" / "implement-for-queue" / "SKILL.md").write_text(
+            "read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`\n"
+            "cold-path detail: read the rest\n"
+            "## Step 6 - Size Gate\n"
+            "## Step 9 - Commit & Push\n"
+            "## Step 5 - Earlier Failed Attempt\n"
+        )
+        (good / "skills" / "implement-for-queue" / "SKILL.md").write_text(
+            "true -> read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md`\n"
+            "false -> read `${CLAUDE_PLUGIN_ROOT}/references/ifq-classic.md`\n"
+            "Prose may mention the Size Gate; only a heading is forbidden.\n"
+            "## Step 5 - Mode Switch\n"
+        )
+        out = check_ifq_skill_is_mode_neutral(bad)
+        joined = "\n".join(out)
+        self.assertIn("ifq-classic.md", joined, msg="check 15 self-test missed the unnamed classic file")
+        self.assertIn("cold-path detail", joined, msg="check 15 self-test missed 'cold-path detail'")
+        for needle in ("Size Gate", "Commit & Push", "Earlier Failed Attempt"):
+            self.assertIn(needle, joined, msg=f"check 15 self-test missed the {needle!r} heading")
+        self.assertNotIn("orchestrator.md", joined, msg="check 15 self-test flagged a named file")
+        out = check_ifq_skill_is_mode_neutral(good)
+        self.assertEqual(out, [], msg=f"check 15 self-test false-flagged a neutral SKILL.md: {out}")
+
+    def test_moved_sections_exist_once(self):
+        def build(name, files):
+            d = self._repos_dir / name
+            (d / "skills" / "s").mkdir(parents=True)
+            (d / "references").mkdir(parents=True)
+            for rel, text in files.items():
+                (d / rel).write_text(text)
+            return d
+
+        def headings(names, level="##"):
+            return "".join(f"{level} {n}\n" for n in names)
+
+        good = build(
+            "f16-good",
+            {
+                "skills/s/SKILL.md": headings(["Step 4 - Start Gate"]) + headings(
+                    ["Lock Acquisition", "Resume Snapshot"], "###"
+                ),
+                "references/a.md": headings(MOVED_SECTIONS[3:]),
+            },
+        )
+        self.assertEqual(check_moved_sections_exist_once(good), [])
+
+        missing = build(
+            "f16-missing",
+            {
+                "skills/s/SKILL.md": headings(MOVED_SECTIONS[:5]),
+                "references/a.md": headings(MOVED_SECTIONS[6:]),
+            },
+        )
+        out = "\n".join(check_moved_sections_exist_once(missing))
+        self.assertIn("'Lint Gate'", out, msg="check 16 self-test missed a section that never arrived")
+
+        # edge case: the same heading in two files
+        twice = build(
+            "f16-twice",
+            {
+                "skills/s/SKILL.md": headings(MOVED_SECTIONS),
+                "references/a.md": "```\n## Start Gate\n```\n" + headings(["Start Gate"]),
+            },
+        )
+        out = check_moved_sections_exist_once(twice)
+        self.assertEqual(1, len(out), msg=f"check 16 self-test flagged the wrong set: {out}")
+        self.assertIn("'Start Gate' occurs 2 times", out[0])
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

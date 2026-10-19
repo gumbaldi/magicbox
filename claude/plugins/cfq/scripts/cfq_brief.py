@@ -537,7 +537,7 @@ def render_review_changed(d):
 def _check_orchestrator_gate(batch_dir):
     """The classic-mode phase announcement (`brief --phase`) refuses to run while orchestratorMode
     is on for the owning repo -- the one deterministic point where a session that skipped the
-    prose branch in implement-for-queue/SKILL.md Step 4 can still be caught before any code is
+    prose branch in implement-for-queue/SKILL.md's Batch Briefing can still be caught before any code is
     written. Fail-open, same spirit as cfq_guard.py: an unresolvable repo root, a non-zero
     `settings get` exit, or unparsable output all mean "no gate", never a crash."""
     repo = _repo_root_from_batch_dir(batch_dir)

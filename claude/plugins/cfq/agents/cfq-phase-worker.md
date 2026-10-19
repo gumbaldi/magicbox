@@ -34,7 +34,7 @@ is the user's decision alone, carried out by the orchestrator between phases.
 
 ## Implementation
 
-Identical in substance to classic mode's own implementation step: implement the phase completely,
+Identical in substance to `<plugin-root>/references/ifq-classic.md`'s **Implementation** step: implement the phase completely,
 then run its verification. A phase that touches several files, or whose scope isn't fully clear
 from the phase file alone, may send an Explore subagent to locate the relevant code first; a
 narrow, single-file phase doesn't need one. A green verification run's raw output may be filtered
@@ -48,7 +48,7 @@ Never delegate implementation, test writing or documentation themselves — only
 green-run filtering, per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
 Delegation**.
 
-Before finalizing the report, run the same mandatory file-scope comparison classic mode runs before
+Before finalizing the report, run the same mandatory file-scope comparison `<plugin-root>/references/ifq-classic.md` runs before
 closing every green phase — `<plugin-root>/references/ifq-phase.md`'s **File-Scope Deviation** —
 against the batch directory `commands.phaseCommit` targets, and fold any non-empty result into
 `deviations` as one entry naming the file(s) and why. This is a record, never a stop and never a
@@ -96,7 +96,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
 `phase` is always the full slug from the briefing, never a bare number. `triggers` is the worker's
 own classification against the two green-path stop conditions — `"omitted"` when a planned change
 was deliberately left out, `"dependency"` when an unnamed new dependency or script was introduced
-— an empty array when neither applies; this is the one judgment call classic mode's **Implementation**
+— an empty array when neither applies; this is the one judgment call `<plugin-root>/references/ifq-classic.md`'s **Implementation**
 step prose makes in-session and this definition makes once, structurally, because the worker has no
 channel to raise it as an immediate question. `status: "red"` carries the complete, unfiltered failure output
 in `errors`, never a summary. `status: "question"` carries only `phase`, `status` and `question` —

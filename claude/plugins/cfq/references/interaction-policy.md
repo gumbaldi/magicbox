@@ -9,7 +9,7 @@ If a "Plan mode is active" system-reminder is present in context, call `ExitPlan
 immediately — before `pfq`'s **Start Block** / before `ifq`'s **Preflight** call — naming what this
 session is about to write (`pfq`: "interview and park plan files for `<repo>`"; `ifq`: "implement
 the next open phase of `<batch>`"). Neither skill can function under Plan Mode (`pfq` writes
-batch/phase files in **Park**, `ifq` writes code in **Implementation**) — resolve this before the
+batch/phase files in **Park**, `ifq` writes code in `<plugin-root>/references/ifq-classic.md`'s **Implementation**) — resolve this before the
 first write attempt, not as a discovered tool failure.
 
 ## No Waiting Questions
@@ -28,7 +28,7 @@ myself / discard, repeated after each revision) and the resume question for a wa
 in `<plugin-root>/references/plan-review.md`) — "I'll edit the files myself" ends the turn and is
 not a waiting question; `ifq`: start gate (start/cancel, plus skip this phase when the next phase failed, plus pick a
 different batch when another one is selectable, per
-`<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by the `resume`/`start`
+`implement-for-queue/SKILL.md`'s **Start Gate**, skipped only by the `resume`/`start`
 keywords), scope-creep parking, branch base (every new batch branch, with one
 confirmation when the chosen base leaves unmerged batch branches behind, plus ahead/diverged
 remote on `continue`) — this section adds a rule, not new question sites.

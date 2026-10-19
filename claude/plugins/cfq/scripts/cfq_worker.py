@@ -10,7 +10,7 @@ why this must be a script rather than skill prose.
 `verdict`'s stdin contract: `{"status": "green"|"red"|"question", "triggers": [...], "question":
 "..."}`. `triggers` is the worker's own classification against the post-018 stop rule -- whether a
 green phase omitted a planned change or introduced an unnamed dependency is a judgment call the
-same as it is in classic mode's Step 8 prose, just made once by the worker instead of raised as an
+same as it is in `references/ifq-classic.md`'s **Implementation** prose, just made once by the worker instead of raised as an
 immediate question it has no channel to ask. `verdict` only translates that self-report into
 CONTINUE/ASK/STOP; it never re-derives the classification from `deviations` text, which stays a
 plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_report.py` already

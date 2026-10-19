@@ -16,7 +16,7 @@
 
 ## Phase Announcement
 
-Runs after the Size Gate, before any code is written, every phase. The announcement is
+Runs after `<plugin-root>/references/ifq-classic.md`'s **Size Gate**, before any code is written, every phase. The announcement is
 `bin/cfq brief "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
 deterministic, extracted from the phase file, so it cannot drift in wording between phases. This
 is the classic-mode announcement specifically: the call refuses (`MODE_MISMATCH`, exit 2) while
@@ -71,7 +71,7 @@ two lines (`… +N more steps` closes a longer list); a phase file without numbe
 Then one `AskUserQuestion`, three options: **Go** — "proceed, implement this phase now", its
 description naming the budget state so the user sees what they are accepting — and **must not**
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
-reusing the Context Check's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
+reusing `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
 implement-for-queue` short report). **Cancel** — "release the lock and end the session, nothing
 touched", runs `bin/cfq lock release "<repo-root>" --batch "<batch>"`, reports "cancelled before implementation,
 nothing touched", and ends; it never leaves the lock held. No option may be phrased as futile —
@@ -105,10 +105,10 @@ LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGa
 fired structurally, the report repeats that token rather than a paraphrase of the note.
 
 `WARN` (at **Context Check After Every Phase**) → **do not end, do not advance silently.** Go to
-**Earlier Failed Attempt** for the next phase (re-running the preflight with `--select <batch>` as
+**Earlier Failed Attempt** (`<plugin-root>/references/ifq-classic.md`) for the next phase (re-running the preflight with `--select <batch>` as
 that step already requires for any phase past the first), so the Size Gate resolves `WARN` again
 and the Phase Announcement carries the warning and its three options. If there is no next open
-phase, **Batch Done** runs normally — a finished batch is not held back by a budget warning. An
+phase, `implement-for-queue/SKILL.md`'s **Batch Done** runs normally — a finished batch is not held back by a budget warning. An
 unresolvable context reading arrives as `WARN REASON=unknown` and follows this same path — the user
 decides, rather than the session ending on a missing measurement.
 

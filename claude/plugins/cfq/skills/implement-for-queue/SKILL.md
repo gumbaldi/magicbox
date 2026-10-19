@@ -25,26 +25,22 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 
 | Section | Steps | Contents |
 |---|---|---|
-| PRECHECKS | 1-7 | Preflight, Model Gate, Batch, Start Gate, Size Gate |
-| IMPLEMENTATION | 8-9 | per phase: announcement, result, Commit |
-| POSTCHECKS | 10-12 | Context Check, Telemetry, Lock, Batch Done |
-
-Not strictly sequential: a `WARN` at **Context Check After Every Phase** loops back to **Earlier
-Failed Attempt** for the next phase instead of opening `POSTCHECKS`. `POSTCHECKS` opens only on a
-`STOP`, a red phase, or a finished batch.
+| PRECHECKS | 1-4 | Preflight, Model Gate, Batch, Start Gate, Lock, Branch, Resume |
+| IMPLEMENTATION | 5 | per phase, in the mode's own file: announcement, result, Commit |
+| POSTCHECKS | 5-7 | Context Check, Telemetry, Lock, Batch Done |
 
 ## Step 1 — Arguments
 
 Text passed with the invocation narrows batch selection in **Batch Selection** — it never replaces
-the briefing. `resume`, `start` (`start <batch>` included), `skip <NN> [reason]` and `unskip <NN>`
-are keywords, not a selection hint — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Arguments**
-section on first use each session and apply it here. Skipping a phase — only ever on the user's
+the briefing. Arguments were passed → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s
+**Arguments**: `resume`, `start` (`start <batch>` included), `skip <NN> [reason]` and `unskip <NN>`
+are keywords, not a selection hint. Skipping a phase — only ever on the user's
 request — is in `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Skipping a Phase**.
 
 ## Step 2 — Plan-Mode Gate
 
-Before **Batch Selection**, check for Plan Mode — read
-`${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`'s **Plan-Mode Gate** section and follow it.
+Before **Batch Selection**: a "Plan mode is active" reminder is present in context → call
+`ExitPlanMode` now, naming what this session is about to write.
 
 ## Step 3 — Preflight: Policy, Batch Selection
 
@@ -56,140 +52,165 @@ Print the `PRECHECKS` header, then one call:
 always, before Model Gate, the start gate or any lock, read-only, no import, no question, even when
 no batch ends up selectable. This one call already resolved the model gate, plugin boundaries and
 batch selection together — read its fields below, no further calls needed for those three steps.
-**Model Gate**: print as returned; cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** section on first use each session and apply it here.
+**Model Gate**: print as returned. `policy.allowAnyModel: true` → no check. Otherwise the running
+model's name (system prompt, environment block) must substring-match an entry of
+`policy.implModels` — of `policy.orchestratorModels` when `policy.orchestratorMode` is `true`. No
+match → stop immediately, touching nothing; a model-gate mismatch → read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Model Gate Stop** for the stop wording.
 
 **Plugin Boundaries.** `policy.implBlockedPlugins` — those plugins/skills aren't called for the
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
 ignored. Print `Plugin Boundaries` as returned (the preflight's own line).
 
-**Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. Every other outcome's wording — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules** section on first use each session and apply it here.
+**Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. `status` is `OK` → print `Batch`, the preflight's own `statusLines` entry exactly as returned. Any other `status` → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules**, which words every such outcome.
 
 ## Step 4 — Batch Briefing and Start
 
 Nothing is touched, no lock taken, until the briefing has been shown — never read
-phase files in full here, that's **Implementation**'s job. `contextGate.verdict` is `WARN`, and
-`batch.consistency == "divergent"` — cold-path detail: read
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings** section on first use each session and apply it here. Present `batch.briefText` compactly (already the full
-per-phase listing — name/priority/phase count/`dependsOn`/done phases ticked, open phases with size
-and context excerpt), then show the batch overview and the queue listing, then follow the start
-gate — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Start Gate** section on first use each session and apply it here.
+phase files in full here, that's **Implementation**'s job. `contextGate.verdict` is `WARN` or
+`batch.consistency == "divergent"` at the briefing → read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Briefing Warnings**.
 
-`lint.clean` is `false` → print `Lint` with its findings and end, nothing touched — cold-path
-detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lint Gate** section on first
-use each session and apply it here.
+### Batch Briefing
 
-Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`) — cold-path detail: read
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lock Acquisition** section on first use each session and apply it here. `branch.mode`
-(from the preflight — already computed, no new call) decides the checkout — full behavior (`off`/`continue`/`new`,
-base-branch question, checkout, changelog init, changelog commit, post-checkout reconfirm) — based
-on `origin`'s current state — in `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Branch
-and Changelog on Go-Ahead**. `Branch` renders whichever happened. `resume` (same preflight
-result) already carries done/open phases, last commit, deviations, red-phase history,
-`.batch-context.md`'s path — no new `bin/cfq resume` call; if `resume.batchContext.exists`, `Read`
-it now. Print `Resume` — phases done/open, `.batch-context.md` present or not.
+`batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
+batch — batch name, priority, phase count, then a `goal:` line from `.batch-context.md`'s
+`## Goal` (cut at about 300 characters, on a word boundary) when the batch has one, `.dependsOn` if
+present, then one line per phase (number and title, size in brackets, context excerpt). Present it
+as-is, compactly: no prose around it, no repetition of the plan, no commentary on the phases. A
+phase file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
+incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
+shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders
+with no `goal:` line.
+
+`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders — the
+aligned-monospace batch-overview block: header, phase count with done/red breakdown, the labelled,
+untruncated `.batch-context.md` block (`Goal`, `Decisions`, `Invariants`, `Cross-Phase Contracts`,
+`Non-Goals`, each only when present), then the phase table with a `done`/`open`/`red` status
+column, each row followed by that phase's own `## Context` excerpt and a `→ <file>` pointer
+(`done/<file>` for a finished phase), a closing `Plans` line naming the batch directory so a hand
+edit knows exactly where to reach in, and a `Portal` line when the report portal is on.
+`--with-done` stays exactly as described above for any caller that still wants the old flat
+listing.
+
+### Start Gate
+
+Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is
+printed, in order: the briefing warnings **Briefing Warnings** already defines, then `bin/cfq
+brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from **Batch
+Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
+rendered exactly as returned — no rewording, nothing between them but a blank line.
+
+**The question** may take a second call, because `AskUserQuestion` caps at four options and a repo
+may hold more than two other open batches — but only when another batch is actually selectable:
+
+- Other selectable batches = entries of `selection.selectable` other than the batch just briefed
+  (the same set the second call below offers).
+- At least one other selectable batch → first call, three options: **Start** (recommended, listed
+  first) — proceed to **Lock Acquisition** for the batch just briefed; **Pick a different batch** —
+  opens the second call below; **Cancel** — end the session, nothing touched, no lock taken, no
+  branch checked out. Print `Start Gate` as `➖ cancelled by user` and stop.
+- None → first call has only two options: **Start** (recommended, listed first), same effect as
+  above, and **Cancel**, same effect as above. No middle option, no second call possible; the
+  question text says the batch is ready and asks whether to start it — it does not mention picking
+  another batch.
+- Second call, only when the user picked the middle option (so only reachable in the
+  at-least-one-other case): one option per entry in
+  `selection.selectable` other than the batch already briefed, each labelled with its number and
+  slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
+  **not** offered — they are already visible in `queueText` with their own reason and stay
+  non-selectable. More than four such entries → offer the first three, in the same
+  flagged-first-then-name order `selectable` already carries, and say in the question text that
+  the rest are in the listing above and reachable by typing the number as free text. A free-text
+  answer naming a batch that is not in `selection.selectable` is reported against `queueText`'s
+  own reason for that batch and the question is asked once more; a second miss ends the session
+  without touching anything, mirroring `${CLAUDE_PLUGIN_ROOT}/references/ifq-branch.md`'s **Branch and Changelog on Go-Ahead** free-text
+  resolution for the base-branch question — point at that paragraph, don't repeat it.
+- `startGate.offerSkip` is `true` → the first call gains a further option, **Skip this phase**,
+  placed after **Start**: it asks nothing more, runs `bin/cfq phase skip "<batch-dir>" <NN>
+  --reason "skipped at start gate after failed attempt"` for `nextPhase`, prints the returned status
+  line, re-runs the preflight with `--select <batch>` and continues with the next phase without
+  asking the gate again. The option exists only when the next phase is `error`; with `resume` or
+  `start` the gate does not fire and the phase is retried.
+- On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
+  <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
+  second time for the freshly chosen batch, because choosing it *was* the confirmation.
+
+**When it fires**: `startGate.fire` is `true` — already resolved by the preflight from `--intent`
+and whether a batch is in progress (**Arguments** above). Without either keyword this is always
+`true`, with no exception — a resumed in-progress batch, a batch named
+explicitly as an argument, and orchestrator mode are all still included. `--intent resume` also
+comes back `true` (reason `resume-nothing-in-progress`) when nothing is in progress — `resume`
+never starts something new silently, it falls back to the normal gate instead.
+
+**When it does not fire**: `startGate.fire` is `false` — `--intent start` always, or `--intent
+resume` with a batch already in progress. Print the preflight's own `Start Gate` status line (in
+`statusLines`, already worded `skipped · resume · <batch>` / `skipped · start · <batch>`) and go
+straight to **Lock Acquisition** — the briefing warnings and the batch overview above are still
+printed either way, so the user sees what is starting even without being asked.
+
+**The one case it does not fire regardless of `--intent`**: `selection.selectable` is empty and
+there is no in-progress batch, i.e. the session is already ending via
+`NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those paths end before a batch is ever resolved
+(`startGate: null`), so there is nothing left to confirm.
+
+Print `Start Gate` either way: `✅ confirmed · <batch>` (Start chosen), `✅ switched to <batch>`
+(a different batch chosen on the second call), `➖ cancelled by user` (Cancel, or a second
+free-text miss on the second call) — or, when `startGate.fire` was `false`, the preflight's own
+line from `statusLines`, printed exactly as returned rather than composed here.
+
+`lint.clean` is `false` → print `Lint` with its findings and end, nothing touched — read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Lint Gate**.
+
+Acquire the repo lock (`bin/cfq lock acquire "<repo-root>" "<batch>"`).
+
+### Lock Acquisition
+
+Exit ≠ 0 (`LOCKED`) → **end immediately**, touch nothing, name holder/batch/time, note the
+30-minute stale takeover; `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just
+acquired.
+
+### Branch
+
+`branch.mode` (from the preflight — already computed, no new call) is `off` → print `Branch` as
+`➖ branchPerBatch off`, nothing else. `branch.mode` is anything other than `off` → read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-branch.md`: full behavior (`continue`/`new`, base-branch
+question, checkout, changelog init, changelog commit, post-checkout reconfirm) based on `origin`'s
+current state. `Branch` renders whichever happened.
+
+### Resume Snapshot
+
+`bin/cfq preflight-impl`'s `resume` field carries what `bin/cfq resume` itself returns for the
+resolved batch, minus its own `branch` sub-object (redundant with the preflight's top-level
+`branch`, computed by that same underlying call — see the `resume` noun's own script header
+comment for the full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
+`lastCommitSource`, `deviations`, `redPhases`, `batchContext.exists`/`.path`). One JSON object,
+deterministic — no summarization, only facts read from disk, `report.json`, and git.
+
+`resume` (same preflight result) already carries done/open phases, last commit, deviations,
+red-phase history, `.batch-context.md`'s path — no new `bin/cfq resume` call; if
+`resume.batchContext.exists`, `Read` it now. Print `Resume` — phases done/open, `.batch-context.md`
+present or not.
+
+## Step 5 — Mode Switch
 
 `policy.orchestratorMode` is `true` → read `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` and
-follow it in place of everything from **Earlier Failed Attempt** through **Batch Done** below;
-`false` → **Earlier Failed Attempt**.
+follow it; `false` → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-classic.md` and follow it. `POSTCHECKS`
+opens only on a `STOP`, a red phase, or a finished batch.
 
-## Step 5 — Earlier Failed Attempt
+## Step 6 — Batch Done
 
-Entering this step closes `PRECHECKS` and opens `IMPLEMENTATION`. Before reading the phase file,
-two checks — both already resolved by **Batch Selection**'s preflight call for the phase it was run
-against; **only re-run the preflight here** (same `--select <batch>`) if
-a phase other than the one it resolved is about to start (e.g. the second and later phases of a
-batch, since the preflight only ever resolves `nextPhase` for the lowest-numbered `open` or `error`
-phase at call time). `nextPhase.status == "error"` is the trigger: `nextPhase.failedAttempt` —
-`.found: true` → read its `.note`/`.at`, check whether the cause still holds before repeating, and mention it in the new
-entry ("second attempt after …"); `.found: false` → skip silently. Print `Failed Attempt` either
-way.
+The batch has no open phase left (`nextPhase: null`) → print the `POSTCHECKS` header (this closes
+`IMPLEMENTATION`), then run
+`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"` and read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields**. Hand the batch to
+**Closing Reports** for the closing report.
 
-## Step 6 — Size Gate
-
-`contextGate` — deterministic projection, already computed by the
-preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`, three
-branches:
-
-- `START` → **Phase Announcement**, then **Implementation**.
-- `WARN` → **Phase Announcement**, same as `START` — the phase is not blocked. Its
-  `AskUserQuestion` fires only in this branch; nothing is skipped and nothing ends here.
-- `HANDOFF` → no phase ran, hand off cleanly (the **Context Check**) instead.
-
-Print the `Size Gate` status line — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here; this closes `PRECHECKS`. In orchestrator mode this step
-does not run — every worker starts at zero context, so there is nothing the gate would protect
-against.
-
-## Step 7 — Phase Announcement
-
-Print the phase announcement —
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --phase <NN>`, rendered as returned, no
-rewording — then go straight to **Implementation**. `contextGate.verdict` was `WARN` is the one
-exception — reappears every phase by design, never a repetition bug — one `AskUserQuestion` with
-**Go**/**Handoff**/**Cancel**; full option copy and the rendering example are in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Phase Announcement**.
-
-## Step 8 — Implementation
-
-Read `nextPhase`'s plan file (path from the preflight) in full — multi-file or unclear-scope phases may delegate
-that research to an `implExploreModel` subagent first; implementation itself never runs on one.
-Implement it completely, run the plan's verification with output filtered — a green run may
-delegate the filtering to the same subagent, a red run never does (full unfiltered failure back
-either way), per `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Research and Verification
-Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
-`docLanguages` entry before it goes green, per `${CLAUDE_PLUGIN_ROOT}/references/doc-style.md` or
-`<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/queue-entries.md`'s **Parking Out-of-Scope Work** section on first use each session and apply it here.
-
-Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Phase Object Fields** section on first use each session and apply it here.
-
-Green → `git add` the phase's changes (staging stays with the model — the closing call never runs
-`git add` itself), write the commit message (subject/body plus `Co-Authored-By`) to a temp file,
-then close the phase via the following **Commit & Push** step's single call. Red → record it now,
-before anything else: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase record "<batch-dir>"
-"<phase-json-file>"` — this appends the ledger entry without moving the plan file, capturing
-telemetry automatically; print `❌ red` with each trimmed error as `   └ ` lines and **stop**, don't
-move on.
-
-**Stop rule**, before the next phase in the same session: (a) verification red or skipped, (b) a
-planned change omitted, (c) an unnamed new dependency/script — mechanics in
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Stop Rule**. Any firing → ask once before
-continuing; none → continue, no question.
-
-## Step 9 — Commit & Push (on green, every phase)
-
-Automatically, right after **Implementation**'s `git add`, even if more phases follow — never
-collected until batch end or a `/clear`. The branch already exists (**Batch Briefing** created it
-or checked an existing one out) — one call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" phase commit
-"<batch-dir>" "<phase-json-file>" "<message-file>"` — cold-path detail: read
-`${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Commit Result Rendering** section on first use each session and apply it here.
-
-## Step 10 — Context Check After Every Phase
-
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, which returns `OK` / `WARN` / `STOP`.
-`policy.onePhasePerSession` (**Batch Selection**'s preflight, no new call) `true` → treat exactly
-like `STOP` below, regardless of the context gate's own verdict; `false` → the context gate alone
-decides. In orchestrator mode this step's own in-session check never runs — the orchestrator's
-equivalent capacity check lives in `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` step 1
-instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` has no effect on the
-orchestrator loop.
-
-- `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
-  (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>" --batch "<batch>"`),
-  printing `Telemetry`/`Lock`, then end — the follow-up session acquires the lock fresh, a
-  half-finished batch must not stay locked. Print the `HANDOFF · implement-for-queue` short format
-  from **Closing Reports**.
-- `OK` → next phase, same batch.
-- `WARN` → do not end, do not advance silently — cold-path detail: read
-  `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Context Gate Reason Semantics** section on first use each session and apply it here.
-
-## Step 11 — Batch Done
-
-`nextPhase: null` → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"` — cold-path detail:
-read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields** section on first use each session and apply it here. Hand the batch to **Closing Reports** for the closing
-report.
-
-## Step 12 — Closing Reports
+## Step 7 — Closing Reports
 
 One format, two lengths, both end the session, both a label/value list under the `Output Format`
-padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short) —
-cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Closing Report Fields** section on first use each session and apply it here.
+padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement-for-queue` (short).
+**Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases
+open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no merge hint. The batch has no open
+phase left → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Closing Report Fields** for
+the full format.

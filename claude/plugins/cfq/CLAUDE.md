@@ -100,6 +100,8 @@ plans and never edits code; `implement-for-queue` (cheap model) works exactly on
 hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
 on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
+The `implement-for-queue` `SKILL.md` carries only what both modes share, and each mode's per-phase
+loop lives in its own reference file (`references/orchestrator.md`, `references/ifq-classic.md`).
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/cfq/` (canonical
@@ -289,7 +291,7 @@ id goes through `cfq_runtime.py transcript-path|subagent-dir --session <id>`.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
-`implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents
+`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) both delegate multi-file or unclear-scope research to Explore agents
 (`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
 verification command through the same subagent to keep raw test/build log noise out of the
 expensive model's context. Research fits, since the parent gets a distilled summary and stops

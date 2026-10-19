@@ -22,8 +22,8 @@ This one call carries both verdicts, and capacity always wins when both fire:
 
 - `STOP` (`REASON=capacity`) is about the **orchestrator's own** session, not the worker's — it
   ends the batch right here, without asking: the next worker is not spawned, `POSTCHECKS` runs
-  exactly as classic mode's `STOP` branch describes it, and the session prints the `HANDOFF ·
-  implement-for-queue` short format. The batch resumes in a fresh `/ifq` session with the
+  exactly as `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** describes its
+  `STOP` branch, and the session prints the `HANDOFF · implement-for-queue` short format. The batch resumes in a fresh `/ifq` session with the
   remaining phases untouched in `impl/`. A call that returns `STOP` never also asks the `WARN`
   question below.
 - `WARN` (a rate-limit reason) carries the same three-option question as classic mode's
@@ -57,7 +57,7 @@ closing call wrote, empty for a `question` report.
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
-- `STOP` → the batch ends. `errors` prints unmodified, exactly as classic mode's red case does, and those `statusLines`
+- `STOP` → the batch ends. `errors` prints unmodified, exactly as `<plugin-root>/references/ifq-classic.md`'s **Implementation** red case does, and those `statusLines`
   are printed right after `errors`; run `POSTCHECKS`.
 
 ## 4. Resuming after an answer
@@ -73,19 +73,19 @@ Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing
 block (`implemented`/`verification`/`deviations`/`observations` map onto
 `Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`, then print the verdict's `statusLines` entries
 below the block, each `text` exactly as returned. Batch end — `nextPhase: null` —
-follows classic mode's **Batch Done** in full.
+follows `implement-for-queue/SKILL.md`'s **Batch Done** in full.
 
 ## 6. Fallback to classic
 
 A spawn that fails outright, or a worker that returns nothing usable (malformed report, no report
 at all), does not end the batch: the orchestrator implements that phase itself, in-session, exactly
-as classic mode's **Implementation** step would, and prints one `⚠️` line naming what failed before
-falling back. Classic mode's own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
+as `<plugin-root>/references/ifq-classic.md`'s **Implementation** step would, and prints one `⚠️` line naming what failed before
+falling back. `<plugin-root>/references/ifq-classic.md`'s own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
 refuses while `orchestratorMode` is still on, so this in-session fallback calls it with
 `--classic-fallback` appended — the flag that is what makes this documented fallback pass the
 gate. Its printed block is the same text step 2 already rendered from `announcement` for the
 worker that failed to spawn, so it is not printed again here — the call is made only to satisfy
-classic mode's own Implementation step, never to show a second announcement for the same phase.
+`ifq-classic.md`'s own **Implementation** step, never to show a second announcement for the same phase.
 This fallback exists to keep a batch moving on an occasional spawn failure — a *repeated* fallback
 within the same batch is worth investigating, not silently absorbing.
 
