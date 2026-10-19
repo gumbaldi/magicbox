@@ -15,8 +15,14 @@ PHASE 02 · ifq-per-phase-go-gate · Size L
   Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
+  Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
+           2. <next step, aligned under the first>
   Check    <first command line from ## Verification>
 ```
+
+The steps are the opening sentence of each numbered `## Changes` step, at most 10, each at most
+two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
+`Steps` label.
 
 A `## Context` that wraps past 4 lines ends the block in `…` rather than being cut mid-word; a
 short one stays a single `Goal` line, and no `## Context` at all omits the `Goal` line entirely
@@ -39,8 +45,14 @@ PHASE 02 · ifq-per-phase-go-gate · Size L
   Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
+  Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
+           2. <next step, aligned under the first>
   Check    <first command line from ## Verification>
 ```
+
+The steps are the opening sentence of each numbered `## Changes` step, at most 10, each at most
+two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
+`Steps` label.
 
 Then one `AskUserQuestion`, three options: **Go** — "proceed, implement this phase now", its
 description naming the budget state so the user sees what they are accepting — and **must not**

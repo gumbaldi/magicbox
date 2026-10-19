@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed]]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
---phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
+--phase <NN>) a single-phase announcement block (title, goal, files, the first 10 numbered
+`## Changes` steps at two lines each, check command), or (with --with-done) the same batch briefing
 with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
-block (header, phase count/done/red line, wrapped goal paragraph, an optional `.batch-context.md`
-`## Decisions` excerpt, the phase table interleaved with each phase's own `## Context` excerpt, and
-a closing `Plans` line naming the batch directory) shared by `ifq`'s start gate and `pfq`'s final
-report, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
+block (header, phase count/done/red line, the untruncated labelled `.batch-context.md` block, the
+phase table interleaved with each phase's own `## Context` excerpt and a `-> <file>` pointer, and
+closing `Plans` and (report portal on) `Portal` lines) shown at `ifq`'s start gate, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
 context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
 command and phase-file path; --review --changed prints only what changed since the `.review`
 snapshot `cfq batch review` took (read-only, never refreshes it). Batch mode (default and --with-done) prints an optional
@@ -112,7 +112,13 @@ def parse_phase_body(text, fallback_title=None):
             check = line
 
     context = "".join(f"{line} " for line in context_lines)
-    return {"title": title or fallback_title, "size": size, "context": context, "files": files, "check": check}
+    return {
+        "title": title or fallback_title, "size": size, "context": context, "files": files,
+        "check": check, "steps": changes_steps(text),
+    }
+
+
+MAX_ANNOUNCED_STEPS = 10
 
 
 def render_phase(num, fields):
@@ -123,6 +129,19 @@ def render_phase(num, fields):
         lines.append(f"{prefix}{line}")
     if fields["files"]:
         lines.append(f"  Files    {', '.join(fields['files'])}")
+    steps = fields["steps"]
+    for i, step in enumerate(steps[:MAX_ANNOUNCED_STEPS], 1):
+        prefix = f"{i}. "
+        wrapped = cfq_text.wrap(step["lead"], width=62, max_lines=2) or [""]
+        for j, w in enumerate(wrapped):
+            if j == 0:
+                head = "  Steps    " if i == 1 else " " * 11
+                lines.append(f"{head}{prefix}{w}")
+            else:
+                lines.append(" " * 14 + w)
+    extra = len(steps) - MAX_ANNOUNCED_STEPS
+    if extra > 0:
+        lines.append(f"           … +{extra} more step{'s' if extra != 1 else ''}")
     if fields["check"]:
         lines.append(f"  Check    {fields['check']}")
     return "\n".join(lines)
@@ -172,8 +191,9 @@ def _overview_header(d):
 
 
 def _overview_rows(d):
-    """Table rows, each phase's own `## Context` excerpt (parallel list, same order), plus the
-    done/red counts feeding the count line. Done phases (under `done/`) sort first, ascending by
+    """Table rows, each phase's own `## Context` excerpt and file pointer (`<name>` or
+    `done/<name>`) as parallel lists in the same order, plus the done/red counts feeding the count
+    line. Done phases (under `done/`) sort first, ascending by
     number, then open ones, also ascending -- `sorted(glob(...))` already gives ascending numeric
     order for `NN-*` names. A done phase is always `done` regardless of what the ledger says about
     it; an open phase is `red` only when its own last ledger attempt is red, `open` otherwise."""
@@ -183,10 +203,12 @@ def _overview_rows(d):
 
     rows = []
     contexts = []
+    pointers = []
     for f in done_files:
         fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
         contexts.append(fields["context"])
+        pointers.append(f"done/{f.name}")
 
     red_count = 0
     for f in open_files:
@@ -196,8 +218,9 @@ def _overview_rows(d):
             red_count += 1
         rows.append([phase_num(f), fields["title"], fields["size"] or "M", status])
         contexts.append(fields["context"])
+        pointers.append(f.name)
 
-    return rows, contexts, len(done_files), len(open_files), red_count
+    return rows, contexts, len(done_files), len(open_files), red_count, pointers
 
 
 def _count_line(done_n, open_n, red_n):
@@ -208,31 +231,30 @@ def _count_line(done_n, open_n, red_n):
 
 
 def render_overview(d):
-    rows, contexts, done_n, open_n, red_n = _overview_rows(d)
+    rows, contexts, done_n, open_n, red_n, pointers = _overview_rows(d)
     lines = [_overview_header(d), _count_line(done_n, open_n, red_n)]
 
-    goal = cfq_queue.read_goal_full(d)
-    if goal is not None:
+    ctx = render_context_block(d)
+    if ctx:
         lines.append("")
-        lines.extend(cfq_text.wrap(goal, width=68, indent="  ", max_lines=6))
+        lines.extend(ctx)
         lines.append("")
-
-    decisions = cfq_queue.read_section_full(d, "Decisions", sep=" · ")
-    if decisions is not None:
-        lines.append("  Decisions")
-        lines.extend(cfq_text.wrap(decisions, width=68, indent="    ", max_lines=8))
 
     table_lines = cfq_text.table(
         rows, headers=["#", "Phase", "Size", "Status"], aligns=["l", "l", "l", "l"],
     )
     if table_lines:
         lines.append(table_lines[0])
-        for line, excerpt in zip(table_lines[1:], contexts):
+        for line, excerpt, pointer in zip(table_lines[1:], contexts, pointers):
             lines.append(line)
             lines.extend(cfq_text.wrap(excerpt, width=66, indent="      ", max_lines=2))
+            lines.append(f"      → {pointer}")
 
     lines.append("")
     lines.append(f"  Plans    {d.resolve()}")
+    portal = _portal_line(d)
+    if portal is not None:
+        lines.append(portal)
 
     return "\n".join(lines)
 
@@ -475,7 +497,7 @@ def render_review(d, only=None):
     if only is not None:
         return "\n\n".join("\n".join(b) for b in blocks)
 
-    _, _, done_n, open_n, red_n = _overview_rows(d)
+    _, _, done_n, open_n, red_n, _ = _overview_rows(d)
     sections = [[_overview_header(d), _count_line(done_n, open_n, red_n)]]
     ctx = render_context_block(d)
     if ctx:

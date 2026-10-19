@@ -127,6 +127,60 @@ class BriefTest(CfqTestCase):
         )
         self.assertFalse(any(l.endswith(" ") for l in lines), f"trailing whitespace in: {out}")
 
+    def _steps_phase(self, name, changes):
+        batch = self._repos_dir / name
+        batch.mkdir(parents=True)
+        (batch / "01-steps.md").write_text(
+            "# Steps phase\n\n## Context\n\nCtx line.\n\n"
+            "## Affected Files\n\n- `/tmp/example/only.sh`\n\n"
+            f"## Changes\n\n{changes}\n\n"
+            "## Verification\n\n```bash\necho done\n```\n"
+        )
+        return batch
+
+    def test_phase_announcement_prints_steps_between_files_and_check(self):
+        batch = self._steps_phase(
+            "2026-01-07-threesteps",
+            "1. First step.\n   - nested detail\n2. Second step.\n3. Third step.",
+        )
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.rstrip("\n")
+        expected = (
+            "PHASE 01 · Steps phase · Size M\n"
+            "  Goal     Ctx line.\n"
+            "  Files    only.sh\n"
+            "  Steps    1. First step.\n"
+            "           2. Second step.\n"
+            "           3. Third step.\n"
+            "  Check    echo done"
+        )
+        self.assertEqual(out, expected)
+
+    def test_phase_announcement_caps_steps_at_ten(self):
+        batch = self._steps_phase(
+            "2026-01-08-twelvesteps", "\n".join(f"{i}. Step number {i}." for i in range(1, 13)),
+        )
+        lines = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.splitlines()
+        steps = [l for l in lines if l.startswith("  Steps") or l.startswith(" " * 11)]
+        self.assertEqual(len(steps), 11, lines)
+        self.assertEqual(steps[-1], "           … +2 more steps")
+        self.assertEqual(steps[-2], "           10. Step number 10.")
+        self.assertFalse(any(l.endswith(" ") for l in lines))
+
+    def test_phase_announcement_without_step_list_has_no_steps_label(self):
+        batch = self._steps_phase("2026-01-09-prosechanges", "Just prose describing the change.")
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout
+        self.assertNotIn("  Steps  ", out)
+
+    def test_phase_announcement_long_step_lead_ends_in_ellipsis(self):
+        long_lead = " ".join(f"word{i:03d}" for i in range(40))
+        batch = self._steps_phase("2026-01-10-longstep", f"1. {long_lead}\n2. Short.")
+        lines = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.splitlines()
+        idx = next(i for i, l in enumerate(lines) if l.startswith("  Steps    1. "))
+        self.assertTrue(lines[idx + 1].startswith(" " * 14), lines)
+        self.assertTrue(lines[idx + 1].endswith("…"), lines)
+        self.assertEqual(lines[idx + 2], "           2. Short.")
+        self.assertFalse(any(l.endswith(" ") for l in lines))
+
     def test_phase_announcement_unknown_number(self):
         proc = self.run_cfq("brief", str(self.batch), "--phase", "99")
         self.assertNotEqual(proc.returncode, 0, "--phase 99 should exit non-zero")
@@ -429,8 +483,11 @@ class BriefOverviewTest(CfqTestCase):
             "3 phases planned · 1 done · 1 red",
             "  #   Phase         Size  Status",
             "  01  First phase   S     done",
+            "      → done/01-first.md",
             "  02  Second phase  M     red",
+            "      → 02-second.md",
             "  03  Third phase   L     open",
+            "      → 03-third.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -448,7 +505,9 @@ class BriefOverviewTest(CfqTestCase):
             "2 phases planned · 0 done",
             "  #   Phase        Size  Status",
             "  01  Alpha phase  M     open",
+            "      → 01-alpha.md",
             "  02  Beta phase   S     open",
+            "      → 02-beta.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -457,7 +516,7 @@ class BriefOverviewTest(CfqTestCase):
             f"no-report.json overview block wrong (must not raise, must omit red clause): {out}",
         )
 
-    def test_overview_missing_batch_context_omits_goal_paragraph(self):
+    def test_overview_missing_batch_context_omits_context_block(self):
         batch = self._repos_dir / "009-2026-02-03-nogoal"
         batch.mkdir(parents=True)
         self._phase(batch, "01-only.md", "Only phase")
@@ -468,10 +527,11 @@ class BriefOverviewTest(CfqTestCase):
         self.assertEqual(lines[1], "1 phases planned · 0 done", f"count line wrong: {out}")
         self.assertEqual(
             lines[2], "  #   Phase       Size  Status",
-            f"table must start right after the count line, no goal paragraph or blank lines: {out}",
+            f"table must start right after the count line, no context block or blank lines: {out}",
         )
+        self.assertEqual(lines[4], "      → 01-only.md", f"pointer line missing: {out}")
 
-    def test_overview_long_goal_wraps_to_six_lines_with_ellipsis(self):
+    def test_overview_long_goal_is_never_cut(self):
         batch = self._repos_dir / "010-2026-02-04-longgoal"
         batch.mkdir(parents=True)
         self._phase(batch, "01-x.md", "X phase")
@@ -481,28 +541,15 @@ class BriefOverviewTest(CfqTestCase):
         )
 
         out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
-        expected = "\n".join([
-            "BATCH 010 · 2026-02-04 · longgoal",
-            "1 phases planned · 0 done",
-            "",
-            "  word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10",
-            "  word11 word12 word13 word14 word15 word16 word17 word18 word19",
-            "  word20 word21 word22 word23 word24 word25 word26 word27 word28",
-            "  word29 word30 word31 word32 word33 word34 word35 word36 word37",
-            "  word38 word39 word40 word41 word42 word43 word44 word45 word46",
-            "  word47 word48 word49 word50 word51 word52 word53 word54 word55…",
-            "",
-            "  Decisions",
-            "    irrelevant",
-            "  #   Phase    Size  Status",
-            "  01  X phase  M     open",
-            "",
-            f"  Plans    {batch.resolve()}",
-        ])
-        self.assertEqual(out, expected, f"long-goal overview block wrong: {out}")
-        self.assertNotIn(
-            "## Decisions", out, f"## Decisions must not leak into the overview block: {out}",
-        )
+        self.assertNotIn("…", out, f"the goal must not be cut: {out}")
+        self.assertIn("word79", out, f"the last goal word must survive: {out}")
+        lines = out.splitlines()
+        self.assertEqual(lines[2], "", f"blank line before the context block: {out}")
+        self.assertEqual(lines[3], "  Goal", f"labelled Goal block expected: {out}")
+        self.assertIn("  Decisions", lines)
+        self.assertIn("    - irrelevant", lines)
+        table_idx = lines.index("  #   Phase    Size  Status")
+        self.assertEqual(lines[table_idx - 1], "", f"blank line after the context block: {out}")
 
     def test_overview_legacy_unnumbered_batch_name(self):
         batch = self._repos_dir / "2026-01-06-legacyoverview"
@@ -515,6 +562,7 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  01  Y phase  M     open",
+            "      → 01-y.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -538,6 +586,7 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  04  X phase  M     open",
+            "      → 04-x.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -593,20 +642,24 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "BATCH 013 · 2026-02-07 · decisions",
             "2 phases planned · 0 done",
             "",
-            "  Do the thing well.",
-            "",
+            "  Goal",
+            "    Do the thing well.",
             "  Decisions",
-            "    First decision bullet about something. · Second decision bullet",
-            "    about something else.",
+            "    - First decision bullet about something.",
+            "    - Second decision bullet about something else.",
+            "",
             "  #   Phase         Size  Status",
             "  01  First phase   S     open",
             "      First phase context line one. First phase context line two.",
+            "      → 01-first.md",
             "  02  Second phase  M     open",
             "      Second phase context line one. Second phase context line two.",
+            "      → 02-second.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"routine decisions/excerpts/path overview block wrong: {out}")
+        self.assertNotIn("Portal", out, f"a batch outside a queue layout has no portal line: {out}")
         self.assertFalse(
             any(l.endswith(" ") for l in out.splitlines()),
             f"no overview line may end in a space: {out!r}",
@@ -623,10 +676,12 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "BATCH 014 · 2026-02-08 · nodecisions",
             "1 phases planned · 0 done",
             "",
-            "  Just a goal.",
+            "  Goal",
+            "    Just a goal.",
             "",
             "  #   Phase        Size  Status",
             "  01  First phase  M     open",
+            "      → 01-first.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -643,6 +698,7 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase        Size  Status",
             "  01  First phase  S     open",
+            "      → 01-first.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -651,7 +707,7 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             f"a phase without ## Context must have no excerpt line and no stray blank line: {out}",
         )
 
-    def test_long_decisions_wraps_to_exactly_eight_lines_with_ellipsis(self):
+    def test_twenty_decision_bullets_are_never_cut(self):
         batch = self._repos_dir / "016-2026-02-10-longdecisions"
         batch.mkdir(parents=True)
         long_decisions = "\n".join(f"- decisionword{i} decisionword{i}" for i in range(20))
@@ -660,18 +716,35 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
 
         out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
         lines = out.splitlines()
-        decisions_idx = lines.index("  Decisions")
-        wrapped = []
-        i = decisions_idx + 1
-        while lines[i].startswith("    "):
-            wrapped.append(lines[i])
-            i += 1
-        self.assertEqual(len(wrapped), 8, f"long decisions must wrap to exactly 8 lines: {out}")
-        self.assertTrue(wrapped[-1].endswith("…"), f"last decisions line must end in an ellipsis: {out}")
+        self.assertEqual(
+            len([l for l in lines if l.startswith("    - ")]), 20,
+            f"20 decision bullets must produce 20 bullet lines: {out}",
+        )
+        self.assertFalse(any(l.endswith("…") for l in lines), f"no line may be cut: {out}")
         self.assertFalse(
-            any(l.endswith(" ") for l in out.splitlines()),
+            any(l.endswith(" ") for l in lines),
             f"no overview line may end in a space: {out!r}",
         )
+
+    def test_batch_in_queue_layout_ends_with_portal_line_unless_html_report_off(self):
+        repo = self._repos_dir / "portalrepo"
+        batch = repo / ".claude" / "cfq" / "impl" / "018-2026-02-12-portal"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-first.md", "First phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        lines = out.splitlines()
+        self.assertEqual(lines[-2], f"  Plans    {batch.resolve()}", out)
+        self.assertEqual(
+            lines[-1],
+            f"  Portal   file://{repo}/.claude/cfq/reports/index.html#/batch/018-2026-02-12-portal",
+            out,
+        )
+
+        (repo / ".claude" / "cfq" / "settings.json").write_text('{"htmlReport": false}\n')
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout
+        self.assertNotIn("Portal", out)
+        self.assertIn("  Plans    ", out)
 
     def test_with_done_and_phase_modes_unaffected_by_decisions_and_context(self):
         batch = self._repos_dir / "017-2026-02-11-unaffected"

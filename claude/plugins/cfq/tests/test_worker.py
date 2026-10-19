@@ -30,6 +30,11 @@ PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
 
     - `/tmp/example/foo.py`
 
+    ## Changes
+
+    1. First step of the phase.
+    2. Second step of the phase.
+
     ## Recommended skills
 
     - superpowers half a sentence why (blocked, must be filtered)
@@ -103,6 +108,7 @@ class WorkerBriefTest(CfqTestCase):
             phase_num(phase_file), parse_phase_body(phase_file.read_text(), fallback_title=phase_file.stem)
         )
         self.assertEqual(body["announcement"], expected)
+        self.assertIn("  Steps    1. First step of the phase.\n           2. Second step of the phase.", body["announcement"])
 
     def test_note_plan_framework_command_inserts_flag_after_note_plan(self):
         body = self.json_out(self._brief("02"))

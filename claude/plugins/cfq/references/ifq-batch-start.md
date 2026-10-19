@@ -105,13 +105,15 @@ incomplete plan is worth showing, not worth aborting over. The `goal:` line is t
 shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
 with no `goal:` line.
 
-`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
-later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
-count with done/red breakdown, the wrapped `## Goal` paragraph, an optional wrapped
-`.batch-context.md` `## Decisions` excerpt, then the phase table with a `done`/`open`/`red` status
-column, each row followed by that phase's own `## Context` excerpt, and a closing `Plans` line
-naming the batch directory so a hand edit knows exactly where to reach in. `--with-done` stays
-exactly as described above for any caller that still wants the old flat listing.
+`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders — the
+aligned-monospace batch-overview block: header, phase count with done/red breakdown, the labelled,
+untruncated `.batch-context.md` block (`Goal`, `Decisions`, `Invariants`, `Cross-Phase Contracts`,
+`Non-Goals`, each only when present), then the phase table with a `done`/`open`/`red` status
+column, each row followed by that phase's own `## Context` excerpt and a `→ <file>` pointer
+(`done/<file>` for a finished phase), a closing `Plans` line naming the batch directory so a hand
+edit knows exactly where to reach in, and a `Portal` line when the report portal is on.
+`--with-done` stays exactly as described above for any caller that still wants the old flat
+listing.
 
 ## Briefing Warnings
 
