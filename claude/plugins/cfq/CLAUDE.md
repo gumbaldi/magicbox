@@ -46,6 +46,13 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
 
+```bash
+claude plugin eval claude/plugins/cfq --case <name> --runs 1 --ablation none --scaffold --trust-plugin --no-publish
+```
+
+Behavioural eval cases for the skill prose live in `evals/`; this runs them on demand, never in CI,
+and every run costs model usage — see `evals/README.md` for the full command and the sandbox facts.
+
 Scripts write to `$HOME/.claude/cfq/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
 
