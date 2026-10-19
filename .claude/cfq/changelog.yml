@@ -24,8 +24,31 @@
   branch: cfq/049-2026-10-04-plan-review-gate-and-detail-view
   base: cfq/048-2026-10-04-changelog-newest-first-force-tracked
   started: 2026-10-19
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-10-19
+  phases:
+    - phase: "01-review-digest-renderer"
+      status: "green"
+      summary: "brief --review plan digest with changes_steps/has_numbered_steps/changes_fallback/render_context_block/_portal_line helpers and queue.read_section_lines"
+    - phase: "02-changes-steps-rule-and-lint-warning"
+      status: "green"
+      summary: "cfq_lint.py warns (never a finding) when a phase's ## Changes has no numbered top-level step, plus phase-quality.md rule 7 and tests"
+    - phase: "03-review-marker-and-changed-phases"
+      status: "green"
+      summary: "A .review marker (snapshot of per-file sha256) via 'batch review', 'batch ready' removing both markers, scan review field, park leaving .review alone, and 'brief --review --changed'"
+    - phase: "04-preflights-surface-awaiting-review"
+      status: "green"
+      summary: "Carried cfq_scan's review list through both preflights (awaiting review queue row, selection.review, queue.awaitingReview, Review status line) and reworded ifq-batch-start.md's Planning paragraph"
+    - phase: "05-overview-and-announcement-detail"
+      status: "green"
+      summary: "Overview shows the untruncated labelled batch context, a file pointer per phase and the portal line; phase announcements list up to 10 Changes steps"
+    - phase: "06-pfq-review-gate"
+      status: "green"
+      summary: "Added the Review Gate step to plan-for-queue with a new plan-review.md reference, final-report and policy updates, and the structural test switched to --review"
+    - phase: "07-docs-design-notes-version"
+      status: "green"
+      summary: "Documented the plan review gate in README, usage, configuration, plugin CLAUDE.md and design notes; bumped plugin to 0.30.0"
 - batchNumber: 48
   batch: 048-2026-10-04-changelog-newest-first-force-tracked
   branch: cfq/048-2026-10-04-changelog-newest-first-force-tracked
