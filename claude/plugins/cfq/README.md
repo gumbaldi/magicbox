@@ -76,6 +76,8 @@ is offered with the warning attached, and the user decides whether to continue o
 /ifq resume           # continue the in-progress batch; skips the start gate
 /ifq start             # take the in-progress batch, or the next one in order; skips the start gate
 /ifq start <batch>    # same as `start`, naming which batch
+/ifq skip <NN> [reason]  # skip phase <NN> of the batch, then carry on
+/ifq unskip <NN>      # bring a skipped phase back
 ```
 
 Never two batches in the same session, even if the first finishes early — different plans belong
@@ -138,7 +140,9 @@ batch.
       .priority          # optional, contains "high"
       .dependsOn         # optional: one batch directory name per line
       report.json        # written by ifq, includes telemetry
-      done/              # finished phases
+      status.json        # the state of every phase: open, done, error or skipped
+      done/              # finished phases (mirror of status.json)
+      skipped/           # skipped phases (mirror of status.json)
     done/                # finished batches
   plan/                  # planning-request inbox — ifq writes, pfq reads
     <YYYY-MM-DD>-<slug>.md
@@ -166,7 +170,10 @@ Upgrading from a pre-`.claude/cfq/` install: a repo still on the old repo-local
 upgrade utility for that was removed once every known repo had moved to the new layout. A repo
 still on the old layout needs an older plugin version to run the migration first.
 
-- `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
+- `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads. Inside a batch, `status.json` is
+  the one authority for each phase's state (`open`, `done`, `error`, `skipped`); `done/` and
+  `skipped/` hold the phase files of those states as a mirror, while `open` and `error` phases
+  stay in the batch directory itself. Only cfq's own scripts write it.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
   the phase it was working; `pfq` offers those as topics at the start of its next session. Both
   `/pfq` and `/ifq` print the inbox overview (`note list --overview` — date and title, one line
@@ -240,7 +247,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
 | `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo; `--from-plan` (repeatable) consumes the chosen `plan/` inbox entry or entries. |
-| `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
+| `phase` | Records, reopens, skips (`skip`) or unskips (`unskip`) a phase — ledger entry, `status.json` and the directory move as one transaction. |
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
@@ -272,8 +279,8 @@ half-written batch in the queue:
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
 
-Everything else `cfq` writes — the changelog, the registry, `report.json`, `.priority`,
-`.dependsOn`, the global state store under `$HOME/.claude/cfq/` — goes through cfq's own
+Everything else `cfq` writes — the changelog, the registry, `report.json`, `status.json`,
+`.priority`, `.dependsOn`, the global state store under `$HOME/.claude/cfq/` — goes through cfq's own
 scripts over `Bash` and is never seen by a `Write`/`Edit` hook.
 
 Renaming the queue layout means updating every external guard hook too. That coupling is invisible
@@ -284,7 +291,8 @@ from inside this repository, which is how it broke once: a hook still allowed th
 `hooks/hooks.json`), separate from the external-hook concern above. It denies `Bash` commands
 (`rm`, `mv`, `cp`, `truncate`, `shred`, `dd`, `ln`, `install`, `sed -i`, a `>`/`>>` redirect, or
 `find … -delete`/`-exec rm`) whose resolved target has `.claude/cfq` as a path component, and
-denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<batch>/**` directly.
+denies `Write`/`Edit` calls that target `impl/<batch>/done/**`, `impl/<batch>/skipped/**`,
+`impl/done/<batch>/**` or a batch's `status.json` directly.
 It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
 sanctioned commands the guard's own deny messages point to. Paths are resolved against the
 payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
@@ -313,8 +321,23 @@ stateDiagram-v2
   Done --> [*]
 ```
 
-A green phase means the plan file moved into the batch's `done/` and the commit is pushed; a
-finished batch means the whole batch directory moved into `impl/done/`.
+A green phase means `status.json` records the phase as `done`, its plan file lies in the batch's
+`done/` (the directory mirrors the file) and the commit is pushed; a finished batch means the whole
+batch directory moved into `impl/done/`. A phase that is skipped counts as settled for finishing a
+batch, see [Usage](docs/usage.md#skipping-a-phase).
+
+## Upgrading to phase states (`status.json`)
+
+Batches parked before this version have no `status.json`, and `/ifq` does not offer them until they
+get one. Run the one-time script once in every repo that has a queue, on every machine:
+
+```bash
+python3 <plugin-root>/tools/once_migrate_status.py <repo-root>
+```
+
+It adopts each phase by where its file lies and marks a phase whose latest report entry is red as
+`error`; a batch that already has the file is left alone. The script is temporary and will be
+removed together with this note.
 
 ## Output
 

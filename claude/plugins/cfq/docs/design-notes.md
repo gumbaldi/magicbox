@@ -230,3 +230,35 @@ rewrites one file and the viewer loads only what the route needs. The path is th
 is a bug a test finds, not a mapping somebody forgot to update. The earlier mismatch — the viewer
 loading a nested `batch/<name>/…` path while the writer produced a dotted file name beside it —
 left every batch page empty.
+
+## cfq: why phase state lives in `status.json` and the directories only mirror it
+
+Until now a phase's state was inferred from where its file lay: in the batch directory it was open,
+in `done/` it was done. That left no place for a third state. A phase the user wanted to leave out
+had to be deleted or faked as done, and a red phase was only visible in `report.json`. Every script
+that needed a state globbed the directories and re-derived it, each a little differently. A status
+file gives the state one writer (`cfq_lib/phase_state.py`) and one reader path, so every consumer
+agrees by construction.
+
+The directories stay as a mirror because they cost nothing and are what a person sees when they open
+a batch. `status.json` wins when the two disagree: a file moved by hand or a crash between the move
+and the write is then a recoverable mismatch that `batch verify` reports and `batch recover` fixes
+by moving the file, whereas trusting the directory would let an accident rewrite the state. Only a
+phase file with no entry at all is adopted by where it lies, since there is nothing to contradict.
+
+`error` still blocks. It is retryable, not terminal, and the lowest-numbered open-or-error phase is
+always the next phase, exactly as before this change; letting the batch step past a red phase on its
+own would turn a failure into silent skipped work. The only way past it is an explicit skip.
+
+A skip is user-only because skipping is a scope decision, and a cheap model working under a failing
+verification is the worst place to make one. The model may suggest it; the verb, the argument and
+the start-gate option all require the user to act. A skipped phase's plan is not thrown away: the
+reason and the plan text go to the `plan/` inbox at the batch's end, so the next planning session
+can pick the work up.
+
+The migration of existing batches is a throwaway script under `tools/`, not a `bin/cfq` verb, a new
+status or a read-time fallback. cfq runs on two machines, each repo needs the migration once, and a
+verb, a `MIGRATION_REQUIRED` status or a derive-on-read branch would be framework code that lives
+on in every reader long after its single use. A batch without a readable `status.json` is handled
+the same way everywhere, whatever the cause: it is not offered and the verbs refuse. The script and
+its README note are deleted together once both machines are migrated.

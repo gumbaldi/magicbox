@@ -21,7 +21,8 @@ added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` 
 and `cfq_report.py`'s `skills` verb added as batch `019`
 phase 04; `cfq_guard.py` (new) added as batch `019` phase 06; `cfq_portal.py` (new, plus the
 CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01;
-the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`) —
+the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
+CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
 design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
@@ -114,14 +115,20 @@ entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a fa
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
 phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
 move nothing); `cfq phase reopen <batch-dir> <phase-slug>` is `record`'s inverse, moving a phase back
-out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; the
-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed as its own
-`report append` CLI verb). `done/` stays the
-one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
-batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
-exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
-`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and the changelog (`changelogFile`) — honest about what
-`done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
+out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; `cfq
+phase skip <batch-dir> <NN|slug> [--reason <text>]` and `phase unskip` move a phase into and out of
+`skipped/` and append the skip's own ledger entry; the append primitive itself lives on as
+`cfq_report.append_phase()`, no longer exposed as its own `report append` CLI verb). `status.json`
+(`{"schema": 1, "phases": {<slug>: {"status": "open"|"done"|"error"|"skipped", …}}}`) is the one
+authority for phase state, read and written only through `cfq_lib/phase_state.py`, and no other
+module globs phase files to decide a state; `done/` and `skipped/` mirror it (`open` and `error`
+phases stay in the batch root), and when the two disagree `status.json` wins. A skipped entry also
+carries `reason`, `previous` (the status `unskip` restores) and, once written, `inbox`. `cfq batch
+verify [--batch <name>] [--json]` (read-only) and `cfq batch recover --batch <name> [--dry-run]`
+(applies the repairs `verify` can name automatically) exist only to keep the mirror and the other
+three sources that also record it — `report.json`, the `CFQ-Batch`/`CFQ-Phase`/`CFQ-Phase-Status`
+Git commit trailers, and the changelog (`changelogFile`) — honest about what `status.json` says;
+neither verb ever synthesizes plan **text** back from a changelog summary,
 only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
 (written by `cfq batch allocate` when the batch directory is created; `park` refreshes it on every
 re-park during the same `plan-for-queue` session but only while it still exists, and never
@@ -144,10 +151,13 @@ supplies the `check:` line, so it never needs a hand-composed one. `implement-fo
 `plan-for-queue` reads `plan/`, writes `impl/`. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
 inside any of the three subdirectories — `.lock` is held by the currently running
-`implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
-index or bookkeeping file: `cfq_scan.py` counts live from disk every time, and "phase finished" *is*
-the `mv` into `impl/done/`. Anything that changes the layout must change `cfq_scan.py` and
-`tests/test_scan.py` together — and, for `report.json`, `tests/test_report.py` as well.
+`implement-for-queue` session, liveness derived from the holder's transcript mtime. Apart from phase
+state there is no index or bookkeeping file: `cfq_scan.py` counts batches, notes and the rest live
+from disk every time, and phase counts from `status.json`; a batch whose `status.json` is missing or
+unreadable is reported with all counts `0` and `consistency: "unknown"` and never offered. "Phase
+finished" is the `status.json` write, with the `mv` into the batch's `done/` as its mirror.
+Anything that changes the layout must change `cfq_scan.py` and `tests/test_scan.py` together — and,
+for `report.json`, `tests/test_report.py` as well, for `status.json` `tests/test_phase_state.py`.
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
@@ -209,7 +219,8 @@ directly into `hooks/hooks.json`'s `PreToolUse` entries and runs on every `Bash`
 call in the session, whether or not a cfq skill is active. It denies a raw shell mutation
 (`rm`/`mv`/`cp`/`truncate`/`shred`/`dd`/`ln`/`install`/`sed -i`, a `>`/`>>` redirect, or
 `find … -delete`) whose argument resolves — against the tool call's own `cwd`, not a literal-string
-match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`. Its
+match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`,
+`impl/<batch>/skipped/**` or on a batch's `status.json`. Its
 fail-open behaviour (an internal exception allows the call and logs to stderr instead of denying)
 is intentional, not an oversight: a guard that crashes closed would fail every `Bash` call in every
 session, which is worse than the incident it exists to prevent now that phases 01-05 give every
@@ -457,7 +468,9 @@ of:
 Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never folded into
 `status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
 documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
-not replaces, the list above. Don't invent parallel status strings elsewhere; reuse this list.
+not replaces, the list above. The same goes for the phase states `open`/`done`/`error`/`skipped`
+in `status.json`: a separate, additive vocabulary for phases, never an aggregator `status`, and no
+new aggregator status was added for them. Don't invent parallel status strings elsewhere; reuse this list.
 `MODE_MISMATCH` is the one token in this vocabulary that is never a JSON `status` value — it's
 `cfq_brief.py`'s stderr/exit-2 refusal when `--phase` is called while `orchestratorMode` is on,
 reported by exit code rather than by a field a caller parses.
