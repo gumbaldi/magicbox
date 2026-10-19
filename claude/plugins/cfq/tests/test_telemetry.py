@@ -44,6 +44,26 @@ def _sub_line(ts, agent, usage=None, model="claude-sonnet-5", effort="high"):
     return json.dumps(obj, separators=(",", ":"))
 
 
+def _resp_line(ts, mid, output, content=None, model="claude-sonnet-5", agent=None,
+               inp=100, cache_read=10, cache_creation=5):
+    """One transcript line of a response -- Claude Code writes one such line per content block,
+    each repeating the response's message.id and usage. `mid=None` omits the id entirely."""
+    message = {
+        "model": model,
+        "usage": {
+            "input_tokens": inp, "output_tokens": output,
+            "cache_read_input_tokens": cache_read, "cache_creation_input_tokens": cache_creation,
+        },
+        "content": content if content is not None else [{"type": "text", "text": "x"}],
+    }
+    if mid is not None:
+        message["id"] = mid
+    obj = {"type": "assistant", "timestamp": ts, "effort": "high", "message": message}
+    if agent:
+        obj["attributionAgent"] = agent
+    return json.dumps(obj, separators=(",", ":"))
+
+
 def _write_meta(subdir, agent_id, agent_type, description="", spawn_depth=1, parent=None):
     """The sibling agent-<id>.meta.json a real subagents/ directory carries -- field names and
     shape verified against real session directories (agentType, description, spawnDepth, and
@@ -482,7 +502,7 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(layers["main_explore"]["turns"], 1)
         self.assertEqual(layers["main"]["count"], 1)
         self.assertEqual(layers["main"]["turns"], rec["totals"]["turns"])
-        self.assertEqual(layers["main"], {**rec["totals"], "models": layers["main"]["models"], "efforts": layers["main"]["efforts"], "count": 1})
+        self.assertEqual(layers["main"], {**rec["totals"], "models": layers["main"]["models"], "efforts": layers["main"]["efforts"], "count": 1, "by_model": rec["by_model"]})
 
         self._assert_layers_invariant(rec)
 
@@ -491,7 +511,7 @@ class TelemetryTest(CfqTestCase):
 
         self.assertEqual(rec["layers"]["worker"], {
             "turns": 0, "input": 0, "output": 0, "cache_read": 0, "cache_creation": 0,
-            "billable_in": 0, "models": [], "efforts": [], "count": 0,
+            "billable_in": 0, "models": [], "efforts": [], "count": 0, "by_model": {},
         })
         self.assertEqual(rec["layers"]["worker_explore"]["count"], 0)
         self.assertEqual(rec["layers"]["main_explore"]["count"], 1)
@@ -514,6 +534,107 @@ class TelemetryTest(CfqTestCase):
         rec = self._scenario_stale_agent_excluded()
         self.assertEqual(rec["agents"], [], msg="an agent with no turns in the new window is not listed")
         self._assert_layers_invariant(rec)
+
+    # -- one count per API response, split by model (schema 3) --------------------------------
+
+    def test_schema_is_3(self):
+        self._record(str(self.batch), "phase", "01-foo")
+        self.assertEqual(self._last_record()["schema"], 3)
+
+    def test_lines_of_one_response_count_once(self):
+        # routine: three lines of one message.id (output 8, 8, 224), same input/cache on each.
+        self.transcript.write_text("\n".join([
+            _resp_line("2026-08-13T10:00:00.000Z", "msg_a", 8),
+            _resp_line("2026-08-13T10:00:01.000Z", "msg_a", 8),
+            _resp_line("2026-08-13T10:00:02.000Z", "msg_a", 224),
+        ]) + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        t = rec["totals"]
+        self.assertEqual(t["turns"], 1)
+        self.assertEqual(t["output"], 224)
+        self.assertEqual(t["input"], 100)
+        self.assertEqual(t["cache_read"], 10)
+        self.assertEqual(t["cache_creation"], 5)
+        self.assertEqual(rec["from"], "2026-08-13T10:00:00.000Z", msg="from stays the uncollapsed first line")
+        self.assertEqual(rec["until"], "2026-08-13T10:00:02.000Z", msg="until stays the uncollapsed last line")
+        self.assertEqual(rec["wallclock_s"], 2)
+        self.assertEqual(rec["by_model"]["claude-sonnet-5"]["turns"], 1)
+
+    def test_line_without_message_id_is_its_own_response(self):
+        self.transcript.write_text("\n".join([
+            _resp_line("2026-08-13T10:00:00.000Z", None, 10),
+            _resp_line("2026-08-13T10:00:01.000Z", None, 20),
+        ]) + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        t = self._last_record()["totals"]
+        self.assertEqual(t["turns"], 2)
+        self.assertEqual(t["output"], 30)
+
+    def test_tools_counted_across_lines_each_tool_use_id_once(self):
+        def tool(tid, name):
+            block = {"type": "tool_use", "name": name, "input": {}}
+            if tid:
+                block["id"] = tid
+            return [block]
+        self.transcript.write_text("\n".join([
+            _resp_line("2026-08-13T10:00:00.000Z", "msg_a", 8, tool("tu_1", "Bash")),
+            _resp_line("2026-08-13T10:00:01.000Z", "msg_a", 9, tool("tu_2", "Read")),
+            # the same tool_use.id repeated on a second line of the same response
+            _resp_line("2026-08-13T10:00:02.000Z", "msg_a", 9, tool("tu_2", "Read")),
+            # blocks without an id count once per occurrence
+            _resp_line("2026-08-13T10:00:03.000Z", "msg_b", 5, tool(None, "Edit")),
+            _resp_line("2026-08-13T10:00:04.000Z", "msg_c", 5, tool(None, "Edit")),
+        ]) + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["tools"], {"Bash": 1, "Read": 1, "Edit": 2})
+        self.assertEqual(rec["totals"]["turns"], 3)
+
+    def test_agent_node_by_model_sums_to_node_totals(self):
+        subdir = self._subagent_dir()
+        (subdir / "agent-m1.jsonl").write_text("\n".join([
+            _resp_line("2026-08-13T10:00:10.000Z", "msg_1", 7, model="claude-sonnet-5", agent="Explore"),
+            _resp_line("2026-08-13T10:00:11.000Z", "msg_1", 9, model="claude-sonnet-5", agent="Explore"),
+            _resp_line("2026-08-13T10:00:20.000Z", "msg_2", 4, model="claude-haiku-5", agent="Explore"),
+        ]) + "\n")
+        _write_meta(subdir, "m1", "Explore", spawn_depth=1)
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        node = next(n for n in rec["agents"] if n["id"] == "m1")
+        self.assertEqual(set(node["by_model"]), {"claude-sonnet-5", "claude-haiku-5"})
+        self.assertEqual(node["totals"]["turns"], 2)
+        self.assertEqual(node["by_model"]["claude-sonnet-5"]["output"], 9)
+        for field in ("turns", "input", "output", "cache_read", "cache_creation", "billable_in"):
+            self.assertEqual(
+                sum(v[field] for v in node["by_model"].values()), node["totals"][field], msg=field,
+            )
+        self.assertEqual(rec["subagent"]["turns"], 2, msg="subagent sum is collapsed too")
+
+    def test_layers_carry_by_model(self):
+        rec = self._scenario_orchestrator()
+        layers = rec["layers"]
+        for name in ("main", "main_explore", "worker", "worker_explore"):
+            self.assertIn("by_model", layers[name], msg=name)
+        self.assertEqual(layers["main"]["by_model"], rec["by_model"])
+        self.assertEqual(set(layers["worker"]["by_model"]), {"claude-sonnet-5"})
+        self.assertEqual(set(layers["worker_explore"]["by_model"]), {"claude-haiku-5"})
+        self.assertEqual(layers["main_explore"]["by_model"]["claude-sonnet-5"]["turns"], 1)
+
+    def test_layer_without_agents_has_empty_by_model(self):
+        rec = self._scenario_classic()
+        self.assertEqual(rec["layers"]["worker"]["by_model"], {})
+        self.assertEqual(rec["layers"]["worker_explore"]["by_model"], {})
+
+    def test_line_without_usage_still_counts_as_zero_token_turn(self):
+        self.transcript.write_text(json.dumps({
+            "type": "assistant", "timestamp": "2026-08-13T10:00:00.000Z",
+            "message": {"id": "msg_x", "model": "claude-sonnet-5", "content": []},
+        }) + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        t = self._last_record()["totals"]
+        self.assertEqual(t["turns"], 1)
+        self.assertEqual(t["output"], 0)
 
     def test_planning_record_mode_is_empty(self):
         self._record(str(self.batch), "planning")

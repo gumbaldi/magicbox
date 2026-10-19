@@ -8,6 +8,11 @@ repo-local JSONL. Numbers, timestamps and names only -- never prompt text, never
 
 Ported from cfq-telemetry.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 JSON shapes, text output, exit codes) is the invariant this file preserves.
+
+A "turn" is one API response, not one transcript line: Claude Code writes one line per content
+block of a response, each repeating that response's `message.id` and usage, so lines are collapsed
+to one entry per `message.id` (the last one) before anything is summed. A line without a
+`message.id` counts as its own response.
 """
 
 import json
@@ -152,6 +157,29 @@ def sums(items):
     }
 
 
+def model_key(item):
+    return jqor((item.get("message") or {}).get("model"), "?")
+
+
+def collapse_responses(entries):
+    """One entry per API response: group by `message.id`, keep the last entry of each group, in
+    order of first occurrence. An entry without a `message.id` stays its own response. Claude Code
+    writes one transcript line per content block, each repeating the response's usage, so summing
+    uncollapsed lines inflates every number."""
+    out = []
+    index = {}
+    for e in entries:
+        mid = (e.get("message") or {}).get("id")
+        if mid is None or mid == "":
+            out.append(e)
+        elif mid in index:
+            out[index[mid]] = e
+        else:
+            index[mid] = len(out)
+            out.append(e)
+    return out
+
+
 def bucket(items, keyfn):
     groups = {}
     order = []
@@ -166,7 +194,9 @@ def bucket(items, keyfn):
 
 def assistant_turns(entries, since, until):
     """type==assistant, timestamped entries whose timestamp falls inside (since, until] -- an
-    empty bound on either side leaves that side unbounded, matching jqor's `//` convention."""
+    empty bound on either side leaves that side unbounded, matching jqor's `//` convention.
+    These are transcript lines, not yet responses -- callers pass them through
+    collapse_responses() before summing."""
     return [
         e for e in entries
         if e.get("type") == "assistant"
@@ -191,7 +221,7 @@ def subagent_turns(since, until):
             entries.extend(parse_transcript(str(p)))
         except (OSError, ValueError):
             continue
-    return assistant_turns(entries, since, until)
+    return collapse_responses(assistant_turns(entries, since, until))
 
 
 def agent_id_from_path(p):
@@ -262,7 +292,7 @@ def collect_agent_nodes(since, until):
             entries = parse_transcript(str(p))
         except (OSError, ValueError):
             continue
-        turns = assistant_turns(entries, since, until)
+        turns = collapse_responses(assistant_turns(entries, since, until))
         if not turns:
             continue
 
@@ -288,7 +318,8 @@ def collect_agent_nodes(since, until):
             "parent": parent,
             "layer": _resolve_layer(agent_type, depth, parent, meta_by_id),
             "totals": sums(turns),
-            "models": sorted({jqor((it.get("message") or {}).get("model"), "?") for it in turns}),
+            "models": sorted({model_key(it) for it in turns}),
+            "by_model": bucket(turns, model_key),
             "efforts": sorted({jqor(it.get("effort"), "?") for it in turns}),
         })
     return nodes, turns_by_id
@@ -297,7 +328,10 @@ def collect_agent_nodes(since, until):
 def _layer_summary(turns, agents):
     models = sorted({m for a in agents for m in a["models"]})
     efforts = sorted({e for a in agents for e in a["efforts"]})
-    return {**sums(turns), "models": models, "efforts": efforts, "count": len(agents)}
+    return {
+        **sums(turns), "models": models, "efforts": efforts, "count": len(agents),
+        "by_model": bucket(turns, model_key),
+    }
 
 
 def build_layers(t, nodes, turns_by_id):
@@ -307,9 +341,12 @@ def build_layers(t, nodes, turns_by_id):
     main_explore + worker + worker_explore == totals + subagent, field by field -- main equals
     totals by construction, and every node's turns land in exactly one of the other three layers,
     so their union reproduces `sub` (subagent_turns()'s own sum) exactly."""
-    main_models = sorted({jqor((it.get("message") or {}).get("model"), "?") for it in t})
+    main_models = sorted({model_key(it) for it in t})
     main_efforts = sorted({jqor(it.get("effort"), "?") for it in t})
-    layers = {"main": {**sums(t), "models": main_models, "efforts": main_efforts, "count": 1}}
+    layers = {"main": {
+        **sums(t), "models": main_models, "efforts": main_efforts, "count": 1,
+        "by_model": bucket(t, model_key),
+    }}
     for layer_name in ("main_explore", "worker", "worker_explore"):
         agents = [n for n in nodes if n["layer"] == layer_name]
         turns = [it for n in agents for it in turns_by_id[n["id"]]]
@@ -319,21 +356,30 @@ def build_layers(t, nodes, turns_by_id):
 
 def build_record(tf, since, kind, phase, batch, repo, recommended):
     entries = parse_transcript(tf)
-    t = assistant_turns(entries, since, "")
+    raw = assistant_turns(entries, since, "")
+    t = collapse_responses(raw)
 
+    # Tools are counted over the uncollapsed lines (a response's blocks are spread across its
+    # lines), each distinct tool_use.id once; a block without an id counts once per occurrence.
     tools = {}
-    for it in t:
+    seen_tool_ids = set()
+    for it in raw:
         content = (it.get("message") or {}).get("content")
         if not isinstance(content, list):
             continue
         for c in content:
             if isinstance(c, dict) and c.get("type") == "tool_use":
+                tid = c.get("id")
+                if tid is not None and tid != "":
+                    if tid in seen_tool_ids:
+                        continue
+                    seen_tool_ids.add(tid)
                 name = c.get("name")
                 tools[name] = tools.get(name, 0) + 1
 
-    first_ts = t[0].get("timestamp") if t else None
-    last_ts = t[-1].get("timestamp") if t else None
-    last = t[-1] if t else {}
+    first_ts = raw[0].get("timestamp") if raw else None
+    last_ts = raw[-1].get("timestamp") if raw else None
+    last = raw[-1] if raw else {}
 
     until = jqor(last_ts, "")
     sub = subagent_turns(since, until)
@@ -347,13 +393,13 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     worker_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") == WORKER_AGENT]
     explore_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") != WORKER_AGENT]
 
-    # Per-agent nodes and the four cost layers they group into (`agents`/`layers`, schema 2) --
+    # Per-agent nodes and the four cost layers they group into (`agents`/`layers`, schema 2; `by_model` on both, schema 3) --
     # additive, on top of the unchanged `by_agent`/`subagent*` fields above.
     agent_nodes, agent_turns_by_id = collect_agent_nodes(since, until)
     layers = build_layers(t, agent_nodes, agent_turns_by_id)
 
     return {
-        "schema": 2,
+        "schema": 3,
         "kind": kind,
         "repo": repo,
         "batch": batch,
@@ -364,9 +410,9 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
         "cc_version": jqor(last.get("version"), ""),
         "from": jqor(first_ts, ""),
         "until": jqor(last_ts, ""),
-        "wallclock_s": (ts(last_ts) - ts(first_ts)) if t else 0,
+        "wallclock_s": (ts(last_ts) - ts(first_ts)) if raw else 0,
         "totals": sums(t),
-        "by_model": bucket(t, lambda it: jqor((it.get("message") or {}).get("model"), "?")),
+        "by_model": bucket(t, model_key),
         "by_effort": bucket(t, lambda it: jqor(it.get("effort"), "?")),
         "by_skill": bucket(t, lambda it: jqor(it.get("attributionSkill"), "-")),
         "by_plugin": bucket(t, lambda it: jqor(it.get("attributionPlugin"), "-")),
