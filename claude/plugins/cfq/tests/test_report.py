@@ -64,6 +64,33 @@ class TestReport(CfqTestCase):
         self.run_cfq("report", "set-commit", str(batch), "02-b", "9999999")
         self.assertNotIn("diffstat", self._report_json(batch)["phases"][1])
 
+    def test_observations_stored_validated_and_in_detail(self):
+        batch = self._batch("2026-01-03-observations")
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "01-a", "status": "green", "summary": "ok",
+                        "observations": ["a", "b"]}),
+            record_telemetry=False,
+        )
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "02-b", "status": "green", "summary": "ok"}),
+            record_telemetry=False,
+        )
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["observations"], ["a", "b"])
+        self.assertNotIn("observations", phases[1])
+
+        before = (batch / "report.json").read_text()
+        for bad in ('"text"', '["ok", 3]'):
+            stderr = self._append_raises(
+                str(batch), '{"phase":"03-c","status":"green","observations":%s}' % bad)
+            self.assertIn("observations", stderr)
+        self.assertEqual(before, (batch / "report.json").read_text())
+
+        det = self.json_out(self.run_cfq("report", "detail", str(batch)))
+        self.assertEqual([p["observations"] for p in det["phases"]], [["a", "b"], []])
+
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
 

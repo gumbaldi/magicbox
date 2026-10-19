@@ -108,12 +108,14 @@ PHASE 02 DONE
 ✅ Implemented     <one clause: what was built>
 ✅ Verification    <command, and its result>
 ⚠️ Deviation       <one line per deviation>
+⚠️ Observation     <one line per observation>
 ```
 
 `Implemented` and `Verification` are the model's own prose — no script can know what actually
 happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report.json`
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
-deviations → the `Deviation` line is omitted entirely, not printed empty.
+deviations → the `Deviation` line is omitted entirely, not printed empty. `Observation` repeats the
+phase object's `observations` verbatim and is omitted entirely when the list is empty.
 
 ## Phase Object Fields
 
@@ -124,7 +126,10 @@ that ends up in the `report.json` entry and the commit's `CFQ-Phase` trailer ali
 what the plan said, what was built, and why; the file-scope comparison in the **File-Scope
 Deviation** section below runs before every green phase closes and its result feeds this array —
 an empty array is fine only when that comparison came back empty, a glossed-over deviation is not;
-`errors` carries the actual failure output, trimmed to what identifies it.
+`errors` carries the actual failure output, trimmed to what identifies it. `observations`
+(optional): zero to three one-clause entries for what a reader should know that is neither a
+deviation nor an error — a flaky test, a pre-existing defect left untouched, a plan assumption that
+proved false without changing the work. Nothing stood out → leave the field out; never pad it.
 
 ## File-Scope Deviation
 

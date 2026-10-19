@@ -82,6 +82,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
   "implemented": "<one clause: what was built>",
   "verification": "<command run, and its result>",
   "deviations": ["..."],
+  "observations": ["..."],
   "triggers": ["omitted", "dependency"],
   "filesTouched": ["<absolute path>", "..."],
   "parkedPlanEntries": ["plan/<date>-<slug>.md", "..."],
@@ -102,7 +103,8 @@ nothing else has happened yet, so neither `commands.phaseCommit` nor `commands.p
 ever called for it. This is the exact object `bin/cfq worker verdict` accepts on stdin (the
 orchestrator pipes it there, not the worker itself) and, for `green`/`red`, the same object written
 to the temp file handed to `commands.phaseCommit`/`commands.phaseRecordRed` — one shape, two
-consumers, never worded or shaped differently for either.
+consumers, never worded or shaped differently for either. `observations`: zero to three one-clause
+entries per ifq-phase.md's rule, omitted when nothing stood out.
 
 ## Commit
 

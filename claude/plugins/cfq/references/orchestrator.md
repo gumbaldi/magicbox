@@ -64,8 +64,8 @@ silent.
 ## 5. Phase summary and batch end
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
-block (`implemented`/`verification`/`deviations` map onto `Implemented`/`Verification`/`Deviation`
-directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
+block (`implemented`/`verification`/`deviations`/`observations` map onto
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
 follows classic mode's **Batch Done** in full.
 
 ## 6. Fallback to classic

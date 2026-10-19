@@ -127,6 +127,10 @@ def append_phase(dir_, phase_json, record_telemetry=True):
             phase_id = v
     if not PHASE_ID_RE.match(phase_id):
         errors.die(f"{PROG} append: phase must be the full phase slug (NN-slug), got '{phase_id}'")
+    obs = phase_obj.get("observations")
+    if "observations" in phase_obj and not (
+            isinstance(obs, list) and all(isinstance(o, str) for o in obs)):
+        errors.die(f"{PROG} append: observations must be a list of strings, got {obs!r}")
 
     f = os.path.join(dir_, "report.json")
     ensure_report(dir_)
@@ -731,6 +735,7 @@ def cmd_detail(args):
             "status": p.get("status"),
             "summary": phase_summary(p),
             "deviations": render.jq_alt(p.get("deviations"), []),
+            "observations": render.jq_alt(p.get("observations"), []),
             "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
             "commit": render.jq_alt(p.get("commit"), ""),
