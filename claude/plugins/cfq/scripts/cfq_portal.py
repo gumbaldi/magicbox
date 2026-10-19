@@ -170,21 +170,26 @@ def cleanup_stale(out_dir, expected_rel):
 
 # ---- install: the fixed viewer shell, copied in only when the plugin version moved on ----------
 
-PORTAL_SHELL_FILES = (
-    ("index.html", "index.html"),
-    ("viewer.js", "assets/viewer.js"),
-    ("style.css", "assets/style.css"),
-)
+def shell_files():
+    """`[(source name, path relative to the install root)]` for every file in the plugin's own
+    `portal/` directory: `index.html` goes to the root, every other file to `assets/`."""
+    src = plugin_root() / "portal"
+    try:
+        names = sorted(f.name for f in src.iterdir() if f.is_file() and not f.name.startswith("."))
+    except OSError:
+        return []
+    return [(n, n if n == "index.html" else f"assets/{n}") for n in names]
 
 
 def install_shell(out_dir, removed=None):
-    """Copies the fixed viewer shell (`index.html`, `assets/viewer.js`, `assets/style.css`) from
-    the plugin's own `portal/` source into `out_dir` (a repo's `.claude/cfq/reports/`, or a
+    """Copies the fixed viewer shell from the plugin's own `portal/` source (`index.html` to the
+    root, every other file to `assets/`) into `out_dir` (a repo's `.claude/cfq/reports/`, or a
     `reportDir` root for the global mirror) whenever the installed stamp
     (`<out_dir>/.portal-version`) differs from the running plugin's own version -- an unchanged
     version copies nothing and removes nothing, so a sync never rewrites the tree on every call.
-    A version change also deletes the legacy flat `<batch>.html` files directly under `out_dir`
-    (`remove_legacy_html`); their paths are appended to the `removed` list when one is passed.
+    A version change also deletes the files in `assets/` that `portal/` no longer has and the
+    legacy flat `<batch>.html` files directly under `out_dir` (`remove_legacy_html`); their paths
+    are appended to the `removed` list when one is passed.
     Returns the list of paths (relative to `out_dir`) actually written."""
     stamp_path = out_dir / ".portal-version"
     version = plugin_version()
@@ -196,7 +201,8 @@ def install_shell(out_dir, removed=None):
         return []
 
     written = []
-    for src_name, rel in PORTAL_SHELL_FILES:
+    files = shell_files()
+    for src_name, rel in files:
         src = plugin_root() / "portal" / src_name
         try:
             content = src.read_text()
@@ -204,9 +210,18 @@ def install_shell(out_dir, removed=None):
             continue
         if write_if_changed(out_dir / rel, content):
             written.append(rel)
+    kept = {rel for _src, rel in files}
+    assets = out_dir / "assets"
+    stale = []
+    if assets.is_dir():
+        for f in sorted(assets.iterdir()):
+            if f.is_file() and f"assets/{f.name}" not in kept:
+                f.unlink()
+                stale.append(str(f))
     write_if_changed(stamp_path, version)
     legacy = remove_legacy_html(out_dir)
     if removed is not None:
+        removed.extend(stale)
         removed.extend(legacy)
     return written
 

@@ -131,7 +131,7 @@ The retired per-batch design (`bin/cfq report html` writing a standalone `<batch
 second hand-rolled `index.html` listing them) meant every batch re-rendered its own copy of the
 same header/table/section markup, and the "collected tree" (`reportDir`) and "repo-local" layouts
 were two separately maintained code paths generating two different HTML shapes for the same data.
-Splitting the page in two — one fixed viewer shell (`portal/index.html`, `viewer.js`, `style.css`,
+Splitting the page in two — one fixed viewer shell (`portal/index.html`, the `portal/*.js` scripts, `style.css`,
 installed once per `reports/` root and version-stamped so a resync only recopies it when the
 plugin's own version moved on) plus one plain data file per batch/entry — means a plan edit, a new
 phase result, or a closed `todo/` card each touch exactly one small file, the shell never

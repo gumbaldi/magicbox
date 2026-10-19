@@ -317,7 +317,10 @@ class PortalTest(CfqTestCase):
             )),
         }
         self.assertEqual(
-            set(first["written"]), expected_data | {"index.html", "assets/viewer.js", "assets/style.css"},
+            set(first["written"]),
+            expected_data | {"index.html"} | {
+                f"assets/{f.name}" for f in (PLUGIN_ROOT / "portal").iterdir() if f.name != "index.html"
+            },
         )
         self.assertEqual({str(f.relative_to(self._data_dir(repo))) for f in self._data_dir(repo).rglob("*.js")}, expected_data)
 
@@ -832,7 +835,7 @@ class PortalTest(CfqTestCase):
         self.assertEqual(result["status"], "OK")
         self.assertTrue((self._data_dir(repo) / "batch" / "2026-09-23-demo.js").is_file())
         reports_dir = self._data_dir(repo).parent
-        self.assertTrue((reports_dir / "assets" / "viewer.js").is_file())
+        self.assertTrue((reports_dir / "assets" / "core.js").is_file())
 
     def test_rebuild_without_migrate_leaves_legacy_html_untouched(self):
         repo = self.make_repo()
@@ -892,11 +895,12 @@ class PortalTest(CfqTestCase):
         self._sync(repo)
 
         reports_dir = self._data_dir(repo).parent
-        for src_name, rel in (
-            ("index.html", "index.html"),
-            ("viewer.js", "assets/viewer.js"),
-            ("style.css", "assets/style.css"),
-        ):
+        sources = sorted(f.name for f in (PLUGIN_ROOT / "portal").iterdir() if f.is_file())
+        self.assertIn("core.js", sources)
+        self.assertIn("app.js", sources)
+        self.assertNotIn("viewer.js", sources)
+        for src_name in sources:
+            rel = "index.html" if src_name == "index.html" else f"assets/{src_name}"
             self.assertEqual(
                 (reports_dir / rel).read_text(),
                 (PLUGIN_ROOT / "portal" / src_name).read_text(),
@@ -917,7 +921,7 @@ class PortalTest(CfqTestCase):
 
         result = self._sync(repo)
         self.assertNotIn("index.html", result["written"])
-        self.assertNotIn("assets/viewer.js", result["written"])
+        self.assertNotIn("assets/core.js", result["written"])
         self.assertNotIn("assets/style.css", result["written"])
         self.assertEqual((reports_dir / "assets" / "style.css").read_text(), "/* locally edited */")
 
@@ -937,6 +941,34 @@ class PortalTest(CfqTestCase):
             (PLUGIN_ROOT / "portal" / "style.css").read_text(),
         )
         self.assertEqual((reports_dir / ".portal-version").read_text().strip(), self._plugin_version())
+
+    def test_install_removes_stale_asset_files_on_a_version_change(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        self._sync(repo)
+
+        reports_dir = self._data_dir(repo).parent
+        stale = reports_dir / "assets" / "viewer.js"
+        stale.write_text("// the retired single-file viewer")
+        (reports_dir / ".portal-version").write_text("0.0.0-stale")
+
+        result = self._sync(repo)
+        self.assertFalse(stale.exists(), "a file portal/ no longer has is removed from assets/")
+        self.assertIn(str(stale), result["removed"])
+        for f in (PLUGIN_ROOT / "portal").iterdir():
+            if f.name != "index.html":
+                self.assertTrue((reports_dir / "assets" / f.name).is_file(), f.name)
+
+    def test_install_leaves_assets_alone_when_version_stamp_matches(self):
+        repo = self.make_repo()
+        self._init_queue(repo)
+        self._sync(repo)
+
+        reports_dir = self._data_dir(repo).parent
+        stray = reports_dir / "assets" / "viewer.js"
+        stray.write_text("// untouched")
+        self._sync(repo)
+        self.assertTrue(stray.is_file(), "an unchanged stamp copies and removes nothing")
 
     def test_sync_without_reportdir_carries_no_mirror(self):
         repo = self.make_repo()
@@ -963,7 +995,7 @@ class PortalTest(CfqTestCase):
         self.assertEqual(result_a["mirror"]["status"], "OK")
         self.assertEqual(result_b["mirror"]["status"], "OK")
 
-        for rel in ("index.html", "assets/viewer.js", "assets/style.css"):
+        for rel in ("index.html", "assets/core.js", "assets/overview.js", "assets/app.js", "assets/style.css"):
             self.assertTrue((report_dir / rel).is_file(), f"global shell {rel} not installed")
         self.assertTrue((report_dir / ".portal-version").is_file())
 
