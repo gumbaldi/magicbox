@@ -17,7 +17,8 @@ order and layout, all of which this format relies on (batchNumber is always imme
 by batch, read positionally by cfq_batch_id-style tooling). Line-oriented parsing with `re`/plain
 string ops is what preserves the file untouched outside the lines actually being written.
 
-Version-free schema: no batch ever carries a version/appVersion/cfqVersion field.
+Version-free schema: no batch ever carries a version/appVersion/cfqVersion field, and no block
+carries a `legacy` field either -- an unnumbered batch is recognisable by `batchNumber: null`.
 """
 
 import argparse
@@ -90,7 +91,7 @@ def parse_batch_number(batch):
 
 # ---- block rendering --------------------------------------------------------------------------
 
-def render_block(number, batch, branch, base, started, status, legacy, finished, phases):
+def render_block(number, batch, branch, base, started, status, finished, phases):
     """Renders one changelog block as text, no trailing newline (the caller adds exactly one when
     writing/appending -- mirrors cfq-changelog.sh's command-substitution + `printf '%s\\n'` shape)."""
     lines = [f"- batchNumber: {number}", f"  batch: {batch}"]
@@ -101,7 +102,6 @@ def render_block(number, batch, branch, base, started, status, legacy, finished,
     if started:
         lines.append(f"  started: {started}")
     lines.append(f"  status: {status}")
-    lines.append(f"  legacy: {legacy}")
     if finished:
         lines.append(f"  finished: {finished}")
     if phases:
@@ -225,7 +225,6 @@ def cmd_init(args):
     os.makedirs(os.path.dirname(target), exist_ok=True)
 
     number = parse_batch_number(batch)
-    legacy = "false" if number is not None else "true"
     number_str = str(number) if number is not None else "null"
 
     started = date.today().isoformat()
@@ -233,7 +232,7 @@ def cmd_init(args):
     if os.path.isfile(target):
         reserved_start = find_block_start(target, "  batch:", batch, want_status="parked")
 
-    new_block = render_block(number_str, batch, branch, base, started, "in-progress", legacy, "", "")
+    new_block = render_block(number_str, batch, branch, base, started, "in-progress", "", "")
     if reserved_start is not None:
         replace_block(target, reserved_start, new_block)
     else:
@@ -264,15 +263,13 @@ def cmd_finish(args):
             batch = batchname
         base = block_field(block, "  base:") or ""
         started = block_field(block, "  started:") or ""
-        legacy = block_field(block, "  legacy:") or "true"
-        new_block = render_block(number, batch, branch, base, started, "done", legacy, finished, phases)
+        new_block = render_block(number, batch, branch, base, started, "done", finished, phases)
         replace_block(target, matched_start, new_block)
     else:
         # No matching in-progress block (different branch last, malformed file, missing file, or
         # an init that never ran): append a new done entry -- a stray extra entry beats one that
         # silently drops phases.
         number = parse_batch_number(batch)
-        legacy = "false" if number is not None else "true"
         number_str = str(number) if number is not None else "null"
         started = ""
         if os.path.isfile(report):
@@ -282,7 +279,7 @@ def cmd_finish(args):
                 started = (s if isinstance(s, str) else "")[:10]
             except (OSError, json.JSONDecodeError):
                 started = ""
-        new_block = render_block(number_str, batch, branch, "", started, "done", legacy, finished, phases)
+        new_block = render_block(number_str, batch, branch, "", started, "done", finished, phases)
         append_block(target, new_block)
 
 

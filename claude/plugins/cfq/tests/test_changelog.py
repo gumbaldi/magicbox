@@ -52,7 +52,7 @@ class ChangelogTest(CfqTestCase):
         )
         self.assertIn("  status: in-progress\n", text, "init block missing status: in-progress")
         self.assertIn("- batchNumber: null\n", text, "legacy init did not write batchNumber: null")
-        self.assertIn("  legacy: true\n", text, "legacy init did not write legacy: true")
+        self.assertNotIn("  legacy:", text, "init wrote a legacy field")
         self.assertNotIn("  version:", text, "version field leaked into the new schema")
 
         # init twice appends, does not overwrite
@@ -223,9 +223,7 @@ class ChangelogTest(CfqTestCase):
         self.assertIn(
             "  status: in-progress\n", text, "init did not transition parked -> in-progress",
         )
-        self.assertIn(
-            "  legacy: false\n", text, "numbered batch was not marked legacy: false",
-        )
+        self.assertNotIn("  legacy:", text, "numbered batch init wrote a legacy field")
 
         numbered_batch_dir = self._repos_dir / numbered_batch
         self._write_report(numbered_batch_dir, {"phases": []})
@@ -245,6 +243,35 @@ class ChangelogTest(CfqTestCase):
             "  status: done\n", text, "finish did not set status: done on the numbered batch",
         )
         self.assertNotIn("  version:", text, "version field leaked into the numbered workflow")
+
+    def test_finish_drops_legacy_line_from_preexisting_block(self):
+        repo = self._plain_repo("legacy-carry-repo")
+        target = self._target(repo)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "- batchNumber: 7\n"
+            "  batch: 007-2026-04-01-old\n"
+            "  branch: cfq/007-2026-04-01-old\n"
+            "  base: main\n"
+            "  started: 2026-04-01\n"
+            "  status: in-progress\n"
+            "  legacy: false\n"
+        )
+        batch_dir = self._repos_dir / "007-2026-04-01-old"
+        self._write_report(batch_dir, {"phases": [
+            {"phase": "01-x", "status": "green", "implemented": "Did X"},
+        ]})
+        self.run_cfq(
+            "changelog", "finish", str(repo), "cfq/007-2026-04-01-old", str(batch_dir), check=True,
+        )
+        text = target.read_text()
+        self.assertNotIn("legacy:", text, "finish carried the legacy line forward")
+        for want in (
+            "- batchNumber: 7\n", "  batch: 007-2026-04-01-old\n",
+            "  branch: cfq/007-2026-04-01-old\n", "  base: main\n", "  started: 2026-04-01\n",
+            "  status: done\n", "  finished: ", 'phase: "01-x"',
+        ):
+            self.assertIn(want, text, f"finish lost or changed {want!r}")
 
     def test_reserve_rejects_duplicate_identities(self):
         dup_repo = self._plain_repo("dup-repo")
