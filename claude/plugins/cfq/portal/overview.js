@@ -181,7 +181,10 @@
 
     var phases = row.phases || { done: 0, total: 0 };
     var phaseCell = cell(doc, "td", "phases");
-    phaseCell.appendChild(C.el(doc, "span", phases.done + "/" + phases.total, "mono"));
+    var phaseText = phases.done + "/" + phases.total;
+    if (phases.skipped) phaseText += " · " + phases.skipped + " skipped";
+    if (phases.error) phaseText += " · " + phases.error + " error";
+    phaseCell.appendChild(C.el(doc, "span", phaseText, "mono"));
     var bar = C.el(doc, "span", null, "progress");
     bar.setAttribute("title", phases.done + " of " + phases.total + " phases done");
     var fill = C.el(doc, "span", null, "fill");

@@ -166,7 +166,9 @@ class PortalTriggersTest(CfqTestCase):
         provisional, as `phase commit` leaves it."""
         repo = self.make_repo(name)
         batch_dir = repo / ".claude" / "cfq" / "impl" / "2026-01-01-widget"
-        batch_dir.mkdir(parents=True)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "done" / "01-a.md").write_text("# A\n\n## Size\n\nS\n")
+        write_status(batch_dir)
         record = {
             "schema": 3, "kind": "phase", "phase": "01-a", "batch": "2026-01-01-widget",
             "repo": str(repo), "session_id": "ended-session", "since": "", "settled": False, "rev": 1,
