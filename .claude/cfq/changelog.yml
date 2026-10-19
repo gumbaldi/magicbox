@@ -18,7 +18,39 @@
   branch: cfq/051-2026-10-04-phase-status-file-and-skip
   base: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   started: 2026-10-19
-  status: in-progress
+  status: done
+  finished: 2026-10-19
+  phases:
+    - phase: "01-phase-state-module"
+      status: "green"
+      summary: "cfq_lib/phase_state.py (status.json owner with move-then-write transitions, skip/unskip, sync, mismatches, snapshot/restore), its test file, and write_status() in cfq_testlib"
+    - phase: "02-status-file-at-planning-and-migration"
+      status: "green"
+      summary: "status.json is born in batch allocate and synced by batch ready and park; tools/once_migrate_status.py migrates existing batches; removal todo card written"
+    - phase: "03-phase-transitions-and-skip-verbs"
+      status: "green"
+      summary: "record, commit and reopen route through phase_state with snapshot/restore rollback; added phase skip and phase unskip with ledger entries, NOT_SKIPPED/UNKNOWN_PHASE/INVALID_TRANSITION/STATUS_FILE_* errors"
+    - phase: "04-scan-dash-preflight-status-counts"
+      status: "green"
+      summary: "cfq_scan, cfq_dash and cfq_ifq_preflight count phases from status.json (error/skipped fields, skipped candidates, unreadable status.json handled as zero counts and unknown consistency)"
+    - phase: "05-resume-next-phase-brief-lint-worker"
+      status: "green"
+      summary: "resume/preflight/brief/lint/worker/telemetry read phase state from status.json: phasesSkipped, nextPhase.status, startGate.offerSkip, batch.skipped, error/skipped overview, check_status lint findings"
+    - phase: "06-verify-recover-and-guard"
+      status: "green"
+      summary: "batch verify/recover read status.json as the authority (new STATUS_* findings, mirror-move and entry-adopt repairs, divergent scan on mismatch) and the guard denies skipped/ and status.json writes"
+    - phase: "07-finish-inbox-entries-changelog-report"
+      status: "green"
+      summary: "finish writes one plan/ inbox entry per skipped phase, counts phases from status.json with a skipped suffix and a Skipped status line; report and changelog treat skip entries correctly"
+    - phase: "08-portal-phase-states"
+      status: "green"
+      summary: "Portal phase list built from status.json with error/skipped states, skipReason, extended queue row counts, empty-list fallback, and viewer rendering of both states"
+    - phase: "09-skill-prose-skip"
+      status: "green"
+      summary: "skip/unskip keywords, start-gate skip option and Skipping a Phase section in the ifq references; status wording in SKILL.md; skipped phases covered in batch end, report skill, orchestrator, worker, dashboard, output-format, plan-park and both command aliases"
+    - phase: "10-docs-design-notes-version"
+      status: "green"
+      summary: "Documented status.json, skipped/ and the skip/unskip verbs in README, CLAUDE.md, usage and design notes, added the Upgrading note and bumped cfq to 0.32.0"
 - batchNumber: 50
   batch: 050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   branch: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
