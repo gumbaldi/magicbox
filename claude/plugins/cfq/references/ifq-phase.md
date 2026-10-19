@@ -117,6 +117,10 @@ happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report
 deviations → the `Deviation` line is omitted entirely, not printed empty. `Observation` repeats the
 phase object's `observations` verbatim and is omitted entirely when the list is empty.
 
+What the phase cost is not part of this model-written block — it follows as the script-rendered
+`Cost` status line, after `Commit` in classic mode and from `bin/cfq worker verdict` in
+orchestrator mode; classic mode's red path prints none.
+
 ## Phase Object Fields
 
 Write the phase object (`phase`, `status`, `deviations`, on red `errors`) to a temp file. `phase` is
@@ -196,9 +200,14 @@ SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git pus
 registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq resume`'s
 commit fields are never left empty by a forgotten follow-up call.
 
-Print `Commit` — the JSON's own `statusLines` entry, printed as returned; the branch/push state
-(`status: "OK"`, `⚠️` with `pushError` when `pushed: false` — the phase still closed, just not
-pushed, a later `git push` catches it up) is already resolved in its `text`. Two statuses still
+Print every `statusLines` entry of the JSON in array order, each `text` exactly as returned:
+`Commit` first — the branch/push state (`status: "OK"`, `⚠️` with `pushError` when `pushed:
+false` — the phase still closed, just not pushed, a later `git push` catches it up) is
+already resolved in its `text` — then `Cost`, present whenever the phase's telemetry was
+recorded: turns and tokens summed over the session and every sub-agent, the duration, and as
+sub-lines the split by layer, the models and the commit's diffstat. It is the state at commit
+time and is never re-worded, re-computed or estimated; no `Cost` entry in the array → print
+nothing in its place. Two statuses still
 drive what happens next, beyond just printing the line: `status: "NOTHING_STAGED"` → `git add` the
 phase's changes and retry the same call once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` →
 treat as a red phase, don't move on — a `RECORD_FAILED` result still carries the commit `sha` for

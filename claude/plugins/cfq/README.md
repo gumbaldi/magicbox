@@ -354,10 +354,17 @@ IMPLEMENTATION
 PHASE 06 DONE
 ✅ Implemented     <one clause: what was built>
 ✅ Verification    <command, and its result>
+✅ Commit          cfq/<batch> · pushed
+✅ Cost            70 turns · 12k out · 173k in · 4.6M cached · 9:12
+   └ session 10 turns · 7k out · worker 60 turns · 6k out
+   └ models <model>
+   └ diff 5 files · +212 -40
 ```
 
 `✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
-detail column.
+detail column. Every finished phase ends in a `Cost` line taken from the phase's telemetry at
+commit time — "in" is new input including cache writes, "cached" is cache reads, and the report
+portal shows the settled numbers later.
 
 ## Reports
 

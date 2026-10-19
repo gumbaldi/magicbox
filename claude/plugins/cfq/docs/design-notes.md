@@ -284,3 +284,21 @@ verb, a `MIGRATION_REQUIRED` status or a derive-on-read branch would be framewor
 on in every reader long after its single use. A batch without a readable `status.json` is handled
 the same way everywhere, whatever the cause: it is not offered and the verbs refuse. The script and
 its README note are deleted together once both machines are migrated.
+
+## ifq: why a phase ends in a script-rendered cost line
+
+The user asked on 2026-10-04 to see what a phase cost when it closes. The `Cost` line is rendered by a
+script because a model's own estimate of its token use is never trusted, the same rule as `pfq`'s
+final report: the numbers come off the transcripts, the model only prints them.
+
+It rides on `phase commit` (classic mode) and `worker verdict` (orchestrator mode) because both calls
+already happen, so the line costs no extra turn. It shows the state at commit time; the report portal
+shows the settled one once the session is over.
+
+The ledger entry gets a script-stamped `finished` because a record's `wallclock_s` covers only the
+session's own transcript and ends when a worker is spawned, which would make the duration of an
+orchestrated phase far too short.
+
+Classic mode's red path is left out: `phase record` prints a bare path, and `SKILL.md` is at its line
+budget, so there is no room to tell the session to print a line there. Orchestrator mode shows the
+cost for red phases anyway, through the verdict.

@@ -48,15 +48,17 @@ prompt verbatim, and `policy.orchestratorModels[0]` (`policy.implModels[0]` when
 ## 3. On return
 
 Pipe the worker's returned report — the JSON object `<plugin-root>/agents/cfq-phase-worker.md`'s
-**Report** section defines — into `bin/cfq worker verdict "<batch-dir>"` on stdin.
+**Report** section defines — into `bin/cfq worker verdict "<batch-dir>"` on stdin. The result also
+carries `statusLines` — the phase's `Cost` line, read from the ledger entry the worker's own
+closing call wrote, empty for a `question` report.
 
 - `CONTINUE` → render the phase summary (step 5 below), then back to step 1 for the next phase.
 - `ASK` → resolve what can be resolved from `.batch-context.md`, the phase file and settings;
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
-- `STOP` → the batch ends. `errors` prints unmodified, exactly as classic mode's red case does; run
-  `POSTCHECKS` as today.
+- `STOP` → the batch ends. `errors` prints unmodified, exactly as classic mode's red case does, and those `statusLines`
+  are printed right after `errors`; run `POSTCHECKS` as today.
 
 ## 4. Resuming after an answer
 
@@ -69,7 +71,8 @@ silent.
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations`/`observations` map onto
-`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`. Batch end — `nextPhase: null` —
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`, then print the verdict's `statusLines` entries
+below the block, each `text` exactly as returned. Batch end — `nextPhase: null` —
 follows classic mode's **Batch Done** in full.
 
 ## 6. Fallback to classic

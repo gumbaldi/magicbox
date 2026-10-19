@@ -20,7 +20,7 @@ render as visible text rather than whitespace in a terminal · no commentary aro
 ## Rendered vs. composed lines
 
 Some steps have a script (`cfq_ifq_preflight.py`, `cfq_pfq_preflight.py`, `cfq_finish.py`,
-`cfq_phase.py`) that already resolved every fact its line needs; that script returns a
+`cfq_phase.py`, `cfq_worker.py`) that already resolved every fact its line needs; that script returns a
 `statusLines` array, each entry `{"label", "icon", "detail", "sub", "text"}` — `text` already run
 through `cfq_lib/text.py`'s `status_line`/`sub_line` (the single definition of the 16-character
 padding). Printing one of these means printing its `text` verbatim, entry by entry, in array
@@ -28,7 +28,7 @@ order — no re-padding, no re-wording, no re-ordering, and never merging two en
 
 Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_preflight.py`),
 `Model Check`/`Inbox`/`Review`/`Plugin Boundaries` (`cfq_pfq_preflight.py`), `Language`/`Maintenance`/
-`Security Diff`/`Changelog`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit` (`cfq_phase.py commit`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
+`Security Diff`/`Changelog`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit`/`Cost` (`cfq_phase.py commit`), `Cost` (`cfq_worker.py verdict`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
 `Model Gate`/`Model Check` render only the deterministic half — which list applies, or that
 `allowAnyModel` skips the check entirely; the actual substring match against the running model
 (only known to the session itself, from its own system prompt) stays skill-composed, unchanged.
