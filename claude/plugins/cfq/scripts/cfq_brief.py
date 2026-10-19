@@ -3,8 +3,8 @@
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block (title, goal, files, the first 10 numbered
 `## Changes` steps at two lines each, check command), or (with --with-done) the same batch briefing
-with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
-block (header, phase count/done/red line, the untruncated labelled `.batch-context.md` block, the
+with done phases listed first, ticked, and skipped ones after them, or (with --overview) the aligned-monospace batch-overview
+block (header, phase count/done/error/skipped line, the untruncated labelled `.batch-context.md` block, the
 phase table interleaved with each phase's own `## Context` excerpt and a `-> <file>` pointer, and
 closing `Plans` and (report portal on) `Portal` lines) shown at `ifq`'s start gate, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
 context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
@@ -22,7 +22,6 @@ every blank line and indent is part of the contract.
 """
 
 import argparse
-import json
 import pathlib
 import re
 import sys
@@ -30,6 +29,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths as cfq_paths  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import proc as cfq_proc  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 from cfq_lib import text as cfq_text  # noqa: E402
@@ -157,24 +157,21 @@ def phase_num(path):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
-def _ledger_status_by_phase(d):
-    """Last-attempt status per phase slug from report.json's ledger. (verbatim) carry-over of
-    the `json.loads(pathlib.Path(f).read_text())` plus `data.get("phases", [])` read
-    cfq_report.py's cmd_summary already performs (cfq_report.py:380-384) -- the same two lines,
-    here rather than importing cfq_report.py, since that module exposes no importable accessor
-    and pulling it into the brief path would be the heavier cost. {} (never an exception) when
-    report.json doesn't exist -- an all-open batch that never ran is a normal case, not an
-    error. A phase with several ledger entries (a retry after a red run) is judged by its last
-    entry only, since the dict write below overwrites in insertion order."""
-    f = d / "report.json"
-    if not f.is_file():
-        return {}
-    data = json.loads(pathlib.Path(f).read_text())
-    latest = {}
-    for p in data.get("phases", []):
-        if isinstance(p, dict) and isinstance(p.get("phase"), str):
-            latest[p["phase"]] = p.get("status")
-    return latest
+def _phase_groups(d):
+    """The batch's phases that have a plan file, from status.json (never from where a file lies),
+    as `(done, skipped, pending)` lists of phase_state records, each ascending by number. Exits 1
+    with the status error when status.json is missing or unreadable."""
+    try:
+        records = phase_state.phases(d)
+    except phase_state.PhaseStateError as e:
+        print(f"{PROG}: {e.message}", file=sys.stderr)
+        sys.exit(1)
+    records = [r for r in records if r["path"] is not None]
+    return (
+        [r for r in records if r["status"] == "done"],
+        [r for r in records if r["status"] == "skipped"],
+        [r for r in records if r["status"] in phase_state.PENDING],
+    )
 
 
 def _overview_header(d):
@@ -191,48 +188,39 @@ def _overview_header(d):
 
 
 def _overview_rows(d):
-    """Table rows, each phase's own `## Context` excerpt and file pointer (`<name>` or
-    `done/<name>`) as parallel lists in the same order, plus the done/red counts feeding the count
-    line. Done phases (under `done/`) sort first, ascending by
-    number, then open ones, also ascending -- `sorted(glob(...))` already gives ascending numeric
-    order for `NN-*` names. A done phase is always `done` regardless of what the ledger says about
-    it; an open phase is `red` only when its own last ledger attempt is red, `open` otherwise."""
-    ledger = _ledger_status_by_phase(d)
-    done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
-    open_files = sorted(d.glob("[0-9][0-9]-*.md"))
+    """Table rows, each phase's own `## Context` excerpt and file pointer (`<name>`,
+    `done/<name>` or `skipped/<name>`) as parallel lists in the same order, plus the
+    done/skipped/error counts feeding the count line. Done phases sort first, then skipped ones,
+    then pending ones, each group ascending by number. The status column is the phase's own
+    status.json state: `done`, `skipped`, `error` or `open`."""
+    done, skipped, pending = _phase_groups(d)
 
     rows = []
     contexts = []
     pointers = []
-    for f in done_files:
+    for r in done + skipped + pending:
+        f = r["path"]
         fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
-        rows.append([phase_num(f), fields["title"], fields["size"] or "M", "done"])
+        rows.append([r["num"], fields["title"], fields["size"] or "M", r["status"]])
         contexts.append(fields["context"])
-        pointers.append(f"done/{f.name}")
+        pointers.append(str(f.relative_to(d)))
 
-    red_count = 0
-    for f in open_files:
-        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
-        status = "red" if ledger.get(f.stem) == "red" else "open"
-        if status == "red":
-            red_count += 1
-        rows.append([phase_num(f), fields["title"], fields["size"] or "M", status])
-        contexts.append(fields["context"])
-        pointers.append(f.name)
-
-    return rows, contexts, len(done_files), len(open_files), red_count, pointers
+    error_n = sum(1 for r in pending if r["status"] == "error")
+    return rows, contexts, len(done), len(skipped), error_n, pointers
 
 
-def _count_line(done_n, open_n, red_n):
-    line = f"{done_n + open_n} phases planned · {done_n} done"
-    if red_n:
-        line += f" · {red_n} red"
+def _count_line(done_n, skipped_n, error_n, total_n):
+    line = f"{total_n} phases planned · {done_n} done"
+    if error_n:
+        line += f" · {error_n} error"
+    if skipped_n:
+        line += f" · {skipped_n} skipped"
     return line
 
 
 def render_overview(d):
-    rows, contexts, done_n, open_n, red_n, pointers = _overview_rows(d)
-    lines = [_overview_header(d), _count_line(done_n, open_n, red_n)]
+    rows, contexts, done_n, skipped_n, error_n, pointers = _overview_rows(d)
+    lines = [_overview_header(d), _count_line(done_n, skipped_n, error_n, len(rows))]
 
     ctx = render_context_block(d)
     if ctx:
@@ -433,9 +421,9 @@ def _display_path(path, repo_root):
     return str(path)
 
 
-def render_review_phase(num, fields, phase_path, repo_root, done):
+def render_review_phase(num, fields, phase_path, repo_root, state=""):
     head = f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"
-    lines = [head + (" · done" if done else "")]
+    lines = [head + (f" · {state}" if state else "")]
 
     ctx = _render_md_blocks(fields["context_lines"], "    ", para_gap=True)
     if ctx:
@@ -478,9 +466,11 @@ def _portal_line(d):
 
 def render_review(d, only=None):
     repo_root = _repo_root_from_batch_dir(d)
-    done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
-    open_files = sorted(d.glob("[0-9][0-9]-*.md"))
-    entries = [(f, True) for f in done_files] + [(f, False) for f in open_files]
+    done, skipped, pending = _phase_groups(d)
+    entries = [
+        (r["path"], "" if r["status"] in phase_state.PENDING else r["status"])
+        for r in done + skipped + pending
+    ]
 
     if only is not None:
         known = {phase_num(f) for f, _ in entries}
@@ -488,17 +478,17 @@ def render_review(d, only=None):
             if n not in known:
                 print(f"{PROG}: no phase {n} in {d}", file=sys.stderr)
                 sys.exit(1)
-        entries = [(f, done) for f, done in entries if phase_num(f) in only]
+        entries = [(f, state) for f, state in entries if phase_num(f) in only]
 
     blocks = []
-    for f, done in entries:
+    for f, state in entries:
         fields = parse_phase_review(f.read_text(), f.stem)
-        blocks.append(render_review_phase(phase_num(f), fields, f, repo_root, done))
+        blocks.append(render_review_phase(phase_num(f), fields, f, repo_root, state))
     if only is not None:
         return "\n\n".join("\n".join(b) for b in blocks)
 
-    _, _, done_n, open_n, red_n, _ = _overview_rows(d)
-    sections = [[_overview_header(d), _count_line(done_n, open_n, red_n)]]
+    rows, _, done_n, skipped_n, error_n, _ = _overview_rows(d)
+    sections = [[_overview_header(d), _count_line(done_n, skipped_n, error_n, len(rows))]]
     ctx = render_context_block(d)
     if ctx:
         sections.append(ctx)
@@ -538,7 +528,7 @@ def render_review_changed(d):
     for name in phase_names:
         f = d / name
         fields = parse_phase_review(f.read_text(), f.stem)
-        sections.append(render_review_phase(phase_num(f), fields, f, repo_root, False))
+        sections.append(render_review_phase(phase_num(f), fields, f, repo_root))
     if removed:
         sections.append([f"  Removed  {n}" for n in removed])
     return "\n\n".join("\n".join(sec) for sec in sections)
@@ -577,11 +567,16 @@ def cmd_brief(args):
         _check_orchestrator_gate(d)
 
     if args.phase is not None:
-        matches = sorted(d.glob(f"{args.phase}-*.md")) + sorted((d / "done").glob(f"{args.phase}-*.md"))
-        if not matches:
+        try:
+            f = phase_state.locate(d, phase_state.resolve_slug(d, args.phase))
+        except phase_state.PhaseStateError as e:
+            f = None
+            if e.code != "UNKNOWN_PHASE":
+                print(f"{PROG}: {e.message}", file=sys.stderr)
+                sys.exit(1)
+        if f is None:
             print(f"{PROG}: no phase {args.phase} in {d}", file=sys.stderr)
             sys.exit(1)
-        f = matches[0]
         print(render_phase(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
         return
 
@@ -602,7 +597,8 @@ def cmd_brief(args):
     priority_file = d / ".priority"
     priority = priority_file.read_text().strip() if priority_file.is_file() else ""
 
-    files = sorted(d.glob("[0-9][0-9]-*.md"))
+    done, skipped, pending = _phase_groups(d)
+    files = [r["path"] for r in pending]
     if priority == "high":
         print(f"{name}  priority=high  phases={len(files)}")
     else:
@@ -619,8 +615,10 @@ def cmd_brief(args):
                 print(f"dependsOn: {dep}")
 
     if args.with_done:
-        for f in sorted((d / "done").glob("[0-9][0-9]-*.md")):
-            print(f"✔ {render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem))}")
+        for prefix, group in (("✔", done), ("➖", skipped)):
+            for r in group:
+                f = r["path"]
+                print(f"{prefix} {render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem))}")
 
     for f in files:
         print(render_brief(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))

@@ -10,7 +10,7 @@ import subprocess
 import textwrap
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase
+from cfq_testlib import CFQ_BIN, CfqTestCase, PhaseDirsStatus, write_status
 
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 
@@ -56,7 +56,7 @@ PHASE_NO_SIZE = textwrap.dedent("""\
     """)
 
 
-class WorkerBriefTest(CfqTestCase):
+class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
     def setUp(self):
         super().setUp()
         self.repo = self.make_repo("workerrepo")
@@ -140,6 +140,14 @@ class WorkerBriefTest(CfqTestCase):
         body = self.json_out(self._brief("02"))
         self.assertNotIn("superpowers", body["recommendedSkills"], f"blocked plugin leaked: {body}")
         self.assertIn("mattpocock-skills:tdd", body["recommendedSkills"], f"kept entry missing: {body}")
+
+    def test_brief_finds_a_phase_lying_in_skipped(self):
+        write_status(self.batch_dir, **{"02_something": {"status": "skipped", "reason": "obsolete"}})
+        self.assertTrue((self.batch_dir / "skipped" / "02-something.md").is_file())
+        body = self.json_out(self._brief("02"))
+        self.assertEqual(body["status"], "OK", f"unexpected status: {body}")
+        self.assertEqual(body["phase"], "02-something")
+        self.assertTrue(body["phaseFile"].endswith("skipped/02-something.md"), f"phaseFile: {body}")
 
     def test_unknown_phase_number_is_no_batch(self):
         proc = self._brief("99")

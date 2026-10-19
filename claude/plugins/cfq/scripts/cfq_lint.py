@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import has_numbered_steps  # noqa: E402
-from cfq_lib import queue as cfq_queue  # noqa: E402
+from cfq_lib import phase_state, queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_lint.py"
 
@@ -134,6 +134,47 @@ def check_numbering(all_files, batch_name, findings):
         expected += 1
 
 
+def check_status(d, batch_name, findings):
+    """status.json against the plan files: blocking findings, never `warn:`. Returns the
+    `{slug: status}` map it read (empty when the file is missing or unreadable), which
+    pending_files() uses to decide what to lint."""
+    if not phase_state.exists(d):
+        findings.append(f"{batch_name}: status: missing status.json")
+        return {}
+    try:
+        entries = {slug: e["status"] for slug, e in phase_state.load(d)["phases"].items()}
+        mismatches = phase_state.mismatches(d)
+    except phase_state.PhaseStateError:
+        findings.append(f"{batch_name}: status: status.json is not valid JSON")
+        return {}
+    for m in mismatches:
+        slug = m["slug"]
+        if m["kind"] == "no_entry":
+            findings.append(f"{batch_name}: status: {slug} has no status entry")
+        elif m["kind"] == "no_file":
+            findings.append(f"{batch_name}: status: {slug} entry has no file")
+        else:
+            parent = pathlib.Path(m["path"]).parent
+            where = "the batch root" if parent == d else f"{parent.name}/"
+            findings.append(f"{batch_name}: status: {slug} is {m['status']} but lies in {where}")
+    return entries
+
+
+def pending_files(d, entries):
+    """The plan files lint checks for headings: those of `open`/`error` phases. A file without
+    an entry (or any file when status.json is unreadable) counts by where it lies, the same
+    adoption rule as phase_state.sync_files()."""
+    out = []
+    for slug, path in sorted(phase_state.phase_files(d).items()):
+        status = entries.get(slug)
+        if status is None:
+            if path.parent == d:
+                out.append(path)
+        elif status in phase_state.PENDING:
+            out.append(path)
+    return out
+
+
 def check_priority(d, batch_name, findings):
     priority_file = d / ".priority"
     if priority_file.is_file():
@@ -169,17 +210,17 @@ def cmd_lint(args):
         sys.exit(1)
     batch_name = d.name
 
-    open_files = sorted(f for f in d.glob("[0-9][0-9]-*.md") if f.is_file())
-    done_files = sorted(f for f in (d / "done").glob("[0-9][0-9]-*.md") if f.is_file()) if (d / "done").is_dir() else []
-    n = len(open_files) + len(done_files)
+    all_files = sorted(phase_state.phase_files(d).values())
+    n = len(all_files)
 
     findings = []
     warn_findings = []
 
-    for f in open_files:
+    entries = check_status(d, batch_name, findings)
+    for f in pending_files(d, entries):
         lint_open_file(f, findings, warn_findings)
 
-    check_numbering(open_files + done_files, batch_name, findings)
+    check_numbering(all_files, batch_name, findings)
     check_priority(d, batch_name, findings)
     check_batch_context(d, batch_name, findings)
     check_depends(d, batch_name, warn_findings)

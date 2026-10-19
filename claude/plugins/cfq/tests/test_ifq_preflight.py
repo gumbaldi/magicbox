@@ -385,6 +385,64 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(out["status"], "OK", msg=f"all-remaining-skipped status = {out}")
         self.assertEqual(out["batch"]["name"], "2026-01-01-skipped", msg=f"batch = {out}")
+        self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
+        self.assertEqual(out["batch"]["skipped"], 1, msg=f"batch = {out}")
+        self.assertFalse(out["startGate"]["offerSkip"], msg=f"startGate = {out}")
+
+    def _phase_batch(self, repo, name, slugs):
+        batch = repo / ".claude" / "cfq" / "impl" / name
+        batch.mkdir(parents=True)
+        for slug in slugs:
+            (batch / f"{slug}.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(batch)
+        return batch
+
+    def _record_red(self, batch, slug):
+        pf = self._repos_dir / f"{slug}-red.json"
+        pf.write_text(json.dumps({
+            "phase": slug, "status": "red", "summary": "boom", "errors": ["x"],
+        }))
+        self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry", check=True)
+
+    def test_skipped_phase_is_passed_over_and_offers_no_skip(self):
+        repo = self._setup_repo("skip-passed-over")
+        batch = self._phase_batch(repo, "2026-01-01-skip", ["01-a", "02-b"])
+        self.run_cfq("phase", "skip", str(batch), "01", "--reason", "obsolete", check=True)
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["nextPhase"]["slug"], "02-b", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertEqual(out["nextPhase"]["status"], "open", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertFalse(out["startGate"]["offerSkip"], msg=f"startGate = {out['startGate']}")
+        self.assertEqual(out["batch"]["skipped"], 1, msg=f"batch = {out['batch']}")
+        batch_line = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertTrue(batch_line["detail"].endswith(" · 1 skipped"), msg=f"line = {batch_line}")
+
+    def test_no_skipped_phase_leaves_batch_line_without_skipped_clause(self):
+        repo = self._setup_repo("skip-none")
+        self._phase_batch(repo, "2026-01-01-noskip", ["01-a"])
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["batch"]["skipped"], 0, msg=f"batch = {out['batch']}")
+        batch_line = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertNotIn("skipped", batch_line["detail"], msg=f"line = {batch_line}")
+
+    def test_error_phase_stays_next_and_offers_skip_when_gate_fires(self):
+        repo = self._setup_repo("skip-error")
+        batch = self._phase_batch(repo, "2026-01-01-err", ["01-a", "02-b"])
+        self._record_red(batch, "01-a")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["nextPhase"]["slug"], "01-a", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertEqual(out["nextPhase"]["status"], "error", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertTrue(out["nextPhase"]["failedAttempt"]["found"], msg=f"nextPhase = {out['nextPhase']}")
+        self.assertTrue(out["startGate"]["fire"], msg=f"startGate = {out['startGate']}")
+        self.assertTrue(out["startGate"]["offerSkip"], msg=f"startGate = {out['startGate']}")
+
+        resumed = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
+        self.assertEqual(resumed["nextPhase"]["slug"], "01-a", msg=f"nextPhase = {resumed}")
+        self.assertFalse(resumed["startGate"]["fire"], msg=f"startGate = {resumed['startGate']}")
+        self.assertFalse(resumed["startGate"]["offerSkip"], msg=f"startGate = {resumed['startGate']}")
 
     def test_batch_without_readable_status_file_is_not_offered(self):
         self.auto_status = False
@@ -843,7 +901,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": True, "reason": "default"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": True, "reason": "default", "offerSkip": False}, msg=f"startGate = {out}"
         )
         self.assertNotIn(
             "Start Gate", [e["label"] for e in out["statusLines"]],
@@ -860,7 +918,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "resume"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "resume", "offerSkip": False}, msg=f"startGate = {out}"
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
         self.assertEqual(
@@ -879,7 +937,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(out["batch"]["name"], "2026-01-01-alpha", msg=f"batch = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "start", "offerSkip": False}, msg=f"startGate = {out}"
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
         self.assertEqual(
@@ -895,7 +953,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": True, "reason": "resume-nothing-in-progress"},
+            out["startGate"], {"fire": True, "reason": "resume-nothing-in-progress", "offerSkip": False},
             msg=f"startGate = {out}",
         )
         self.assertNotIn(
@@ -917,7 +975,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"batch = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "start", "offerSkip": False}, msg=f"startGate = {out}"
         )
 
     def test_intent_resume_with_select_is_invalid_args(self):

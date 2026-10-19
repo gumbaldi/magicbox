@@ -9,12 +9,12 @@ import subprocess
 import textwrap
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, PhaseDirsStatus, write_status
 
 from cfq_brief import parse_phase_body  # noqa: E402
 
 
-class BriefTest(CfqTestCase):
+class BriefTest(PhaseDirsStatus, CfqTestCase):
     def setUp(self):
         super().setUp()
         self.batch = self._repos_dir / "2026-01-01-briefme"
@@ -197,6 +197,41 @@ class BriefTest(CfqTestCase):
             f"--phase should find a phase already moved to done/: {out}",
         )
 
+    def test_phase_announcement_finds_phase_moved_to_skipped(self):
+        write_status(self.batch, **{"01_complete": "skipped"})
+        out = self.run_cfq("brief", str(self.batch), "--phase", "01", check=True).stdout
+        self.assertIn(
+            "PHASE 01 · Complete phase · Size S", out.splitlines(),
+            f"--phase should find a phase lying in skipped/: {out}",
+        )
+
+    def test_default_brief_counts_open_and_error_phases_only(self):
+        batch = self._repos_dir / "2026-01-05-states"
+        batch.mkdir(parents=True)
+        for n, name in (("01", "a"), ("02", "b"), ("03", "c"), ("04", "d")):
+            (batch / f"{n}-{name}.md").write_text(f"# Phase {name}\n\n## Affected Files\n")
+        write_status(batch, **{"01_a": "done", "02_b": "skipped", "03_c": "error"})
+
+        out = self.run_cfq("brief", str(batch), check=True).stdout
+        self.assertIn("2026-01-05-states  phases=2", out.splitlines(), f"header wrong: {out}")
+        self.assertEqual(
+            [l[:2] for l in out.splitlines()[1:] if l[:2].isdigit()], ["03", "04"], f"rows wrong: {out}",
+        )
+
+    def test_with_done_marks_skipped_phases_differently_from_done_ones(self):
+        batch = self._repos_dir / "2026-01-06-markers"
+        batch.mkdir(parents=True)
+        for n, name in (("01", "a"), ("02", "b"), ("03", "c")):
+            (batch / f"{n}-{name}.md").write_text(f"# Phase {name}\n\n## Affected Files\n")
+        write_status(batch, **{"01_a": "done", "02_b": "skipped"})
+
+        lines = self.run_cfq("brief", str(batch), "--with-done", check=True).stdout.splitlines()
+        self.assertIn("2026-01-06-markers  phases=1", lines, f"header wrong: {lines}")
+        self.assertTrue(any(l.startswith("✔ 01") for l in lines), f"done marker missing: {lines}")
+        self.assertTrue(any(l.startswith("➖ 02") for l in lines), f"skipped marker missing: {lines}")
+        self.assertTrue(any(l.startswith("03") for l in lines), f"open row missing: {lines}")
+        self.assertFalse(any(l.startswith("✔ 02") for l in lines), f"skipped shown as done: {lines}")
+
     def test_with_done_flag_lists_done_then_open(self):
         batch = self._repos_dir / "2026-01-04-withdone"
         done_dir = batch / "done"
@@ -324,11 +359,10 @@ class BriefTest(CfqTestCase):
         )
 
 
-class BriefOrchestratorGateTest(CfqTestCase):
+class BriefOrchestratorGateTest(PhaseDirsStatus, CfqTestCase):
     """--phase's deterministic mode gate: bin/cfq brief --phase refuses to serve the classic-mode
     phase announcement while orchestratorMode is on for the owning repo, see
     references/orchestrator.md section 6."""
-
     def setUp(self):
         super().setUp()
         self.repo = self.make_repo("gaterepo")
@@ -397,11 +431,10 @@ class BriefOrchestratorGateTest(CfqTestCase):
         self.assertIn("PHASE 01 · First phase", proc.stdout, f"announcement missing: {proc.stdout}")
 
 
-class BriefUntitledPhaseTest(CfqTestCase):
+class BriefUntitledPhaseTest(PhaseDirsStatus, CfqTestCase):
     """A phase file without a `# ` heading no longer crashes `parse_phase_body` -- the title falls
     back to the file's own stem (`NN-slug`) everywhere brief renders it, see
     .claude/cfq/impl/044-.../05-phase-title-fallback-and-lint.md."""
-
     def setUp(self):
         super().setUp()
         self.batch = self._repos_dir / "2026-01-08-untitled"
@@ -454,11 +487,10 @@ class BriefUntitledPhaseTest(CfqTestCase):
         )
 
 
-class BriefOverviewTest(CfqTestCase):
+class BriefOverviewTest(PhaseDirsStatus, CfqTestCase):
     """`bin/cfq brief <batch-dir> --overview` -- the shared batch-overview block `ifq`'s start
     gate (phase 04) and `pfq`'s final report (phase 05) both render, see
     .claude/cfq/impl/035-.../02-batch-overview-block.md."""
-
     def _phase(self, batch, filename, title, size=None):
         body = f"# {title}\n"
         if size is not None:
@@ -466,25 +498,23 @@ class BriefOverviewTest(CfqTestCase):
         body += "\n## Affected Files\n"
         (batch / filename).write_text(body)
 
-    def test_overview_mixed_batch_counts_done_red_and_open(self):
+    def test_overview_mixed_batch_counts_done_error_and_open(self):
         batch = self._repos_dir / "007-2026-02-01-overview"
         done_dir = batch / "done"
         done_dir.mkdir(parents=True)
         self._phase(batch, "done/01-first.md", "First phase", "S")
         self._phase(batch, "02-second.md", "Second phase", "M")
         self._phase(batch, "03-third.md", "Third phase", "L")
-        (batch / "report.json").write_text(json.dumps({
-            "phases": [{"phase": "02-second", "status": "red"}],
-        }))
+        write_status(batch, **{"02_second": "error"})
 
         out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
         expected = "\n".join([
             "BATCH 007 · 2026-02-01 · overview",
-            "3 phases planned · 1 done · 1 red",
+            "3 phases planned · 1 done · 1 error",
             "  #   Phase         Size  Status",
             "  01  First phase   S     done",
             "      → done/01-first.md",
-            "  02  Second phase  M     red",
+            "  02  Second phase  M     error",
             "      → 02-second.md",
             "  03  Third phase   L     open",
             "      → 03-third.md",
@@ -492,6 +522,43 @@ class BriefOverviewTest(CfqTestCase):
             f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"mixed overview block wrong: {out}")
+
+    def test_overview_shows_every_state_and_names_error_and_skipped_counts(self):
+        batch = self._repos_dir / "008-2026-02-02-states"
+        batch.mkdir(parents=True)
+        for name, title in (("01-a", "A"), ("02-b", "B"), ("03-c", "C"), ("04-d", "D")):
+            self._phase(batch, f"{name}.md", f"Phase {title}", "S")
+        write_status(batch, **{
+            "01_a": "done", "02_b": {"status": "skipped", "reason": "obsolete"}, "03_c": "error",
+        })
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        expected = "\n".join([
+            "BATCH 008 · 2026-02-02 · states",
+            "4 phases planned · 1 done · 1 error · 1 skipped",
+            "  #   Phase    Size  Status",
+            "  01  Phase A  S     done",
+            "      → done/01-a.md",
+            "  02  Phase B  S     skipped",
+            "      → skipped/02-b.md",
+            "  03  Phase C  S     error",
+            "      → 03-c.md",
+            "  04  Phase D  S     open",
+            "      → 04-d.md",
+            "",
+            f"  Plans    {batch.resolve()}",
+        ])
+        self.assertEqual(out, expected, f"every-state overview block wrong: {out}")
+
+    def test_overview_without_status_file_fails(self):
+        self.auto_status = False
+        batch = self._repos_dir / "009-2026-02-03-nostatus"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-a.md", "A", "S")
+
+        proc = self.run_cfq("brief", str(batch), "--overview")
+        self.assertEqual(proc.returncode, 1, msg=f"stderr = {proc.stderr!r}")
+        self.assertIn("status.json", proc.stderr, msg=f"stderr = {proc.stderr!r}")
 
     def test_overview_all_open_no_report_json_omits_red_clause(self):
         batch = self._repos_dir / "008-2026-02-02-noreport"
@@ -604,11 +671,10 @@ class BriefOverviewTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "--overview and --with-done together should exit non-zero")
 
 
-class BriefOverviewDecisionsAndPathTest(CfqTestCase):
+class BriefOverviewDecisionsAndPathTest(PhaseDirsStatus, CfqTestCase):
     """`--overview`'s three additions: `.batch-context.md`'s `## Decisions`, each phase's own `##
     Context` excerpt under its table row, and a closing `Plans` line naming the batch directory --
     see .claude/cfq/impl/044-.../08-overview-with-decisions-summaries-path.md."""
-
     def _phase(self, batch, filename, title, size=None, context_lines=None):
         body = f"# {title}\n"
         if size is not None:
@@ -767,10 +833,9 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
         self.assertNotIn("Plans", phase_out, f"--phase must not gain the Plans line: {phase_out}")
 
 
-class BriefReviewTest(CfqTestCase):
+class BriefReviewTest(PhaseDirsStatus, CfqTestCase):
     """`bin/cfq brief <batch-dir> --review [--phases NN,...]` -- the Plan-Mode digest, see
     .claude/cfq/impl/049-.../01-review-digest-renderer.md."""
-
     def _review_batch(self, name):
         repo = self._repos_dir / "revrepo"
         batch = repo / ".claude" / "cfq" / "impl" / name

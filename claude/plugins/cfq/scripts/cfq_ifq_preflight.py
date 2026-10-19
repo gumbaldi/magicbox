@@ -158,19 +158,25 @@ def lint_line(lint_json):
     return text.status_entry("Lint", "fail", f"{n} findings", sub=lint_json["findings"])
 
 
-def start_gate_result(intent, inprogress_name):
+def start_gate_result(intent, inprogress_name, next_status=None):
     """`startGate` for the resolved-batch (`OK`) path only -- every early-return status
     (`NO_BATCH`, `BLOCKED`, `MULTIPLE_IN_PROGRESS`, `SELECT_UNAVAILABLE`) carries `startGate: null`
     instead, since those paths end before a gate could fire. No `--intent` always fires (today's
     unconditional stop); `resume` fires unless a batch is already in progress; `start` never
-    fires, since a batch was always resolved to reach this function at all."""
+    fires, since a batch was always resolved to reach this function at all. `offerSkip` is true
+    only when the gate fires and the next phase is `error` -- the one place the start gate may
+    offer to skip a phase (a skip is only ever user-initiated)."""
     if not intent:
-        return {"fire": True, "reason": "default"}
-    if intent == "resume":
+        gate = {"fire": True, "reason": "default"}
+    elif intent == "resume":
         if inprogress_name:
-            return {"fire": False, "reason": "resume"}
-        return {"fire": True, "reason": "resume-nothing-in-progress"}
-    return {"fire": False, "reason": "start"}
+            gate = {"fire": False, "reason": "resume"}
+        else:
+            gate = {"fire": True, "reason": "resume-nothing-in-progress"}
+    else:
+        gate = {"fire": False, "reason": "start"}
+    gate["offerSkip"] = gate["fire"] and next_status == "error"
+    return gate
 
 
 def start_gate_line(start_gate, chosen):
@@ -191,6 +197,7 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
     suffix = " ⚠️ divergent" if divergent else ""
     mode = "orchestrator" if orchestrator_mode else "classic"
     n_open = cand["open"]
+    n_skipped = cand.get("skipped", 0)
     if select_batch and chosen == select_batch:
         detail = f"{prefix}{cand['name']} · selected by argument · {n_open} phases · mode={mode}{suffix}"
     elif inprogress_name and chosen == inprogress_name:
@@ -204,6 +211,8 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
         detail = f"{prefix}{cand['name']} · only open batch · {n_open} phases · mode={mode}{suffix}"
     else:
         detail = f"{prefix}{cand['name']} · next in order · {n_open} phases · mode={mode}{suffix}"
+    if n_skipped:
+        detail += f" · {n_skipped} skipped"
     return text.status_entry("Batch", "done", detail)
 
 
@@ -370,7 +379,9 @@ def cmd_preflight(args):
         next_phase_json = None
         gate_json = None
 
-    start_gate = start_gate_result(intent, inprogress_name)
+    start_gate = start_gate_result(
+        intent, inprogress_name, next_phase["status"] if next_phase is not None else None,
+    )
     status_lines = [
         model_gate_line(policy), plugin_boundaries_line(policy),
         batch_line(
@@ -399,7 +410,7 @@ def cmd_preflight(args):
         },
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],
-            "dependsOn": cand["dependsOn"], "briefText": brief_text,
+            "skipped": cand.get("skipped", 0), "dependsOn": cand["dependsOn"], "briefText": brief_text,
             "consistency": cand.get("consistency"),
         },
         "lint": lint_json,

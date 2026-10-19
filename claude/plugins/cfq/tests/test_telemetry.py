@@ -114,6 +114,18 @@ class TelemetryTest(CfqTestCase):
     def _last_record(self):
         return json.loads(self.jsonl.read_text().splitlines()[-1])
 
+    def test_recommended_skills_found_for_a_phase_lying_in_skipped(self):
+        # The phase file is located through status.json's mirror directories, `skipped/` included.
+        (self.batch / "skipped").mkdir()
+        (self.batch / "skipped" / "02-bar.md").write_text(
+            "# Bar\n\n## Empfohlene Skills\n\n- mattpocock-skills:tdd why\n\n## Verification\n"
+        )
+        self._record(str(self.batch), "phase", "02-bar")
+        self.assertEqual(
+            self._last_record()["skills_recommended"], ["mattpocock-skills:tdd"],
+            msg="skills_recommended for a phase in skipped/",
+        )
+
     def test_record_and_sync(self):
         # 1. First record call
         proc = self._record(str(self.batch), "phase", "01-foo")

@@ -27,7 +27,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_worker.py"
@@ -43,10 +43,10 @@ VALID_STATUSES = ("green", "red", "question")
 
 
 def find_phase_file(batch_dir, phase_num):
-    matches = sorted(batch_dir.glob(f"{phase_num}-*.md")) + sorted(
-        (batch_dir / "done").glob(f"{phase_num}-*.md")
-    )
-    return matches[0] if matches else None
+    try:
+        return phase_state.locate(batch_dir, phase_state.resolve_slug(batch_dir, phase_num))
+    except phase_state.PhaseStateError:
+        return None
 
 
 def extract_recommended_skills(text, blocked_plugins):

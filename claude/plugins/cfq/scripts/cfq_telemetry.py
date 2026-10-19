@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
@@ -106,10 +107,13 @@ def subagent_dir(repo="", session=""):
 def extract_recommended_skills(dir_, phase):
     if not phase:
         return []
-    pf = pathlib.Path(dir_) / f"{phase}.md"
-    if not pf.is_file():
-        pf = pathlib.Path(dir_) / "done" / f"{phase}.md"
-    if not pf.is_file():
+    batch_dir = pathlib.Path(dir_)
+    try:
+        slug = phase_state.resolve_slug(batch_dir, phase)
+    except phase_state.PhaseStateError:
+        slug = phase
+    pf = phase_state.locate(batch_dir, slug)
+    if pf is None:
         return []
     lines = pf.read_text().splitlines()
     start = None

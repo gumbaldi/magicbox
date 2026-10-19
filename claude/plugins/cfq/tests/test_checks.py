@@ -9,14 +9,14 @@ import re
 import subprocess
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, PhaseDirsStatus, write_status
 
 
 def _rule_count(output, rule):
     return len(re.findall(rf": {re.escape(rule)}:", output))
 
 
-class TestLint(CfqTestCase):
+class TestLint(PhaseDirsStatus, CfqTestCase):
     def _write(self, path, content):
         path.write_text(content)
 
@@ -312,6 +312,95 @@ x
         self.assertEqual(proc.returncode, 1, out)
         self.assertIn("01-a.md: sections: missing Changes heading", out)
         self.assertNotIn("changes-steps", out)
+
+    # ---- status.json (batch 051 phase 05) -------------------------------------------------------
+
+    def _status_batch(self, repo, phases=("01-a", "02-b")):
+        """A batch parked through a real `bin/cfq park` -- git repo, plan files written first,
+        status.json created by park itself."""
+        root = self.make_repo(repo)
+        target = self._repos_dir / f"{repo}-target"
+        target.touch()
+        batch = root / ".claude" / "cfq" / "impl" / "2026-01-04-status"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        for slug in phases:
+            self._write(batch / f"{slug}.md", self._valid_phase(target))
+        self.run_cfq("park", str(root), batch.name, "normal", check=True)
+        self.auto_status = False  # park wrote status.json; a test breaks it on purpose
+        return root, batch
+
+    def _valid_phase(self, target):
+        return f"""# Phase
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+1. x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+    def _lint_out(self, batch):
+        proc = self.run_cfq("lint", str(batch))
+        return proc.returncode, proc.stdout + proc.stderr
+
+    def test_lint_on_a_parked_batch_is_clean(self):
+        _, batch = self._status_batch("statusrepo1")
+        self.assertTrue((batch / "status.json").is_file(), "park should have written status.json")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertIn("OK 2 phases", out)
+
+    def test_lint_reports_missing_status_file(self):
+        _, batch = self._status_batch("statusrepo2")
+        (batch / "status.json").unlink()
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: missing status.json", out)
+
+    def test_lint_reports_unparsable_status_file(self):
+        _, batch = self._status_batch("statusrepo3")
+        (batch / "status.json").write_text("{not json")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: status.json is not valid JSON", out)
+
+    def test_lint_reports_phase_file_added_after_park(self):
+        _, batch = self._status_batch("statusrepo4", phases=("01-a",))
+        self._write(batch / "02-b.md", self._valid_phase(self._repos_dir / "statusrepo4-target"))
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b has no status entry", out)
+        self.assertNotIn("sections:", out, "the unregistered open file is still linted by location")
+
+    def test_lint_reports_entry_without_file(self):
+        _, batch = self._status_batch("statusrepo5")
+        (batch / "02-b.md").unlink()
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b entry has no file", out)
+
+    def test_lint_reports_mirror_mismatch(self):
+        _, batch = self._status_batch("statusrepo6")
+        (batch / "done").mkdir()
+        (batch / "02-b.md").rename(batch / "done" / "02-b.md")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b is open but lies in done/", out)
+
+    def test_skipped_phase_is_not_linted_for_headings_but_still_numbered(self):
+        _, batch = self._status_batch("statusrepo7", phases=("01-a", "02-b", "03-c"))
+        (batch / "02-b.md").write_text("no headings at all\n")
+        write_status(batch, **{"02_b": {"status": "skipped", "reason": "obsolete"}})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("02-b.md", out)
+        self.assertNotIn("numbering", out, "a skipped phase must not read as a gap")
+        self.assertIn("OK 3 phases", out)
 
     def test_new_marker_on_existing_path_fires_stale_new(self):
         qdir = self._repos_dir / "lintrepo3" / ".claude" / "cfq"

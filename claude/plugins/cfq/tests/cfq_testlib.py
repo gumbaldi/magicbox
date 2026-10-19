@@ -60,6 +60,28 @@ def write_status_under(root):
                     phase_state.transition(batch, slug, "done")
 
 
+def write_status_for_phase_dirs(root):
+    """write_status() for every directory under `root` that holds phase files (`NN-*.md`), the
+    batch directory itself or its `done/`/`skipped/` -- for the test classes whose ad-hoc batch
+    fixtures do not sit under a `.claude/cfq/impl` (brief, lint)."""
+    root = pathlib.Path(root)
+    batches = set()
+    for p in root.rglob("[0-9][0-9]-*.md"):
+        batches.add(p.parent.parent if p.parent.name in ("done", "skipped") else p.parent)
+    for batch in sorted(batches):
+        write_status(batch)
+
+
+class PhaseDirsStatus:
+    """Mixin (before CfqTestCase): gives every phase-file directory under the test repos dir its
+    status.json before each run_cfq()/run_clean() call; an existing entry is never changed."""
+    auto_status = True
+
+    def _prepare_status(self):
+        if self.auto_status:
+            write_status_for_phase_dirs(self._repos_dir)
+
+
 class CfqTestCase(unittest.TestCase):
     # A test class sets this True to have every run_cfq()/run_clean() call first give each batch
     # fixture under self._repos_dir its status.json; a test that needs a batch WITHOUT one sets
