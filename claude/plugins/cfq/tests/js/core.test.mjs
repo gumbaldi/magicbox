@@ -334,6 +334,7 @@ test("app.render shows a message when the view module is not loaded", async () =
   const cfq = loadPortal();
   delete cfq.batch;
   delete cfq.entry;
+  delete cfq.repos;
   const doc = fakeDoc();
   for (const hash of ["#/batch/x", "#/entry/todo-a"]) {
     const root = fakeRoot(doc);
