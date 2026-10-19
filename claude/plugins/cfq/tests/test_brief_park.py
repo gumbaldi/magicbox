@@ -1293,6 +1293,44 @@ class ParkFromPlanTest(CfqTestCase):
         self.assertEqual((done / self.entry.name).read_text(), first_before, "first entry must stay unchanged")
         self.assertEqual((done / second.name).read_text(), second_before, "second entry must stay unchanged")
 
+    # --- batch 050 phase 07: fromPlan ledger ---
+
+    def _from_plan(self, batch):
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / batch / "report.json"
+        return json.loads(path.read_text()).get("fromPlan")
+
+    def test_single_entry_recorded(self):
+        proc = self._park("2026-03-01-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._from_plan("2026-03-01-batch"), [self.entry.name])
+
+    def test_two_entries_recorded_sorted(self):
+        second = self.plan_dir / "2026-01-02-second-finding.md"
+        second.write_text("# Second\n")
+        self._park("2026-03-02-batch", from_plan=[second, self.entry])
+        self.assertEqual(
+            self._from_plan("2026-03-02-batch"), sorted([self.entry.name, second.name]),
+        )
+
+    def test_repeated_park_leaves_list_unchanged(self):
+        self._park("2026-03-03-batch", from_plan=self.entry)
+        proc = self._park("2026-03-03-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._from_plan("2026-03-03-batch"), [self.entry.name])
+
+    def test_missing_report_json_gets_standard_skeleton(self):
+        self._park("2026-03-04-batch", from_plan=self.entry)
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / "2026-03-04-batch" / "report.json"
+        data = json.loads(path.read_text())
+        self.assertEqual(data["batch"], "2026-03-04-batch")
+        self.assertEqual(data["phases"], [])
+        self.assertIn("started", data)
+
+    def test_no_flag_creates_no_report_json(self):
+        self._park("2026-03-05-batch")
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / "2026-03-05-batch" / "report.json"
+        self.assertFalse(path.exists())
+
 
 class ParsePhaseBodySectionBoundaryTest(unittest.TestCase):
     def test_routine_context_stays_unchanged(self):

@@ -21,10 +21,13 @@ is: a path already under `plan/done/`, or one that no longer exists, is a no-op 
 error, since a `/pfq` session retrying Park must not fail on the second attempt. A path outside
 `plan/` is rejected -- the flag consumes inbox entries, not arbitrary files -- and a filename
 collision inside `plan/done/` is a real error, naming both paths, since overwriting a previously
-parked entry is never the right move.
+parked entry is never the right move. The basenames of every `--from-plan` argument are also
+unioned (sorted, no duplicates) into the batch's `report.json` `fromPlan` list, creating the file
+through `cfq_report.ensure_report()` when it is missing.
 """
 
 import argparse
+import json
 import os
 import pathlib
 import subprocess
@@ -32,6 +35,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import cfq_report  # noqa: E402
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
@@ -90,6 +94,21 @@ def _consume_plan_entries(repo, from_plan_list):
         os.replace(str(src), str(target))
 
 
+def _record_from_plan(batch_dir, from_plan_list):
+    """Unions the basenames of every --from-plan argument into the batch's report.json
+    `fromPlan` (sorted, no duplicates), creating the file first when it is missing."""
+    cfq_report.ensure_report(str(batch_dir))
+    path = batch_dir / "report.json"
+    data = json.loads(path.read_text())
+    names = {os.path.basename(p) for p in from_plan_list}
+    names.update(n for n in data.get("fromPlan", []) if isinstance(n, str))
+    merged = sorted(names)
+    if data.get("fromPlan") == merged:
+        return
+    data["fromPlan"] = merged
+    render.write_json(str(path), data)
+
+
 def cmd_park(args):
     if args.priority not in ("high", "normal"):
         errors.die(f"{PROG}: priority must be high|normal, got '{args.priority}'")
@@ -133,6 +152,7 @@ def cmd_park(args):
 
     if args.from_plan:
         _consume_plan_entries(args.repo, args.from_plan)
+        _record_from_plan(d, args.from_plan)
 
     portal_hook.sync(args.repo, batches=[args.batch])
 

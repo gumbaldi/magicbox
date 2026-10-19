@@ -20,7 +20,7 @@ sample by default; a line that lands anyway from an evident translation resource
 `codeLanguage` violation. If that judgment finds something the structural count didn't, add one
 more `   └ ` sub-line of your own to the printed `Language` line — an addition, never a reword of
 what the aggregator already rendered. No repair here either way — every finding becomes a `todo/`
-entry per **Follow-Up** in `queue-entries.md`.
+entry per **Follow-Up** in `queue-entries.md`, and this call passes `--batch <batch-name>`.
 
 `Report` names the batch's own route inside the report portal (`file://<repo-root>/.claude/cfq/
 reports/index.html#/batch/<batch>`) — the portal sync itself already ran as this same `finish`
