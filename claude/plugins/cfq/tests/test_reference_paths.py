@@ -21,7 +21,11 @@ BARE_LINK_RE = re.compile(
 TOKEN_RE = re.compile(r"CLAUDE_PLUGIN_ROOT")
 SCRIPT_NAME_RE = re.compile(r"cfq-[a-z-]+\.sh")
 SHELL_MUTATION_RE = re.compile(r"\b(rm|mv|mkdir|rmdir|jq)\s")
-SKILL_LINE_BUDGET = 200
+SKILL_CHAR_BUDGET = 16000
+# Length `${CLAUDE_PLUGIN_ROOT}` takes once Claude Code substitutes an installed plugin path
+# (~/.claude/plugins/cache/<marketplace>/<plugin>/<version>).
+PLUGIN_ROOT_EXPANDED_LEN = 55
+PLUGIN_ROOT_LITERAL = "${CLAUDE_PLUGIN_ROOT}"
 CONTENTS_THRESHOLD = 100
 CONTENTS_WINDOW = 30
 HISTORY_RE = re.compile(
@@ -153,15 +157,21 @@ def check_settings_documented(root):
     return fails
 
 
-# 7. Added by Phase 04: CLAUDE.md's 200-line SKILL.md budget was a sentence nobody enforced, which
-#    is how two skills drifted past it unnoticed. Whole-file `wc -l`-equivalent line count,
-#    frontmatter included -- what a session actually pays for.
-def check_skill_line_budget(root):
+# 7. Added by Phase 04, measure swapped by batch 053 phase 06: a SKILL.md is held to a size budget
+#    counted on the text as loaded (plugin-root token expanded), not a line count -- a line count
+#    rewards long lines. Claude Code re-attaches only the first 5,000 tokens of a skill after a
+#    context compaction, so 16,000 characters is the ceiling.
+def check_skill_size_budget(root):
     fails = []
+    delta = PLUGIN_ROOT_EXPANDED_LEN - len(PLUGIN_ROOT_LITERAL)
     for f in sorted(root.glob("skills/*/SKILL.md")):
-        n = len(f.read_text().splitlines())
-        if n > SKILL_LINE_BUDGET:
-            fails.append(f"FAIL: {f}: {n} lines exceeds the {SKILL_LINE_BUDGET}-line SKILL.md budget")
+        text = f.read_text()
+        n = len(text) + text.count(PLUGIN_ROOT_LITERAL) * delta
+        if n > SKILL_CHAR_BUDGET:
+            fails.append(
+                f"FAIL: {f}: {n} characters as loaded exceeds the {SKILL_CHAR_BUDGET}-character"
+                " SKILL.md budget"
+            )
     return fails
 
 
@@ -337,7 +347,7 @@ def run_all(root):
     fails += check_no_scripts_named(root)
     fails += check_no_shell_mutations(root)
     fails += check_settings_documented(root)
-    fails += check_skill_line_budget(root)
+    fails += check_skill_size_budget(root)
     fails += check_dashboard_todo_delegates(root)
     fails += check_start_gate_and_overview_mentioned(root)
     fails += check_references_linked_from_entrypoint(root)
@@ -477,33 +487,32 @@ class ReferencePathsTest(CfqTestCase):
         self.assertIn("barKey", joined, msg="check 6 self-test did not catch an undocumented setting")
         self.assertNotIn("fooKey", joined, msg="check 6 self-test false-flagged a documented setting")
 
-    def test_skill_line_budget(self):
+    def test_skill_size_budget(self):
         tmp = self._repos_dir / "f7"
-        (tmp / "skills" / "ok").mkdir(parents=True)
-        (tmp / "skills" / "tight").mkdir(parents=True)
-        (tmp / "skills" / "fat").mkdir(parents=True)
-        (tmp / "skills" / "ok" / "SKILL.md").write_text("x\n" * 200)
-        (tmp / "skills" / "tight" / "SKILL.md").write_text("x\n" * 199)
-        (tmp / "skills" / "fat" / "SKILL.md").write_text("x\n" * 201)
+        for name in ("ok", "fat", "expands"):
+            (tmp / "skills" / name).mkdir(parents=True)
+        (tmp / "skills" / "ok" / "SKILL.md").write_text("small\n")
+        (tmp / "skills" / "fat" / "SKILL.md").write_text("x" * 16001)
+        literal = "${CLAUDE_PLUGIN_ROOT}"
+        body = literal + literal
+        (tmp / "skills" / "expands" / "SKILL.md").write_text(
+            body + "x" * (15990 - len(body))
+        )
 
-        out = check_skill_line_budget(tmp)
+        out = check_skill_size_budget(tmp)
         joined = "\n".join(out)
+        self.assertIn("fat/SKILL.md", joined, msg="check 7 self-test did not catch a file over budget")
+        self.assertIn("16001", joined, msg="check 7 self-test did not name the size in its failure")
         self.assertIn(
-            "fat", joined, msg="check 7 self-test did not catch a SKILL.md over the line budget"
-        )
-        self.assertIn("201", joined, msg="check 7 self-test did not name the line count in its failure")
-        self.assertNotIn(
-            "ok/SKILL.md",
+            "expands/SKILL.md",
             joined,
-            msg="check 7 self-test false-flagged a SKILL.md exactly at the budget",
+            msg="check 7 self-test did not count the plugin-root expansion",
         )
         self.assertNotIn(
-            "tight/SKILL.md",
-            joined,
-            msg="check 7 self-test false-flagged a SKILL.md under the budget",
+            "ok/SKILL.md", joined, msg="check 7 self-test false-flagged a small SKILL.md"
         )
         self.assertEqual(
-            1, len(out), msg=f"check 7 self-test should only flag the over-budget file: {out}"
+            2, len(out), msg=f"check 7 self-test should only flag the two over-budget files: {out}"
         )
 
     def test_dashboard_todo_delegates(self):

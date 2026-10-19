@@ -28,7 +28,7 @@ design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
-Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
+Reference files hold what would otherwise blow the size budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
 `ifq-phase.md`) — no per-skill `references/` directory, one path style everywhere
 (`${CLAUDE_PLUGIN_ROOT}/references/<file>.md` from a `SKILL.md`, `<plugin-root>/references/<file>.md`
@@ -414,12 +414,14 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
   `plan-for-queue`, `code-for-queue` and `report-for-queue`. A new skill points at the reference
   file rather than copying the block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
-- **200-line budget per `SKILL.md`, counted `wc -l` over the whole file, frontmatter included.**
-  Every session pays for a skill's size before anything happens. Content that would push a file
-  past that moves to `references/` and is loaded only on the path that needs it — pattern:
-  `claude/plugins/cfq/references/grilling.md`. `tests/test_reference_paths.py`'s
-  `check_skill_line_budget` enforces it — a `SKILL.md` over budget fails the suite. The working
-  target is ~180 lines, so a small addition does not immediately break the build.
+- **16,000-character budget per `SKILL.md`, counted on the text as loaded** (each
+  `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length). Every session pays for a
+  skill's size before anything happens, and Claude Code re-attaches only the first 5,000 tokens of
+  a skill after a context compaction; a line count rewards long lines, so size is what is
+  measured. Content needed only on some paths moves to `references/` and is loaded on that path
+  only — pattern: `claude/plugins/cfq/references/grilling.md`. `tests/test_reference_paths.py`'s
+  `check_skill_size_budget` enforces it — a `SKILL.md` over budget fails the suite. The working
+  target is about 14,500 characters, so a small addition does not immediately break the build.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
