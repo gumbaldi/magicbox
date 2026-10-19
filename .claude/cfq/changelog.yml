@@ -12,7 +12,10 @@
   status: parked
 - batchNumber: 52
   batch: 052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
-  status: parked
+  branch: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
+  base: cfq/051-2026-10-04-phase-status-file-and-skip
+  started: 2026-10-19
+  status: in-progress
 - batchNumber: 51
   batch: 051-2026-10-04-phase-status-file-and-skip
   branch: cfq/051-2026-10-04-phase-status-file-and-skip
