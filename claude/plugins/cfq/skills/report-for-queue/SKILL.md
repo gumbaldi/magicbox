@@ -96,7 +96,9 @@ On request for a single batch, print the `POSTCHECKS` header, then call:
 
 and render its `phases` in prose — status, summary, deviations, errors, turns, tokens, and, if
 present, the phase's model, effort, and the skills actually used (`.phases[].telemetry`);
-verification excerpts are already bounded, render as-is. `found: false` → say plainly there is no
+verification excerpts are already bounded, render as-is. A `skipped` entry is its own row (`skipped`,
+the reason) and the batch line names the skipped count; the outcome vocabulary stays
+`GREEN`/`RED`/`MIXED`. `found: false` → say plainly there is no
 report for this batch.
 
 For the HTML view:

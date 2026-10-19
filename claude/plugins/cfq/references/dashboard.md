@@ -5,7 +5,8 @@
 The `QUEUES` table's columns are `Repo | Plan | Todo | Batches | Reports | Status`. `Reports`
 counts the batch records (open and archived both) whose `report.json` exists — same `report` flag
 `cfq_scan.py` already puts on every batch record, no new scan. Like `Plan`/`Todo`/`Batches`, a repo
-with none prints a bare `0`, never a dash or blank.
+with none prints a bare `0`, never a dash or blank. The `open/done` cell of a batch row carries a ` · <n> skipped` suffix
+when the batch has skipped phases.
 
 The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing at `/rfq`
 (`report-for-queue`), the skill that lists and renders them, plus this repo's own report portal

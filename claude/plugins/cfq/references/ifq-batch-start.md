@@ -10,6 +10,8 @@ for the same `preflight-impl` call **Batch Selection** already makes — never a
 | `resume` | `--intent resume` | Continue the in-progress batch, skipping the start gate. Falls back to the normal gate (`startGate.reason: "resume-nothing-in-progress"`) when nothing is in progress — it never starts something new silently. |
 | `start` | `--intent start` | Take the in-progress batch, or the ordered next selectable one, skipping the start gate. |
 | `start <batch>` | `--intent start --select <batch>` | Same as `start`, naming which batch. |
+| `skip <NN> [reason…]` | none | Skip phase `<NN>` of the selected batch, then continue as a normal session — see below. |
+| `unskip <NN>` | none | Bring a skipped phase back, then continue as a normal session. |
 | anything else | `--select <text>` (today's meaning, unchanged) | A hint that narrows batch selection, per **Batch Selection Rules** — not a keyword. |
 
 `--intent resume` combined with `--select` is rejected by the preflight itself (`INVALID_ARGS`) —
@@ -17,6 +19,15 @@ for the same `preflight-impl` call **Batch Selection** already makes — never a
 never produces that combination, so it should never actually fire. `MULTIPLE_IN_PROGRESS`,
 `BLOCKED`, `NO_BATCH` and `SELECT_UNAVAILABLE` stop exactly as they do without a keyword —
 `startGate` comes back `null` on every one of those, so neither keyword has anything to skip.
+
+**`skip` and `unskip`** pass no `--intent`. Run the preflight as usual; on `status: "OK"` call
+`bin/cfq phase skip "<batch-dir>" <NN> --reason "<reason>"` (`phase unskip "<batch-dir>" <NN>` for
+`unskip`; `--reason` only when text was given) for the batch the preflight resolved, print the
+returned `statusLines` entry verbatim, re-run the preflight with `--select <batch>` and continue from
+**Batch Briefing** as a normal session — briefing, start gate and the next phase follow. A non-`OK`
+result of the verb is printed as `❌ Skip` with the returned detail and ends the session, nothing
+else touched. Only the user skips, see `<plugin-root>/references/ifq-phase.md`'s **Skipping a
+Phase**.
 
 ## Model Gate Stop
 
@@ -170,6 +181,12 @@ may hold more than two other open batches — but only when another batch is act
   own reason for that batch and the question is asked once more; a second miss ends the session
   without touching anything, mirroring **Branch and Changelog on Go-Ahead**'s free-text
   resolution for the base-branch question — point at that paragraph, don't repeat it.
+- `startGate.offerSkip` is `true` → the first call gains a further option, **Skip this phase**,
+  placed after **Start**: it asks nothing more, runs `bin/cfq phase skip "<batch-dir>" <NN>
+  --reason "skipped at start gate after failed attempt"` for `nextPhase`, prints the returned status
+  line, re-runs the preflight with `--select <batch>` and continues with the next phase without
+  asking the gate again. The option exists only when the next phase is `error`; with `resume` or
+  `start` the gate does not fire and the phase is retried.
 - On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
   <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
   second time for the freshly chosen batch, because choosing it *was* the confirmation.

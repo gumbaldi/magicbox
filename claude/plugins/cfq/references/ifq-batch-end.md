@@ -8,7 +8,9 @@ unconditionally (a `trap`, so a mid-sequence failure can never leave the repo lo
 one JSON object whose `statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/
 `Changelog`/`Telemetry`/`Report`/`Lock` rendered from that same object's fields — print each entry
 as returned, in order; `Security Diff` is entirely absent from the array on an older batch with no
-planning snapshot to diff against, rather than printed empty. Any `.errors` entry
+planning snapshot to diff against, rather than printed empty. `Skipped` (phases skipped and the inbox
+entries written for them, `➖ none` when nothing was skipped) is printed as returned like the rest.
+Any `.errors` entry
 (`"<step>: <message>"`) already arrives attached as a `sub` line under its matching entry above —
 the sequence still completed, no separate error line to compose.
 
@@ -32,7 +34,8 @@ instead, with no `file://` line in **Closing Reports**.
 
 `RESULT · implement-for-queue` header, one label/value line per field:
 
-- `Batch` — batch and repo, phases total, green/red split.
+- `Batch` — batch and repo, phases total, green/red split, and the skipped phases next to it
+  (`5 green, 1 red, 2 skipped`) when there are any.
 - `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
   tokens total, models, efforts. Fields 9/7 mean the **whole batch** — session + every sub-agent,

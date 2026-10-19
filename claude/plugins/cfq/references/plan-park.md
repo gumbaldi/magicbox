@@ -18,6 +18,9 @@ the denial: no `Bash` fallback for phase files, no unlock marker of any kind. Bo
 defeat the guard the user configured. What a guard hook has to allow: **Hook contract** in
 the plugin's `README.md`.
 
+`bin/cfq park` writes `status.json` (every phase `open`); after renaming, adding or removing a phase
+file, re-run `bin/cfq park` so a `status:` lint finding clears.
+
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
 repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from

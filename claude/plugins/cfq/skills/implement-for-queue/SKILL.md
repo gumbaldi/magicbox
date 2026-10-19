@@ -36,9 +36,10 @@ Failed Attempt** for the next phase instead of opening `POSTCHECKS`. `POSTCHECKS
 ## Step 1 — Arguments
 
 Text passed with the invocation narrows batch selection in **Batch Selection** — it never replaces
-the briefing. `resume` and `start` (`start <batch>` included) are keywords, not a selection hint —
-cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Arguments**
-section on first use each session and apply it here.
+the briefing. `resume`, `start` (`start <batch>` included), `skip <NN> [reason]` and `unskip <NN>`
+are keywords, not a selection hint — cold-path detail: read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Arguments**
+section on first use each session and apply it here. Skipping a phase — only ever on the user's
+request — is in `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Skipping a Phase**.
 
 ## Step 2 — Plan-Mode Gate
 
@@ -97,9 +98,9 @@ Entering this step closes `PRECHECKS` and opens `IMPLEMENTATION`. Before reading
 two checks — both already resolved by **Batch Selection**'s preflight call for the phase it was run
 against; **only re-run the preflight here** (same `--select <batch>`) if
 a phase other than the one it resolved is about to start (e.g. the second and later phases of a
-batch, since the preflight only ever resolves `nextPhase` for the lowest-numbered open phase at
-call time). `nextPhase.failedAttempt` — `.found: true` → read its
-`.note`/`.at`, check whether the cause still holds before repeating, and mention it in the new
+batch, since the preflight only ever resolves `nextPhase` for the lowest-numbered `open` or `error`
+phase at call time). `nextPhase.status == "error"` is the trigger: `nextPhase.failedAttempt` —
+`.found: true` → read its `.note`/`.at`, check whether the cause still holds before repeating, and mention it in the new
 entry ("second attempt after …"); `.found: false` → skip silently. Print `Failed Attempt` either
 way.
 
@@ -129,7 +130,7 @@ exception — reappears every phase by design, never a repetition bug — one `A
 
 ## Step 8 — Implementation
 
-Read the lowest-numbered open `NN-*.md` in full — multi-file or unclear-scope phases may delegate
+Read `nextPhase`'s plan file (path from the preflight) in full — multi-file or unclear-scope phases may delegate
 that research to an `implExploreModel` subagent first; implementation itself never runs on one.
 Implement it completely, run the plan's verification with output filtered — a green run may
 delegate the filtering to the same subagent, a red run never does (full unfiltered failure back
@@ -182,7 +183,7 @@ orchestrator loop; that part is unchanged.
 
 ## Step 11 — Batch Done
 
-No open `NN-*.md` left → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
+`nextPhase: null` → print the `POSTCHECKS` header (this closes `IMPLEMENTATION`), then run
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"` — cold-path detail:
 read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields** section on first use each session and apply it here. Hand the batch to **Closing Reports** for the closing
 report.

@@ -14,6 +14,10 @@ returned is fully accounted for in the orchestrator's own transcript and no work
 mid-run. `nextPhase: null` (every phase already moved to `done/`, `bin/cfq finish` never ran) →
 skip straight to step 5's batch end, never spawn a worker for a phase that doesn't exist.
 
+A skip request from the user ("skip phase 04") is carried out here, between phases, before the next
+spawn — `<plugin-root>/references/ifq-phase.md`'s **Skipping a Phase** — and the preflight above is
+re-run afterwards. The orchestrator never skips on its own.
+
 This one call carries both verdicts, and capacity always wins when both fire:
 
 - `STOP` (`REASON=capacity`) is about the **orchestrator's own** session, not the worker's — it
@@ -65,7 +69,7 @@ silent.
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations`/`observations` map onto
-`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`. Batch end — `nextPhase: null` —
 follows classic mode's **Batch Done** in full.
 
 ## 6. Fallback to classic

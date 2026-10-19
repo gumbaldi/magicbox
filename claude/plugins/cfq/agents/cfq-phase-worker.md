@@ -29,7 +29,8 @@ Every mutation of `.claude/cfq/` goes through the exact `bin/cfq` invocation nam
 briefing's `commands` field (`phaseCommit`, `phaseRecordRed`, `notePlan`) — never an improvised
 `mv`, `rm`, `mkdir` or `jq` against that tree. Staging is the one exception: `git add` for the
 phase's own changes happens directly, since `commands.phaseCommit` commits whatever is already
-staged and never runs `git add` itself.
+staged and never runs `git add` itself. A worker never calls `phase skip` or `phase unskip` — a skip
+is the user's decision alone, carried out by the orchestrator between phases.
 
 ## Implementation
 

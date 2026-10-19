@@ -172,6 +172,21 @@ Any of the three firing → do not auto-advance; state which trigger fired and a
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
 
+## Skipping a Phase
+
+Only the user skips. A skip is never the session's own answer to a failed, large or seemingly
+obsolete phase, and a worker never skips.
+
+An explicit request in the middle of a session ("skip phase 04") is carried out between phases with
+`bin/cfq phase skip "<batch-dir>" <NN> [--reason "<reason>"]`, for a phase that is `open` or `error`
+and not the one currently being implemented; `bin/cfq phase unskip "<batch-dir>" <NN>` the same way.
+`/ifq skip <NN>` and the start gate's **Skip this phase** option are the other entry points, see
+`<plugin-root>/references/ifq-batch-start.md`.
+
+A skip moves the plan file into `skipped/`, passes the phase over (the next phase is the lowest
+`open` or `error` one that remains), lets the batch finish once nothing is left, and writes one
+inbox entry per skipped phase at batch end.
+
 ## Commit Result Rendering
 
 `bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the same way
