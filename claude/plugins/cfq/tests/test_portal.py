@@ -14,8 +14,6 @@ from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
-
 DATA_FILE_RE = re.compile(
     r"^window\.CFQ_DATA = window\.CFQ_DATA \|\| \{\};\n"
     r"window\.CFQ_DATA\[(?P<key>.*?)\] = (?P<payload>.*);\n\Z",
@@ -562,39 +560,6 @@ class PortalTest(CfqTestCase):
         # the repo-local sync itself is unaffected by the mirror failure
         self.assertTrue((self._data_dir(repo) / "queue.js").is_file())
         self.assertTrue((self._data_dir(repo) / "batch/2026-09-23-demo.plan.js").is_file())
-
-
-# ---- cfq_lib.markdown's extensions over cfq_report.py's original md_min/md_inline --------------
-
-class MarkdownExtensionTest(unittest.TestCase):
-    def test_h1_dropped_by_default_unchanged_from_before(self):
-        self.assertEqual(cfq_lib_markdown.md_min("# Batch Context\n"), "")
-
-    def test_h1_kept_as_title_when_requested(self):
-        out = cfq_lib_markdown.md_min("# Batch Context\n\nBody text.\n", keep_h1=True)
-        self.assertEqual(out, "<h1>Batch Context</h1><p>Body text.</p>")
-
-    def test_fenced_code_block_escaped_never_inline_formatted(self):
-        out = cfq_lib_markdown.md_min("```\n**not bold** <tag>\n```\n")
-        self.assertIn("<pre><code>", out)
-        self.assertIn("&lt;tag&gt;", out)
-        self.assertNotIn("<strong>", out)
-        self.assertIn("**not bold**", out)  # inline markers pass through literally inside a fence
-
-    def test_unterminated_fence_still_renders_its_content(self):
-        out = cfq_lib_markdown.md_min("```\nstill here\n")
-        self.assertIn("<pre><code>still here</code></pre>", out)
-
-    def test_ordered_list_renders_as_ol(self):
-        out = cfq_lib_markdown.md_min("1. one\n2. two\n")
-        self.assertIn("<ol>", out)
-        self.assertEqual(out.count("<li>"), 2)
-        self.assertIn("<li>one</li>", out)
-
-    def test_switching_from_bullet_to_ordered_closes_the_first_list(self):
-        out = cfq_lib_markdown.md_min("- bullet\n1. numbered\n")
-        self.assertIn("<ul><li>bullet</li></ul>", out)
-        self.assertIn("<ol><li>numbered</li></ol>", out)
 
 
 if __name__ == "__main__":

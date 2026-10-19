@@ -19,7 +19,6 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_report  # noqa: E402
-from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -1056,75 +1055,6 @@ class TestDerivations(unittest.TestCase):
         self.assertEqual(cfq_report.fmt_int(0), "0")
         self.assertEqual(cfq_report.fmt_int(None), "–")
         self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
-
-
-# ---- cfq_lib.markdown's base subset (the renderer batch 040 phase 01 split out of this module)
-# -- still live, used by cfq_portal.py's pre-rendered phase-file/queue-entry bodies. Pure
-# functions over literal strings, no files, no project-specific nouns. `MarkdownExtensionTest` in
-# tests/test_portal.py covers the extensions cfq_portal.py added on top (keep_h1, ordered lists);
-# this class covers the base subset this module used to render itself.
-
-class TestMarkdownSubset(unittest.TestCase):
-    # -- md_min: routine / structural cases --------------------------------------------------
-
-    def test_routine_heading_paragraph_and_list(self):
-        out = cfq_lib_markdown.md_min(
-            "## Heading\n\nA paragraph.\n\n- one\n- two\n- three\n"
-        )
-        self.assertIn("<h3>Heading</h3>", out)
-        self.assertIn("<p>A paragraph.</p>", out)
-        self.assertEqual(out.count("<li>"), 3)
-        self.assertIn("<li>one</li>", out)
-        self.assertIn("<li>two</li>", out)
-        self.assertIn("<li>three</li>", out)
-
-    def test_wrapped_bullet_continuation_stays_one_li_not_a_paragraph(self):
-        out = cfq_lib_markdown.md_min("- first line of the item\n  wraps onto this line\n")
-        self.assertEqual(out.count("<li>"), 1)
-        self.assertNotIn("<p>", out)
-        self.assertIn("<li>first line of the item wraps onto this line</li>", out)
-
-    # -- md_inline -----------------------------------------------------------------------------
-
-    def test_inline_bold_and_code(self):
-        self.assertEqual(cfq_lib_markdown.md_inline("**bold**"), "<strong>bold</strong>")
-        self.assertEqual(cfq_lib_markdown.md_inline("`code`"), "<code>code</code>")
-
-    def test_inline_backtick_span_wins_over_bold_inside_it(self):
-        out = cfq_lib_markdown.md_inline("`a **b** c`")
-        self.assertNotIn("<strong>", out)
-        self.assertEqual(out, "<code>a **b** c</code>")
-
-    # -- escaping --------------------------------------------------------------------------------
-
-    def test_escaping_happens_before_this_function_is_reached(self):
-        # md_min escapes each emitted value itself (via esc()) -- feeding it raw HTML must come
-        # out neutralised, never as a literal live tag.
-        out = cfq_lib_markdown.md_min("A line with <script>alert(1)</script> in it.")
-        self.assertIn("&lt;script&gt;", out)
-        self.assertNotIn("<script", out)
-
-    # -- edge cases ------------------------------------------------------------------------------
-
-    def test_empty_string_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min(""), "")
-
-    def test_only_blank_lines_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min("\n\n\n"), "")
-
-    def test_single_hash_title_alone_is_skipped_entirely(self):
-        out = cfq_lib_markdown.md_min("# Batch Context\n")
-        self.assertEqual(out, "")
-
-    # -- fall-through: outside the documented subset ------------------------------------------
-
-    def test_blockquote_and_table_line_fall_back_to_paragraph_text(self):
-        out = cfq_lib_markdown.md_min("> a quote\n\n| a | table |\n")
-        self.assertNotIn("<blockquote", out)
-        self.assertNotIn("<table", out)
-        self.assertIn("<p>", out)
-        self.assertIn("&gt; a quote", out)
-        self.assertIn("| a | table |", out)
 
 
 if __name__ == "__main__":

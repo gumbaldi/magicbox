@@ -313,9 +313,9 @@ content changed (`write_if_changed()`, the same tmp-file-plus-`os.replace` patte
 data file the same way. `sync` reuses `cfq_scan.scan_repo()` (the dashboard's own per-repo record
 builder) for batch status/open/done/blocked/planning rather than re-deriving it, and
 `cfq_report.phase_layer_sums()` (batch 038's four-layer cost split, schema-1 fallback included) for
-every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, one
-level of bullets or ordered items, paragraphs, fenced code blocks, `**bold**`/`` `code` ``, nothing
-else) moved out of `cfq_report.py` into its own module here, originally shared with
+every cost total it writes. The Markdown subset renderer (`cfq_lib/markdown.py`: headings, lists nested up to
+three levels, paragraphs, fenced and indented code blocks, block quotes, pipe tables, `---` rules,
+`check:` lines, `**bold**`/`*emphasis*`/`` `code` ``; no links) moved out of `cfq_report.py` into its own module here, originally shared with
 `cfq_report.py`'s own Overview-section renderer; that renderer had no production caller left once
 `report html` became a thin `portal sync` alias (batch 040 phase 05) and was deleted as dead code
 (batch 047 phase 03) — `read_batch_context` itself stayed, still used directly by `cfq_portal.py`,
