@@ -15,14 +15,16 @@
   status: parked
 - batchNumber: 51
   batch: 051-2026-10-04-phase-status-file-and-skip
-  status: parked
+  branch: cfq/051-2026-10-04-phase-status-file-and-skip
+  base: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
+  started: 2026-10-19
+  status: in-progress
 - batchNumber: 50
   batch: 050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   branch: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   base: cfq/049-2026-10-04-plan-review-gate-and-detail-view
   started: 2026-10-19
   status: done
-  legacy: false
   finished: 2026-10-19
   phases:
     - phase: "01-telemetry-count-per-response-and-model"
@@ -79,7 +81,6 @@
   base: cfq/048-2026-10-04-changelog-newest-first-force-tracked
   started: 2026-10-19
   status: done
-  legacy: false
   finished: 2026-10-19
   phases:
     - phase: "01-review-digest-renderer"
@@ -109,7 +110,6 @@
   base: main
   started: 2026-10-19
   status: done
-  legacy: true
   finished: 2026-10-19
   phases:
     - phase: "01-drop-legacy-field"
