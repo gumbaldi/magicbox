@@ -21,7 +21,11 @@
   status: parked
 - batchNumber: 49
   batch: 049-2026-10-04-plan-review-gate-and-detail-view
-  status: parked
+  branch: cfq/049-2026-10-04-plan-review-gate-and-detail-view
+  base: cfq/048-2026-10-04-changelog-newest-first-force-tracked
+  started: 2026-10-19
+  status: in-progress
+  legacy: false
 - batchNumber: 48
   batch: 048-2026-10-04-changelog-newest-first-force-tracked
   branch: cfq/048-2026-10-04-changelog-newest-first-force-tracked
