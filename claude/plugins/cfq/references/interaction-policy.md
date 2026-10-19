@@ -29,8 +29,9 @@ in `<plugin-root>/references/plan-review.md`) — "I'll edit the files myself" e
 not a waiting question; `ifq`: start gate (start/cancel, plus skip this phase when the next phase failed, plus pick a
 different batch when another one is selectable, per
 `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by the `resume`/`start`
-keywords), scope-creep parking, branch base (every new batch branch, plus
-ahead/diverged remote on `continue`) — this section adds a rule, not new question sites.
+keywords), scope-creep parking, branch base (every new batch branch, with one
+confirmation when the chosen base leaves unmerged batch branches behind, plus ahead/diverged
+remote on `continue`) — this section adds a rule, not new question sites.
 
 ## Active Interview Duty
 

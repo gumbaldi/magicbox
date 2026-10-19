@@ -82,7 +82,7 @@ Reported from `/home/code/git/kankuri` (batch 031 depending on 028, 2026-09-28):
 recommended on the stale dependency branch `cfq/028-…` while newer unmerged batch branches
 `cfq/029-…` and `cfq/030-…` already existed — `bin/cfq branch plan` used to derive the base from
 `.dependsOn` first (two now-removed `baseSource` values named after the dependency chain itself)
-and only fall back to the chain decision (`_chain_base()`) when no unmerged dependency branch
+and only fall back to the chain decision when no unmerged dependency branch
 existed at all.
 
 `.dependsOn` is a selection gate, not a base-branch signal: a batch whose dependency isn't yet in
@@ -92,7 +92,7 @@ dependency it names is already implemented — its work is either already folded
 unmerged batch branch (the routine case) or already merged into `main`. Basing on the dependency
 branch itself could then only ever produce a base *older* than the one the chain decision would
 already pick, exactly the kankuri incident. The fix removes both of those `baseSource` values
-entirely — the chain decision (`_chain_base()`) is now the only base path, unconditional.
+entirely — the chain decision is now the only base path, unconditional.
 
 The rare case an unmerged dependency branch does diverge from the chain — most commonly a
 non-numbered branch the chain logic never considers as a candidate at all, or one abandoned in
@@ -101,6 +101,28 @@ favor of a parallel branch — still needs a safety net rather than silently van
 batch's own `.dependsOn` and is missing from the chosen base. An entry appended this way (one that
 never became a chain candidate on its own) never flips `baseSource` — it's a warning surfaced in
 the base-branch question, not a vote for a different base.
+
+The base-branch question itself was later cut down to a short menu; see "ifq: why the base-branch
+question offers at most three branches" below.
+
+## ifq: why the base-branch question offers at most three branches
+
+The previous question listed the base, two more candidates and `main` because they existed. The
+user (2026-10-04) wanted nothing shown without a reason: the newest branch recommended, the newest
+batch branch offered only when the newest branch is not one, an on-demand list of ten, and a
+free-text field for anything else.
+
+Among batch branches the batch number, not the commit date, decides "newest": the highest batch
+normally contains every earlier one and loses least when an older branch gets a late commit. That
+late commit is then offered as its own option and named in a warning in the first question.
+
+A deviation from the recommendation that drops unmerged batch branches is confirmed in a second
+question, because a new batch normally builds on all earlier ones and such a pick is almost always
+a mistake. The recommendation itself is never confirmed twice: what it lacks is already stated in
+the first question.
+
+The list is its own `branch list` verb because the path is rare, and a preflight result that
+carried eleven rows every time would cost tokens in every session.
 
 ## pfq/ifq: why framework findings never go through SendFeedback
 
