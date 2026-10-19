@@ -9,7 +9,10 @@
   status: parked
 - batchNumber: 53
   batch: 053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
-  status: parked
+  branch: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
+  base: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
+  started: 2026-10-19
+  status: in-progress
 - batchNumber: 52
   batch: 052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
   branch: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
