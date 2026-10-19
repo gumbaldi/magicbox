@@ -4,12 +4,12 @@ Read unconditionally in **Language and Cut Phases**, before any phase's Changes 
 text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
-simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rule 6 applies
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6 and 7 apply
 to every phase without exception. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The five rules below are a standing checkpoint against runaway debugging tokens and untested
+The seven rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## 1. Test-first, not shell exploration
@@ -93,9 +93,24 @@ not a hedge in the plan — resolve it before parking: `bin/cfq overlap` interse
 these lists across open batches to derive conflicts and `.dependsOn` edges, and a wishlist entry
 produces a phantom conflict that costs a real session.
 
+## 7. `## Changes` is a numbered step list
+
+This rule applies to every phase, without exception — like rule 6, it names no trigger condition.
+
+Every phase's `## Changes` is a numbered list at column 0. Each step opens with one sentence that
+stands on its own and says what changes and where; everything an implementer needs beyond that goes
+into nested bullets or a fenced block below it. No prose before step 1 — a test-first order (rule 1)
+is expressed by making the test step 1.
+
+The review digest (`bin/cfq brief --review`) and `/ifq`'s phase announcement show exactly these
+opening sentences, so they are what the user approves.
+
+`bin/cfq lint` reports a missing numbered step as `warn: … changes-steps`, never as a finding, so an
+older batch still starts.
+
 ---
 
-None of this adds a new required heading. All five rules live inside a phase's existing `Changes`,
+None of this adds a new required heading. All seven rules live inside a phase's existing `Changes`,
 `Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected.
 
 ## Phase File Structure

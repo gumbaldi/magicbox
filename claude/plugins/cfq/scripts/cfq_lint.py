@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_lint.py <batch-dir>
 """Lints a parked batch of phase plans before pfq hands it off. Reports, never repairs, never
-aborts on soft findings (depends is warn-only and never affects the exit code).
+aborts on soft findings (`depends` and `changes-steps` are warn-only and never affect the exit
+code).
 
 Ported from cfq-lint.sh -- a port, not a redesign: every finding string, the `warn:` prefix, the
 exit-code rule and the `## Size` degradation are carried over verbatim.
@@ -15,6 +16,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_brief import has_numbered_steps  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_lint.py"
@@ -66,7 +68,7 @@ def phase_num(name):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
-def lint_open_file(f, findings):
+def lint_open_file(f, findings, warn_findings):
     name = f.name
     text = f.read_text()
 
@@ -89,6 +91,8 @@ def lint_open_file(f, findings):
     if has_heading(text, "Changes"):
         if not re.search(r"\S", extract_section(text, "Changes")):
             findings.append(f"{name}: changes-empty: Changes section is empty")
+        elif not has_numbered_steps(text):
+            warn_findings.append(f"warn: {name}: changes-steps: Changes has no numbered top-level step")
 
     if has_heading(text, "Affected Files"):
         files_section = extract_files_section(text)
@@ -173,7 +177,7 @@ def cmd_lint(args):
     warn_findings = []
 
     for f in open_files:
-        lint_open_file(f, findings)
+        lint_open_file(f, findings, warn_findings)
 
     check_numbering(open_files + done_files, batch_name, findings)
     check_priority(d, batch_name, findings)

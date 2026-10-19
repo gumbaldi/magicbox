@@ -916,7 +916,7 @@ x
 ## Affected Files
 - `{target}` (ändern)
 ## Changes
-x
+1. x
 ## Verification
 `bash tests/foo.sh` must exit 0
 """
@@ -952,7 +952,7 @@ x
 ## Affected Files
 - `{target}` (ändern)
 ## Changes
-x
+1. x
 """)
         (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
 
