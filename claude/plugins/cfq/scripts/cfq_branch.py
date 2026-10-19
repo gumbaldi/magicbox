@@ -1,34 +1,38 @@
 #!/usr/bin/env python3
 # Usage: cfq_branch.py plan <repo-root> <batch-dir-name>
-#        cfq_branch.py check <repo-root> <branch-name>
+#        cfq_branch.py check <repo-root> <branch-name> [--batch <batch-dir-name>]
 """Computes the branch/batch-identity decision for a batch go-ahead as one JSON object. Read-only
 -- never creates or checks out a branch itself; the caller acts on `mode`. New branches use the
 batch's own stable directory name directly (`cfq/<batch-directory-name>`) -- no version scanning,
 no pseudo-version increment, no identity derived from Git branch history.
-`check` resolves and judges one named branch (for a free-text base-branch answer) -- also
-read-only, no dispatcher entry of its own since `branch` is already the noun.
+`check` resolves and judges one named branch (for a free-text base-branch answer; `--batch` adds
+that batch's unmerged `.dependsOn` branches to its `uncontained` list) -- also read-only, no
+dispatcher entry of its own since `branch` is already the noun.
 
-On `new`, `base`/`baseRef` are always the chain decision (`_chain_base()`) -- `.dependsOn` never
-picks the base. It only gates *when* a batch is selectable (a batch whose dependency is not in
-`impl/done/` is already never offered by `ifq`); by the time a branch is cut for a batch, every
-dependency is implemented and its work is either in the newest unmerged batch branch or already in
-`main`. `baseSource` is `"highestBatch"` (chains onto the highest-numbered unmerged
-`cfq/<NNN>-...` branch among `candidates`, so repos that keep `main` frozen and accumulate batches
-as a chain don't reset to a stale `main`), `"newerCandidate"` (same base as `"highestBatch"`, but
-another unmerged cfq branch not contained in it has a newer commit -- the caller asks which to
-use), or `"main"` (bootstrap only: no unmerged numbered `cfq/` branch exists at all). `uncontained`
-(`new`-mode only) lists every other unmerged cfq branch not contained in the chosen base,
-`{"name", "lastCommit", "newer", "dependency"}` -- `"newerCandidate"` fires when at least one entry
-has `newer: true`; older entries are still listed, but only ever surfaced as a warning. `dependency`
-is the safety net for the rare case where an unmerged `.dependsOn` branch is missing from the
-chosen base (e.g. a non-numbered branch the chain logic never considers, or one abandoned in favor
-of a parallel branch): `true` on that entry, appended if the branch wasn't already an `uncontained`
-entry on its own -- appending never changes `baseSource`. `uncontained` is `[]` in every mode other
-than `new`.
+On `new`, `base`/`baseRef` are the recommendation (`_recommend()`) -- `.dependsOn` never picks the
+base. It only gates *when* a batch is selectable (a batch whose dependency is not in `impl/done/` is
+already never offered by `ifq`). The recommended base is always the newest branch. "Newest" among
+`cfq/<NNN>-...` batch branches is decided by the batch number, never the commit date: `H` is the
+batch branch with the highest number (merged or not). `N` is the non-batch branch with the newest
+tip commit (ties: the default branch, then name). `N` is recommended only when its commit is
+strictly newer than `H`'s (`baseSource: "newestBranch"`, also when no batch branch exists); in every
+other case `H` is (`"highestBatch"`). `options` carries the recommendation and at most two more,
+each tagged with a `role`: `"recommended"`; `"highestBatch"` (`H`, offered when `N` is recommended,
+even when `N` already contains it); `"newestCommit"` (a lower-numbered batch branch with a newer
+commit than `H`'s that neither `H` nor the recommendation contains). Nothing else is ever offered.
+
+The default branch (`defaultBranch`) is `origin/HEAD`, else `main`, else `master`. "Unmerged" means
+a batch branch whose tip is not an ancestor of the default branch. `uncontained` (per option, and
+top-level for the recommendation) lists the unmerged batch branches the option does not contain,
+`{"name", "lastCommit", "dependency"}`, dependency entries first, then batch number descending;
+`uncontainedCount` is the full length, the list is capped at `UNCONTAINED_CAP` (5). `dependency` is
+the safety net for an unmerged `.dependsOn` branch missing from the option (e.g. a non-numbered
+branch): `true` on that entry, appended when it was not an `uncontained` entry on its own. Both
+fields are `[]`/`0` in every mode other than `new`, and `options` is `[]` there.
 
 Ported from cfq-branch.sh -- a port, not a redesign: the CLI contract (verbs, argument order, JSON
 shapes, exit codes) is the invariant this file preserves. The remote-is-source-of-truth rule
-(candidates ranked from `origin`, never local refs) is load-bearing -- see commits
+(branches taken from `origin`, never local refs) is load-bearing -- see commits
 85f424a/d2fec8a/1753599 from batch 015: local-ahead-of-remote is a stop-and-ask, never
 auto-resolved.
 """
@@ -165,6 +169,178 @@ def find_suffix_match(repo, slug):
     return matches[0] if matches else ""
 
 
+
+# ---- branch universe ---------------------------------------------------------------------------
+
+UNCONTAINED_CAP = 5
+REF_FORMAT = "%(refname) %(committerdate:unix) %(committerdate:iso-strict)"
+ORIGIN_PREFIX = "refs/remotes/origin/"
+HEADS_PREFIX = "refs/heads/"
+
+
+def is_ancestor(repo, ancestor_ref, descendant_ref):
+    return git(
+        repo, "merge-base", "--is-ancestor", ancestor_ref, descendant_ref, check=False
+    ).returncode == 0
+
+
+def _is_batch(name):
+    return name.startswith("cfq/") and parse_batch_number(name[len("cfq/"):]) is not None
+
+
+def _batch_number(name):
+    return parse_batch_number(name[len("cfq/"):]) if name.startswith("cfq/") else None
+
+
+def default_branch(repo, rchecked):
+    """(name, ref) of the default branch: `origin/HEAD`, else `main`, else `master` -- looked up on
+    `origin` once remote-checked, then (and when offline) among the local branches, falling back to
+    `main`. `ref` is the `origin` ref when remote-checked and present, else the local ref."""
+    if rchecked:
+        proc = git(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False)
+        name = proc.stdout.strip() if proc.returncode == 0 else ""
+        if name.startswith("origin/"):
+            name = name[len("origin/"):]
+        if not name:
+            name = next(
+                (n for n in ("main", "master") if ref_exists(repo, ORIGIN_PREFIX + n)), ""
+            )
+        if name:
+            origin_ref = ORIGIN_PREFIX + name
+            return name, origin_ref if ref_exists(repo, origin_ref) else HEADS_PREFIX + name
+    for name in ("main", "master"):
+        if ref_exists(repo, HEADS_PREFIX + name):
+            return name, HEADS_PREFIX + name
+    return "main", HEADS_PREFIX + "main"
+
+
+def _collect_branches(repo, rchecked):
+    """Every branch of the universe as `{"name", "ref", "localOnly", "epoch", "lastCommit"}`, the
+    default branch included. `origin/*` is the source of truth once remote-checked (`origin/HEAD`
+    dropped); local branches without an `origin` counterpart are still listed, `localOnly: True`.
+    Offline: every local branch, all `localOnly: True`. One `for-each-ref` call supplies all."""
+    out = git(
+        repo, "for-each-ref", f"--format={REF_FORMAT}", "refs/remotes/origin", "refs/heads",
+        check=False,
+    ).stdout
+    remote, local = {}, {}
+    for line in out.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) != 3:
+            continue
+        ref, epoch, iso = parts
+        if ref.startswith(ORIGIN_PREFIX):
+            name = ref[len(ORIGIN_PREFIX):]
+            if name != "HEAD":
+                remote[name] = (ref, int(epoch), iso)
+        elif ref.startswith(HEADS_PREFIX):
+            local[ref[len(HEADS_PREFIX):]] = (ref, int(epoch), iso)
+
+    branches = []
+    if rchecked:
+        for name, (ref, epoch, iso) in remote.items():
+            branches.append({"name": name, "ref": ref, "localOnly": False,
+                             "epoch": epoch, "lastCommit": iso})
+        for name, (ref, epoch, iso) in local.items():
+            if name not in remote:
+                branches.append({"name": name, "ref": ref, "localOnly": True,
+                                 "epoch": epoch, "lastCommit": iso})
+    else:
+        for name, (ref, epoch, iso) in local.items():
+            branches.append({"name": name, "ref": ref, "localOnly": True,
+                             "epoch": epoch, "lastCommit": iso})
+    branches.sort(key=lambda b: b["name"])
+    return branches
+
+
+def _not_merged_refs(repo, ref):
+    """Full ref names of every branch that is not an ancestor of `ref`, in one `for-each-ref` call;
+    `None` when `ref` itself does not exist."""
+    if not ref_exists(repo, ref):
+        return None
+    out = git(
+        repo, "for-each-ref", f"--no-merged={ref}", "--format=%(refname)",
+        "refs/remotes/origin", "refs/heads", check=False,
+    ).stdout
+    return set(out.split())
+
+
+def _unmerged_cfq(repo, branches, default_ref):
+    """Names of the batch branches whose own ref is not an ancestor of `default_ref`; a missing
+    `default_ref` makes every batch branch unmerged."""
+    batch = [b for b in branches if _is_batch(b["name"])]
+    not_merged = _not_merged_refs(repo, default_ref)
+    if not_merged is None:
+        return [b["name"] for b in batch]
+    return [b["name"] for b in batch if b["ref"] in not_merged]
+
+
+def _uncontained(repo, target, branches, unmerged, dependency_branches):
+    """`(entries, count)`: every unmerged batch branch other than `target` that `target["ref"]`
+    does not contain, plus the `.dependsOn` safety net -- an unmerged dependency branch missing
+    from `target` sets `dependency: True` on its entry or appends one. Order: dependency entries
+    first, then batch number descending, then name. `count` is the full length, `entries` the
+    first `UNCONTAINED_CAP`."""
+    by_name = {b["name"]: b for b in branches}
+    not_merged = _not_merged_refs(repo, target["ref"])
+    entries = {}
+    for name in unmerged:
+        b = by_name.get(name)
+        if b is None or name == target["name"]:
+            continue
+        if not_merged is None or b["ref"] in not_merged:
+            entries[name] = {"name": name, "lastCommit": b["lastCommit"], "dependency": False}
+    for dep_name, dep_ref in dependency_branches:
+        if dep_name == target["name"] or is_ancestor(repo, dep_ref, target["ref"]):
+            continue
+        if dep_name in entries:
+            entries[dep_name]["dependency"] = True
+        else:
+            last_commit = git(repo, "log", "-1", "--format=%cI", dep_ref).stdout.strip()
+            entries[dep_name] = {"name": dep_name, "lastCommit": last_commit, "dependency": True}
+
+    def order(e):
+        number = _batch_number(e["name"])
+        return (not e["dependency"], -(number if number is not None else -1), e["name"])
+
+    ordered = sorted(entries.values(), key=order)
+    return ordered[:UNCONTAINED_CAP], len(ordered)
+
+
+def _recommend(repo, branches, default_name=None):
+    """`([(branch, role), ...], baseSource)` -- the ordered option list, at most three entries (see
+    the module docstring for the rule). Empty list when there is no branch at all."""
+    if default_name is None:
+        default_name, _ = default_branch(repo, any(not b["localOnly"] for b in branches))
+    batch = [b for b in branches if _is_batch(b["name"])]
+    other = [b for b in branches if not _is_batch(b["name"])]
+    highest = max(batch, key=lambda b: (_batch_number(b["name"]), b["epoch"])) if batch else None
+    newest = min(
+        other, key=lambda b: (-b["epoch"], b["name"] != default_name, b["name"])
+    ) if other else None
+
+    if newest is not None and (highest is None or newest["epoch"] > highest["epoch"]):
+        recommended, source = newest, "newestBranch"
+    elif highest is not None:
+        recommended, source = highest, "highestBatch"
+    else:
+        return [], "newestBranch"
+
+    options = [(recommended, "recommended")]
+    if recommended is newest and highest is not None:
+        options.append((highest, "highestBatch"))
+    if highest is not None:
+        newer = [
+            b for b in batch
+            if b is not highest and b["epoch"] > highest["epoch"]
+            and not is_ancestor(repo, b["ref"], highest["ref"])
+            and not is_ancestor(repo, b["ref"], recommended["ref"])
+        ]
+        if newer:
+            options.append((max(newer, key=lambda b: (b["epoch"], b["name"])), "newestCommit"))
+    return options, source
+
+
 # ---- check --------------------------------------------------------------------------------------
 
 def cmd_check(args):
@@ -195,7 +371,7 @@ def cmd_check(args):
     last_commit = git(repo, "log", "-1", "--format=%cI", ref).stdout.strip()
     ref_epoch = int(git(repo, "log", "-1", "--format=%ct", ref).stdout.strip())
 
-    # Same "newest commit wins" rule the `new`-mode candidate list applies.
+    # The newest branch on `origin` that has a newer commit than the checked one.
     newer_name, newer_epoch = "", 0
     for rb in list_remote_branch_names(repo):
         proc = git(repo, "log", "-1", "--format=%ct", f"refs/remotes/origin/{rb}", check=False)
@@ -210,11 +386,25 @@ def cmd_check(args):
         newer_iso = git(repo, "log", "-1", "--format=%cI", f"refs/remotes/origin/{newer_name}").stdout.strip()
         newer_candidate = {"name": newer_name, "lastCommit": newer_iso}
 
+    default_name, default_ref = default_branch(repo, rchecked)
+    branches = _collect_branches(repo, rchecked)
+    unmerged = _unmerged_cfq(repo, branches, default_ref)
+    dependency_branches = []
+    if args.batch:
+        dependency_branches = _unmerged_dependency_branches(repo, args.batch, rchecked, default_ref)
+    uncontained, uncontained_count = _uncontained(
+        repo, {"name": branch_name, "ref": ref}, branches, unmerged, dependency_branches
+    )
+
     print(render.dump_json({
         "status": "OK", "name": branch_name, "ref": ref, "localOnly": local_only,
         "ahead": ahead, "behind": behind, "lastCommit": last_commit,
+        "isCfq": _is_batch(branch_name), "isDefault": branch_name == default_name,
+        "uncontained": uncontained, "uncontainedCount": uncontained_count,
         "newerCandidate": newer_candidate, "remoteChecked": rchecked,
     }))
+
+
 
 
 # ---- plan ---------------------------------------------------------------------------------------
@@ -237,7 +427,8 @@ def cmd_plan(args):
     if branch_per_batch == "false":
         print(render.dump_json({
             "mode": "off", "batch": batch_name, "batchNumber": number, "branch": None,
-            "base": None, "candidates": [], "uncontained": [], "remoteChecked": False,
+            "base": None, "options": [], "uncontained": [], "uncontainedCount": 0,
+            "remoteChecked": False,
             "remoteWarning": None, "dirty": False, "changelogDirty": False,
         }))
         return
@@ -260,6 +451,7 @@ def cmd_plan(args):
         return
 
     _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty)
+
 
 
 def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelog_dirty):
@@ -302,73 +494,18 @@ def _emit_continue(repo, batch_name, number, existing, rchecked, dirty, changelo
 
     print(render.dump_json({
         "mode": "continue", "batch": batch_name, "batchNumber": number, "branch": existing,
-        "base": None, "candidates": [], "uncontained": [],
+        "base": None, "options": [], "uncontained": [], "uncontainedCount": 0,
         "remoteChecked": rchecked, "remoteWarning": continue_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
         "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
 
-
-def _collect_candidates(repo, rchecked):
-    """(candidate_names, cand_ref, cand_local_only, main_ref) -- `origin/*` is the source of truth
-    once remote-checked; local-only branches (no remote counterpart) are still offered, explicitly
-    marked. Offline falls back to local branches only, every one implicitly local-only."""
-    candidate_names = []
-    cand_ref = {}
-    cand_local_only = {}
-
-    if rchecked:
-        for rb in list_remote_branch_names(repo):
-            candidate_names.append(rb)
-            cand_ref[rb] = f"refs/remotes/origin/{rb}"
-            cand_local_only[rb] = False
-
-        proc = git(repo, "branch", "--format=%(refname:short)", check=False)
-        for lb in proc.stdout.splitlines():
-            if not lb or lb == "main":
-                continue
-            if lb not in cand_ref:
-                candidate_names.append(lb)
-                cand_ref[lb] = f"refs/heads/{lb}"
-                cand_local_only[lb] = True
-
-        main_ref = "refs/remotes/origin/main"
-    else:
-        proc = git(repo, "branch", "--format=%(refname:short)", check=False)
-        for lb in proc.stdout.splitlines():
-            if not lb or lb == "main":
-                continue
-            candidate_names.append(lb)
-            cand_ref[lb] = f"refs/heads/{lb}"
-            cand_local_only[lb] = True
-
-        main_ref = "refs/heads/main"
-
-    return candidate_names, cand_ref, cand_local_only, main_ref
-
-
-def _highest_cfq_branch(candidate_names):
-    """Highest-numbered cfq/<NNN>-... branch among all candidates, found before the aheadOfMain
-    filter below so a fully-merged batch branch is never silently dropped -- it's always offered
-    as an alternative, per the batch context's "last batch is always offered" rule."""
-    highest_name, highest_num = "", -1
-    for name in candidate_names:
-        if not name.startswith("cfq/"):
-            continue
-        num = parse_batch_number(name[len("cfq/"):])
-        if num is None:
-            continue
-        if num > highest_num:
-            highest_num, highest_name = num, name
-    return highest_name
-
-
-def _unmerged_dependency_branches(repo, batch_name, rchecked, main_ref):
+def _unmerged_dependency_branches(repo, batch_name, rchecked, default_ref):
     """Every `.dependsOn` entry whose branch exists (persisted `changelog branch-for`, else
-    `cfq/<dep>`; origin first, local when offline) and is not already an ancestor of `main_ref` --
+    `cfq/<dep>`; origin first, local when offline) and is not already an ancestor of `default_ref` --
     merged deps contribute nothing, same as no dep at all. Returns `(name, ref)` pairs. `.dependsOn`
     no longer picks a base (see the module docstring) -- this is only the input to the safety net in
-    `_emit_new()` that flags an unmerged dependency branch missing from the chosen base."""
+    `_uncontained()` that flags an unmerged dependency branch missing from an option."""
     batch_dir = pathlib.Path(paths.impl_dir(repo)) / batch_name
     deps = queue.read_depends(batch_dir)
 
@@ -386,151 +523,56 @@ def _unmerged_dependency_branches(repo, batch_name, rchecked, main_ref):
         else:
             continue  # dep names no branch that exists anywhere -- ignored
 
-        if ref_exists(repo, main_ref) and git(
-            repo, "merge-base", "--is-ancestor", ref, main_ref, check=False
+        if ref_exists(repo, default_ref) and git(
+            repo, "merge-base", "--is-ancestor", ref, default_ref, check=False
         ).returncode == 0:
-            continue  # dep already merged into main -- contributes nothing
+            continue  # dep already merged into the default branch -- contributes nothing
 
         unmerged.append((name, ref))
 
     return unmerged
 
 
-def _chain_base(repo, cand_objs):
-    """The only base decision `new` mode makes -- `.dependsOn` never picks the base (see the
-    module docstring), it only gates selection. Chains onto the highest-numbered unmerged
-    `cfq/<NNN>-...` branch among `cand_objs` instead of resetting to `main`, so repos that keep
-    `main` frozen and accumulate cfq batches as a chain don't get a stale base. `cand_objs` is
-    already filtered/ranked (descending `lastCommit`, `_lastEpoch` still present -- the caller
-    deletes it only after this decision is made, and after the `.dependsOn` safety net that runs
-    on top of it). Chain candidates are `cfq/`-prefixed entries whose remainder parses as a batch
-    number and whose `aheadOfMain > 0`; a non-`cfq/` branch or a fully-merged cfq branch
-    (`aheadOfMain == 0`) is never chosen silently. No chain candidate -> `None` (bootstrap case,
-    caller keeps `baseSource: "main"`). Otherwise the highest-numbered chain candidate is the base
-    (`baseSource: "highestBatch"`); every other chain candidate not contained in it (`merge-base
-    --is-ancestor`) becomes one `uncontained` entry, `dependency: False` (the caller's own
-    `.dependsOn` safety net is the only thing that ever sets this `True`), in the same
-    (descending-`lastCommit`) order as `cand_objs` -- `newer: true` when its commit epoch is
-    strictly greater than the base's, which also flips `baseSource` to `"newerCandidate"` (the
-    base itself is unchanged -- it stays the recommendation, the caller asks). An older
-    uncontained entry never changes `baseSource`, only adds to the warning list."""
-    chain_candidates = [
-        c for c in cand_objs
-        if c["name"].startswith("cfq/")
-        and parse_batch_number(c["name"][len("cfq/"):]) is not None
-        and c["aheadOfMain"] > 0
-    ]
-    if not chain_candidates:
-        return None
-
-    base = max(chain_candidates, key=lambda c: parse_batch_number(c["name"][len("cfq/"):]))
-    base_source = "highestBatch"
-
-    uncontained = []
-    for c in chain_candidates:
-        if c is base:
-            continue
-        contained = git(
-            repo, "merge-base", "--is-ancestor", c["ref"], base["ref"], check=False
-        ).returncode == 0
-        if contained:
-            continue
-        newer = c["_lastEpoch"] > base["_lastEpoch"]
-        uncontained.append({
-            "name": c["name"], "lastCommit": c["lastCommit"], "newer": newer, "dependency": False,
-        })
-        if newer:
-            base_source = "newerCandidate"
-
-    return base["name"], base["ref"], base["localOnly"], base_source, uncontained
-
-
 def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     branch = f"cfq/{batch_name}"
 
-    candidate_names, cand_ref, cand_local_only, main_ref = _collect_candidates(repo, rchecked)
-    highest_name = _highest_cfq_branch(candidate_names)
+    default_name, default_ref = default_branch(repo, rchecked)
+    branches = _collect_branches(repo, rchecked)
+    unmerged = _unmerged_cfq(repo, branches, default_ref)
+    # `.dependsOn` never picks the base, but an unmerged dependency branch missing from an option
+    # is still worth flagging explicitly -- `_uncontained()` folds it in as `dependency: true`.
+    dependency_branches = _unmerged_dependency_branches(repo, batch_name, rchecked, default_ref)
 
-    cand_objs = []
-    for name in candidate_names:
-        ref = cand_ref[name]
-        local_only = cand_local_only[name]
+    picked, base_source = _recommend(repo, branches, default_name)
+    if not picked:  # no branch at all (e.g. a repo without a first commit) -- the default branch
+        picked = [({
+            "name": default_name, "ref": default_ref, "epoch": 0, "lastCommit": "",
+            "localOnly": not default_ref.startswith(ORIGIN_PREFIX),
+        }, "recommended")]
+    base = picked[0][0]
+    base_name, base_ref, base_local_only = base["name"], base["ref"], base["localOnly"]
 
-        ahead_of_main = 0
-        if ref_exists(repo, ref) and ref_exists(repo, main_ref):
-            proc = git(repo, "rev-list", "--count", f"{main_ref}..{ref}", check=False)
-            if proc.returncode == 0 and proc.stdout.strip():
-                ahead_of_main = int(proc.stdout.strip())
-
-        is_highest = name == highest_name
-        if not (ahead_of_main > 0 or is_highest):
-            continue
-
-        merged = False
-        if ahead_of_main == 0 and ref_exists(repo, main_ref) \
-                and git(repo, "merge-base", "--is-ancestor", ref, main_ref, check=False).returncode == 0:
-            merged = True
-
+    options = []
+    for b, role in picked:
         behind_remote, ahead_remote = 0, 0
-        if not local_only and ref_exists(repo, f"refs/heads/{name}"):
-            behind_remote, ahead_remote = left_right_counts(repo, ref, f"refs/heads/{name}")
-
-        last_commit = git(repo, "log", "-1", "--format=%cI", ref).stdout.strip()
-        last_epoch = int(git(repo, "log", "-1", "--format=%ct", ref).stdout.strip())
-
-        cand_objs.append({
-            "name": name, "ref": ref, "aheadOfMain": ahead_of_main,
-            "behindRemote": behind_remote, "aheadRemote": ahead_remote,
-            "localOnly": local_only, "highestBatch": is_highest,
-            "mergedIntoOriginMain": merged, "lastCommit": last_commit, "_lastEpoch": last_epoch,
+        if not b["localOnly"] and ref_exists(repo, HEADS_PREFIX + b["name"]):
+            behind_remote, ahead_remote = left_right_counts(repo, b["ref"], HEADS_PREFIX + b["name"])
+        entries, count = _uncontained(repo, b, branches, unmerged, dependency_branches)
+        options.append({
+            "name": b["name"], "ref": b["ref"], "role": role, "isCfq": _is_batch(b["name"]),
+            "isDefault": b["name"] == default_name, "localOnly": b["localOnly"],
+            "lastCommit": b["lastCommit"], "behindRemote": behind_remote,
+            "aheadRemote": ahead_remote,
+            "containedInBase": b is base or is_ancestor(repo, b["ref"], base_ref),
+            "uncontained": entries, "uncontainedCount": count,
         })
-
-    # jq's `sort_by(.lastEpoch) | reverse`: stable ascending sort, then the whole list reversed --
-    # not a descending sort, ties among equal lastEpoch also flip order. Replicated as two steps
-    # rather than one `sort(reverse=True)`, which would leave ties in their original order.
-    cand_objs.sort(key=lambda c: c["_lastEpoch"])
-    cand_objs.reverse()
-
-    base_name, base_ref, base_local_only, base_source = "main", main_ref, False, "main"
-    uncontained = []
-    chained = _chain_base(repo, cand_objs)
-    if chained is not None:
-        base_name, base_ref, base_local_only, base_source, uncontained = chained
-
-    # Safety net: `.dependsOn` never picks the base above, but an unmerged dependency branch
-    # missing from the chosen base is still worth flagging explicitly (the rare case where it
-    # never became a chain candidate at all -- a non-numbered branch, or one abandoned in favor of
-    # a parallel branch). Runs after the base is fixed and before `_lastEpoch` is stripped below,
-    # since it still needs `git log` on the base ref for the same "newer" comparison `_chain_base`
-    # makes. Appending an entry here never changes `base_source`.
-    dependency_branches = _unmerged_dependency_branches(repo, batch_name, rchecked, main_ref)
-    if dependency_branches:
-        base_epoch = int(git(repo, "log", "-1", "--format=%ct", base_ref).stdout.strip())
-    for dep_name, dep_ref in dependency_branches:
-        if git(
-            repo, "merge-base", "--is-ancestor", dep_ref, base_ref, check=False
-        ).returncode == 0:
-            continue  # already contained in the chosen base -- nothing to flag
-        existing_entry = next((u for u in uncontained if u["name"] == dep_name), None)
-        if existing_entry is not None:
-            existing_entry["dependency"] = True
-        else:
-            dep_last_commit = git(repo, "log", "-1", "--format=%cI", dep_ref).stdout.strip()
-            dep_epoch = int(git(repo, "log", "-1", "--format=%ct", dep_ref).stdout.strip())
-            uncontained.append({
-                "name": dep_name, "lastCommit": dep_last_commit,
-                "newer": dep_epoch > base_epoch, "dependency": True,
-            })
-
-    for c in cand_objs:
-        del c["_lastEpoch"]
 
     base_local_ref = f"refs/heads/{base_name}"
     base_origin_ref = f"refs/remotes/origin/{base_name}"
 
     # remoteState/pushable/unpushed for the *chosen* base -- same vocabulary and helpers as
-    # `continue` mode. Local main ahead of/diverged from origin/main (or a candidate ahead
-    # of/diverged from its own origin counterpart) no longer influences candidate selection --
+    # `continue` mode. Local main ahead of/diverged from origin/main (or a branch ahead
+    # of/diverged from its own origin counterpart) no longer influences branch selection --
     # `baseRef` already points into `refs/remotes/` -- but is still a real state worth a push
     # offer.
     remote_state = "unknown"
@@ -562,12 +604,14 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
 
     print(render.dump_json({
         "mode": "new", "batch": batch_name, "batchNumber": number, "branch": branch,
-        "base": base_name, "baseRef": base_ref, "baseSource": base_source, "candidates": cand_objs,
-        "uncontained": uncontained,
+        "defaultBranch": default_name, "base": base_name, "baseRef": base_ref,
+        "baseSource": base_source, "options": options,
+        "uncontained": options[0]["uncontained"], "uncontainedCount": options[0]["uncontainedCount"],
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,
         "dirty": dirty, "changelogDirty": changelog_dirty,
     }))
+
 
 
 # ---- argument parsing -----------------------------------------------------------------------
@@ -584,6 +628,7 @@ def build_parser():
     p = sub.add_parser("check")
     p.add_argument("repo")
     p.add_argument("branch_name")
+    p.add_argument("--batch")
     p.set_defaults(func=cmd_check)
 
     return parser
@@ -594,7 +639,7 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        errors.die(f"usage: {PROG} plan <repo-root> <batch-dir-name> | check <repo-root> <branch-name>")
+        errors.die(f"usage: {PROG} plan <repo-root> <batch-dir-name> | check <repo-root> <branch-name> [--batch <batch-dir-name>]")
     func(args)
 
 

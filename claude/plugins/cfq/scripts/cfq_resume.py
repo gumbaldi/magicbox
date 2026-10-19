@@ -24,7 +24,7 @@ PROG = "cfq_resume.py"
 
 DEFAULT_BRANCH_JSON = {
     "mode": None, "batch": None, "batchNumber": None, "branch": None, "base": None,
-    "candidates": [],
+    "options": [],
 }
 
 
