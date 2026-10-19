@@ -230,11 +230,11 @@ test("disclosure is a button that renders its body on first open only", () => {
 
 test("register/registered: ascending order, ties in registration order, unknown slot empty", () => {
   const fresh = loadPortal().core;
-  fresh.register("batchTab", { id: "c", order: 30 });
-  fresh.register("batchTab", { id: "a", order: 10 });
-  fresh.register("batchTab", { id: "b1", order: 20 });
-  fresh.register("batchTab", { id: "b2", order: 20 });
-  assert.deepEqual(fresh.registered("batchTab").map((i) => i.id), ["a", "b1", "b2", "c"]);
+  fresh.register("testSlot", { id: "c", order: 30 });
+  fresh.register("testSlot", { id: "a", order: 10 });
+  fresh.register("testSlot", { id: "b1", order: 20 });
+  fresh.register("testSlot", { id: "b2", order: 20 });
+  assert.deepEqual(fresh.registered("testSlot").map((i) => i.id), ["a", "b1", "b2", "c"]);
   assert.deepEqual(fresh.registered("nothing"), []);
 });
 

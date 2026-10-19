@@ -204,6 +204,72 @@ svg.chart .median{stroke:var(--fg);stroke-width:2;stroke-dasharray:5 3}
   color:var(--fg-muted)}
 .prose .check{font-family:var(--mono);font-size:.85rem;color:var(--ok)}
 
+/* ---- batch page ----------------------------------------------------------------------------- */
+.batch-head{margin:.25rem 0 1rem}
+.batch-title{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.batch-title h1{margin:.25rem 0}
+.priority{padding:.05rem .45rem;border-radius:999px;font-size:.7rem;font-weight:600;
+  border:1px solid var(--accent);color:var(--accent)}
+.batch-deps{margin:.1rem 0 .5rem;font-size:.85rem}
+.batch-head .goal{max-width:72ch;color:var(--fg-muted);margin:.3rem 0 .6rem}
+.batch-head .goal p{margin:.2rem 0}
+.facts{display:flex;flex-wrap:wrap;gap:.35rem 1.25rem;margin:.5rem 0;padding:.55rem .85rem;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:.82rem}
+.fact{display:inline-flex;gap:.4rem;align-items:baseline;white-space:nowrap}
+.fact-label{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem;letter-spacing:.04em}
+.fact-value{font-variant-numeric:tabular-nums}
+.batch-flags{list-style:none;margin:.4rem 0;padding:0;font-size:.85rem}
+.batch-flags .flag-line{margin:.2rem 0;max-width:72ch}
+.batch-flags .flag-phase{font-family:var(--mono);font-size:.78rem}
+.batch-head .disclosure-toggle{font-weight:500;font-size:.85rem;color:var(--fg-muted)}
+
+table.data.phases td.phase{min-width:14rem}
+table.data.phases td.phase .disclosure-toggle{padding:0;font-weight:600}
+table.data.phases td.phase .sub{margin-left:1.2rem;font-size:.74rem;color:var(--fg-faint)}
+table.data.phases td.size{font-weight:600}
+table.data.phases tr.detail-row:hover{background:none}
+table.data.phases tr.detail-row>td{padding:0;background:var(--surface)}
+table.data.phases tr.detail-row[hidden]{display:none}
+table.data.phases td .sub{font-size:.74rem}
+.phases-top{margin:0 0 1rem}
+
+.phase-detail{padding:.75rem 1rem 1rem}
+.detail-bar{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);margin:0 0 .75rem}
+.subtabs{display:flex;gap:.25rem}
+.subtab{cursor:pointer;background:none;border:0;border-bottom:2px solid transparent;
+  padding:.4rem .8rem;margin-bottom:-1px;color:var(--fg-muted)}
+.subtab:hover{color:var(--fg)}
+.subtab.active{color:var(--fg);font-weight:600;border-bottom-color:var(--accent)}
+.attempt-select{display:inline-flex;gap:.5rem;align-items:center;font-size:.82rem}
+.attempt-select select{font:inherit;color:inherit;background:var(--bg);
+  border:1px solid var(--border-strong);border-radius:var(--r);padding:.2rem .4rem}
+.detail-body .empty{text-align:left}
+
+dl.result{display:grid;grid-template-columns:9rem minmax(0,1fr);gap:.45rem 1rem;margin:0}
+dl.result dt{color:var(--fg-faint);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;
+  padding-top:.15rem}
+dl.result dd{margin:0;max-width:72ch}
+.plain-list{margin:0;padding-left:1.1rem}
+.plain-list li{margin:.15rem 0}
+.prewrap{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:.82rem;
+  background:var(--surface-2);border-radius:var(--r);padding:.5rem .7rem;margin:0 0 .4rem}
+.provisional{color:var(--warn);background:var(--warn-bg);padding:.05rem .45rem;border-radius:.3rem;
+  font-size:.8rem;font-weight:600;cursor:help}
+.plan-text{max-width:72ch}
+.context-section .prose{max-width:72ch}
+
+.kind{display:inline-block;padding:.05rem .5rem;border-radius:.3rem;font-size:.76rem;font-weight:600;
+  border:1px solid var(--border-strong);cursor:help}
+.kind::before{margin-right:.3rem}
+.kind-planned{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
+.kind-planned::before{content:"✔"}
+.kind-unplanned{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+.kind-unplanned::before{content:"+"}
+.kind-untouched{color:var(--fg-muted);background:var(--surface-2)}
+.kind-untouched::before{content:"○"}
+table.data.files td.path code{background:none;padding:0;word-break:break-all}
+
 /* ---- narrow screens ------------------------------------------------------------------------- */
 @media (max-width:48rem){
   main{padding:1rem .75rem 2.5rem}
@@ -220,6 +286,7 @@ svg.chart .median{stroke:var(--fg);stroke-width:2;stroke-dasharray:5 3}
   body{font-size:10pt}
   .topbar,.toolbar,nav.tabs{display:none}
   .disclosure-body[hidden]{display:block}
+  table.data.phases tr.detail-row[hidden]{display:table-row}
   .disclosure-toggle .caret{display:none}
   table.data thead th{position:static}
   table.data tr{break-inside:avoid}
