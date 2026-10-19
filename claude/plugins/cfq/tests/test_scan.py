@@ -329,6 +329,23 @@ class ScanTest(CfqTestCase):
             msg=f"divergent batch consistency = {batches['2026-03-02-divergent']}",
         )
 
+    def test_consistency_mirror_mismatch_is_divergent(self):
+        batch = self.tmp / "repo-mirror" / ".claude" / "cfq" / "impl" / "2026-03-03-mirror"
+        (batch / "done").mkdir(parents=True)
+        (batch / "01-a.md").touch()
+        (batch / "02-b.md").touch()
+        write_status(batch, {"01-a": "done"})
+        self.assertEqual(self._consistency("repo-mirror", "2026-03-03-mirror"), "ok")
+        (batch / "done" / "01-a.md").rename(batch / "01-a.md")  # moved back by hand
+        self.assertEqual(self._consistency("repo-mirror", "2026-03-03-mirror"), "divergent")
+
+    def _consistency(self, repo, batch):
+        data = json.loads(self._scan())
+        return next(
+            b["consistency"] for r in data["repos"] if r["path"] == str(self.tmp / repo)
+            for b in r["batches"] if b["name"] == batch
+        )
+
     def test_inprogress_and_candidacy_for_all_done_not_finished_batch(self):
         tmp = self.tmp
 
