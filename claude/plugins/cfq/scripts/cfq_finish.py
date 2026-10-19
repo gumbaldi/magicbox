@@ -255,6 +255,20 @@ def cmd_finish(args):
             add_error("telemetry", telemetry)
 
         html_report = capture(cfq_run("settings", "get", "--repo", str(repo_root), "htmlReport"))
+        if report_path.is_file():
+            try:
+                data = json.loads(report_path.read_text())
+                data["finish"] = {
+                    "at": render.now_iso(),
+                    "lang": {"issues": lang_json["issues"], "findings": lang_json["findings"]},
+                    "maintenance": maintenance,
+                    "security": {"planning": planning_json, "now": now_json, "new": new_json},
+                    "changelog": changelog,
+                    "errors": list(errs),
+                }
+                render.write_json(str(report_path), data)
+            except (OSError, ValueError, TypeError, AttributeError) as exc:
+                add_error("report", f"could not persist the finish result: {exc}")
         portal_hook.sync(str(repo_root), batches=[batch_dir.name])
 
         status_lines = [

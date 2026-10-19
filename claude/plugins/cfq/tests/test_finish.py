@@ -94,7 +94,9 @@ class FinishTest(CfqTestCase):
 
     def test_happy_path(self):
         home = self._repos_dir / "home1"
-        home.mkdir()
+        (home / ".claude/cfq").mkdir(parents=True)
+        # No remote in the fixture: an enabled changelog would fail its push and add an error.
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
         repo = self._new_repo("repo1")
         batch = self._new_batch(repo, "2026-01-01-happy")
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-happy", home=home, check=True)
@@ -112,6 +114,40 @@ class FinishTest(CfqTestCase):
         self.assertEqual(out["lock"], "released", f"lock field: {out}")
         lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
         self.assertEqual(lockstatus, "FREE", f"lock not actually released: {lockstatus}")
+
+        report = json.loads(
+            (repo / ".claude/cfq/impl/done/2026-01-01-happy/report.json").read_text()
+        )
+        fin = report["finish"]
+        self.assertEqual(
+            sorted(fin), ["at", "changelog", "errors", "lang", "maintenance", "security"],
+        )
+        self.assertEqual(sorted(fin["lang"]), ["findings", "issues"])
+        self.assertIsInstance(fin["lang"]["issues"], int)
+        self.assertIsInstance(fin["lang"]["findings"], list)
+        self.assertEqual(sorted(fin["security"]), ["new", "now", "planning"])
+        self.assertEqual(fin["errors"], [])
+        self.assertEqual(fin["errors"], out["errors"])
+        self.assertNotIn("prose", fin["lang"])
+
+    def test_second_finish_replaces_the_finish_object(self):
+        home = self._repos_dir / "home-twice"
+        home.mkdir()
+        repo = self._new_repo("repo-twice")
+        name = "2026-01-01-twice"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        self.run_cfq("finish", str(repo), str(batch), "v0.1-twice", home=home, check=True)
+        moved = repo / ".claude/cfq/impl/done" / name
+        first = json.loads((moved / "report.json").read_text())["finish"]
+
+        self.run_cfq("finish", str(repo), str(moved), "v0.1-twice", home=home, check=True)
+        data = json.loads((moved / "report.json").read_text())
+        self.assertIsInstance(data["finish"], dict)
+        self.assertEqual(sorted(data["finish"]), sorted(first))
+        self.assertEqual(
+            sum(1 for k in data if k == "finish"), 1, "finish must exist exactly once",
+        )
 
     def test_lock_held_by_different_session_for_same_batch_still_releases(self):
         # /clear mid-batch mints a new session id; finish's own `finally` release (phase 04) must
@@ -179,6 +215,11 @@ class FinishTest(CfqTestCase):
             any(e.startswith("changelog:") for e in out["errors"]),
             f"no changelog error recorded: {out}",
         )
+        report = json.loads(
+            (repo / ".claude/cfq/impl/done/2026-01-01-brokenchangelog/report.json").read_text()
+        )
+        self.assertEqual(report["finish"]["errors"], out["errors"])
+        self.assertTrue(any(e.startswith("changelog:") for e in report["finish"]["errors"]))
 
     def test_ignored_changelog_is_force_added_and_pushed_with_upstream(self):
         # The repo's own .gitignore covers the changelog and the batch branch has no upstream yet:
@@ -261,6 +302,25 @@ class FinishTest(CfqTestCase):
             any(e.startswith("security:") for e in out["errors"]),
             f"missing planning snapshot must not be an error: {out}",
         )
+
+    def test_unwritable_report_json_is_left_alone(self):
+        # The security step normally creates report.json; a directory in its place keeps the file
+        # from existing, so finish has nothing to persist into and must create nothing.
+        home = self._repos_dir / "home-noreport"
+        (home / ".claude/cfq").mkdir(parents=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        repo = self._new_repo("repo-noreport")
+        name = "2026-01-01-noreport"
+        batch = self._new_batch(repo, name)
+        (batch / "report.json").mkdir()
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "v0.1-noreport", home=home, check=True)
+        )
+        moved = repo / ".claude/cfq/impl/done" / name
+        self.assertTrue((moved / "report.json").is_dir(), "report.json must stay untouched")
+        self.assertIn("lang", out)
+        self.assertEqual(out["lock"], "released")
 
     def test_html_report_auto_renders_when_enabled(self):
         # `finish` no longer writes a `.html` file itself -- `htmlReport: true` lets the portal
