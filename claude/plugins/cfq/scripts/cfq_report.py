@@ -160,10 +160,10 @@ def cmd_security(args):
     render.write_json(f, data)
 
 
-def set_commit(dir_, phase_slug, sha):
+def set_commit(dir_, phase_slug, sha, diffstat=None):
     """Backfills the `commit` field of `phase_slug`'s most recent report.json entry -- factored
     out so `cfq_phase.py commit` can call it directly as part of its own transaction instead of
-    shelling back out to this script."""
+    shelling back out to this script. A non-None `diffstat` lands in the same write."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
     f = os.path.join(dir_, "report.json")
@@ -178,6 +178,8 @@ def set_commit(dir_, phase_slug, sha):
             "the full phase slug (NN-slug), not the bare number"
         )
     phases[matches[-1]]["commit"] = sha
+    if diffstat is not None:
+        phases[matches[-1]]["diffstat"] = diffstat
     render.write_json(f, data)
 
 

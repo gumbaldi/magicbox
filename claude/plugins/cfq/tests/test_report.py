@@ -41,6 +41,29 @@ class TestReport(CfqTestCase):
         self.assertNotEqual(ctx.exception.code, 0)
         return buf.getvalue()
 
+    def test_set_commit_diffstat_stored_only_when_given(self):
+        batch = self._batch("2026-01-02-diffstat")
+        for slug in ("01-a", "02-b"):
+            cfq_report.append_phase(
+                str(batch),
+                json.dumps({"phase": slug, "status": "green", "summary": "ok", "commit": ""}),
+                record_telemetry=False,
+            )
+        stat = {"files": 1, "insertions": 2, "deletions": 0,
+                "paths": [{"path": "a.txt", "added": 2, "deleted": 0}]}
+
+        cfq_report.set_commit(str(batch), "01-a", "abc1234", diffstat=stat)
+        cfq_report.set_commit(str(batch), "02-b", "def5678")
+
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["commit"], "abc1234")
+        self.assertEqual(phases[0]["diffstat"], stat)
+        self.assertEqual(phases[1]["commit"], "def5678")
+        self.assertNotIn("diffstat", phases[1])
+
+        self.run_cfq("report", "set-commit", str(batch), "02-b", "9999999")
+        self.assertNotIn("diffstat", self._report_json(batch)["phases"][1])
+
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
 
