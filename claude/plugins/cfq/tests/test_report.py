@@ -14,7 +14,7 @@ import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -162,7 +162,7 @@ class TestReport(CfqTestCase):
         # since neither phase has any telemetry at all, let alone worker activity):
         # total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
         # worker_explore_turns, worker_explore_output, all zero.
-        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0"
+        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, f"summary = {s}")
 
         lf = self.json_out(self.run_cfq("report", "last-failure", str(batch), "02-b"))
@@ -337,6 +337,76 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         vlines = det_long["phases"][0]["verification"].count("\n")
         self.assertLess(vlines, 200, f"detail should bound verification output, got {vlines} lines")
 
+    # ---- batch 051 phase 07: skip entries in the ledger ----------------------------------------
+
+    def _skip_fixture(self, name, ledger, statuses):
+        """A batch directory under a throwaway repo: plan files + status.json from `statuses`
+        ({slug: status}), the given ledger written first, then phase 03-c skipped through a real
+        `phase skip` call (which appends the skip entry)."""
+        d = self._repos_dir / "repo-skip" / ".claude" / "cfq" / "impl" / name
+        (d / "done").mkdir(parents=True)
+        for slug in statuses:
+            target = d / "done" if statuses[slug] == "done" else d
+            (target / f"{slug}.md").write_text(f"# {slug}\n")
+        (d / "03-c.md").write_text("# 03-c\n")
+        write_status(d, statuses)
+        (d / "report.json").write_text(json.dumps({
+            "repo": "", "batch": name, "started": "2026-03-01T08:00:00+00:00", "phases": ledger,
+        }))
+        self.run_cfq("phase", "skip", str(d), "03", "--reason", "obsolete", check=True)
+        return d
+
+    def test_skip_entries_are_ignored_by_outcome_and_counted_separately(self):
+        green = {"phase": "01-a", "status": "green", "finished": "2026-03-01T09:00:00+00:00"}
+        d = self._skip_fixture("2026-03-01-skipgreen", [green], {"01-a": "done"})
+        ledger = self._report_json(d)["phases"]
+        self.assertEqual([p["status"] for p in ledger], ["green", "skipped"])
+        self.assertEqual(cfq_report.outcome(ledger), "GREEN")
+        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[1:4], ["1", "1", "0"], fields)  # total, green, red: no skip entry
+        self.assertEqual(fields[-1], "1", fields)  # skipped, always the last field
+
+        red = {"phase": "02-b", "status": "red", "finished": "2026-03-01T09:30:00+00:00"}
+        d2 = self._skip_fixture(
+            "2026-03-02-skipred", [green, red], {"01-a": "done", "02-b": "error"},
+        )
+        self.assertEqual(cfq_report.outcome(self._report_json(d2)["phases"]), "RED")
+        fields2 = self.run_cfq("report", "summary", str(d2)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields2[1:4], ["2", "1", "1"], fields2)
+
+    def test_unskipped_entry_counts_nowhere(self):
+        d = self._skip_fixture("2026-03-03-unskip", [], {"01-a": "done"})
+        self.run_cfq("phase", "unskip", str(d), "03", check=True)
+        ledger = self._report_json(d)["phases"]
+        self.assertIn("unskipped", ledger[-1])
+        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[1:4], ["0", "0", "0"], fields)
+        self.assertEqual(fields[-1], "0", fields)
+        self.assertEqual(cfq_report.outcome(ledger), "GREEN")
+
+    def test_summary_without_status_file_reports_zero_skipped(self):
+        batch = self._batch("2026-03-04-nostatus")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-03-04-nostatus", "started": "2026-03-04T08:00:00+00:00",
+            "phases": [{"phase": "01-a", "status": "green", "finished": "2026-03-04T09:00:00+00:00"}],
+        }))
+        fields = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[-1], "0", fields)
+
+    def test_index_and_detail_expose_skipped(self):
+        green = {"phase": "01-a", "status": "green", "finished": "2026-03-01T09:00:00+00:00"}
+        d = self._skip_fixture("2026-03-05-skipidx", [green], {"01-a": "done"})
+        idx = self.json_out(self.run_cfq(
+            "report", "index", "--batch", "skipidx", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ))
+        self.assertEqual(len(idx), 1, idx)
+        self.assertEqual((idx[0]["status"], idx[0]["skipped"]), ("GREEN", 1), idx[0])
+        det = self.json_out(self.run_cfq("report", "detail", str(d)))
+        self.assertEqual(det["status"], "GREEN")
+        self.assertEqual(det["skipped"], 1)
+        skip_entry = next(p for p in det["phases"] if p["status"] == "skipped")
+        self.assertEqual((skip_entry["phase"], skip_entry["summary"]), ("03-c", "obsolete"))
+
     # ---- html: batch 040 phase 05 -- a thin `portal sync` alias, no file of its own -----------
 
     def test_html_is_a_thin_portal_alias(self):
@@ -469,7 +539,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output), all zero
         # since this old-style fixture carries none of billable_in/planning/subagent_explore.
         self.assertEqual(
-            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0"],
+            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0", "0"],
         )
         self.assertEqual(
             int(fields[11]) + int(fields[13]), int(total_turns),
@@ -515,7 +585,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertEqual(fields[11:15], ["14", "1400", "6", "700"])
         # tail: total_billable_in (150 planning + 600 phase), planning_turns, planning_billable_in,
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0"])
+        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0", "0"])
 
     def test_summary_explore_only_phase_is_not_counted_as_worker(self):
         # The regression from Context, reproduced directly: a phase whose only sub-agent activity
@@ -541,9 +611,9 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
         fields = s.split("\t")
         # fields 1-11 as normal, no 12-15 worker block, then the always-appended (now 7-field) tail
-        self.assertEqual(len(fields), 18, f"expected no fields 12-15, got row {fields}")
+        self.assertEqual(len(fields), 19, f"expected no fields 12-15, got row {fields}")
         self.assertEqual(fields[6:11], ["700", "0", "8", "", ""])
-        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0"])
+        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0", "0"])
 
     def test_summary_orchestrator_worker_invariant_never_negative(self):
         # The regression case from Context, asserted directly: a fixture reproducing batch 034's
@@ -591,7 +661,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
             fields = s.split("\t")
             total_turns = int(fields[8])
-            if len(fields) == 18:
+            if len(fields) == 19:
                 # No phase worker ever ran (subagent_worker is zero on every phase) -- the
                 # heavy-Explore batch-034 shape. Fields 12-15 must be absent entirely, which is
                 # itself the fix: a negative number can never be printed for a split that isn't
@@ -676,7 +746,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertEqual(fields[11:15], ["3", "300", "6", "700"])
         # tail: total_billable_in (100+0+200+0), planning_turns, planning_billable_in,
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150"])
+        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150", "0"])
 
     def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
         batch = self._batch("2026-01-09-classic")
@@ -700,7 +770,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         # billable_in/planning/subagent_explore/subagent_worker.
         expected = (
             f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
-            "\t0\t0\t0\t0\t0\t0\t0"
+            "\t0\t0\t0\t0\t0\t0\t0\t0"
         )
         self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
 
@@ -716,7 +786,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             ],
         }))
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
-        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0"
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
 
 

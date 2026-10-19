@@ -25,7 +25,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
@@ -75,11 +75,26 @@ def ensure_report(dir_):
     render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
 
+def is_skip_entry(p):
+    """A `skipped` ledger entry (written by `phase skip`); it is no attempt at the phase."""
+    return isinstance(p, dict) and p.get("status") == "skipped"
+
+
+def skipped_count(batch_dir):
+    """Phases currently skipped, read from the batch's status.json; 0 without a readable one."""
+    try:
+        return phase_state.counts(pathlib.Path(batch_dir))["skipped"]
+    except phase_state.PhaseStateError:
+        return 0
+
+
 def outcome(phases):
     """GREEN if no phase ever went red; RED if any phase's most recent attempt is still red;
-    MIXED if every phase that ever went red now shows green as its latest attempt."""
+    MIXED if every phase that ever went red now shows green as its latest attempt. Skip entries
+    are no attempt and are ignored."""
     if not isinstance(phases, list):
         phases = []
+    phases = [p for p in phases if not is_skip_entry(p)]
     if not any(isinstance(p, dict) and p.get("status") == "red" for p in phases):
         return "GREEN"
     latest = {}
@@ -281,7 +296,7 @@ def cmd_summary(args):
     data = json.loads(pathlib.Path(f).read_text())
     phases = data.get("phases", [])
     batch = data.get("batch")
-    total = len(phases)
+    total = sum(1 for p in phases if not is_skip_entry(p))
     green = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
     red = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
     deviations = 0
@@ -367,6 +382,8 @@ def cmd_summary(args):
         total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
         worker_explore_turns, worker_explore_output,
     ]
+    # Always the last field: phases currently skipped (status.json), 0 without a status.json.
+    row.append(skipped_count(dir_))
     print("\t".join(_tsv_field(v) for v in row))
 
 
@@ -611,6 +628,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             "repo": m["repo"],
             "date": date,
             "status": status,
+            "skipped": skipped_count(os.path.dirname(m["path"])),
             "glyph": status_glyph(status),
             "deviations": deviations,
             "rendered": rendered,
@@ -747,6 +765,7 @@ def cmd_detail(args):
         "repo": data.get("repo"),
         "started": data.get("started"),
         "status": outcome(phases),
+        "skipped": skipped_count(dir_),
         "deviationsTotal": deviations_total,
         "cost": {
             "outputTokens": planning_output + sum(phase_outputs),

@@ -170,6 +170,25 @@ class ChangelogTest(CfqTestCase):
             if line.startswith("      summary: ")
         ]
 
+    def test_skip_entry_renders_as_skipped_and_unskipped_one_is_omitted(self):
+        repo = self._plain_repo("skip-entry-repo")
+        self.run_cfq(
+            "changelog", "init", str(repo), "v0.1-skipentry", "main", "2026-01-09-skip-entry", check=True,
+        )
+        batch = self._repos_dir / "2026-01-09-skip-entry"
+        self._write_report(batch, {"phases": [
+            {"phase": "01-a", "status": "green", "implemented": "Added X"},
+            {"phase": "02-b", "status": "skipped", "summary": "obsolete", "previous": "open"},
+            {"phase": "03-c", "status": "skipped", "summary": "later", "previous": "open",
+             "unskipped": "2026-01-09T10:00:00+00:00"},
+        ]})
+        self.run_cfq("changelog", "finish", str(repo), "v0.1-skipentry", str(batch), check=True)
+        text = (repo / ".claude/cfq/changelog.yml").read_text()
+        self.assertIn('      status: "skipped"', text)
+        self.assertIn('    - phase: "02-b"', text)
+        self.assertNotIn("03-c", text)
+        self.assertIn('    - phase: "01-a"', text)
+
     def test_summary_falls_back_to_implemented(self):
         summaries = self._finish_and_get_summaries(
             "implemented-only-repo", "2026-01-06-implemented-only",

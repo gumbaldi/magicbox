@@ -77,6 +77,8 @@ class StatusLineRenderingTest(unittest.TestCase):
 
 
 class FinishTest(CfqTestCase):
+    auto_status = True
+
     def _new_repo(self, name):
         # cfq-finish.sh diffs the changed-files check against a branch literally named "main"
         # (cfq_lang.py --changed main), so the fixture needs that branch regardless of this host's
@@ -120,8 +122,9 @@ class FinishTest(CfqTestCase):
         )
         fin = report["finish"]
         self.assertEqual(
-            sorted(fin), ["at", "changelog", "errors", "lang", "maintenance", "security"],
+            sorted(fin), ["at", "changelog", "errors", "lang", "maintenance", "security", "skipped"],
         )
+        self.assertEqual(fin["skipped"], [])
         self.assertEqual(sorted(fin["lang"]), ["findings", "issues"])
         self.assertIsInstance(fin["lang"]["issues"], int)
         self.assertIsInstance(fin["lang"]["findings"], list)
@@ -467,7 +470,7 @@ class FinishTest(CfqTestCase):
         # comes back `{}` on both sides of the diff, so `Security Diff` is the one line correctly
         # omitted here (no planning snapshot, nothing to compare) -- see security_diff_line.
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
+            labels, ["Language", "Maintenance", "Changelog", "Skipped", "Telemetry", "Report", "Lock"],
             msg=f"labels = {labels}",
         )
         lock = next(e for e in out["statusLines"] if e["label"] == "Lock")
@@ -500,7 +503,7 @@ class FinishTest(CfqTestCase):
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
+            labels, ["Language", "Maintenance", "Changelog", "Skipped", "Telemetry", "Report", "Lock"],
             msg=f"a changelog error must not add a new statusLines entry: {labels}",
         )
         changelog_line = next(e for e in out["statusLines"] if e["label"] == "Changelog")
@@ -511,6 +514,117 @@ class FinishTest(CfqTestCase):
         self.assertNotEqual(
             changelog_line["icon"], "done", msg=f"an errored step must not stay 'done': {changelog_line}",
         )
+
+    # ---- batch 051 phase 07: skipped phases leave an inbox entry --------------------------------
+
+    PLAN_TEXT = (
+        "# Third phase\n\n## Size\n\nS\n\n## Changes\n\n```bash\n# not a heading\n"
+        "echo hi\n```\n\n### Detail\n\nText.\n"
+    )
+
+    def _skipped_batch(self, repo, name, reason="obsolete"):
+        """Two done phases and phase 03 skipped through a real `phase skip` call."""
+        d = repo / ".claude/cfq/impl" / name
+        (d / "done").mkdir(parents=True)
+        (d / ".priority").write_text("medium\n")
+        (d / "done" / "01-a.md").write_text("# A phase\n")
+        (d / "done" / "02-b.md").write_text("# B phase\n")
+        (d / "03-c.md").write_text(self.PLAN_TEXT)
+        args = ["phase", "skip", str(d), "03"]
+        if reason:
+            args += ["--reason", reason]
+        self.run_cfq(*args, check=True)
+        return d
+
+    def _finish_skipped(self, tag, reason="obsolete", changelog=False, prepare=None):
+        home = self._repos_dir / f"home-{tag}"
+        (home / ".claude/cfq").mkdir(parents=True)
+        # No remote in the fixture: an enabled changelog would fail its push and add an error.
+        settings = {} if changelog else {"changelogFile": ""}
+        (home / ".claude/cfq/settings.json").write_text(json.dumps(settings))
+        repo = self._new_repo(f"repo-{tag}")
+        name = f"2026-01-01-{tag}"
+        batch = self._skipped_batch(repo, name, reason)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        if prepare:
+            prepare(repo)
+        proc = self.run_cfq("finish", str(repo), str(batch), f"v0.1-{tag}", home=home, check=True)
+        return repo, home, name, self.json_out(proc)
+
+    def _inbox(self, repo):
+        return sorted((repo / ".claude/cfq/plan").glob("*.md"))
+
+    def test_skipped_phase_leaves_one_inbox_entry(self):
+        repo, _home, name, out = self._finish_skipped("skipinbox", changelog=True)
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual((line["icon"], line["detail"]), ("done", "1 phases · 1 inbox entries"), line)
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Skipped"), labels.index("Changelog") + 1)
+
+        entries = self._inbox(repo)
+        self.assertEqual(len(entries), 1, entries)
+        text = entries[0].read_text()
+        self.assertTrue(text.startswith("# "), text)
+        archived = repo / ".claude/cfq/impl/done" / name / "skipped/03-c.md"
+        self.assertTrue(archived.is_file())
+        origin = text.split("## Origin", 1)[1].split("## Skipped plan", 1)[0]
+        for needle in (name, "03-c", "obsolete", str(archived)):
+            self.assertIn(needle, origin)
+        self.assertIn("## Skipped plan", text)
+        self.assertIn("Third phase", text.split("## Skipped plan", 1)[1])
+
+        self.assertIn(f"{name} done · 2 phases · 1 skipped", out["changelog"])
+        status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
+        self.assertEqual(status["phases"]["03-c"]["inbox"], entries[0].name)
+        fin = json.loads((repo / ".claude/cfq/impl/done" / name / "report.json").read_text())["finish"]
+        self.assertEqual(fin["skipped"], ["03-c"])
+
+    def test_skipped_plan_headings_are_demoted_outside_code_fences(self):
+        repo, _home, _name, _out = self._finish_skipped("skipdemote")
+        plan = self._inbox(repo)[0].read_text().split("## Skipped plan", 1)[1]
+        self.assertIn("\n### Third phase\n", plan)
+        self.assertIn("\n#### Size\n", plan)
+        self.assertIn("\n#### Changes\n", plan)
+        self.assertIn("\n##### Detail\n", plan)
+        self.assertIn("\n# not a heading\n", plan)
+
+    def test_skipped_second_finish_writes_no_second_entry(self):
+        repo, home, name, _out = self._finish_skipped("skiptwice")
+        moved = repo / ".claude/cfq/impl/done" / name
+        self.run_cfq("finish", str(repo), str(moved), "v0.1-skiptwice", home=home, check=True)
+        self.assertEqual(len(self._inbox(repo)), 1)
+
+    def test_skip_without_reason_says_none_given(self):
+        repo, _home, _name, _out = self._finish_skipped("skipnoreason", reason=None)
+        text = self._inbox(repo)[0].read_text()
+        self.assertIn("none given", text.split("## Origin", 1)[1])
+
+    def test_no_skipped_phase_gets_a_none_line_and_no_entry(self):
+        home = self._repos_dir / "home-noskip"
+        home.mkdir()
+        repo = self._new_repo("repo-noskip")
+        batch = self._new_batch(repo, "2026-01-01-noskip")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-noskip", home=home, check=True)
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "v0.1-noskip", home=home, check=True)
+        )
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual((line["icon"], line["detail"]), ("skip", "none"), line)
+        self.assertEqual(self._inbox(repo), [])
+
+    def test_skipped_inbox_failure_still_completes_with_a_warning(self):
+        def block_plan_dir(repo):
+            shutil.rmtree(repo / ".claude/cfq/plan", ignore_errors=True)
+            (repo / ".claude/cfq/plan").write_text("not a directory\n")
+
+        repo, _home, name, out = self._finish_skipped("skipfail", prepare=block_plan_dir)
+        self.assertTrue((repo / ".claude/cfq/impl/done" / name).is_dir())
+        self.assertEqual(out["lock"], "released")
+        self.assertTrue(any(e.startswith("skipped:") for e in out["errors"]), out["errors"])
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual(line["icon"], "warn", line)
+        status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
+        self.assertNotIn("inbox", status["phases"]["03-c"])
 
     def test_nine_subcalls_run_in_expected_order(self):
         # Order: cfq-finish.sh runs its nine sub-nouns as a sequence where later steps depend on
