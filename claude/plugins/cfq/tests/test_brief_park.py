@@ -127,6 +127,60 @@ class BriefTest(CfqTestCase):
         )
         self.assertFalse(any(l.endswith(" ") for l in lines), f"trailing whitespace in: {out}")
 
+    def _steps_phase(self, name, changes):
+        batch = self._repos_dir / name
+        batch.mkdir(parents=True)
+        (batch / "01-steps.md").write_text(
+            "# Steps phase\n\n## Context\n\nCtx line.\n\n"
+            "## Affected Files\n\n- `/tmp/example/only.sh`\n\n"
+            f"## Changes\n\n{changes}\n\n"
+            "## Verification\n\n```bash\necho done\n```\n"
+        )
+        return batch
+
+    def test_phase_announcement_prints_steps_between_files_and_check(self):
+        batch = self._steps_phase(
+            "2026-01-07-threesteps",
+            "1. First step.\n   - nested detail\n2. Second step.\n3. Third step.",
+        )
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.rstrip("\n")
+        expected = (
+            "PHASE 01 · Steps phase · Size M\n"
+            "  Goal     Ctx line.\n"
+            "  Files    only.sh\n"
+            "  Steps    1. First step.\n"
+            "           2. Second step.\n"
+            "           3. Third step.\n"
+            "  Check    echo done"
+        )
+        self.assertEqual(out, expected)
+
+    def test_phase_announcement_caps_steps_at_ten(self):
+        batch = self._steps_phase(
+            "2026-01-08-twelvesteps", "\n".join(f"{i}. Step number {i}." for i in range(1, 13)),
+        )
+        lines = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.splitlines()
+        steps = [l for l in lines if l.startswith("  Steps") or l.startswith(" " * 11)]
+        self.assertEqual(len(steps), 11, lines)
+        self.assertEqual(steps[-1], "           … +2 more steps")
+        self.assertEqual(steps[-2], "           10. Step number 10.")
+        self.assertFalse(any(l.endswith(" ") for l in lines))
+
+    def test_phase_announcement_without_step_list_has_no_steps_label(self):
+        batch = self._steps_phase("2026-01-09-prosechanges", "Just prose describing the change.")
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout
+        self.assertNotIn("  Steps  ", out)
+
+    def test_phase_announcement_long_step_lead_ends_in_ellipsis(self):
+        long_lead = " ".join(f"word{i:03d}" for i in range(40))
+        batch = self._steps_phase("2026-01-10-longstep", f"1. {long_lead}\n2. Short.")
+        lines = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.splitlines()
+        idx = next(i for i, l in enumerate(lines) if l.startswith("  Steps    1. "))
+        self.assertTrue(lines[idx + 1].startswith(" " * 14), lines)
+        self.assertTrue(lines[idx + 1].endswith("…"), lines)
+        self.assertEqual(lines[idx + 2], "           2. Short.")
+        self.assertFalse(any(l.endswith(" ") for l in lines))
+
     def test_phase_announcement_unknown_number(self):
         proc = self.run_cfq("brief", str(self.batch), "--phase", "99")
         self.assertNotEqual(proc.returncode, 0, "--phase 99 should exit non-zero")
@@ -429,8 +483,11 @@ class BriefOverviewTest(CfqTestCase):
             "3 phases planned · 1 done · 1 red",
             "  #   Phase         Size  Status",
             "  01  First phase   S     done",
+            "      → done/01-first.md",
             "  02  Second phase  M     red",
+            "      → 02-second.md",
             "  03  Third phase   L     open",
+            "      → 03-third.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -448,7 +505,9 @@ class BriefOverviewTest(CfqTestCase):
             "2 phases planned · 0 done",
             "  #   Phase        Size  Status",
             "  01  Alpha phase  M     open",
+            "      → 01-alpha.md",
             "  02  Beta phase   S     open",
+            "      → 02-beta.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -457,7 +516,7 @@ class BriefOverviewTest(CfqTestCase):
             f"no-report.json overview block wrong (must not raise, must omit red clause): {out}",
         )
 
-    def test_overview_missing_batch_context_omits_goal_paragraph(self):
+    def test_overview_missing_batch_context_omits_context_block(self):
         batch = self._repos_dir / "009-2026-02-03-nogoal"
         batch.mkdir(parents=True)
         self._phase(batch, "01-only.md", "Only phase")
@@ -468,10 +527,11 @@ class BriefOverviewTest(CfqTestCase):
         self.assertEqual(lines[1], "1 phases planned · 0 done", f"count line wrong: {out}")
         self.assertEqual(
             lines[2], "  #   Phase       Size  Status",
-            f"table must start right after the count line, no goal paragraph or blank lines: {out}",
+            f"table must start right after the count line, no context block or blank lines: {out}",
         )
+        self.assertEqual(lines[4], "      → 01-only.md", f"pointer line missing: {out}")
 
-    def test_overview_long_goal_wraps_to_six_lines_with_ellipsis(self):
+    def test_overview_long_goal_is_never_cut(self):
         batch = self._repos_dir / "010-2026-02-04-longgoal"
         batch.mkdir(parents=True)
         self._phase(batch, "01-x.md", "X phase")
@@ -481,28 +541,15 @@ class BriefOverviewTest(CfqTestCase):
         )
 
         out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
-        expected = "\n".join([
-            "BATCH 010 · 2026-02-04 · longgoal",
-            "1 phases planned · 0 done",
-            "",
-            "  word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10",
-            "  word11 word12 word13 word14 word15 word16 word17 word18 word19",
-            "  word20 word21 word22 word23 word24 word25 word26 word27 word28",
-            "  word29 word30 word31 word32 word33 word34 word35 word36 word37",
-            "  word38 word39 word40 word41 word42 word43 word44 word45 word46",
-            "  word47 word48 word49 word50 word51 word52 word53 word54 word55…",
-            "",
-            "  Decisions",
-            "    irrelevant",
-            "  #   Phase    Size  Status",
-            "  01  X phase  M     open",
-            "",
-            f"  Plans    {batch.resolve()}",
-        ])
-        self.assertEqual(out, expected, f"long-goal overview block wrong: {out}")
-        self.assertNotIn(
-            "## Decisions", out, f"## Decisions must not leak into the overview block: {out}",
-        )
+        self.assertNotIn("…", out, f"the goal must not be cut: {out}")
+        self.assertIn("word79", out, f"the last goal word must survive: {out}")
+        lines = out.splitlines()
+        self.assertEqual(lines[2], "", f"blank line before the context block: {out}")
+        self.assertEqual(lines[3], "  Goal", f"labelled Goal block expected: {out}")
+        self.assertIn("  Decisions", lines)
+        self.assertIn("    - irrelevant", lines)
+        table_idx = lines.index("  #   Phase    Size  Status")
+        self.assertEqual(lines[table_idx - 1], "", f"blank line after the context block: {out}")
 
     def test_overview_legacy_unnumbered_batch_name(self):
         batch = self._repos_dir / "2026-01-06-legacyoverview"
@@ -515,6 +562,7 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  01  Y phase  M     open",
+            "      → 01-y.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -538,6 +586,7 @@ class BriefOverviewTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase    Size  Status",
             "  04  X phase  M     open",
+            "      → 04-x.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -593,20 +642,24 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "BATCH 013 · 2026-02-07 · decisions",
             "2 phases planned · 0 done",
             "",
-            "  Do the thing well.",
-            "",
+            "  Goal",
+            "    Do the thing well.",
             "  Decisions",
-            "    First decision bullet about something. · Second decision bullet",
-            "    about something else.",
+            "    - First decision bullet about something.",
+            "    - Second decision bullet about something else.",
+            "",
             "  #   Phase         Size  Status",
             "  01  First phase   S     open",
             "      First phase context line one. First phase context line two.",
+            "      → 01-first.md",
             "  02  Second phase  M     open",
             "      Second phase context line one. Second phase context line two.",
+            "      → 02-second.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
         self.assertEqual(out, expected, f"routine decisions/excerpts/path overview block wrong: {out}")
+        self.assertNotIn("Portal", out, f"a batch outside a queue layout has no portal line: {out}")
         self.assertFalse(
             any(l.endswith(" ") for l in out.splitlines()),
             f"no overview line may end in a space: {out!r}",
@@ -623,10 +676,12 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "BATCH 014 · 2026-02-08 · nodecisions",
             "1 phases planned · 0 done",
             "",
-            "  Just a goal.",
+            "  Goal",
+            "    Just a goal.",
             "",
             "  #   Phase        Size  Status",
             "  01  First phase  M     open",
+            "      → 01-first.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -643,6 +698,7 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             "1 phases planned · 0 done",
             "  #   Phase        Size  Status",
             "  01  First phase  S     open",
+            "      → 01-first.md",
             "",
             f"  Plans    {batch.resolve()}",
         ])
@@ -651,7 +707,7 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
             f"a phase without ## Context must have no excerpt line and no stray blank line: {out}",
         )
 
-    def test_long_decisions_wraps_to_exactly_eight_lines_with_ellipsis(self):
+    def test_twenty_decision_bullets_are_never_cut(self):
         batch = self._repos_dir / "016-2026-02-10-longdecisions"
         batch.mkdir(parents=True)
         long_decisions = "\n".join(f"- decisionword{i} decisionword{i}" for i in range(20))
@@ -660,18 +716,35 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
 
         out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
         lines = out.splitlines()
-        decisions_idx = lines.index("  Decisions")
-        wrapped = []
-        i = decisions_idx + 1
-        while lines[i].startswith("    "):
-            wrapped.append(lines[i])
-            i += 1
-        self.assertEqual(len(wrapped), 8, f"long decisions must wrap to exactly 8 lines: {out}")
-        self.assertTrue(wrapped[-1].endswith("…"), f"last decisions line must end in an ellipsis: {out}")
+        self.assertEqual(
+            len([l for l in lines if l.startswith("    - ")]), 20,
+            f"20 decision bullets must produce 20 bullet lines: {out}",
+        )
+        self.assertFalse(any(l.endswith("…") for l in lines), f"no line may be cut: {out}")
         self.assertFalse(
-            any(l.endswith(" ") for l in out.splitlines()),
+            any(l.endswith(" ") for l in lines),
             f"no overview line may end in a space: {out!r}",
         )
+
+    def test_batch_in_queue_layout_ends_with_portal_line_unless_html_report_off(self):
+        repo = self._repos_dir / "portalrepo"
+        batch = repo / ".claude" / "cfq" / "impl" / "018-2026-02-12-portal"
+        batch.mkdir(parents=True)
+        self._phase(batch, "01-first.md", "First phase")
+
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        lines = out.splitlines()
+        self.assertEqual(lines[-2], f"  Plans    {batch.resolve()}", out)
+        self.assertEqual(
+            lines[-1],
+            f"  Portal   file://{repo}/.claude/cfq/reports/index.html#/batch/018-2026-02-12-portal",
+            out,
+        )
+
+        (repo / ".claude" / "cfq" / "settings.json").write_text('{"htmlReport": false}\n')
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout
+        self.assertNotIn("Portal", out)
+        self.assertIn("  Plans    ", out)
 
     def test_with_done_and_phase_modes_unaffected_by_decisions_and_context(self):
         batch = self._repos_dir / "017-2026-02-11-unaffected"
@@ -692,6 +765,281 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
         ).stdout
         self.assertNotIn("Decisions", phase_out, f"--phase must not gain the Decisions block: {phase_out}")
         self.assertNotIn("Plans", phase_out, f"--phase must not gain the Plans line: {phase_out}")
+
+
+class BriefReviewTest(CfqTestCase):
+    """`bin/cfq brief <batch-dir> --review [--phases NN,...]` -- the Plan-Mode digest, see
+    .claude/cfq/impl/049-.../01-review-digest-renderer.md."""
+
+    def _review_batch(self, name):
+        repo = self._repos_dir / "revrepo"
+        batch = repo / ".claude" / "cfq" / "impl" / name
+        batch.mkdir(parents=True)
+        return repo, batch
+
+    def _phase(self, batch, filename, title="Phase", size="S", context=None, files=None,
+               changes=None, verify=None):
+        body = f"# {title}\n\n## Size\n\n{size}\n"
+        if context is not None:
+            body += f"\n## Context\n\n{context}\n"
+        if files is not None:
+            body += "\n## Affected Files\n\n" + "\n".join(files) + "\n"
+        if changes is not None:
+            body += f"\n## Changes\n\n{changes}\n"
+        if verify is not None:
+            body += f"\n## Verification\n\n```bash\n{verify}\n```\n"
+        path = batch / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+        return path
+
+    def _review(self, batch, *extra, check=True):
+        return self.run_cfq("brief", str(batch), "--review", *extra, check=check)
+
+    def _no_trailing_space(self, out):
+        for line in out.splitlines():
+            self.assertFalse(line.endswith(" "), f"line ends in a space: {line!r}")
+
+    def test_routine_full_digest(self):
+        repo, batch = self._review_batch("020-2026-03-01-review")
+        (batch / ".batch-context.md").write_text(
+            "# Batch Context\n\n"
+            "## Goal\n\nMake the thing reviewable.\n\n"
+            "## Decisions\n\n- First decision.\n- Second decision.\n\n"
+            "## Non-Goals\n\n- No third thing.\n"
+        )
+        self._phase(
+            batch, "01-first.md", "First phase", "S",
+            context="First paragraph line.\n\nSecond paragraph line.",
+            files=[f"- `{repo}/src/a.py`", f"- `{repo}/tests/test_a.py` (new)"],
+            changes=(
+                "1. Write the test in `tests/test_a.py`.\n"
+                "   - detail one\n"
+                "   - detail two\n"
+                "2. Change `src/a.py` to pass it."
+            ),
+            verify="python3 -m unittest tests.test_a",
+        )
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        expected = "\n".join([
+            "BATCH 020 · 2026-03-01 · review",
+            "1 phases planned · 0 done",
+            "",
+            "  Goal",
+            "    Make the thing reviewable.",
+            "  Decisions",
+            "    - First decision.",
+            "    - Second decision.",
+            "  Non-Goals",
+            "    - No third thing.",
+            "",
+            "PHASE 01 · First phase · Size S",
+            "  Context",
+            "    First paragraph line.",
+            "",
+            "    Second paragraph line.",
+            "  Files",
+            "    src/a.py",
+            "    tests/test_a.py (new)",
+            "  Changes",
+            "    1. Write the test in `tests/test_a.py`. (+2 details)",
+            "    2. Change `src/a.py` to pass it.",
+            "  Verify   python3 -m unittest tests.test_a",
+            "  Edit     .claude/cfq/impl/020-2026-03-01-review/01-first.md",
+            "",
+            f"  Plans    {batch.resolve()}",
+            f"  Context  {batch.resolve()}/.batch-context.md",
+            f"  Portal   file://{repo}/.claude/cfq/reports/index.html#/batch/020-2026-03-01-review",
+        ])
+        self.assertEqual(out.rstrip("\n"), expected)
+
+    def test_long_decision_bullet_wraps_never_cut(self):
+        _, batch = self._review_batch("022-2026-03-01-longdec")
+        words = " ".join(f"word{i}" for i in range(60))
+        (batch / ".batch-context.md").write_text(f"## Decisions\n\n- {words}\n")
+        self._phase(batch, "01-a.md")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        self.assertNotIn("…", out)
+        lines = out.splitlines()
+        start = lines.index("    - " + lines[lines.index("  Decisions") + 1][6:])
+        block = lines[start:]
+        self.assertTrue(block[1].startswith("      word"), block[:3])
+        self.assertFalse(block[1].startswith("       "), block[:3])
+        for line in lines[:next(n for n, l in enumerate(lines) if l.startswith('PHASE'))]:
+            self.assertLessEqual(len(line), 72, line)
+        joined = " ".join(l.strip() for l in lines[start:start + 12])
+        self.assertIn("word59", joined)
+
+    def test_bullets_without_numbered_steps_become_steps(self):
+        _, batch = self._review_batch("023-2026-03-01-bullets")
+        self._phase(batch, "01-a.md", changes="- Do the first thing.\n- Do the second thing.")
+        out = self._review(batch).stdout
+        self.assertIn("  Changes\n    1. Do the first thing.\n    2. Do the second thing.\n", out)
+
+    def test_fence_line_is_not_a_step_and_counts_as_detail(self):
+        _, batch = self._review_batch("024-2026-03-01-fence")
+        self._phase(
+            batch, "01-a.md",
+            changes="1. Run the command.\n```bash\n1. not a step\n```\n2. Second step.",
+        )
+        out = self._review(batch).stdout
+        self.assertIn("    1. Run the command. (+1 detail)\n    2. Second step.\n", out)
+        self.assertNotIn("not a step", out)
+
+    def test_long_step_lead_truncates_but_keeps_details_suffix(self):
+        _, batch = self._review_batch("025-2026-03-01-longstep")
+        words = " ".join(f"alpha{i}" for i in range(80))
+        self._phase(batch, "01-a.md", changes=f"1. {words}\n   - x\n   - y\n   - z")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        i = lines.index("  Changes")
+        step = lines[i + 1:i + 4]
+        self.assertIn("…", step[-1])
+        self.assertTrue(step[-1].endswith(" (+3 details)"), step)
+        self.assertEqual(lines[i + 4], "  Edit     .claude/cfq/impl/025-2026-03-01-longstep/01-a.md")
+
+    def test_phase_without_context_and_verification_omits_labels(self):
+        _, batch = self._review_batch("026-2026-03-01-bare")
+        self._phase(batch, "01-a.md", files=["- `/x/y.py`"], changes="1. Only step.")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        self.assertNotIn("  Context\n", out)
+        self.assertNotIn("Verify", out)
+        self.assertIn("  Changes", out)
+
+    def test_no_batch_context_prints_no_context_block_or_footer_line(self):
+        repo, batch = self._review_batch("027-2026-03-01-noctx")
+        self._phase(batch, "01-a.md", changes="1. Step.")
+        out = self._review(batch).stdout
+        lines = out.splitlines()
+        self.assertEqual(lines[2], "")
+        self.assertTrue(lines[3].startswith("PHASE 01"), lines[:4])
+        self.assertNotIn("  Context  ", out)
+        self.assertIn(f"  Plans    {batch.resolve()}", out)
+
+    def test_batch_outside_queue_layout_has_absolute_paths_and_no_portal(self):
+        batch = self._repos_dir / "021-2026-03-01-loose"
+        batch.mkdir(parents=True)
+        path = self._phase(batch, "01-a.md", files=["- `/abs/where/x.py`"], changes="1. Step.")
+        out = self._review(batch).stdout
+        self.assertIn("    /abs/where/x.py\n", out)
+        self.assertIn(f"  Edit     {path.resolve()}\n", out)
+        self.assertNotIn("Portal", out)
+
+    def test_html_report_false_drops_portal_line(self):
+        repo, batch = self._review_batch("028-2026-03-01-noportal")
+        self._phase(batch, "01-a.md", changes="1. Step.")
+        (repo / ".claude" / "cfq" / "settings.json").write_text('{"htmlReport": false}\n')
+        out = self._review(batch).stdout
+        self.assertNotIn("Portal", out)
+        self.assertIn("  Plans    ", out)
+
+    def test_done_phase_renders_first_marked_done(self):
+        repo, batch = self._review_batch("029-2026-03-01-donefirst")
+        self._phase(batch, "done/01-old.md", "Old phase", changes="1. Old step.")
+        self._phase(batch, "02-new.md", "New phase", changes="1. New step.")
+        out = self._review(batch).stdout
+        self.assertIn("PHASE 01 · Old phase · Size S · done", out)
+        self.assertLess(out.index("PHASE 01"), out.index("PHASE 02"))
+        self.assertIn("  Edit     .claude/cfq/impl/029-2026-03-01-donefirst/done/01-old.md", out)
+        self.assertIn("2 phases planned · 1 done", out)
+
+    def test_prose_changes_falls_back_to_first_paragraph_max_six_lines(self):
+        _, batch = self._review_batch("030-2026-03-01-prose")
+        prose = " ".join(f"prose{i}" for i in range(200))
+        self._phase(batch, "01-a.md", changes=f"{prose}\n\nSecond paragraph.")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        i = lines.index("  Changes")
+        end = next(n for n in range(i + 1, len(lines)) if not lines[n].startswith("    "))
+        self.assertEqual(end - i - 1, 6, lines[i:end + 1])
+        self.assertTrue(lines[end - 1].endswith("…"))
+        self.assertNotIn("Second paragraph", out)
+
+    def test_phases_option_prints_only_selected_blocks(self):
+        _, batch = self._review_batch("031-2026-03-01-only")
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething.\n")
+        self._phase(batch, "01-a.md", "Alpha", changes="1. A.")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B.")
+        out = self._review(batch, "--phases", "02").stdout
+        self.assertTrue(out.startswith("PHASE 02 · Beta"), out)
+        self.assertNotIn("BATCH", out)
+        self.assertNotIn("PHASE 01", out)
+        self.assertNotIn("Plans", out)
+        self.assertNotIn("Goal", out)
+
+    def test_unknown_phase_exits_one(self):
+        _, batch = self._review_batch("032-2026-03-01-unknown")
+        self._phase(batch, "01-a.md")
+        r = self._review(batch, "--phases", "09", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no phase 09", r.stderr)
+
+    def test_phases_without_review_exits_two(self):
+        _, batch = self._review_batch("033-2026-03-01-bad")
+        self._phase(batch, "01-a.md")
+        r = self.run_cfq("brief", str(batch), "--phases", "01")
+        self.assertEqual(r.returncode, 2)
+
+    # ---- --changed (phase 03 of batch 049) ---------------------------------------------------
+
+    def _changed_batch(self, name):
+        repo, batch = self._review_batch(name)
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething.\n")
+        self._phase(batch, "01-a.md", "Alpha", changes="1. A step.")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B step.")
+        self.run_cfq("batch", "review", str(batch), check=True)
+        return batch
+
+    def test_changed_nothing_changed(self):
+        batch = self._changed_batch("040-2026-03-01-c0")
+        out = self._review(batch, "--changed").stdout
+        self.assertEqual(out.strip(), "no changes since last review")
+
+    def test_changed_prints_only_changed_phase(self):
+        batch = self._changed_batch("041-2026-03-01-c1")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B rewritten step.")
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("1 changed since last review", out)
+        self.assertIn("PHASE 02 · Beta", out)
+        self.assertIn("B rewritten step.", out)
+        self.assertNotIn("PHASE 01", out)
+        self.assertNotIn("Goal", out)
+        self.assertIn("BATCH", out)
+
+    def test_changed_context_edit_prints_context_block(self):
+        batch = self._changed_batch("042-2026-03-01-c2")
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething else.\n")
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("Something else.", out)
+        self.assertNotIn("PHASE 01", out)
+
+    def test_changed_new_and_removed_phase(self):
+        batch = self._changed_batch("043-2026-03-01-c3")
+        self._phase(batch, "03-c.md", "Gamma", changes="1. C step.")
+        (batch / "01-a.md").unlink()
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("2 changed since last review", out)
+        self.assertIn("PHASE 03 · Gamma", out)
+        self.assertIn("  Removed  01-a.md", out)
+
+    def test_changed_without_snapshot_exits_one(self):
+        _, batch = self._review_batch("044-2026-03-01-c4")
+        self._phase(batch, "01-a.md")
+        r = self._review(batch, "--changed", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("cfq batch review", r.stderr)
+
+    def test_changed_bad_option_combinations_exit_two(self):
+        batch = self._changed_batch("045-2026-03-01-c5")
+        r = self._review(batch, "--changed", "--phases", "01", check=False)
+        self.assertEqual(r.returncode, 2)
+        r = self.run_cfq("brief", str(batch), "--changed")
+        self.assertEqual(r.returncode, 2)
 
 
 class ParkTest(CfqTestCase):
@@ -812,6 +1160,20 @@ class ParkTest(CfqTestCase):
             ".priority must still be rewritten from the second call's arguments",
         )
 
+    def test_park_on_review_batch_leaves_review_and_creates_no_planning(self):
+        batch = "2026-01-13-inreview"
+        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
+        batchdir.mkdir(parents=True)
+        (batchdir / ".review").write_text('{"since": "x"}\n')
+
+        proc = self.run_cfq(
+            "park", str(self.parkrepo), batch, "normal", home=self.park_home,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((batchdir / ".review").read_text(), '{"since": "x"}\n')
+        self.assertFalse((batchdir / ".planning").exists())
+        self.assertEqual(proc.stderr, "")
+
 
 class ParkFromPlanTest(CfqTestCase):
     """`park ... --from-plan <path>` consumes the plan-inbox entry `cfq note list` showed --
@@ -930,6 +1292,44 @@ class ParkFromPlanTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, f"retried park must be a no-op, not an error: {proc.stderr}")
         self.assertEqual((done / self.entry.name).read_text(), first_before, "first entry must stay unchanged")
         self.assertEqual((done / second.name).read_text(), second_before, "second entry must stay unchanged")
+
+    # --- batch 050 phase 07: fromPlan ledger ---
+
+    def _from_plan(self, batch):
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / batch / "report.json"
+        return json.loads(path.read_text()).get("fromPlan")
+
+    def test_single_entry_recorded(self):
+        proc = self._park("2026-03-01-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._from_plan("2026-03-01-batch"), [self.entry.name])
+
+    def test_two_entries_recorded_sorted(self):
+        second = self.plan_dir / "2026-01-02-second-finding.md"
+        second.write_text("# Second\n")
+        self._park("2026-03-02-batch", from_plan=[second, self.entry])
+        self.assertEqual(
+            self._from_plan("2026-03-02-batch"), sorted([self.entry.name, second.name]),
+        )
+
+    def test_repeated_park_leaves_list_unchanged(self):
+        self._park("2026-03-03-batch", from_plan=self.entry)
+        proc = self._park("2026-03-03-batch", from_plan=self.entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._from_plan("2026-03-03-batch"), [self.entry.name])
+
+    def test_missing_report_json_gets_standard_skeleton(self):
+        self._park("2026-03-04-batch", from_plan=self.entry)
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / "2026-03-04-batch" / "report.json"
+        data = json.loads(path.read_text())
+        self.assertEqual(data["batch"], "2026-03-04-batch")
+        self.assertEqual(data["phases"], [])
+        self.assertIn("started", data)
+
+    def test_no_flag_creates_no_report_json(self):
+        self._park("2026-03-05-batch")
+        path = self.parkrepo / ".claude" / "cfq" / "impl" / "2026-03-05-batch" / "report.json"
+        self.assertFalse(path.exists())
 
 
 class ParsePhaseBodySectionBoundaryTest(unittest.TestCase):

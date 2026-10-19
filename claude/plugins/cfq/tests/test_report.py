@@ -19,7 +19,6 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_report  # noqa: E402
-from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -40,6 +39,56 @@ class TestReport(CfqTestCase):
             cfq_report.append_phase(dir_, phase_json, record_telemetry=False)
         self.assertNotEqual(ctx.exception.code, 0)
         return buf.getvalue()
+
+    def test_set_commit_diffstat_stored_only_when_given(self):
+        batch = self._batch("2026-01-02-diffstat")
+        for slug in ("01-a", "02-b"):
+            cfq_report.append_phase(
+                str(batch),
+                json.dumps({"phase": slug, "status": "green", "summary": "ok", "commit": ""}),
+                record_telemetry=False,
+            )
+        stat = {"files": 1, "insertions": 2, "deletions": 0,
+                "paths": [{"path": "a.txt", "added": 2, "deleted": 0}]}
+
+        cfq_report.set_commit(str(batch), "01-a", "abc1234", diffstat=stat)
+        cfq_report.set_commit(str(batch), "02-b", "def5678")
+
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["commit"], "abc1234")
+        self.assertEqual(phases[0]["diffstat"], stat)
+        self.assertEqual(phases[1]["commit"], "def5678")
+        self.assertNotIn("diffstat", phases[1])
+
+        self.run_cfq("report", "set-commit", str(batch), "02-b", "9999999")
+        self.assertNotIn("diffstat", self._report_json(batch)["phases"][1])
+
+    def test_observations_stored_validated_and_in_detail(self):
+        batch = self._batch("2026-01-03-observations")
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "01-a", "status": "green", "summary": "ok",
+                        "observations": ["a", "b"]}),
+            record_telemetry=False,
+        )
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "02-b", "status": "green", "summary": "ok"}),
+            record_telemetry=False,
+        )
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["observations"], ["a", "b"])
+        self.assertNotIn("observations", phases[1])
+
+        before = (batch / "report.json").read_text()
+        for bad in ('"text"', '["ok", 3]'):
+            stderr = self._append_raises(
+                str(batch), '{"phase":"03-c","status":"green","observations":%s}' % bad)
+            self.assertIn("observations", stderr)
+        self.assertEqual(before, (batch / "report.json").read_text())
+
+        det = self.json_out(self.run_cfq("report", "detail", str(batch)))
+        self.assertEqual([p["observations"] for p in det["phases"]], [["a", "b"], []])
 
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
@@ -313,7 +362,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             "html alias must not write a flat <batch>.html file",
         )
         self.assertTrue(
-            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.impl.js").is_file(),
+            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.js").is_file(),
             "html alias did not sync this batch's own data into the portal",
         )
         self.assertTrue(
@@ -814,7 +863,7 @@ class TestIndexText(CfqTestCase):
         # dropping the one data file `portal sync` would have written, rather than a `.html` file.
         data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
         data_dir.mkdir(parents=True)
-        (data_dir / "2026-05-01-rendered.impl.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-01-rendered.js").write_text("window.CFQ_DATA = {};")
 
         text = self._run_text()
         self.assertNotIn("file://", text, f"a file:// line leaked into the listing:\n{text}")
@@ -825,6 +874,29 @@ class TestIndexText(CfqTestCase):
         unrendered_cells = [c.strip() for c in unrendered_row.strip("|").split("|")]
         self.assertEqual(rendered_cells[-1], "✓", f"rendered row missing its marker: {rendered_row!r}")
         self.assertEqual(unrendered_cells[-1], "", f"unrendered row should have an empty marker: {unrendered_row!r}")
+
+    def test_rendered_and_href_follow_the_batch_data_file(self):
+        self._batch(
+            "repo-a", "2026-05-01-with-data", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-without-data", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")],
+        )
+        data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
+        data_dir.mkdir(parents=True)
+        # only the one file the portal's loader fetches for a batch counts -- the legacy
+        # `<name>.impl.js` name must not make the other batch look rendered
+        (data_dir / "2026-05-01-with-data.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-02-without-data.impl.js").write_text("window.CFQ_DATA = {};")
+
+        rows = {r["batch"]: r for r in self.json_out(self.run_cfq(
+            "report", "index", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ))}
+        with_data, without_data = rows["2026-05-01-with-data"], rows["2026-05-02-without-data"]
+        self.assertTrue(with_data["rendered"])
+        self.assertTrue(with_data["href"].endswith("/index.html#/batch/2026-05-01-with-data"), with_data["href"])
+        self.assertFalse(without_data["rendered"])
+        self.assertEqual(without_data["href"], "")
 
     def test_date_is_the_phase_finish_not_the_batch_start(self):
         self._batch(
@@ -1006,75 +1078,6 @@ class TestDerivations(unittest.TestCase):
         self.assertEqual(cfq_report.fmt_int(0), "0")
         self.assertEqual(cfq_report.fmt_int(None), "–")
         self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
-
-
-# ---- cfq_lib.markdown's base subset (the renderer batch 040 phase 01 split out of this module)
-# -- still live, used by cfq_portal.py's pre-rendered phase-file/queue-entry bodies. Pure
-# functions over literal strings, no files, no project-specific nouns. `MarkdownExtensionTest` in
-# tests/test_portal.py covers the extensions cfq_portal.py added on top (keep_h1, ordered lists);
-# this class covers the base subset this module used to render itself.
-
-class TestMarkdownSubset(unittest.TestCase):
-    # -- md_min: routine / structural cases --------------------------------------------------
-
-    def test_routine_heading_paragraph_and_list(self):
-        out = cfq_lib_markdown.md_min(
-            "## Heading\n\nA paragraph.\n\n- one\n- two\n- three\n"
-        )
-        self.assertIn("<h3>Heading</h3>", out)
-        self.assertIn("<p>A paragraph.</p>", out)
-        self.assertEqual(out.count("<li>"), 3)
-        self.assertIn("<li>one</li>", out)
-        self.assertIn("<li>two</li>", out)
-        self.assertIn("<li>three</li>", out)
-
-    def test_wrapped_bullet_continuation_stays_one_li_not_a_paragraph(self):
-        out = cfq_lib_markdown.md_min("- first line of the item\n  wraps onto this line\n")
-        self.assertEqual(out.count("<li>"), 1)
-        self.assertNotIn("<p>", out)
-        self.assertIn("<li>first line of the item wraps onto this line</li>", out)
-
-    # -- md_inline -----------------------------------------------------------------------------
-
-    def test_inline_bold_and_code(self):
-        self.assertEqual(cfq_lib_markdown.md_inline("**bold**"), "<strong>bold</strong>")
-        self.assertEqual(cfq_lib_markdown.md_inline("`code`"), "<code>code</code>")
-
-    def test_inline_backtick_span_wins_over_bold_inside_it(self):
-        out = cfq_lib_markdown.md_inline("`a **b** c`")
-        self.assertNotIn("<strong>", out)
-        self.assertEqual(out, "<code>a **b** c</code>")
-
-    # -- escaping --------------------------------------------------------------------------------
-
-    def test_escaping_happens_before_this_function_is_reached(self):
-        # md_min escapes each emitted value itself (via esc()) -- feeding it raw HTML must come
-        # out neutralised, never as a literal live tag.
-        out = cfq_lib_markdown.md_min("A line with <script>alert(1)</script> in it.")
-        self.assertIn("&lt;script&gt;", out)
-        self.assertNotIn("<script", out)
-
-    # -- edge cases ------------------------------------------------------------------------------
-
-    def test_empty_string_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min(""), "")
-
-    def test_only_blank_lines_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min("\n\n\n"), "")
-
-    def test_single_hash_title_alone_is_skipped_entirely(self):
-        out = cfq_lib_markdown.md_min("# Batch Context\n")
-        self.assertEqual(out, "")
-
-    # -- fall-through: outside the documented subset ------------------------------------------
-
-    def test_blockquote_and_table_line_fall_back_to_paragraph_text(self):
-        out = cfq_lib_markdown.md_min("> a quote\n\n| a | table |\n")
-        self.assertNotIn("<blockquote", out)
-        self.assertNotIn("<table", out)
-        self.assertIn("<p>", out)
-        self.assertIn("&gt; a quote", out)
-        self.assertIn("| a | table |", out)
 
 
 if __name__ == "__main__":

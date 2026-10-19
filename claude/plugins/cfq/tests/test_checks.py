@@ -259,6 +259,60 @@ x
             f"clean batch missing depends warning: {out}",
         )
 
+    def _changes_steps_batch(self, repo, changes, with_changes_heading=True):
+        qdir = self._repos_dir / repo / ".claude" / "cfq"
+        qdir.mkdir(parents=True)
+        target = self._repos_dir / f"{repo}-target"
+        target.touch()
+        batch = qdir / "2026-01-02-steps"
+        batch.mkdir()
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        changes_block = f"## Changes\n{changes}\n" if with_changes_heading else ""
+        self._write(batch / "01-a.md", f"""# Phase A
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+{changes_block}## Verification
+`bash tests/foo.sh` must exit 0
+""")
+        return batch
+
+    def test_changes_numbered_steps_lint_clean(self):
+        batch = self._changes_steps_batch("stepsrepo1", "1. Do the first thing.\n2. Do the second.")
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        self.assertIsNotNone(re.search(r"^OK 1 phases$", out, re.MULTILINE), out)
+        self.assertNotIn("changes-steps", out)
+
+    def test_changes_prose_only_warns_but_exits_zero(self):
+        batch = self._changes_steps_batch("stepsrepo2", "x")
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        self.assertIsNotNone(re.search(r"^OK 1 phases$", out, re.MULTILINE), out)
+        self.assertEqual(
+            out.count("warn: 01-a.md: changes-steps: Changes has no numbered top-level step"), 1, out
+        )
+
+    def test_changes_step_only_inside_fence_warns(self):
+        batch = self._changes_steps_batch("stepsrepo3", "```\n1. Not a real step.\n```")
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        self.assertIn("warn: 01-a.md: changes-steps: Changes has no numbered top-level step", out)
+
+    def test_missing_changes_heading_has_no_changes_steps_warning(self):
+        batch = self._changes_steps_batch("stepsrepo4", "", with_changes_heading=False)
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 1, out)
+        self.assertIn("01-a.md: sections: missing Changes heading", out)
+        self.assertNotIn("changes-steps", out)
+
     def test_new_marker_on_existing_path_fires_stale_new(self):
         qdir = self._repos_dir / "lintrepo3" / ".claude" / "cfq"
         qdir.mkdir(parents=True)

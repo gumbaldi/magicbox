@@ -13,6 +13,25 @@ builds, or commits, even when a plan-mode approval or an autonomous/auto-run mod
 let it. Overlapping open batches get an automatic `.dependsOn`; any fixable security or maintenance
 finding becomes a `plan/` entry for a later session, never a question.
 
+### Reviewing and editing the plan
+
+Before a batch is released, `/pfq` prints a digest of the whole plan — the batch context and, per
+phase, its context, affected files, change steps and verification command — and asks whether to
+release it, request changes, edit the files yourself, or discard it. The batch stays held until
+you answer.
+
+The plan lives at `<repo>/.claude/cfq/impl/<batch>/NN-<slug>.md` plus `.batch-context.md`, plain
+Markdown; the same plan is readable in the report portal. You may edit these files by hand, at the
+gate and afterwards, until `/ifq` starts the phase; `/ifq` lints the batch again at its start.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review   # print the plan digest again
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"             # check your edits
+```
+
+A review that was never answered keeps the batch held, with no time limit; the next `/pfq`
+offers to resume it, and `bin/cfq batch ready "<batch-dir>"` releases it without a review.
+
 Configurable (see [configuration.md](configuration.md#settings-reference)): `planModels`,
 `planExploreModel`, `planExploreModelComplex`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `usePonytailAudit`, `planBlockedPlugins`.
@@ -27,7 +46,8 @@ Works off one batch from the current repo's queue, phase by phase, committing an
 green phase. Gates hard on the running model — `implModels`, or `orchestratorModels` when
 orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
 rather than warns. Shows the batch overview and the full queue and asks — start or cancel, plus
-pick a different batch when another one is selectable — before touching anything. By default
+pick a different batch when another one is selectable — before touching anything. The overview
+shows the full batch context, and each phase announcement lists the phase's change steps. By default
 (`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
@@ -75,8 +95,10 @@ Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.m
 ## Reports — `/rfq`
 
 Read-only: surfaces what `/ifq` already did — a compact terminal table across all repos, or the
-detailed HTML report for one batch (which phases went green or red, where the implementation
-departed from the plan, what broke, telemetry). Never writes anything.
+report portal's page for one batch. The portal (`<repo>/.claude/cfq/reports/index.html`) shows
+every batch with its phases, deviations, flags and cost in turns and tokens per model, plus the
+open and closed todo cards and plan-inbox entries; the README's
+[Report portal](../README.md#report-portal) section describes each view. Never writes anything.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,
 `reportDir`.

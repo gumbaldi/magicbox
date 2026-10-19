@@ -2,9 +2,12 @@
 second-caller module for cfq_scan.py and cfq_queue_overlap.py (both enumerate batch directories
 and apply the same batch-name predicate). Directory enumeration, the batch-name predicate and
 marker-file reading only -- no formatting, no ranking, no report logic; those stay in the callers.
-Marker files read here: `.priority`, `.dependsOn`, `.batch-context.md`.
+Marker files read here: `.priority`, `.dependsOn`, `.batch-context.md`, `.review` (the review-gate
+snapshot, see `read_review`/`review_snapshot`).
 """
 
+import hashlib
+import json
 import re
 
 BATCH_NAME_RE = re.compile(r"^([0-9]+-)?[0-9]{4}-[0-9]{2}-[0-9]{2}-.+")
@@ -61,6 +64,32 @@ def read_section_full(batch_dir, heading, sep=" "):
     return body if body else None
 
 
+def read_section_lines(batch_dir, heading):
+    """The raw lines of `.batch-context.md`'s `## <heading>` section (heading line excluded, stops
+    at the next `## `), leading and trailing blank lines stripped -- bullets and paragraph breaks
+    intact, unlike `read_section_full`'s flattened join. None if the file, the heading or any
+    non-blank content is missing."""
+    f = batch_dir / ".batch-context.md"
+    if not f.is_file():
+        return None
+    lines = []
+    in_section = False
+    marker = f"## {heading}"
+    for line in f.read_text().splitlines():
+        if line.strip() == marker:
+            in_section = True
+            continue
+        if in_section and line.startswith("## "):
+            break
+        if in_section:
+            lines.append(line.rstrip())
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines or None
+
+
 def read_goal_full(batch_dir):
     """The batch's whole `## Goal` section body from `.batch-context.md`, its non-empty lines
     joined by single spaces -- unwrapped and untruncated, unlike `read_goal` below. None if the
@@ -93,3 +122,24 @@ def read_depends(batch_dir):
         if line:
             deps.append(line)
     return deps
+
+
+def review_snapshot(batch_dir):
+    """`{name: sha256-hex}` for every open `[0-9][0-9]-*.md` directly in the batch directory plus
+    `.batch-context.md` when it exists -- the content the review gate has shown the user."""
+    names = sorted(p.name for p in batch_dir.glob("[0-9][0-9]-*.md") if p.is_file())
+    if (batch_dir / ".batch-context.md").is_file():
+        names.append(".batch-context.md")
+    return {n: hashlib.sha256((batch_dir / n).read_bytes()).hexdigest() for n in names}
+
+
+def read_review(batch_dir):
+    """The parsed `.review` marker JSON, or None when the file is missing or not valid JSON."""
+    f = batch_dir / ".review"
+    if not f.is_file():
+        return None
+    try:
+        data = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None

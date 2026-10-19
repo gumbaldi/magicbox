@@ -227,21 +227,24 @@ def cmd_finish(args):
             fin_out = capture(fin_proc)
             if fin_proc.returncode == 0:
                 changelog = f"{batch_dir.name} done · {phases} phases"
-                status_out = git(repo_root, "status", "--porcelain", "--", changelog_file).stdout
-                if status_out.strip():
-                    ok = (
-                        git(repo_root, "add", changelog_file).returncode == 0
-                        and git(
-                            repo_root, "commit", "-q",
-                            "-m", f"Mark {branch} batch done in the changelog",
-                            "-m", "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>",
-                        ).returncode == 0
-                        and git(repo_root, "push", "-q").returncode == 0
+                msg = (
+                    f"Mark {branch} batch done in the changelog\n\n"
+                    "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+                )
+                commit_proc = cfq_run("changelog", "commit", str(repo_root), msg)
+                result = capture(commit_proc)
+                if commit_proc.returncode != 0:
+                    add_error("changelog", f"git commit of {changelog_file} failed: {commit_proc.stderr.strip() or result}")
+                elif result in ("committed", "forced"):
+                    pushed = (
+                        git(repo_root, "push", "-q").returncode == 0
+                        or git(repo_root, "push", "-q", "-u", "origin", branch).returncode == 0
                     )
-                    if ok:
-                        changelog = f"{changelog} · committed"
+                    if pushed:
+                        suffix = "force-added (ignored by repo) · committed" if result == "forced" else "committed"
+                        changelog = f"{changelog} · {suffix}"
                     else:
-                        add_error("changelog", f"git commit/push of {changelog_file} failed")
+                        add_error("changelog", f"git push of {changelog_file} failed")
             else:
                 add_error("changelog", fin_out)
                 changelog = "error"
@@ -252,6 +255,20 @@ def cmd_finish(args):
             add_error("telemetry", telemetry)
 
         html_report = capture(cfq_run("settings", "get", "--repo", str(repo_root), "htmlReport"))
+        if report_path.is_file():
+            try:
+                data = json.loads(report_path.read_text())
+                data["finish"] = {
+                    "at": render.now_iso(),
+                    "lang": {"issues": lang_json["issues"], "findings": lang_json["findings"]},
+                    "maintenance": maintenance,
+                    "security": {"planning": planning_json, "now": now_json, "new": new_json},
+                    "changelog": changelog,
+                    "errors": list(errs),
+                }
+                render.write_json(str(report_path), data)
+            except (OSError, ValueError, TypeError, AttributeError) as exc:
+                add_error("report", f"could not persist the finish result: {exc}")
         portal_hook.sync(str(repo_root), batches=[batch_dir.name])
 
         status_lines = [

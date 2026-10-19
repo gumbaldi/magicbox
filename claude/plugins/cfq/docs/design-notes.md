@@ -131,7 +131,7 @@ The retired per-batch design (`bin/cfq report html` writing a standalone `<batch
 second hand-rolled `index.html` listing them) meant every batch re-rendered its own copy of the
 same header/table/section markup, and the "collected tree" (`reportDir`) and "repo-local" layouts
 were two separately maintained code paths generating two different HTML shapes for the same data.
-Splitting the page in two — one fixed viewer shell (`portal/index.html`, `viewer.js`, `style.css`,
+Splitting the page in two — one fixed viewer shell (`portal/index.html`, the `portal/*.js` scripts, `style.css`,
 installed once per `reports/` root and version-stamped so a resync only recopies it when the
 plugin's own version moved on) plus one plain data file per batch/entry — means a plan edit, a new
 phase result, or a closed `todo/` card each touch exactly one small file, the shell never
@@ -146,3 +146,87 @@ just opening a path from a file manager or `/rfq`'s own printed URL. A `<script 
 no such restriction, so each data file registers its payload on `window.CFQ_DATA["<key>"]` as a
 side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
 a request for it.
+
+## pfq: why the plan review gate exists
+
+A user saw only a truncated overview after `/pfq` had already released the batch, so they could
+not judge the plan and did not know the plan files were plain Markdown they could edit. The gate
+turns that around: `/pfq` prints a digest of the whole plan and holds the batch until the user
+answers. It sits after the files are written and linted, not before, so what is shown is
+byte-for-byte what `/ifq` will read and nothing is generated twice.
+
+The gate has no off switch and no display-only mode — decided in the interview; adding one later
+is a single schema entry. A `.review` marker has no staleness window, unlike `.planning`: a
+`.planning` marker guards a session that may have crashed mid-write, so it expires, while an
+unanswered review is a plan that is complete and waiting for a human, and expiring it would
+release a batch nobody approved.
+
+## pfq: why `changes-steps` is a warning, not a finding
+
+`/ifq`'s Lint Gate ends the session on a finding, so making the numbered-steps rule a finding
+would lock out every batch parked before the rule existed. The lint reports it as `warn:`, and
+the digest falls back to a minimal rendering for such a batch.
+
+The digest reads `## Changes` instead of a separate summary section on purpose: a second text
+describing the change could drift from the instructions the implementer actually follows, whereas
+the steps shown at the gate are the steps `/ifq` executes.
+
+## cfq: why usage is counted per `message.id`
+
+Claude Code writes one transcript line per content block of an API response, and every one of
+those lines repeats that response's `usage`. Summing per line counted a response with a thinking
+block, a text block and two tool calls four times, which made every recorded number roughly twice
+too high. A turn is one response, so lines are collapsed to one entry per `message.id` before
+anything is summed.
+
+## cfq: why sub-agents are attributed through `toolUseId`, not a time window
+
+A phase's worker runs inside the window between two records, but so does anything else that
+happens in that window — a worker whose session spans a record boundary was either counted twice
+or clipped, and a worker that outlived the commit by its closing message fell outside. The spawning
+`Agent` tool call is an exact link: its id is written to the sub-agent's own `meta.json`, and the
+call sits in exactly one record's span. A time window stays only as the fallback for a sub-agent
+without a usable link.
+
+## cfq: why settling happens on the next cfq mutation, not in a session-end hook
+
+A record is written at commit time, and the session keeps producing turns after it (the worker's
+closing message, the orchestrator's summary), so the first numbers are always a little low. A
+session-end hook would fix that, but it is a new hook class: another place that can fail, that
+every installation must wire up, and that does not fire when a session is killed. Settling on the
+next mutating cfq verb in the repo needs no new wiring and happens in every case where the queue is
+used again. The cost is that a record stays provisional until then, which the portal shows as such.
+
+## cfq: why cost has no price table
+
+Prices change, differ per plan and per cache tier, and a stale table makes a confident wrong
+number. Turns and tokens per model are facts read off the transcript, comparable across batches, and
+enough to see where a batch spent its effort. A currency figure would add a claim cfq cannot keep
+correct.
+
+## cfq: why flags are computed in Python with constant thresholds
+
+The portal's flags (`warn`, `info`) are a property of the data, not of the viewer: computing them in
+`cfq_lib/flags.py` makes them deterministic, testable without a browser and free of model tokens,
+and lets the overview and the batch page agree by construction. The thresholds are constants, not
+settings, because a setting nobody tunes is one more thing to document, migrate and keep
+consistent; a threshold that proves wrong is a one-line change with a test.
+
+## cfq: why old-count telemetry was deleted rather than migrated or marked
+
+Records written before per-response counting are wrong by about a factor of two, and the transcripts
+needed to recompute them are often gone. Migrating would have produced numbers that look exact and
+are not; marking them would have meant a special case in the portal, the flags and every
+aggregate for data that will never be correct. Deleting them once, with a one-off command that is
+not part of the plugin, keeps every reader free of a legacy branch. The files are git-ignored, so
+the deletion cannot be undone, which was accepted.
+
+## cfq: why the portal writes one file per batch and derives every path from its key
+
+A batch page needs its plan, results, cost and notes; one file per batch means a phase commit
+rewrites one file and the viewer loads only what the route needs. The path is the payload's
+`window.CFQ_DATA` key plus `.js`, with no lookup table in between: the data layer, the viewer, the
+`reportDir` mirror and the tests all compute it the same way, so a path that disagrees with its key
+is a bug a test finds, not a mapping somebody forgot to update. The earlier mismatch — the viewer
+loading a nested `batch/<name>/…` path while the writer produced a dotted file name beside it —
+left every batch page empty.

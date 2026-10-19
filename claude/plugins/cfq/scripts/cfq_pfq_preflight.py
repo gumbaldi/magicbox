@@ -10,7 +10,8 @@ finding counts, which need a network round-trip.
 Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
 addition (batch 037 phase 03's `inbox` object, batch 044 phase 07's `inbox.detail` field -- the
 per-entry excerpt block from `note list --detail`, alongside the existing `.count`/`.imported`/
-`.overview`) is not a break of that rule, only a removal or rename would be.
+`.overview`; batch 049 phase 04's `queue.awaitingReview` list and `Review` status line) is not a
+break of that rule, only a removal or rename would be.
 """
 
 import argparse
@@ -68,6 +69,18 @@ def inbox_line(count, imported):
     return text.status_entry("Inbox", icon, detail)
 
 
+def review_line(awaiting):
+    """The `Review` status line -- a batch held at the plan review gate (`.review` marker) is
+    reported by every `/pfq` session so a forgotten review cannot go unnoticed."""
+    if not awaiting:
+        return text.status_entry("Review", "skip", "none waiting")
+    n = len(awaiting)
+    noun = "batch" if n == 1 else "batches"
+    return text.status_entry(
+        "Review", "warn", f"{n} {noun} awaiting review", sub=[b["name"] for b in awaiting],
+    )
+
+
 def cmd_preflight(args):
     repo = args.repo_root
 
@@ -87,6 +100,7 @@ def cmd_preflight(args):
 
     scan_data = json.loads(cfq_run("scan").stdout)
     batches = []
+    awaiting = []
     for r in scan_data.get("repos", []):
         if r.get("path") != repo:
             continue
@@ -96,6 +110,8 @@ def cmd_preflight(args):
                     "name": b["name"], "priority": b["priority"], "open": b["open"],
                     "dependsOn": b["dependsOn"],
                 })
+            if not b.get("archived") and b.get("review"):
+                awaiting.append({"name": b["name"], "open": b["open"]})
 
     maint_raw = cfq_run("maintenance", "due", repo).stdout.split()
     maint_status = maint_raw[0] if maint_raw else ""
@@ -128,7 +144,7 @@ def cmd_preflight(args):
             "docLanguages": settings["docLanguages"],
             "docLevel": settings["docLevel"],
         },
-        "queue": {"openBatches": batches},
+        "queue": {"openBatches": batches, "awaitingReview": awaiting},
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
@@ -139,6 +155,7 @@ def cmd_preflight(args):
         "statusLines": [
             model_check_line(settings["allowAnyModel"]),
             inbox_line(inbox_n, imported_n),
+            review_line(awaiting),
             plugin_boundaries_line(settings["planBlockedPlugins"]),
         ],
     }))

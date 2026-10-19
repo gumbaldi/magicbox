@@ -23,7 +23,10 @@ that, only exceptional cases still ask; everything routine gets decided and repo
 a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, one call; on an
 unknown repo, the repo setup wizard's own area/value questions run first, before that call),
 grilling rounds, closing question, self-critique's
-drop-a-phase/remove-a-named-capability question; `ifq`: start gate (start/cancel, plus pick a
+drop-a-phase/remove-a-named-capability question, the review gate (release / request changes / edit
+myself / discard, repeated after each revision) and the resume question for a waiting review (both
+in `<plugin-root>/references/plan-review.md`) — "I'll edit the files myself" ends the turn and is
+not a waiting question; `ifq`: start gate (start/cancel, plus pick a
 different batch when another one is selectable, per
 `<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by the `resume`/`start`
 keywords), scope-creep parking, branch base (every new batch branch, plus

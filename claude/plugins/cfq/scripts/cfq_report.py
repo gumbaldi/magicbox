@@ -127,6 +127,10 @@ def append_phase(dir_, phase_json, record_telemetry=True):
             phase_id = v
     if not PHASE_ID_RE.match(phase_id):
         errors.die(f"{PROG} append: phase must be the full phase slug (NN-slug), got '{phase_id}'")
+    obs = phase_obj.get("observations")
+    if "observations" in phase_obj and not (
+            isinstance(obs, list) and all(isinstance(o, str) for o in obs)):
+        errors.die(f"{PROG} append: observations must be a list of strings, got {obs!r}")
 
     f = os.path.join(dir_, "report.json")
     ensure_report(dir_)
@@ -160,10 +164,10 @@ def cmd_security(args):
     render.write_json(f, data)
 
 
-def set_commit(dir_, phase_slug, sha):
+def set_commit(dir_, phase_slug, sha, diffstat=None):
     """Backfills the `commit` field of `phase_slug`'s most recent report.json entry -- factored
     out so `cfq_phase.py commit` can call it directly as part of its own transaction instead of
-    shelling back out to this script."""
+    shelling back out to this script. A non-None `diffstat` lands in the same write."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
     f = os.path.join(dir_, "report.json")
@@ -178,6 +182,8 @@ def set_commit(dir_, phase_slug, sha):
             "the full phase slug (NN-slug), not the bare number"
         )
     phases[matches[-1]]["commit"] = sha
+    if diffstat is not None:
+        phases[matches[-1]]["diffstat"] = diffstat
     render.write_json(f, data)
 
 
@@ -592,12 +598,11 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_turns.append(_totals_field(totals, "turns"))
             phase_billable_in.append(_totals_field(totals, "billable_in"))
 
-        # Batch 040 phase 05: `rendered` means "the portal has this batch's data" -- checked
-        # directly against the one file `portal sync` writes for a batch with a report.json
-        # (`build_impl_payload`) -- rather than "an HTML file was rendered", which no longer
-        # exists as a concept. `href` is the batch's portal route when rendered, "" otherwise, same
+        # `rendered` means "the portal has this batch's data" -- checked directly against the one
+        # file `portal sync` writes for a batch (`data/batch/<name>.js`, also for a batch without a
+        # report.json). `href` is the batch's portal route when rendered, "" otherwise, same
         # empty-string contract `row_html`/`_index_group_lines` already relied on.
-        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.impl.js")
+        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.js")
         rendered = impl_data.is_file()
         href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
 
@@ -729,6 +734,7 @@ def cmd_detail(args):
             "status": p.get("status"),
             "summary": phase_summary(p),
             "deviations": render.jq_alt(p.get("deviations"), []),
+            "observations": render.jq_alt(p.get("observations"), []),
             "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
             "commit": render.jq_alt(p.get("commit"), ""),

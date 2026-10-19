@@ -50,11 +50,14 @@ back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is show
 with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — one sentence, no more.
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
-step) — is never offered either, separately from the `dependsOn` wait list: for every name in
-`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes. If no
-`/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"` clears the marker;
-otherwise it becomes selectable on its own once the marker is older than `sessionStaleSeconds`."
-One line per such batch, no more.
+step) — is never offered either, separately from the `dependsOn` wait list. For every name in
+`selection.review` (a batch held at its plan review gate, always also in `selection.planning`):
+"Batch `<name>` is waiting for its plan review — run `/pfq` to continue the review, or release it
+unreviewed with `bin/cfq batch ready "<batch-dir>"`." It never becomes selectable on its own. For
+every other name in `selection.planning`: "Batch `<name>` is still being planned — try again once
+`/pfq` finishes. If no `/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"`
+clears the marker; otherwise it becomes selectable on its own once the marker is older than
+`sessionStaleSeconds`." One line per such batch, no more.
 
 **In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`
 non-empty) means more than one batch violates the one-in-progress-batch-per-repo invariant: **stop
@@ -72,7 +75,7 @@ has more than one entry, the preflight already picked `selection.selectable[0]` 
 flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
 for it, no question. Arguments naming a specific batch re-run the preflight with `--select <batch>`
 instead of taking the ordered default. `status: "SELECT_UNAVAILABLE"` means the named batch isn't
-selectable (blocked, still planning, or unknown) — report why, from `selection`, and end; never
+selectable (blocked, still planning, awaiting review, or unknown) — report why, from `selection`, and end; never
 falls back to the ordered default. **Never two batches in the same session**, not even once the
 first finishes and context is still free — different plans belong in separate context windows.
 
@@ -81,7 +84,7 @@ first finishes and context is still free — different plans belong in separate 
 `nextPhase: null` here means every phase already moved to `done/` but `bin/cfq finish` never ran —
 **Batch Briefing** still acquires the lock and resolves the branch as usual, then skips ahead
 straight to **Batch Done**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
-selectable) → report why, from `selection` (blocked / still planning / not found), end — never
+selectable) → report why, from `selection` (blocked / still planning / awaiting review / not found), end — never
 falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
 `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
 
@@ -102,13 +105,15 @@ incomplete plan is worth showing, not worth aborting over. The `goal:` line is t
 shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
 with no `goal:` line.
 
-`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
-later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
-count with done/red breakdown, the wrapped `## Goal` paragraph, an optional wrapped
-`.batch-context.md` `## Decisions` excerpt, then the phase table with a `done`/`open`/`red` status
-column, each row followed by that phase's own `## Context` excerpt, and a closing `Plans` line
-naming the batch directory so a hand edit knows exactly where to reach in. `--with-done` stays
-exactly as described above for any caller that still wants the old flat listing.
+`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders — the
+aligned-monospace batch-overview block: header, phase count with done/red breakdown, the labelled,
+untruncated `.batch-context.md` block (`Goal`, `Decisions`, `Invariants`, `Cross-Phase Contracts`,
+`Non-Goals`, each only when present), then the phase table with a `done`/`open`/`red` status
+column, each row followed by that phase's own `## Context` excerpt and a `→ <file>` pointer
+(`done/<file>` for a finished phase), a closing `Plans` line naming the batch directory so a hand
+edit knows exactly where to reach in, and a `Portal` line when the report portal is on.
+`--with-done` stays exactly as described above for any caller that still wants the old flat
+listing.
 
 ## Briefing Warnings
 
@@ -263,7 +268,7 @@ on `mode` to read any of the three.
   question minus the push option — `remoteWarning` explains why a push would be rejected.
   **`synced`**/**`unknown`** → plain `git checkout "<branch>"`, no question. Either way, don't write
   a new changelog entry — the batch is already recorded; only the stash/commit sequence above may
-  touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
+  touch the file's contents. The commit result (`committed`/`clean`/`forced`/`off`, or `➖ no
   changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
   the `new` path.
 - **`new`** → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question
@@ -324,7 +329,7 @@ never call it again, the preflight's answer already stands. Its `dirty`/`changel
 this whole path: `dirty: true` (uncommitted changes other than the changelog file) → error, report
 and end without touching anything; `changelogDirty` alone is expected here — it is exactly the pfq
 reservation this section's `changelog commit` call above just cleared, so a second re-run reports
-`changelogDirty: false` too. The commit result (`committed`/`clean`/`ignored`/`off`) is rendered as
+`changelogDirty: false` too. The commit result (`committed`/`clean`/`forced`/`off`; `forced` means the repo's own ignore rule covered the changelog and cfq tracked it anyway) is rendered as
 an indented `   └ ` sub-line under the `Branch` status line, per **Output Format**'s sub-information
 rule.
 

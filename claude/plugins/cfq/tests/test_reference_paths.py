@@ -189,7 +189,7 @@ def check_start_gate_and_overview_mentioned(root):
     fails = []
     checks = (
         (root / "skills" / "implement-for-queue" / "SKILL.md", "Start Gate"),
-        (root / "skills" / "plan-for-queue" / "SKILL.md", "--overview"),
+        (root / "skills" / "plan-for-queue" / "SKILL.md", "--review"),
     )
     for f, needle in checks:
         if not f.is_file():
@@ -413,7 +413,7 @@ class ReferencePathsTest(CfqTestCase):
             "no pointer to the gate here\n"
         )
         (tmp / "skills" / "plan-for-queue" / "SKILL.md").write_text(
-            "no pointer to the overview call here\n"
+            "no pointer to the review call here\n"
         )
 
         out = check_start_gate_and_overview_mentioned(tmp)
@@ -426,7 +426,7 @@ class ReferencePathsTest(CfqTestCase):
         self.assertIn(
             "plan-for-queue",
             joined,
-            msg="check 9 self-test did not catch a missing --overview mention",
+            msg="check 9 self-test did not catch a missing --review mention",
         )
 
         good = self._repos_dir / "f9-good"
@@ -436,7 +436,7 @@ class ReferencePathsTest(CfqTestCase):
             "read ...ifq-batch-start.md's **Start Gate** section...\n"
         )
         (good / "skills" / "plan-for-queue" / "SKILL.md").write_text(
-            'print `bin/cfq brief "<batch-dir>" --overview` as returned...\n'
+            'print `bin/cfq brief "<batch-dir>" --review` as returned...\n'
         )
         out = check_start_gate_and_overview_mentioned(good)
         self.assertEqual(

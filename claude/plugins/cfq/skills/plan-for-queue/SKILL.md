@@ -50,11 +50,14 @@ re-derive or re-run `bin/cfq settings`/`scan`/`registry`/`maintenance`/`note` fo
 already carries — its own `note import`/`note list --overview`/`note list --detail` calls already
 produced `inbox.count`/`.imported`/`.overview`/`.detail`. Print `Inbox` as returned, then
 `inbox.overview` verbatim right after it — always, with or without arguments, zero entries included
-(`INBOX  empty`). Arguments were passed with the invocation (**Arguments**) → don't open the inbox
+(`INBOX  empty`), then the preflight's `Review` status line as returned. Arguments were passed with the invocation (**Arguments**) → don't open the inbox
 question regardless of entry count; plan the arguments, leave every inbox entry untouched, but when
 those arguments refer to or ask about inbox entries, print `inbox.detail` right after
 `inbox.overview` first. No arguments and `inbox.count == 0` → nothing further here. No arguments and
 `inbox.count > 0` → read `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it.
+`queue.awaitingReview` non-empty and no arguments → first read
+`${CLAUDE_PLUGIN_ROOT}/references/plan-review.md`'s **Resuming a Review** and follow it, before the
+inbox question.
 
 ## Step 4 — Start Block (unconditional, always, before anything else)
 
@@ -144,13 +147,9 @@ Always runs, regardless of `security.available` — mechanics in
 (body on stdin, never a temp file) — never a question, never a phase. Store the snapshot:
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
-## Step 13 — New Repo: Repo Setup Wizard
+## Step 13 — Park
 
-Entering this step closes `PLANNING` and opens `POSTCHECKS`. Already handled in **Start Block** —
-nothing to read here, straight to **Park**.
-
-## Step 14 — Park
-
+Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`
 (repo root: **Start Block**'s `repo.root`, no repeat `git rev-parse`) reserves and returns
 `<batch-dir-name>`; write `NN-<slug>.md` per phase into it — mechanics in
@@ -163,22 +162,30 @@ moves into `plan/done/`. Write `<batch-dir>/.batch-context.md` — read
 `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it. Print four status lines
 (wording in **Park Mechanics**): `Park`, `Batch Context`, `Git Exclude`, `Registry`.
 
-## Step 15 — Post-Write Audit
+## Step 14 — Post-Write Audit
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s **The Post-Write Audit** and
 follow it. Print `Phase Audit`: `✅` with the count and `no findings`, or `⚠️` per correction as a `   └ ` sub-line.
 
-## Step 16 — Plan Lint
+## Step 15 — Plan Lint
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"`; fix findings **immediately** and re-run
-until clean — a batch never hands off with open findings. `warn:` lines (an unresolvable
-`.dependsOn` edge) don't block. Once clean, `bin/cfq batch ready "<batch-dir>"` removes `.planning`. Print `Lint` — clean pass, or the fixed finding.
+until clean — a batch never hands off with open findings. `warn: … changes-steps`
+lines are fixed like findings; the other `warn:` lines (an unresolvable `.dependsOn` edge) don't
+block. Print `Lint` — clean pass, or the fixed finding.
 
-## Step 17 — Maintenance
+## Step 16 — Maintenance
 
 Read `maintenance.status`/`.n` from **Start Block**'s preflight result (no new call). `OFF`/`NOT_DUE`
 → print `Maintenance`, move on. `DUE` → read `${CLAUDE_PLUGIN_ROOT}/references/maintenance.md` and
 follow it — findings are parked as a `plan/` entry, never a question.
+
+## Step 17 — Review Gate
+
+Entering this step closes `POSTCHECKS` and opens `REVIEW`. Read
+`${CLAUDE_PLUGIN_ROOT}/references/plan-review.md` and follow it — the batch stays held until the
+user releases it; print `bin/cfq brief "<batch-dir>" --review` as returned, ask, revise, repeat.
+Print `Review`.
 
 ## Step 18 — Telemetry and Sync
 
@@ -188,5 +195,4 @@ the final report. Print `Telemetry`.
 
 ## Step 19 — Final Report
 
-Print `bin/cfq brief "<batch-dir>" --overview` as returned, then a `RESULT · plan-for-queue`
-header — field list in `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**.
+A `RESULT · plan-for-queue` header only — field list in `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**.

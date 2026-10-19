@@ -112,6 +112,37 @@ def _git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
+QUEUE_PREFIX = ".claude/cfq/"
+
+
+def commit_diffstat(repo_root, sha):
+    """The commit's changed files with added/deleted line counts, straight from `git show
+    --numstat` (renames split into a deletion and an addition, queue files left out). A binary
+    file carries `None` counts and is not summed. Returns None when git fails -- the diffstat is a
+    nicety that must never stop a phase from closing."""
+    proc = _git(repo_root, "show", "--numstat", "--no-renames", "--format=", sha)
+    if proc.returncode != 0:
+        return None
+    paths = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3 or parts[2].startswith(QUEUE_PREFIX):
+            continue
+        added, deleted, path = parts
+        paths.append({
+            "path": path,
+            "added": None if added == "-" else int(added),
+            "deleted": None if deleted == "-" else int(deleted),
+        })
+    paths.sort(key=lambda p: p["path"])
+    return {
+        "files": len(paths),
+        "insertions": sum(p["added"] or 0 for p in paths),
+        "deletions": sum(p["deleted"] or 0 for p in paths),
+        "paths": paths,
+    }
+
+
 def _last_stderr_line(stderr):
     lines = [line for line in stderr.splitlines() if line.strip()]
     for line in lines:
@@ -190,7 +221,7 @@ def cmd_commit(args):
         sys.exit(1)
 
     sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
-    cfq_report.set_commit(dir_, phase_id, sha)
+    cfq_report.set_commit(dir_, phase_id, sha, diffstat=commit_diffstat(repo_root, sha))
 
     branch = _git(repo_root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     upstream = _git(repo_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")

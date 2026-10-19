@@ -3,9 +3,14 @@ replace the improvised "move the file, then remember to call report append" sequ
 additionally folds in the phase's own Git commit, push, SHA backfill and registry add.
 """
 
+import argparse
+import contextlib
+import io
 import json
+import os
 import pathlib
 import unittest
+from unittest import mock
 
 from cfq_testlib import CfqTestCase
 
@@ -308,6 +313,114 @@ class TestPhase(CfqTestCase):
 
         registered = self.run_cfq("registry", "list").stdout
         self.assertIn(str(repo), registered, "repo should be registered by phase commit")
+
+    def _commit_phase_diffstat(self, repo, batch, stage):
+        """Runs `stage()` to stage a change, commits phase 01-a through `phase commit` and returns
+        the recorded entry."""
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        stage()
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc)["status"], "OK")
+        return self._report_json(batch)["phases"][0]
+
+    def test_commit_records_diffstat_for_modified_and_added_files(self):
+        repo, batch = self._git_batch("ds-repo", "043-2026-03-01-diffstat")
+        (repo / "old.txt").write_text("a\nb\nc\nd\n")
+        self.run_clean("git", "add", "old.txt", cwd=repo)
+        self.run_clean("git", "commit", "-q", "-m", "base", cwd=repo)
+
+        def stage():
+            (repo / "old.txt").write_text("a\nX\nY\nZ\nc\nd\n")  # +3 / -1 (b replaced by X,Y,Z)
+            (repo / "new.txt").write_text("1\n2\n3\n4\n5\n")
+            self.run_clean("git", "add", "old.txt", "new.txt", cwd=repo)
+
+        entry = self._commit_phase_diffstat(repo, batch, stage)
+        self.assertEqual(entry["diffstat"], {
+            "files": 2, "insertions": 8, "deletions": 1,
+            "paths": [
+                {"path": "new.txt", "added": 5, "deleted": 0},
+                {"path": "old.txt", "added": 3, "deleted": 1},
+            ],
+        })
+
+    def test_commit_diffstat_binary_file_has_null_counts(self):
+        repo, batch = self._git_batch("ds-bin-repo", "044-2026-03-01-diffstat")
+
+        def stage():
+            (repo / "blob.bin").write_bytes(b"\x00\x01\x02\xff\x00")
+            (repo / "t.txt").write_text("x\n")
+            self.run_clean("git", "add", "blob.bin", "t.txt", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat["files"], 2)
+        self.assertEqual((stat["insertions"], stat["deletions"]), (1, 0))
+        self.assertIn({"path": "blob.bin", "added": None, "deleted": None}, stat["paths"])
+
+    def test_commit_diffstat_leaves_out_queue_paths(self):
+        repo, batch = self._git_batch("ds-queue-repo", "045-2026-03-01-diffstat")
+
+        def stage():
+            (repo / "keep.txt").write_text("k\n")
+            queue_file = repo / ".claude" / "cfq" / "todo" / "x.md"
+            queue_file.parent.mkdir(parents=True)
+            queue_file.write_text("q\nq\nq\n")
+            self.run_clean("git", "add", "keep.txt", cwd=repo)
+            self.run_clean("git", "add", "-f", ".claude/cfq/todo/x.md", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat, {
+            "files": 1, "insertions": 1, "deletions": 0,
+            "paths": [{"path": "keep.txt", "added": 1, "deleted": 0}],
+        })
+
+    def test_commit_diffstat_rename_is_deletion_plus_addition(self):
+        repo, batch = self._git_batch("ds-rename-repo", "046-2026-03-01-diffstat")
+        (repo / "before.txt").write_text("one\ntwo\nthree\n")
+        self.run_clean("git", "add", "before.txt", cwd=repo)
+        self.run_clean("git", "commit", "-q", "-m", "base", cwd=repo)
+
+        def stage():
+            self.run_clean("git", "mv", "before.txt", "after.txt", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat["paths"], [
+            {"path": "after.txt", "added": 3, "deleted": 0},
+            {"path": "before.txt", "added": 0, "deleted": 3},
+        ])
+        self.assertEqual((stat["files"], stat["insertions"], stat["deletions"]), (2, 3, 3))
+
+    def test_commit_diffstat_helper_returns_none_on_git_failure(self):
+        repo = self._init_repo("ds-fail-repo")
+        self.assertIsNone(cfq_phase.commit_diffstat(str(repo), "0" * 40))
+
+    def test_commit_survives_diffstat_failure(self):
+        repo, batch = self._git_batch("ds-nofail-repo", "047-2026-03-01-diffstat")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        args = argparse.Namespace(
+            dir=str(batch), phase_file=str(pf), message_file=str(self._message_file(batch)),
+        )
+        out = io.StringIO()
+        env = {"HOME": str(self.home), "CFQ_PORTAL_SYNC": "0"}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(cfq_phase, "commit_diffstat", return_value=None), \
+                contextlib.redirect_stdout(out):
+            cfq_phase.cmd_commit(args)
+        self.assertEqual(json.loads(out.getvalue())["status"], "OK")
+        entry = self._report_json(batch)["phases"][0]
+        self.assertTrue(entry["commit"])
+        self.assertNotIn("diffstat", entry)
 
     def _checkout_off_base(self, repo, branch, base="origin/main"):
         self.run_clean("git", "checkout", "-q", "-b", branch, base, cwd=repo)

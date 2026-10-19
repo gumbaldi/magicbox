@@ -25,29 +25,24 @@ several entries (**Inbox**) passes every one of them in the same `park` call.
 
 `.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
 batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
-during this session). Once **Plan Lint** has run `batch ready` and the marker is gone, a later
-`park` call — a correction after that point — leaves it absent and prints an `already ready`
-warning on stderr instead of resurrecting it: re-run `bin/cfq lint` until clean and `batch ready`
-(idempotent) again before **Final Report**.
+during this session). `batch ready` runs at **Review Gate**
+(`<plugin-root>/references/plan-review.md`), not at **Plan Lint**: **Review Gate** replaces
+`.planning` with `.review`, and a `park` call while `.review` exists refreshes nothing and warns
+about nothing. Once `batch ready` has removed the marker, a later `park` call — a correction after
+that point — leaves it absent and prints an `already ready` warning on stderr instead of
+resurrecting it: re-run `bin/cfq lint` until clean and `batch ready` (idempotent) again before
+**Final Report**.
 
 Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
 snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
 ## Final Report Fields
 
-The `RESULT · plan-for-queue` header is preceded by the batch overview block — `bin/cfq brief
-"<batch-dir>" --overview`, printed exactly as returned, no rewording, one blank line between it
-and the header. Above the header, not below: the overview is what the user reads to check the plan
-just written, the `RESULT` list that follows is only the handoff metadata. The block now also
-carries `.batch-context.md`'s `## Decisions` (when present), each phase's own `## Context` excerpt
-under its table row, and a closing `Plans` line naming the batch directory — the same block, still
-printed verbatim; nothing here composes any of that text itself. This is printed at
-**Final Report**, after **Plan Lint** has gone clean — a batch whose lint still has findings is not
-yet the plan the user gets, and the `.planning` marker is only removed once lint passes; the block
-is never printed earlier, at **Park**.
-
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
-`Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when **Start
+`Batch` (absolute path) · `Phases` (in order, each with its size) · `Review` (`released`, with the revision count when above
+zero) · `Edit` (plain Markdown in `Batch`; editable by hand until `/ifq` starts the phase, `/ifq`
+lints again at its start) · `Portal` (the route from the digest's own `Portal` footer line, omit
+when the digest printed none) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first

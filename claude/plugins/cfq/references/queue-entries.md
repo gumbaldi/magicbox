@@ -78,7 +78,9 @@ reason) to the entry and moves it into `plan/done/`, creating that directory if 
 Work found beyond this phase's scope is always parked, never asked about: write a `plan/` entry via
 `note plan "<repo-root>" "<slug>" - <<'EOF' … EOF` (`--framework` for a cfq-itself finding, rule in
 this file's **Plan Entry** section above), noting a decision is still open, and name it in the
-phase summary — both modes, no `AskUserQuestion`, no second attempt.
+phase summary — both modes, no `AskUserQuestion`, no second attempt. While the session holds the
+repo lock, `note plan`/`note todo` record the entry in the running batch's `report.json` on their
+own; pass `--batch <batch-name>` only once the lock is released.
 
 ## Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
 

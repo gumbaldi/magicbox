@@ -514,6 +514,71 @@ class BatchIdTest(CfqTestCase):
         proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
         self.assertIn("already ready", proc.stdout)
 
+    # ---- review (phase 03 of batch 049: `.review` replaces `.planning` at the review gate) ----
+
+    def _review_batch(self, name):
+        repo = self._plain_repo(name)
+        batch_dir = repo / ".claude" / "cfq" / "impl" / "example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+        (batch_dir / "01-a.md").write_text("# A\n")
+        (batch_dir / ".batch-context.md").write_text("## Goal\n\nG\n")
+        return batch_dir
+
+    def test_review_writes_snapshot_and_removes_planning(self):
+        batch_dir = self._review_batch("repo-rv1")
+        proc = self.run_cfq("batch", "review", str(batch_dir), check=True)
+        self.assertIn("review ", proc.stdout)
+        self.assertFalse((batch_dir / ".planning").exists())
+        marker = json.loads((batch_dir / ".review").read_text())
+        self.assertIn("since", marker)
+        self.assertIn("shown", marker)
+        self.assertEqual(sorted(marker["files"]), [".batch-context.md", "01-a.md"])
+        for digest in marker["files"].values():
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+    def test_review_second_call_keeps_since_and_updates_changed_hash_only(self):
+        batch_dir = self._review_batch("repo-rv2")
+        self.run_cfq("batch", "review", str(batch_dir), check=True)
+        first = json.loads((batch_dir / ".review").read_text())
+        (batch_dir / "01-a.md").write_text("# A changed\n")
+        self.run_cfq("batch", "review", str(batch_dir), check=True)
+        second = json.loads((batch_dir / ".review").read_text())
+        self.assertEqual(second["since"], first["since"])
+        self.assertNotEqual(second["files"]["01-a.md"], first["files"]["01-a.md"])
+        self.assertEqual(second["files"][".batch-context.md"], first["files"][".batch-context.md"])
+
+    def test_review_refuses_a_started_batch(self):
+        batch_dir = self._review_batch("repo-rv3")
+        (batch_dir / "done").mkdir()
+        (batch_dir / "done" / "00-x.md").write_text("# X\n")
+        proc = self.run_cfq("batch", "review", str(batch_dir))
+        self.assertEqual(proc.returncode, 1)
+        self.assertFalse((batch_dir / ".review").exists())
+
+    def test_ready_removes_review_marker(self):
+        batch_dir = self._review_batch("repo-rv4")
+        (batch_dir / ".planning").unlink()
+        (batch_dir / ".review").write_text("{}\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertFalse((batch_dir / ".review").exists())
+        self.assertIn("removed", proc.stdout)
+        self.assertNotIn("already ready", proc.stdout)
+
+    def test_ready_removes_both_markers(self):
+        batch_dir = self._review_batch("repo-rv5")
+        (batch_dir / ".review").write_text("{}\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertFalse((batch_dir / ".review").exists())
+        self.assertFalse((batch_dir / ".planning").exists())
+        self.assertEqual(proc.stdout.count("removed"), 2, proc.stdout)
+
+    def test_ready_with_neither_marker_says_already_ready(self):
+        batch_dir = self._review_batch("repo-rv6")
+        (batch_dir / ".planning").unlink()
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertIn("already ready", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
