@@ -3,7 +3,7 @@
 #                     [--from-plan <plan-entry-path>]...
 """Parks a batch directory: creates it, writes .priority/.dependsOn, ensures the local git-exclude
 entry, and registers the repo. Idempotent -- safe to re-run with the same arguments, including the
-`.planning` marker: a re-run during the same plan-for-queue session refreshes its timestamp as a
+`.planning` marker (and the `.review` marker of the plan review gate, which park leaves alone): a re-run during the same plan-for-queue session refreshes its timestamp as a
 heartbeat, but once `batch ready` has removed it (plan-for-queue's lint step went clean), a later
 park call leaves it absent and warns on stderr instead of resurrecting it. Does not write phase
 files; only the planning session that knows their content does that.
@@ -104,9 +104,12 @@ def cmd_park(args):
     # on a directory that already existed without it, because that state means `ready` already ran
     # and re-setting the marker would silently hide a finished batch from implement-for-queue. A
     # directory park creates itself (a caller that skipped allocate) is new, so it gets the marker.
+    # A batch held at the review gate carries `.review` instead: nothing to refresh, no warning.
     marker = d / ".planning"
     if created or marker.exists():
         marker.write_text(render.now_iso() + "\n")
+    elif (d / ".review").exists():
+        pass
     else:
         print(
             f"{PROG}: warning: {args.batch} is already ready (no .planning) -- marker not re-set; "

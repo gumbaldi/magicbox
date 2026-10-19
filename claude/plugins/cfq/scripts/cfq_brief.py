@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...]]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed]]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
 with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
@@ -8,7 +8,8 @@ block (header, phase count/done/red line, wrapped goal paragraph, an optional `.
 a closing `Plans` line naming the batch directory) shared by `ifq`'s start gate and `pfq`'s final
 report, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
 context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
-command and phase-file path. Batch mode (default and --with-done) prints an optional
+command and phase-file path; --review --changed prints only what changed since the `.review`
+snapshot `cfq batch review` took (read-only, never refreshes it). Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -490,6 +491,37 @@ def render_review(d, only=None):
     return "\n\n".join("\n".join(s) for s in sections)
 
 
+def render_review_changed(d):
+    """The part of the digest that changed since `cfq batch review` last snapshotted the batch:
+    phase files whose hash differs or that are new, `.batch-context.md` when it changed, and a
+    `Removed` line per file the snapshot knew that is gone. Read-only."""
+    marker = cfq_queue.read_review(d)
+    if marker is None:
+        print(f"{PROG}: no review snapshot in {d} -- run 'cfq batch review' first", file=sys.stderr)
+        sys.exit(1)
+    old = marker.get("files") if isinstance(marker.get("files"), dict) else {}
+    new = cfq_queue.review_snapshot(d)
+    changed = sorted(n for n in new if old.get(n) != new[n])
+    removed = sorted(n for n in old if n not in new)
+    if not changed and not removed:
+        return "no changes since last review"
+
+    repo_root = _repo_root_from_batch_dir(d)
+    phase_names = [n for n in changed if n != ".batch-context.md"]
+    sections = [[_overview_header(d), f"{len(phase_names) + len(removed)} changed since last review"]]
+    if ".batch-context.md" in changed:
+        ctx = render_context_block(d)
+        if ctx:
+            sections.append(ctx)
+    for name in phase_names:
+        f = d / name
+        fields = parse_phase_review(f.read_text(), f.stem)
+        sections.append(render_review_phase(phase_num(f), fields, f, repo_root, False))
+    if removed:
+        sections.append([f"  Removed  {n}" for n in removed])
+    return "\n\n".join("\n".join(sec) for sec in sections)
+
+
 def _check_orchestrator_gate(batch_dir):
     """The classic-mode phase announcement (`brief --phase`) refuses to run while orchestratorMode
     is on for the owning repo -- the one deterministic point where a session that skipped the
@@ -535,6 +567,10 @@ def cmd_brief(args):
         print(render_overview(d))
         return
 
+    if args.review and args.changed:
+        print(render_review_changed(d))
+        return
+
     if args.review:
         only = [n.strip() for n in args.phases.split(",") if n.strip()] if args.phases else None
         print(render_review(d, only))
@@ -577,6 +613,7 @@ def build_parser():
     group.add_argument("--overview", action="store_true")
     group.add_argument("--review", action="store_true")
     parser.add_argument("--phases")
+    parser.add_argument("--changed", action="store_true")
     parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser
@@ -587,6 +624,10 @@ def main(argv):
     args = parser.parse_args(argv)
     if args.phases is not None and not args.review:
         parser.error("--phases requires --review")
+    if args.changed and not args.review:
+        parser.error("--changed requires --review")
+    if args.changed and args.phases is not None:
+        parser.error("--changed cannot be combined with --phases")
     args.func(args)
 
 

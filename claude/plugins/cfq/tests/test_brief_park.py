@@ -912,6 +912,62 @@ class BriefReviewTest(CfqTestCase):
         r = self.run_cfq("brief", str(batch), "--phases", "01")
         self.assertEqual(r.returncode, 2)
 
+    # ---- --changed (phase 03 of batch 049) ---------------------------------------------------
+
+    def _changed_batch(self, name):
+        repo, batch = self._review_batch(name)
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething.\n")
+        self._phase(batch, "01-a.md", "Alpha", changes="1. A step.")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B step.")
+        self.run_cfq("batch", "review", str(batch), check=True)
+        return batch
+
+    def test_changed_nothing_changed(self):
+        batch = self._changed_batch("040-2026-03-01-c0")
+        out = self._review(batch, "--changed").stdout
+        self.assertEqual(out.strip(), "no changes since last review")
+
+    def test_changed_prints_only_changed_phase(self):
+        batch = self._changed_batch("041-2026-03-01-c1")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B rewritten step.")
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("1 changed since last review", out)
+        self.assertIn("PHASE 02 · Beta", out)
+        self.assertIn("B rewritten step.", out)
+        self.assertNotIn("PHASE 01", out)
+        self.assertNotIn("Goal", out)
+        self.assertIn("BATCH", out)
+
+    def test_changed_context_edit_prints_context_block(self):
+        batch = self._changed_batch("042-2026-03-01-c2")
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething else.\n")
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("Something else.", out)
+        self.assertNotIn("PHASE 01", out)
+
+    def test_changed_new_and_removed_phase(self):
+        batch = self._changed_batch("043-2026-03-01-c3")
+        self._phase(batch, "03-c.md", "Gamma", changes="1. C step.")
+        (batch / "01-a.md").unlink()
+        out = self._review(batch, "--changed").stdout
+        self.assertIn("2 changed since last review", out)
+        self.assertIn("PHASE 03 · Gamma", out)
+        self.assertIn("  Removed  01-a.md", out)
+
+    def test_changed_without_snapshot_exits_one(self):
+        _, batch = self._review_batch("044-2026-03-01-c4")
+        self._phase(batch, "01-a.md")
+        r = self._review(batch, "--changed", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("cfq batch review", r.stderr)
+
+    def test_changed_bad_option_combinations_exit_two(self):
+        batch = self._changed_batch("045-2026-03-01-c5")
+        r = self._review(batch, "--changed", "--phases", "01", check=False)
+        self.assertEqual(r.returncode, 2)
+        r = self.run_cfq("brief", str(batch), "--changed")
+        self.assertEqual(r.returncode, 2)
+
 
 class ParkTest(CfqTestCase):
     def setUp(self):
@@ -1030,6 +1086,20 @@ class ParkTest(CfqTestCase):
             (batchdir / ".priority").read_text().strip(), "high",
             ".priority must still be rewritten from the second call's arguments",
         )
+
+    def test_park_on_review_batch_leaves_review_and_creates_no_planning(self):
+        batch = "2026-01-13-inreview"
+        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
+        batchdir.mkdir(parents=True)
+        (batchdir / ".review").write_text('{"since": "x"}\n')
+
+        proc = self.run_cfq(
+            "park", str(self.parkrepo), batch, "normal", home=self.park_home,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((batchdir / ".review").read_text(), '{"since": "x"}\n')
+        self.assertFalse((batchdir / ".planning").exists())
+        self.assertEqual(proc.stderr, "")
 
 
 class ParkFromPlanTest(CfqTestCase):

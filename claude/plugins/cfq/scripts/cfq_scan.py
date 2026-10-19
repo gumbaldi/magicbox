@@ -3,16 +3,17 @@
 """The single source of numbers for the dashboard. json (default): one JSON object on stdout:
 { "repos": [ { "path", "plan", "todo", "batches": [
   {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress,
-   planning} ] } ] } -- byte-identical to the no-flag output for every existing caller.
+   planning, review} ] } ] } -- byte-identical to the no-flag output for every existing caller.
 md/tsv: one row per batch across all repos (Repo, Batch, Priority, Open/Done, Status), status
 one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
 additive per-batch-row extension, same pattern as RFQ's GREEN/RED/MIXED), sorted open-first,
 then flagged priority first, then name.
 overview: one row per repo (Repo, Plan, Todo, Batches, Status) -- Batches is open/done batch
 counts, Status the most severe status among the repo's own batches, same vocabulary as above.
-next: one object per repo -- { path, next, reason, blocked, planning } -- next is the batch name
+next: one object per repo -- { path, next, reason, blocked, planning, review } -- next is the batch name
 `/ifq` would pick (null if none selectable), reason one of inProgress/priority/order/
-multipleInProgress/null, blocked/planning are arrays of batch names. This is the one place the
+multipleInProgress/null, blocked/planning/review are arrays of batch names (review is the subset of planning held at
+the plan review gate by a `.review` marker, which never goes stale). This is the one place the
 `/ifq` selection ranking (non-archived, open>0, planning/blocked drop out, a single inProgress
 batch wins, otherwise flagged priority first then name) is decided -- see
 cfq_ifq_preflight.py, which consumes this format rather than re-deciding the ranking itself.
@@ -144,6 +145,7 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
     if marker.is_file():
         age = time.time() - marker.stat().st_mtime
         planning = age < stale_s
+    review = (batch_dir / ".review").is_file()
 
     return {
         "name": batch_dir.name,
@@ -156,7 +158,8 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
         "blocked": blocked,
         "unknownDeps": unknown,
         "inProgress": done_n > 0,
-        "planning": planning,
+        "planning": planning or review,
+        "review": review,
         "consistency": cfq_lib_consistency.scan_consistency(batch_dir),
     }
 
@@ -174,6 +177,7 @@ def archived_batch_record(batch_dir):
         "unknownDeps": [],
         "inProgress": False,
         "planning": False,
+        "review": False,
     }
 
 
@@ -302,6 +306,7 @@ def rank_next(batches):
 
     result["blocked"] = blocked
     result["planning"] = planning
+    result["review"] = [b["name"] for b in candidates if b.get("review")]
     return result
 
 
