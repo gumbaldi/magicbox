@@ -48,7 +48,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import consistency  # noqa: E402
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
@@ -528,6 +528,8 @@ def cmd_allocate(args):
         # `park` only refreshes it from this point on; `ready` removes it once pfq's lint goes
         # clean.
         pathlib.Path(target_dir, ".planning").write_text(render.now_iso() + "\n")
+        # status.json is born with the directory too, so every phase starts out tracked.
+        phase_state.init(pathlib.Path(target_dir))
 
         print(render.dump_json(result))
     finally:
@@ -579,6 +581,13 @@ def cmd_review(args):
 
 def cmd_ready(args):
     batch_dir = pathlib.Path(args.batch_dir)
+    # Sync first, so it also runs on the `already ready` path; a status.json that cannot be
+    # read stops the verb before any marker is touched.
+    try:
+        phase_state.init(batch_dir)
+        phase_state.sync_files(batch_dir)
+    except phase_state.PhaseStateError as e:
+        errors.fail(e.code, e.message)
     removed = []
     for name in (".planning", ".review"):
         marker = batch_dir / name

@@ -1174,6 +1174,46 @@ class ParkTest(CfqTestCase):
         self.assertFalse((batchdir / ".planning").exists())
         self.assertEqual(proc.stderr, "")
 
+    # ---- status.json follows the phase files (batch 051 phase 02) -----------------------------
+
+    def _phase_status(self, batchdir):
+        return {
+            k: v["status"]
+            for k, v in json.loads((batchdir / "status.json").read_text())["phases"].items()
+        }
+
+    def test_park_lists_adds_and_drops_phase_files(self):
+        batch = "2026-01-14-statuspark"
+        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
+        batchdir.mkdir(parents=True)
+        (batchdir / "01-a.md").write_text("# A\n")
+        (batchdir / "02-b.md").write_text("# B\n")
+        self._park(batch, "normal")
+        self.assertEqual(self._phase_status(batchdir), {"01-a": "open", "02-b": "open"})
+        (batchdir / "03-c.md").write_text("# C\n")
+        self._park(batch, "normal")
+        self.assertEqual(
+            self._phase_status(batchdir), {"01-a": "open", "02-b": "open", "03-c": "open"},
+        )
+        (batchdir / "02-b.md").unlink()
+        self._park(batch, "normal")
+        self.assertEqual(self._phase_status(batchdir), {"01-a": "open", "03-c": "open"})
+
+    def test_park_without_allocate_still_ends_with_a_status_file(self):
+        self._park("2026-01-15-noalloc", "normal")
+        batchdir = self.parkrepo / ".claude/cfq/impl/2026-01-15-noalloc"
+        self.assertEqual(self._phase_status(batchdir), {})
+
+    def test_park_with_an_invalid_status_file_fails_and_keeps_it(self):
+        batch = "2026-01-16-badstatus"
+        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
+        batchdir.mkdir(parents=True)
+        (batchdir / "status.json").write_text("{not json")
+        proc = self.run_cfq("park", str(self.parkrepo), batch, "normal", home=self.park_home)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("STATUS_FILE_INVALID", proc.stderr)
+        self.assertEqual((batchdir / "status.json").read_text(), "{not json")
+
 
 class ParkFromPlanTest(CfqTestCase):
     """`park ... --from-plan <path>` consumes the plan-inbox entry `cfq note list` showed --
