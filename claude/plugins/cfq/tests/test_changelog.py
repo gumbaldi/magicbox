@@ -678,5 +678,218 @@ class ChangelogTest(CfqTestCase):
         )
 
 
+OLD_ORDER_FIXTURE = (
+    "- version: v0.1\n"
+    "  batch: 2026-01-01-alpha\n"
+    "  legacy: true\n"
+    "  status: done\n"
+    "  phases:\n"
+    "    - phase: \"01-a\"\n"
+    "      status: \"green\"\n"
+    "      summary: \"Did A\"\n"
+    "- version: v0.2\n"
+    "  batch: 2026-02-01-beta\n"
+    "  legacy: true\n"
+    "  status: done\n"
+    "- batchNumber: null\n"
+    "  batch: 2026-03-01-gamma\n"
+    "  status: done\n"
+    "  legacy: true\n"
+    "  phases:\n"
+    "    - phase: \"01-g\"\n"
+    "      status: \"green\"\n"
+    "      summary: \"Did G\"\n"
+    "- batchNumber: null\n"
+    "  batch: 2026-03-15-delta\n"
+    "  legacy: true\n"
+    "  status: done\n"
+    "- batchNumber: 1\n"
+    "  batch: 001-2026-04-01-one\n"
+    "  branch: cfq/001-2026-04-01-one\n"
+    "  base: main\n"
+    "  started: 2026-04-01\n"
+    "  status: in-progress\n"
+    "  legacy: false\n"
+    "  phases:\n"
+    "    - phase: \"01-x\"\n"
+    "      status: \"green\"\n"
+    "      summary: \"Did X\"\n"
+    "- batchNumber: 2\n"
+    "  batch: 002-2026-04-02-two\n"
+    "  branch: cfq/002-2026-04-02-two\n"
+    "  base: main\n"
+    "  started: 2026-04-02\n"
+    "  status: in-progress\n"
+    "  legacy: false\n"
+    "- batchNumber: 3\n"
+    "  batch: 003-2026-04-03-three\n"
+    "  status: done\n"
+    "  legacy: false\n"
+    "  phases:\n"
+    "    - phase: \"01-z\"\n"
+    "      status: \"green\"\n"
+    "      summary: \"Did Z\"\n"
+)
+
+
+def _blocks(text):
+    """Splits changelog text at column-0 '- ' lines -> list of (first line, full block text)."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("- "):
+            out.append([line.rstrip("\n"), line])
+        elif out:
+            out[-1][1] += line
+    return [(k, v) for k, v in out]
+
+
+def _without_legacy(block):
+    return "".join(l for l in block.splitlines(keepends=True) if not l.startswith("  legacy:"))
+
+
+class ChangelogOrderTest(CfqTestCase):
+    def _repo_with(self, name, text):
+        repo = self._repos_dir / name
+        target = repo / ".claude/cfq/changelog.yml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        return repo, target
+
+    def _order(self, text):
+        return [k for k, _ in _blocks(text)]
+
+    def test_normalize_orders_newest_first_and_strips_legacy(self):
+        repo, target = self._repo_with("norm-routine", OLD_ORDER_FIXTURE)
+        out = self.run_cfq("changelog", "normalize", str(repo), check=True).stdout.strip()
+        self.assertEqual(out, "normalized")
+        text = target.read_text()
+        self.assertNotIn("legacy:", text)
+        self.assertEqual(self._order(text), [
+            "- batchNumber: 3", "- batchNumber: 2", "- batchNumber: 1",
+            "- batchNumber: null", "- batchNumber: null", "- version: v0.2", "- version: v0.1",
+        ])
+        # unnumbered blocks by leading batch date, descending
+        batches = [l.strip() for l in text.splitlines() if l.startswith("  batch: ")]
+        self.assertEqual(batches[3:], [
+            "batch: 2026-03-15-delta", "batch: 2026-03-01-gamma",
+            "batch: 2026-02-01-beta", "batch: 2026-01-01-alpha",
+        ])
+        # every other line of every block is byte-identical to the input
+        want = {}
+        for k, v in _blocks(OLD_ORDER_FIXTURE):
+            want.setdefault(k, []).append(_without_legacy(v))
+        got = {}
+        for k, v in _blocks(text):
+            got.setdefault(k, []).append(v)
+        self.assertEqual(sorted(want), sorted(got))
+        for k in want:
+            self.assertEqual(sorted(want[k]), sorted(got[k]), f"block text changed for {k}")
+
+    def test_normalize_is_idempotent_and_does_not_rewrite(self):
+        repo, target = self._repo_with("norm-idem", OLD_ORDER_FIXTURE)
+        self.run_cfq("changelog", "normalize", str(repo), check=True)
+        before_text = target.read_text()
+        before = target.stat()
+        out = self.run_cfq("changelog", "normalize", str(repo), check=True).stdout.strip()
+        self.assertEqual(out, "unchanged")
+        self.assertEqual(target.read_text(), before_text)
+        after = target.stat()
+        self.assertEqual((before.st_mtime_ns, before.st_ino), (after.st_mtime_ns, after.st_ino))
+
+    def test_new_blocks_are_prepended_and_finish_stays_in_place(self):
+        repo, target = self._repo_with("norm-prepend", OLD_ORDER_FIXTURE)
+        self.run_cfq("changelog", "normalize", str(repo), check=True)
+        self.run_cfq("changelog", "init", str(repo), "cfq/004-x", "main", "004-2026-05-01-new", check=True)
+        self.assertEqual(target.read_text().splitlines()[0], "- batchNumber: 4")
+        self.run_cfq("changelog", "reserve", str(repo), "5", "005-2026-05-02-res", check=True)
+        self.assertEqual(target.read_text().splitlines()[0], "- batchNumber: 5")
+        order_before = self._order(target.read_text())
+        self.run_cfq(
+            "changelog", "finish", str(repo), "cfq/002-2026-04-02-two", str(self._repos_dir / "nodir"),
+            check=True,
+        )
+        text = target.read_text()
+        self.assertEqual(self._order(text), order_before, "finish moved a block")
+        self.assertIn("  batch: 002-2026-04-02-two\n  branch: cfq/002-2026-04-02-two\n"
+                      "  base: main\n  started: 2026-04-02\n  status: done\n", text)
+
+    def test_replacing_last_numbered_block_does_not_swallow_version_blocks(self):
+        repo, target = self._repo_with("norm-swallow", OLD_ORDER_FIXTURE)
+        self.run_cfq("changelog", "normalize", str(repo), check=True)
+        version_blocks = [v for k, v in _blocks(target.read_text()) if k.startswith("- version:")]
+        self.assertEqual(len(version_blocks), 2)
+        self.run_cfq(
+            "changelog", "finish", str(repo), "cfq/001-2026-04-01-one", str(self._repos_dir / "nodir"),
+            check=True,
+        )
+        self.run_cfq(
+            "changelog", "rename-batch", str(repo), "001-2026-04-01-one", "001-2026-04-01-uno", check=True,
+        )
+        text = target.read_text()
+        self.assertIn("  batch: 001-2026-04-01-uno\n", text)
+        for vb in version_blocks:
+            self.assertIn(vb, text, "a trailing version block was swallowed")
+
+    def test_write_verb_on_old_order_file_normalizes_first(self):
+        repo, target = self._repo_with("norm-write-old", OLD_ORDER_FIXTURE)
+        self.run_cfq("changelog", "init", str(repo), "cfq/004-x", "main", "004-2026-05-01-new", check=True)
+        text = target.read_text()
+        self.assertEqual(text.splitlines()[0], "- batchNumber: 4")
+        numbered = [k for k in self._order(text) if k.startswith("- batchNumber: ") and k != "- batchNumber: null"]
+        self.assertEqual(numbered, [f"- batchNumber: {n}" for n in (4, 3, 2, 1)])
+        self.assertNotIn("legacy:", text)
+
+    def test_comment_preamble_stays_on_top(self):
+        pre = "# one\n# two\n"
+        for verb_args, first in (
+            (("init", "cfq/004-x", "main", "004-2026-05-01-new"), "- batchNumber: 4"),
+            (("reserve", "4", "004-2026-05-01-new"), "- batchNumber: 4"),
+        ):
+            name = "norm-pre-" + verb_args[0]
+            repo, target = self._repo_with(name, pre + OLD_ORDER_FIXTURE)
+            self.run_cfq("changelog", verb_args[0], str(repo), *verb_args[1:], check=True)
+            lines = target.read_text().splitlines()
+            self.assertEqual(lines[:2], ["# one", "# two"])
+            self.assertEqual(lines[2], first)
+        repo, target = self._repo_with("norm-pre-only", pre + OLD_ORDER_FIXTURE)
+        self.run_cfq("changelog", "normalize", str(repo), check=True)
+        self.assertEqual(target.read_text().splitlines()[:2], ["# one", "# two"])
+
+    def test_normalize_empty_missing_and_disabled(self):
+        repo, target = self._repo_with("norm-empty", "")
+        self.assertEqual(self.run_cfq("changelog", "normalize", str(repo), check=True).stdout.strip(), "unchanged")
+        self.assertEqual(target.read_text(), "")
+        repo, target = self._repo_with("norm-comments", "# just\n# comments\n")
+        self.assertEqual(self.run_cfq("changelog", "normalize", str(repo), check=True).stdout.strip(), "unchanged")
+        self.assertEqual(target.read_text(), "# just\n# comments\n")
+        # comment-only preamble then a first block lands below the comments
+        self.run_cfq("changelog", "reserve", str(repo), "1", "001-2026-05-01-a", check=True)
+        self.assertEqual(target.read_text().splitlines()[:3], ["# just", "# comments", "- batchNumber: 1"])
+        gone = self._repos_dir / "norm-missing"
+        gone.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(self.run_cfq("changelog", "normalize", str(gone), check=True).stdout.strip(), "missing")
+        off = self._repos_dir / "norm-off"
+        off.mkdir(parents=True, exist_ok=True)
+        self.run_cfq("settings", "set", "--repo", str(off), "changelogFile", "", check=True)
+        self.assertEqual(self.run_cfq("changelog", "normalize", str(off), check=True).stdout.strip(), "off")
+
+    def test_ensure_normalizes_an_existing_file(self):
+        repo, target = self._repo_with("norm-ensure", OLD_ORDER_FIXTURE)
+        out = json.loads(self.run_cfq("changelog", "ensure", str(repo), check=True).stdout)
+        self.assertEqual(out["source"], "exists")
+        text = target.read_text()
+        self.assertNotIn("legacy:", text)
+        self.assertEqual(self._order(text)[0], "- batchNumber: 3")
+
+    def test_lookup_returns_first_match(self):
+        text = (
+            "- batchNumber: 2\n  batch: dup\n  branch: newer\n  status: done\n"
+            "- batchNumber: 1\n  batch: dup\n  branch: older\n  status: done\n"
+        )
+        repo, _ = self._repo_with("norm-first-match", text)
+        out = self.run_cfq("changelog", "branch-for", str(repo), "dup", check=True).stdout.strip()
+        self.assertEqual(out, "newer")
+
+
 if __name__ == "__main__":
     unittest.main()

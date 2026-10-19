@@ -8,7 +8,13 @@
 #        cfq_changelog.py commit          <repo-root> <message>
 #        cfq_changelog.py ensure          <repo-root>
 #        cfq_changelog.py max-batch-number <repo-root>
-"""Appends/completes entries in <repo-root>/<changelogFile>, one block per batch.
+#        cfq_changelog.py normalize       <repo-root>
+"""Prepends/completes entries in <repo-root>/<changelogFile>, one block per batch.
+
+File order is newest first: every new block goes on top (below any leading comment lines), and
+every writing verb first runs `normalize_file`, an idempotent reorder of a file written in the old
+oldest-first order (numbered blocks descending, then unnumbered ones by date descending) that also
+strips the obsolete `  legacy:` lines.
 
 Ported from cfq-changelog.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 file format, exit codes) is the invariant this file preserves. No YAML library is used on purpose:
@@ -111,7 +117,7 @@ def render_block(number, batch, branch, base, started, status, finished, phases)
 
 
 # ---- line-oriented block parsing ------------------------------------------------------------
-# Read by scanning lines into blocks delimited by "- batchNumber:" markers, so an untouched entry
+# Read by scanning lines into blocks delimited by column-0 "- " list items, so an untouched entry
 # can be written back exactly as it was read. Write by replacing only the lines that changed,
 # never by re-emitting the whole document from a data structure.
 
@@ -120,13 +126,13 @@ def read_lines(path):
 
 
 def block_starts(lines):
-    return [i + 1 for i, l in enumerate(lines) if l.startswith("- batchNumber:")]
+    return [i + 1 for i, l in enumerate(lines) if l.startswith("- ")]
 
 
 def block_end_line(lines, start):
     """Exclusive end line of the block starting at `start` (next block start - 1, or EOF)."""
     for i in range(start, len(lines)):
-        if lines[i].startswith("- batchNumber:"):
+        if lines[i].startswith("- "):
             return i
     return len(lines)
 
@@ -145,32 +151,87 @@ def block_field(block, prefix):
 
 
 def find_block_start(file, field, value, want_status=None):
-    """Last matching block's start line (1-indexed), None on no match."""
+    """First matching block's start line (1-indexed, i.e. the newest), None on no match."""
     lines = read_lines(file)
-    hit = None
     for start in block_starts(lines):
         block = block_text(lines, start)
         if (block_field(block, field) or "") != value:
             continue
         if want_status is not None and (block_field(block, "  status:") or "") != want_status:
             continue
-        hit = start
-    return hit
+        return start
+    return None
 
 
-def append_block(target, block):
-    with open(target, "a") as f:
-        f.write(block + "\n")
+def write_atomic(target, text):
+    tmp = f"{target}.tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, target)
+
+
+def prepend_block(target, block):
+    """New block goes on top, below any leading comment preamble (lines before the first
+    column-0 '- ' item). A missing or empty file just becomes the block."""
+    lines = read_lines(target) if os.path.isfile(target) else []
+    starts = block_starts(lines)
+    split = starts[0] - 1 if starts else len(lines)
+    preamble = "".join(lines[:split])
+    if preamble and not preamble.endswith("\n"):
+        preamble += "\n"
+    write_atomic(target, preamble + block + "\n" + "".join(lines[split:]))
 
 
 def replace_block(target, start, new_block):
     lines = read_lines(target)
     end = block_end_line(lines, start)
-    new_text = "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:])
-    tmp = f"{target}.tmp"
-    with open(tmp, "w") as f:
-        f.write(new_text)
-    os.replace(tmp, target)
+    write_atomic(target, "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:]))
+
+
+DATE_PREFIX_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def normalize_text(text):
+    """Pure str -> str: comment preamble first, then numbered blocks by number descending, then
+    unnumbered blocks (batchNumber: null, `- version:`) by batch date descending; ties keep their
+    current order. Only `  legacy:` lines are ever removed from a block."""
+    lines = text.splitlines(keepends=True)
+    starts = block_starts(lines)
+    if not starts:
+        return text
+    preamble = "".join(lines[:starts[0] - 1])
+    blocks = []
+    for start in starts:
+        body = "".join(l for l in lines[start - 1:block_end_line(lines, start)]
+                       if not l.startswith("  legacy:"))
+        blocks.append(body if body.endswith("\n") else body + "\n")
+
+    def key(block):
+        num = block_field(block, "- batchNumber:")
+        if num is not None and re.fullmatch(r"[0-9]+", num):
+            return (1, int(num), "")
+        for field in ("  batch:", "  started:"):
+            m = DATE_PREFIX_RE.match(block_field(block, field) or "")
+            if m:
+                return (0, 0, m.group(0))
+        return (0, 0, "")
+
+    return preamble + "".join(sorted(blocks, key=key, reverse=True))
+
+
+def normalize_file(target):
+    """Normalizes `target` in place; writes only when the result differs. True if it wrote."""
+    text = pathlib.Path(target).read_text()
+    new = normalize_text(text)
+    if new == text:
+        return False
+    write_atomic(target, new)
+    return True
+
+
+def normalize_if_exists(target):
+    if os.path.isfile(target):
+        normalize_file(target)
 
 
 # ---- git trailer scanning (ensure's one-time bootstrap) --------------------------------------
@@ -223,6 +284,7 @@ def cmd_init(args):
     if target is None:
         return
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    normalize_if_exists(target)
 
     number = parse_batch_number(batch)
     number_str = str(number) if number is not None else "null"
@@ -236,7 +298,7 @@ def cmd_init(args):
     if reserved_start is not None:
         replace_block(target, reserved_start, new_block)
     else:
-        append_block(target, new_block)
+        prepend_block(target, new_block)
 
 
 def cmd_finish(args):
@@ -245,6 +307,7 @@ def cmd_finish(args):
     if target is None:
         return
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    normalize_if_exists(target)
     batch = os.path.basename(os.path.normpath(batch_dir))
     report = os.path.join(batch_dir, "report.json")
     finished = date.today().isoformat()
@@ -267,7 +330,7 @@ def cmd_finish(args):
         replace_block(target, matched_start, new_block)
     else:
         # No matching in-progress block (different branch last, malformed file, missing file, or
-        # an init that never ran): append a new done entry -- a stray extra entry beats one that
+        # an init that never ran): prepend a new done entry -- a stray extra entry beats one that
         # silently drops phases.
         number = parse_batch_number(batch)
         number_str = str(number) if number is not None else "null"
@@ -280,7 +343,7 @@ def cmd_finish(args):
             except (OSError, json.JSONDecodeError):
                 started = ""
         new_block = render_block(number_str, batch, branch, "", started, "done", finished, phases)
-        append_block(target, new_block)
+        prepend_block(target, new_block)
 
 
 def cmd_reserve(args):
@@ -291,12 +354,13 @@ def cmd_reserve(args):
     if target is None:
         errors.die(f"{PROG}: reserve: changelogFile is disabled, cannot reserve a numbered batch")
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    normalize_if_exists(target)
     if os.path.isfile(target):
         existing_lines = set(pathlib.Path(target).read_text().split("\n"))
         if f"- batchNumber: {number}" in existing_lines or f"  batch: {batch}" in existing_lines:
             errors.die(f"{PROG}: reserve: duplicate batchNumber/batch identity: {number}/{batch}")
     block = "\n".join([f"- batchNumber: {number}", f"  batch: {batch}", "  status: parked"])
-    append_block(target, block)
+    prepend_block(target, block)
 
 
 def cmd_rename_batch(args):
@@ -308,6 +372,7 @@ def cmd_rename_batch(args):
     target = changelog_file(repo)
     if target is None or not os.path.isfile(target):
         return
+    normalize_file(target)
     start = find_block_start(target, "  batch:", old)
     if start is None:
         return
@@ -406,6 +471,7 @@ def cmd_ensure(args):
         print(render.dump_json({"source": "disabled", "max": 0, "path": None}))
         return
     if os.path.isfile(target):
+        normalize_file(target)
         print(render.dump_json({"source": "exists", "max": None, "path": target}))
         return
     os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -430,6 +496,16 @@ def cmd_ensure(args):
         pathlib.Path(target).write_text("")
 
     print(render.dump_json({"source": source, "max": max_number, "path": target}))
+
+
+def cmd_normalize(args):
+    target = changelog_file(args.repo)
+    if target is None:
+        print("off")
+    elif not os.path.isfile(target):
+        print("missing")
+    else:
+        print("normalized" if normalize_file(target) else "unchanged")
 
 
 def cmd_max_batch_number(args):
@@ -501,6 +577,10 @@ def build_parser():
     p.add_argument("repo")
     p.set_defaults(func=cmd_ensure)
 
+    p = sub.add_parser("normalize")
+    p.add_argument("repo")
+    p.set_defaults(func=cmd_normalize)
+
     p = sub.add_parser("max-batch-number")
     p.add_argument("repo")
     p.set_defaults(func=cmd_max_batch_number)
@@ -521,7 +601,7 @@ def main(argv):
             f"branch-for <repo-root> <batch> | "
             f"commit-message <repo-root> <batch> <phase> <status> <message-file> | "
             f"commit <repo-root> <message> | "
-            f"ensure <repo-root> | max-batch-number <repo-root>"
+            f"ensure <repo-root> | max-batch-number <repo-root> | normalize <repo-root>"
         )
     func(args)
 
