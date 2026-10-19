@@ -11,7 +11,7 @@ import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -457,6 +457,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertFalse(out["nextPhase"]["failedAttempt"]["found"], msg=f"no red entry yet: {out}")
 
+        write_status(batch)
         pf = batch / "_phase.json"
         pf.write_text(
             '{"phase":"01-a","status":"red","finished":"2026-01-01T00:00:00+00:00","summary":"boom",'
