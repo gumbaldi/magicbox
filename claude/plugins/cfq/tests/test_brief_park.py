@@ -694,6 +694,225 @@ class BriefOverviewDecisionsAndPathTest(CfqTestCase):
         self.assertNotIn("Plans", phase_out, f"--phase must not gain the Plans line: {phase_out}")
 
 
+class BriefReviewTest(CfqTestCase):
+    """`bin/cfq brief <batch-dir> --review [--phases NN,...]` -- the Plan-Mode digest, see
+    .claude/cfq/impl/049-.../01-review-digest-renderer.md."""
+
+    def _review_batch(self, name):
+        repo = self._repos_dir / "revrepo"
+        batch = repo / ".claude" / "cfq" / "impl" / name
+        batch.mkdir(parents=True)
+        return repo, batch
+
+    def _phase(self, batch, filename, title="Phase", size="S", context=None, files=None,
+               changes=None, verify=None):
+        body = f"# {title}\n\n## Size\n\n{size}\n"
+        if context is not None:
+            body += f"\n## Context\n\n{context}\n"
+        if files is not None:
+            body += "\n## Affected Files\n\n" + "\n".join(files) + "\n"
+        if changes is not None:
+            body += f"\n## Changes\n\n{changes}\n"
+        if verify is not None:
+            body += f"\n## Verification\n\n```bash\n{verify}\n```\n"
+        path = batch / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+        return path
+
+    def _review(self, batch, *extra, check=True):
+        return self.run_cfq("brief", str(batch), "--review", *extra, check=check)
+
+    def _no_trailing_space(self, out):
+        for line in out.splitlines():
+            self.assertFalse(line.endswith(" "), f"line ends in a space: {line!r}")
+
+    def test_routine_full_digest(self):
+        repo, batch = self._review_batch("020-2026-03-01-review")
+        (batch / ".batch-context.md").write_text(
+            "# Batch Context\n\n"
+            "## Goal\n\nMake the thing reviewable.\n\n"
+            "## Decisions\n\n- First decision.\n- Second decision.\n\n"
+            "## Non-Goals\n\n- No third thing.\n"
+        )
+        self._phase(
+            batch, "01-first.md", "First phase", "S",
+            context="First paragraph line.\n\nSecond paragraph line.",
+            files=[f"- `{repo}/src/a.py`", f"- `{repo}/tests/test_a.py` (new)"],
+            changes=(
+                "1. Write the test in `tests/test_a.py`.\n"
+                "   - detail one\n"
+                "   - detail two\n"
+                "2. Change `src/a.py` to pass it."
+            ),
+            verify="python3 -m unittest tests.test_a",
+        )
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        expected = "\n".join([
+            "BATCH 020 · 2026-03-01 · review",
+            "1 phases planned · 0 done",
+            "",
+            "  Goal",
+            "    Make the thing reviewable.",
+            "  Decisions",
+            "    - First decision.",
+            "    - Second decision.",
+            "  Non-Goals",
+            "    - No third thing.",
+            "",
+            "PHASE 01 · First phase · Size S",
+            "  Context",
+            "    First paragraph line.",
+            "",
+            "    Second paragraph line.",
+            "  Files",
+            "    src/a.py",
+            "    tests/test_a.py (new)",
+            "  Changes",
+            "    1. Write the test in `tests/test_a.py`. (+2 details)",
+            "    2. Change `src/a.py` to pass it.",
+            "  Verify   python3 -m unittest tests.test_a",
+            "  Edit     .claude/cfq/impl/020-2026-03-01-review/01-first.md",
+            "",
+            f"  Plans    {batch.resolve()}",
+            f"  Context  {batch.resolve()}/.batch-context.md",
+            f"  Portal   file://{repo}/.claude/cfq/reports/index.html#/batch/020-2026-03-01-review",
+        ])
+        self.assertEqual(out.rstrip("\n"), expected)
+
+    def test_long_decision_bullet_wraps_never_cut(self):
+        _, batch = self._review_batch("022-2026-03-01-longdec")
+        words = " ".join(f"word{i}" for i in range(60))
+        (batch / ".batch-context.md").write_text(f"## Decisions\n\n- {words}\n")
+        self._phase(batch, "01-a.md")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        self.assertNotIn("…", out)
+        lines = out.splitlines()
+        start = lines.index("    - " + lines[lines.index("  Decisions") + 1][6:])
+        block = lines[start:]
+        self.assertTrue(block[1].startswith("      word"), block[:3])
+        self.assertFalse(block[1].startswith("       "), block[:3])
+        for line in lines[:next(n for n, l in enumerate(lines) if l.startswith('PHASE'))]:
+            self.assertLessEqual(len(line), 72, line)
+        joined = " ".join(l.strip() for l in lines[start:start + 12])
+        self.assertIn("word59", joined)
+
+    def test_bullets_without_numbered_steps_become_steps(self):
+        _, batch = self._review_batch("023-2026-03-01-bullets")
+        self._phase(batch, "01-a.md", changes="- Do the first thing.\n- Do the second thing.")
+        out = self._review(batch).stdout
+        self.assertIn("  Changes\n    1. Do the first thing.\n    2. Do the second thing.\n", out)
+
+    def test_fence_line_is_not_a_step_and_counts_as_detail(self):
+        _, batch = self._review_batch("024-2026-03-01-fence")
+        self._phase(
+            batch, "01-a.md",
+            changes="1. Run the command.\n```bash\n1. not a step\n```\n2. Second step.",
+        )
+        out = self._review(batch).stdout
+        self.assertIn("    1. Run the command. (+1 detail)\n    2. Second step.\n", out)
+        self.assertNotIn("not a step", out)
+
+    def test_long_step_lead_truncates_but_keeps_details_suffix(self):
+        _, batch = self._review_batch("025-2026-03-01-longstep")
+        words = " ".join(f"alpha{i}" for i in range(80))
+        self._phase(batch, "01-a.md", changes=f"1. {words}\n   - x\n   - y\n   - z")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        i = lines.index("  Changes")
+        step = lines[i + 1:i + 4]
+        self.assertIn("…", step[-1])
+        self.assertTrue(step[-1].endswith(" (+3 details)"), step)
+        self.assertEqual(lines[i + 4], "  Edit     .claude/cfq/impl/025-2026-03-01-longstep/01-a.md")
+
+    def test_phase_without_context_and_verification_omits_labels(self):
+        _, batch = self._review_batch("026-2026-03-01-bare")
+        self._phase(batch, "01-a.md", files=["- `/x/y.py`"], changes="1. Only step.")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        self.assertNotIn("  Context\n", out)
+        self.assertNotIn("Verify", out)
+        self.assertIn("  Changes", out)
+
+    def test_no_batch_context_prints_no_context_block_or_footer_line(self):
+        repo, batch = self._review_batch("027-2026-03-01-noctx")
+        self._phase(batch, "01-a.md", changes="1. Step.")
+        out = self._review(batch).stdout
+        lines = out.splitlines()
+        self.assertEqual(lines[2], "")
+        self.assertTrue(lines[3].startswith("PHASE 01"), lines[:4])
+        self.assertNotIn("  Context  ", out)
+        self.assertIn(f"  Plans    {batch.resolve()}", out)
+
+    def test_batch_outside_queue_layout_has_absolute_paths_and_no_portal(self):
+        batch = self._repos_dir / "021-2026-03-01-loose"
+        batch.mkdir(parents=True)
+        path = self._phase(batch, "01-a.md", files=["- `/abs/where/x.py`"], changes="1. Step.")
+        out = self._review(batch).stdout
+        self.assertIn("    /abs/where/x.py\n", out)
+        self.assertIn(f"  Edit     {path.resolve()}\n", out)
+        self.assertNotIn("Portal", out)
+
+    def test_html_report_false_drops_portal_line(self):
+        repo, batch = self._review_batch("028-2026-03-01-noportal")
+        self._phase(batch, "01-a.md", changes="1. Step.")
+        (repo / ".claude" / "cfq" / "settings.json").write_text('{"htmlReport": false}\n')
+        out = self._review(batch).stdout
+        self.assertNotIn("Portal", out)
+        self.assertIn("  Plans    ", out)
+
+    def test_done_phase_renders_first_marked_done(self):
+        repo, batch = self._review_batch("029-2026-03-01-donefirst")
+        self._phase(batch, "done/01-old.md", "Old phase", changes="1. Old step.")
+        self._phase(batch, "02-new.md", "New phase", changes="1. New step.")
+        out = self._review(batch).stdout
+        self.assertIn("PHASE 01 · Old phase · Size S · done", out)
+        self.assertLess(out.index("PHASE 01"), out.index("PHASE 02"))
+        self.assertIn("  Edit     .claude/cfq/impl/029-2026-03-01-donefirst/done/01-old.md", out)
+        self.assertIn("2 phases planned · 1 done", out)
+
+    def test_prose_changes_falls_back_to_first_paragraph_max_six_lines(self):
+        _, batch = self._review_batch("030-2026-03-01-prose")
+        prose = " ".join(f"prose{i}" for i in range(200))
+        self._phase(batch, "01-a.md", changes=f"{prose}\n\nSecond paragraph.")
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        i = lines.index("  Changes")
+        end = next(n for n in range(i + 1, len(lines)) if not lines[n].startswith("    "))
+        self.assertEqual(end - i - 1, 6, lines[i:end + 1])
+        self.assertTrue(lines[end - 1].endswith("…"))
+        self.assertNotIn("Second paragraph", out)
+
+    def test_phases_option_prints_only_selected_blocks(self):
+        _, batch = self._review_batch("031-2026-03-01-only")
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething.\n")
+        self._phase(batch, "01-a.md", "Alpha", changes="1. A.")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B.")
+        out = self._review(batch, "--phases", "02").stdout
+        self.assertTrue(out.startswith("PHASE 02 · Beta"), out)
+        self.assertNotIn("BATCH", out)
+        self.assertNotIn("PHASE 01", out)
+        self.assertNotIn("Plans", out)
+        self.assertNotIn("Goal", out)
+
+    def test_unknown_phase_exits_one(self):
+        _, batch = self._review_batch("032-2026-03-01-unknown")
+        self._phase(batch, "01-a.md")
+        r = self._review(batch, "--phases", "09", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no phase 09", r.stderr)
+
+    def test_phases_without_review_exits_two(self):
+        _, batch = self._review_batch("033-2026-03-01-bad")
+        self._phase(batch, "01-a.md")
+        r = self.run_cfq("brief", str(batch), "--phases", "01")
+        self.assertEqual(r.returncode, 2)
+
+
 class ParkTest(CfqTestCase):
     def setUp(self):
         super().setUp()

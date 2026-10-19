@@ -61,6 +61,32 @@ def read_section_full(batch_dir, heading, sep=" "):
     return body if body else None
 
 
+def read_section_lines(batch_dir, heading):
+    """The raw lines of `.batch-context.md`'s `## <heading>` section (heading line excluded, stops
+    at the next `## `), leading and trailing blank lines stripped -- bullets and paragraph breaks
+    intact, unlike `read_section_full`'s flattened join. None if the file, the heading or any
+    non-blank content is missing."""
+    f = batch_dir / ".batch-context.md"
+    if not f.is_file():
+        return None
+    lines = []
+    in_section = False
+    marker = f"## {heading}"
+    for line in f.read_text().splitlines():
+        if line.strip() == marker:
+            in_section = True
+            continue
+        if in_section and line.startswith("## "):
+            break
+        if in_section:
+            lines.append(line.rstrip())
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines or None
+
+
 def read_goal_full(batch_dir):
     """The batch's whole `## Goal` section body from `.batch-context.md`, its non-empty lines
     joined by single spaces -- unwrapped and untruncated, unlike `read_goal` below. None if the

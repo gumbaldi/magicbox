@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...]]
 """Prints the batch briefing block shown before a batch is offered for implementation, or (with
 --phase <NN>) a single-phase announcement block, or (with --with-done) the same batch briefing
 with done phases listed first, ticked, or (with --overview) the aligned-monospace batch-overview
 block (header, phase count/done/red line, wrapped goal paragraph, an optional `.batch-context.md`
 `## Decisions` excerpt, the phase table interleaved with each phase's own `## Context` excerpt, and
 a closing `Plans` line naming the batch directory) shared by `ifq`'s start gate and `pfq`'s final
-report. Batch mode (default and --with-done) prints an optional
+report, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
+context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
+command and phase-file path. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -197,15 +199,16 @@ def _overview_rows(d):
     return rows, contexts, len(done_files), len(open_files), red_count
 
 
+def _count_line(done_n, open_n, red_n):
+    line = f"{done_n + open_n} phases planned · {done_n} done"
+    if red_n:
+        line += f" · {red_n} red"
+    return line
+
+
 def render_overview(d):
     rows, contexts, done_n, open_n, red_n = _overview_rows(d)
-    planned = done_n + open_n
-
-    count_line = f"{planned} phases planned · {done_n} done"
-    if red_n:
-        count_line += f" · {red_n} red"
-
-    lines = [_overview_header(d), count_line]
+    lines = [_overview_header(d), _count_line(done_n, open_n, red_n)]
 
     goal = cfq_queue.read_goal_full(d)
     if goal is not None:
@@ -245,6 +248,246 @@ def _repo_root_from_batch_dir(batch_dir):
         if ancestor.parts[-n:] == cfq_paths.QUEUE_DIR_COMPONENTS:
             return pathlib.Path(*ancestor.parts[:-n])
     return None
+
+
+STEP_RE = re.compile(r"^\d+\. +")
+BULLET_RE = re.compile(r"^[-*] +")
+NESTED_ITEM_RE = re.compile(r"^\s+([-*]|\d+\.) ")
+
+
+def _section_lines(text, heading):
+    """Raw lines under `## <heading>` up to the next `## ` heading ([] when absent)."""
+    out = []
+    inside = False
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = line.strip() == f"## {heading}"
+            continue
+        if inside:
+            out.append(line)
+    return out
+
+
+def _is_fence(line):
+    return line.lstrip().startswith("```")
+
+
+def has_numbered_steps(text):
+    """True when `## Changes` holds at least one column-0 `N. ` line outside a fence; the
+    bullet fallback of `changes_steps` does not count."""
+    fenced = False
+    for line in _section_lines(text, "Changes"):
+        if _is_fence(line):
+            fenced = not fenced
+            continue
+        if not fenced and STEP_RE.match(line):
+            return True
+    return False
+
+
+def changes_steps(text):
+    """The top-level steps of `## Changes` as `[{"lead": str, "details": int}, ...]` -- a step
+    is a column-0 `N. ` line outside a fence (column-0 `- `/`* ` lines when the section has no
+    numbered line at all); its lead is that line's text plus directly following indented
+    continuation lines, its details the nested list items and fenced blocks up to the next step.
+    [] when no step exists."""
+    lines = _section_lines(text, "Changes")
+    marker = STEP_RE if has_numbered_steps(text) else BULLET_RE
+    steps = []
+    fenced = False
+    in_lead = False
+    for line in lines:
+        opener = _is_fence(line)
+        if fenced or opener:
+            if opener:
+                fenced = not fenced
+                if fenced and steps:
+                    steps[-1]["details"] += 1
+            in_lead = False
+            continue
+        m = marker.match(line)
+        if m:
+            steps.append({"lead": line[m.end():].strip(), "details": 0})
+            in_lead = True
+            continue
+        if not steps:
+            continue
+        if in_lead and line.strip() and line[0] in " \t" and not NESTED_ITEM_RE.match(line):
+            steps[-1]["lead"] += " " + line.strip()
+            continue
+        in_lead = False
+        if NESTED_ITEM_RE.match(line):
+            steps[-1]["details"] += 1
+    return steps
+
+
+def changes_fallback(text):
+    """First paragraph of `## Changes` joined by spaces, "" when empty or absent."""
+    para = []
+    for line in _section_lines(text, "Changes"):
+        if line.strip():
+            para.append(line.strip())
+        elif para:
+            break
+    return " ".join(para)
+
+
+def _render_md_blocks(lines, indent, para_gap):
+    """Raw Markdown lines as wrapped blocks: a column-0 `- ` line plus its indented continuation
+    is one bullet (continuation lines at `indent` + 2 spaces), consecutive other non-blank lines
+    one paragraph. Never truncates; width stays within 72 columns."""
+    blocks = []
+    cur = None
+    for line in lines:
+        if not line.strip():
+            cur = None
+            continue
+        if line.startswith("- "):
+            cur = ["bullet", [line[2:].strip()]]
+            blocks.append(cur)
+        elif cur is not None and cur[0] == "bullet" and line[0] in " \t":
+            cur[1].append(line.strip())
+        elif cur is not None and cur[0] == "para":
+            cur[1].append(line.strip())
+        else:
+            cur = ["para", [line.strip()]]
+            blocks.append(cur)
+    out = []
+    for kind, parts in blocks:
+        if para_gap and out:
+            out.append("")
+        text = " ".join(parts)
+        if kind == "bullet":
+            wrapped = cfq_text.wrap(text, width=72 - len(indent) - 2)
+            for i, w in enumerate(wrapped):
+                out.append(f"{indent}- {w}" if i == 0 else f"{indent}  {w}")
+        else:
+            out.extend(cfq_text.wrap(text, width=72 - len(indent), indent=indent))
+    return out
+
+
+REVIEW_SECTIONS = ("Goal", "Decisions", "Invariants", "Cross-Phase Contracts", "Non-Goals")
+
+
+def render_context_block(d):
+    out = []
+    for heading in REVIEW_SECTIONS:
+        lines = cfq_queue.read_section_lines(d, heading)
+        if lines:
+            out.append(f"  {heading}")
+            out.extend(_render_md_blocks(lines, "    ", para_gap=False))
+    return out
+
+
+def parse_phase_review(text, fallback_title):
+    fields = parse_phase_body(text, fallback_title=fallback_title)
+    context_lines = _section_lines(text, "Context")
+    while context_lines and not context_lines[0].strip():
+        context_lines.pop(0)
+    while context_lines and not context_lines[-1].strip():
+        context_lines.pop()
+    files = []
+    for line in _section_lines(text, "Affected Files"):
+        if line.startswith("- `"):
+            path, _, rest = line[3:].partition("`")
+            files.append((path, rest.strip()))
+    return {
+        "title": fields["title"], "size": fields["size"], "check": fields["check"],
+        "context_lines": context_lines, "files": files,
+        "steps": changes_steps(text), "fallback": changes_fallback(text),
+    }
+
+
+def _display_path(path, repo_root):
+    p = pathlib.Path(path)
+    if repo_root is not None:
+        try:
+            return str(p.relative_to(repo_root))
+        except ValueError:
+            pass
+    return str(path)
+
+
+def render_review_phase(num, fields, phase_path, repo_root, done):
+    head = f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"
+    lines = [head + (" · done" if done else "")]
+
+    ctx = _render_md_blocks(fields["context_lines"], "    ", para_gap=True)
+    if ctx:
+        lines.append("  Context")
+        lines.extend(ctx)
+
+    if fields["files"]:
+        lines.append("  Files")
+        for path, marker in fields["files"]:
+            shown = _display_path(path, repo_root)
+            lines.append(f"    {shown} {marker}" if marker else f"    {shown}")
+
+    if fields["steps"]:
+        lines.append("  Changes")
+        for i, step in enumerate(fields["steps"], 1):
+            prefix = f"    {i}. "
+            wrapped = cfq_text.wrap(step["lead"], width=64, max_lines=3) or [""]
+            n = step["details"]
+            if n:
+                wrapped[-1] = (wrapped[-1] + f" (+{n} detail{'s' if n != 1 else ''})").lstrip()
+            for j, w in enumerate(wrapped):
+                lines.append(prefix + w if j == 0 else " " * len(prefix) + w)
+    elif fields["fallback"]:
+        lines.append("  Changes")
+        lines.extend(cfq_text.wrap(fields["fallback"], width=68, indent="    ", max_lines=6))
+
+    if fields["check"]:
+        lines.append(f"  Verify   {fields['check']}")
+    lines.append(f"  Edit     {_display_path(phase_path.resolve(), repo_root)}")
+    return lines
+
+
+def _portal_line(d):
+    """`  Portal   <url>` when the batch sits in a queue layout and `htmlReport` is on, else None."""
+    repo = _repo_root_from_batch_dir(d)
+    if repo is None or cfq_proc.settings_get(repo, "htmlReport") != "true":
+        return None
+    return f"  Portal   {cfq_paths.portal_batch_url(repo, d.name)}"
+
+
+def render_review(d, only=None):
+    repo_root = _repo_root_from_batch_dir(d)
+    done_files = sorted((d / "done").glob("[0-9][0-9]-*.md"))
+    open_files = sorted(d.glob("[0-9][0-9]-*.md"))
+    entries = [(f, True) for f in done_files] + [(f, False) for f in open_files]
+
+    if only is not None:
+        known = {phase_num(f) for f, _ in entries}
+        for n in only:
+            if n not in known:
+                print(f"{PROG}: no phase {n} in {d}", file=sys.stderr)
+                sys.exit(1)
+        entries = [(f, done) for f, done in entries if phase_num(f) in only]
+
+    blocks = []
+    for f, done in entries:
+        fields = parse_phase_review(f.read_text(), f.stem)
+        blocks.append(render_review_phase(phase_num(f), fields, f, repo_root, done))
+    if only is not None:
+        return "\n\n".join("\n".join(b) for b in blocks)
+
+    _, _, done_n, open_n, red_n = _overview_rows(d)
+    sections = [[_overview_header(d), _count_line(done_n, open_n, red_n)]]
+    ctx = render_context_block(d)
+    if ctx:
+        sections.append(ctx)
+    sections.extend(blocks)
+    footer = [f"  Plans    {d.resolve()}"]
+    if (d / ".batch-context.md").is_file():
+        footer.append(f"  Context  {d.resolve()}/.batch-context.md")
+    portal = _portal_line(d)
+    if portal is not None:
+        footer.append(portal)
+    sections.append(footer)
+    return "\n\n".join("\n".join(s) for s in sections)
 
 
 def _check_orchestrator_gate(batch_dir):
@@ -292,6 +535,11 @@ def cmd_brief(args):
         print(render_overview(d))
         return
 
+    if args.review:
+        only = [n.strip() for n in args.phases.split(",") if n.strip()] if args.phases else None
+        print(render_review(d, only))
+        return
+
     name = d.name
     priority_file = d / ".priority"
     priority = priority_file.read_text().strip() if priority_file.is_file() else ""
@@ -327,6 +575,8 @@ def build_parser():
     group.add_argument("--phase")
     group.add_argument("--with-done", action="store_true")
     group.add_argument("--overview", action="store_true")
+    group.add_argument("--review", action="store_true")
+    parser.add_argument("--phases")
     parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser
@@ -335,6 +585,8 @@ def build_parser():
 def main(argv):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.phases is not None and not args.review:
+        parser.error("--phases requires --review")
     args.func(args)
 
 
