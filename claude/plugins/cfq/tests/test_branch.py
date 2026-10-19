@@ -832,6 +832,160 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertEqual(out["base"], "main", msg=f"base -> {out}")
         self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
+class BranchListTest(CfqTestCase):
+    """`bin/cfq branch list` -- the ten newest branches plus the default branch, rendered."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self._repos_dir / "repo"
+        self.repo.mkdir()
+        self.run_clean("git", "init", "-q", "-b", "main", cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "init", cwd=self.repo,
+        )
+        self.remote = self._repos_dir / "remote.git"
+        self.run_clean("git", "init", "-q", "--bare", "-b", "main", str(self.remote))
+        self.run_clean("git", "remote", "add", "origin", str(self.remote), cwd=self.repo)
+        self.run_clean("git", "push", "-q", "-u", "origin", "main", cwd=self.repo)
+
+    def _list(self, *extra, repo=None):
+        return self.run_cfq("branch", "list", str(repo or self.repo), *extra, check=True)
+
+    def _branch(self, name, date, push=True, start="main"):
+        env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        self.run_clean("git", "checkout", "-q", "-b", name, start, cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", name, cwd=self.repo, env=env,
+        )
+        if push:
+            self.run_clean("git", "push", "-q", "-u", "origin", name, cwd=self.repo)
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+
+    def _rows(self, out):
+        return out["listText"].splitlines()[1:]
+
+    def _row(self, out, name):
+        for line in self._rows(out):
+            if line.split()[1] == name:
+                return line
+        self.fail(f"no row for {name} in {out['listText']}")
+
+    def test_routine(self):
+        self._branch(A, day(1))
+        self._branch("feature", day(2), start=A)
+        out = self.json_out(self._list())
+        self.assertEqual(out["status"], "OK", msg=f"status -> {out}")
+        self.assertEqual(out["names"], ["feature", A, "main"], msg=f"names -> {out}")
+        self.assertEqual(out["total"], 3, msg=f"total -> {out}")
+        lines = out["listText"].splitlines()
+        self.assertEqual(lines[0], "BRANCHES · newest 3 of 3", msg=f"header -> {lines}")
+        self.assertEqual([l.split()[0] for l in lines[1:]], ["1", "2", "3"], msg=f"rows -> {lines}")
+        self.assertEqual(out["recommended"], "feature", msg=f"recommended -> {out}")
+        self.assertEqual(out["defaultBranch"], "main", msg=f"defaultBranch -> {out}")
+        self.assertTrue(self._row(out, "feature").endswith("recommended"), msg=f"{lines}")
+        self.assertIn("default", self._row(out, "main"), msg=f"{lines}")
+        self.assertRegex(self._row(out, A), r"2030-01-01", msg=f"date -> {lines}")
+
+    def test_more_than_ten_branches_appends_the_default_branch(self):
+        for n in range(1, 13):
+            self._branch(f"f{n:02d}", day(n))
+        out = self.json_out(self._list())
+        self.assertEqual(len(out["names"]), 11, msg=f"names -> {out}")
+        self.assertEqual(out["names"][-1], "main", msg=f"names -> {out}")
+        self.assertEqual(out["names"][0], "f12", msg=f"names -> {out}")
+        self.assertEqual(out["total"], 13, msg=f"total -> {out}")
+        lines = out["listText"].splitlines()
+        self.assertEqual(lines[0], "BRANCHES · newest 10 of 13", msg=f"header -> {lines}")
+        self.assertEqual(len(lines), 12, msg=f"lines -> {lines}")
+        self.assertEqual(lines[-1].split()[0], "11", msg=f"last row -> {lines}")
+
+    def test_default_branch_among_the_newest_is_listed_once(self):
+        for n in range(1, 12):
+            self._branch(f"f{n:02d}", day(n))
+        self.run_clean("git", "checkout", "-q", "main", cwd=self.repo)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "newer", cwd=self.repo,
+            env={"GIT_AUTHOR_DATE": day(20), "GIT_COMMITTER_DATE": day(20)},
+        )
+        self.run_clean("git", "push", "-q", "origin", "main", cwd=self.repo)
+        out = self.json_out(self._list())
+        self.assertEqual(len(out["names"]), 10, msg=f"names -> {out}")
+        self.assertEqual(out["names"].count("main"), 1, msg=f"names -> {out}")
+        self.assertEqual(len(self._rows(out)), 10, msg=f"rows -> {out}")
+
+    def test_missing_batch_branches(self):
+        c = "cfq/003-2026-01-03-c"
+        self._branch(A, day(1))
+        self._branch(B, day(2), start=A)
+        self._branch(c, day(3), start=B)
+        out = self.json_out(self._list())
+        self.assertTrue(self._row(out, A).endswith("missing 2 cfq branches"), msg=out["listText"])
+        self.assertTrue(self._row(out, B).endswith("missing 1 cfq branch"), msg=out["listText"])
+        self.assertNotIn("missing", self._row(out, c), msg=out["listText"])
+        self.assertTrue(
+            self._row(out, "main").endswith("default · missing 3 cfq branches"), msg=out["listText"]
+        )
+
+    def test_local_only(self):
+        self._branch("loc", day(1), push=False)
+        self._branch("feature", day(2))
+        out = self.json_out(self._list())
+        self.assertIn("local only", self._row(out, "loc"), msg=out["listText"])
+        self.assertNotIn("local only", self._row(out, "feature"), msg=out["listText"])
+
+    def test_limit(self):
+        for n in range(1, 6):
+            self._branch(f"f{n:02d}", day(n))
+        out = self.json_out(self._list("--limit", "3"))
+        self.assertEqual(out["names"], ["f05", "f04", "f03", "main"], msg=f"names -> {out}")
+        lines = out["listText"].splitlines()
+        self.assertEqual(lines[0], "BRANCHES · newest 3 of 6", msg=f"header -> {lines}")
+        self.assertEqual(len(lines), 5, msg=f"lines -> {lines}")
+
+    def test_equal_commit_time_orders_by_batch_number_then_name(self):
+        self._branch(A, day(1))
+        self._branch(B, day(1))
+        self._branch("zeta", day(1))
+        self._branch("alpha", day(1))
+        out = self.json_out(self._list())
+        self.assertEqual(
+            out["names"], [B, A, "alpha", "zeta", "main"], msg=f"names -> {out}"
+        )
+
+    def test_no_trailing_whitespace(self):
+        self._branch(A, day(1))
+        self._branch("feature", day(2))
+        out = self.json_out(self._list())
+        for line in out["listText"].splitlines():
+            self.assertEqual(line, line.rstrip(), msg=f"trailing whitespace -> {line!r}")
+
+    def test_without_origin_still_prints(self):
+        lone = self._repos_dir / "lone"
+        lone.mkdir()
+        self.run_clean("git", "init", "-q", "-b", "main", cwd=lone)
+        self.run_clean(
+            "git", "-c", "user.email=a@b.c", "-c", "user.name=a",
+            "commit", "--allow-empty", "-q", "-m", "init", cwd=lone,
+        )
+        self.run_clean("git", "branch", "feature", cwd=lone)
+        out = self.json_out(self._list(repo=lone))
+        self.assertEqual(out["status"], "OK", msg=f"status -> {out}")
+        self.assertEqual(sorted(out["names"]), ["feature", "main"], msg=f"names -> {out}")
+        self.assertEqual(out["defaultBranch"], "main", msg=f"defaultBranch -> {out}")
+        self.assertTrue(out["listText"].startswith("BRANCHES · newest 2 of 2"), msg=out)
+
+    def test_outside_git_repo_reports_no_repo(self):
+        non_repo = self._repos_dir / "not-a-repo"
+        non_repo.mkdir()
+        proc = self._list(repo=non_repo)
+        self.assertNotIn("Traceback", proc.stderr, msg=f"raw traceback -> {proc.stderr}")
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_REPO", msg=f"status -> {out}")
+
+
 class BranchCheckTest(CfqTestCase):
     def setUp(self):
         super().setUp()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: cfq_branch.py plan <repo-root> <batch-dir-name>
 #        cfq_branch.py check <repo-root> <branch-name> [--batch <batch-dir-name>]
+#        cfq_branch.py list <repo-root> [--limit <n>]
 """Computes the branch/batch-identity decision for a batch go-ahead as one JSON object. Read-only
 -- never creates or checks out a branch itself; the caller acts on `mode`. New branches use the
 batch's own stable directory name directly (`cfq/<batch-directory-name>`) -- no version scanning,
@@ -8,6 +9,9 @@ no pseudo-version increment, no identity derived from Git branch history.
 `check` resolves and judges one named branch (for a free-text base-branch answer; `--batch` adds
 that batch's unmerged `.dependsOn` branches to its `uncontained` list) -- also read-only, no
 dispatcher entry of its own since `branch` is already the noun.
+`list` renders the `--limit` (default 10) newest branches by commit date, the default branch
+appended when it is not among them, as one aligned `listText` for the "pick from list" answer --
+also read-only.
 
 On `new`, `base`/`baseRef` are the recommendation (`_recommend()`) -- `.dependsOn` never picks the
 base. It only gates *when* a batch is selectable (a batch whose dependency is not in `impl/done/` is
@@ -44,7 +48,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, paths, queue, render  # noqa: E402
+from cfq_lib import errors, paths, queue, render, text  # noqa: E402
 from cfq_lib import proc  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
@@ -341,6 +345,53 @@ def _recommend(repo, branches, default_name=None):
     return options, source
 
 
+# ---- list ---------------------------------------------------------------------------------------
+
+def cmd_list(args):
+    repo = args.repo
+    if git(repo, "rev-parse", "--show-toplevel", check=False).returncode != 0:
+        print(render.dump_json({"status": "NO_REPO", "repo": {"root": repo}}))
+        return
+
+    rchecked = is_remote_checked(repo)
+    default_name, default_ref = default_branch(repo, rchecked)
+    branches = _collect_branches(repo, rchecked)
+    unmerged = _unmerged_cfq(repo, branches, default_ref)
+    picked, _ = _recommend(repo, branches, default_name)
+    recommended = picked[0][0]["name"] if picked else default_name
+
+    def newest_first(b):
+        number = _batch_number(b["name"]) if _is_batch(b["name"]) else None
+        return (-b["epoch"], -(number if number is not None else -1), b["name"])
+
+    kept = sorted(branches, key=newest_first)[:max(args.limit, 0)]
+    shown = len(kept)
+    if default_name not in (b["name"] for b in kept):
+        kept += [b for b in branches if b["name"] == default_name]
+
+    rows = []
+    for i, b in enumerate(kept, 1):
+        notes = []
+        if b["name"] == recommended:
+            notes.append("recommended")
+        if b["name"] == default_name:
+            notes.append("default")
+        if b["localOnly"]:
+            notes.append("local only")
+        _, missing = _uncontained(repo, b, branches, unmerged, [])
+        if missing:
+            notes.append(f"missing {missing} cfq branch" + ("es" if missing > 1 else ""))
+        rows.append([str(i), b["name"], b["lastCommit"][:10], " · ".join(notes)])
+
+    header = f"BRANCHES · newest {shown} of {len(branches)}"
+    lines = [header] + text.table(rows, aligns=["r"])
+    print(render.dump_json({
+        "status": "OK", "defaultBranch": default_name, "recommended": recommended,
+        "total": len(branches), "names": [b["name"] for b in kept],
+        "listText": "\n".join(lines),
+    }))
+
+
 # ---- check --------------------------------------------------------------------------------------
 
 def cmd_check(args):
@@ -631,6 +682,11 @@ def build_parser():
     p.add_argument("--batch")
     p.set_defaults(func=cmd_check)
 
+    p = sub.add_parser("list")
+    p.add_argument("repo")
+    p.add_argument("--limit", type=int, default=10)
+    p.set_defaults(func=cmd_list)
+
     return parser
 
 
@@ -639,7 +695,7 @@ def main(argv):
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
     if func is None:
-        errors.die(f"usage: {PROG} plan <repo-root> <batch-dir-name> | check <repo-root> <branch-name> [--batch <batch-dir-name>]")
+        errors.die(f"usage: {PROG} plan <repo-root> <batch-dir-name> | check <repo-root> <branch-name> [--batch <batch-dir-name>] | list <repo-root> [--limit <n>]")
     func(args)
 
 
