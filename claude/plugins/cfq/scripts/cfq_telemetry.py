@@ -206,24 +206,6 @@ def assistant_turns(entries, since, until):
     ]
 
 
-def subagent_turns(since, until):
-    """Every agent-*.jsonl in the resolved subagents/ directory, parsed with the same
-    parse_transcript() the main transcript uses (sub-agent entries share its shape), filtered to
-    the same (since, until] window the main-transcript turns were filtered to -- this is what
-    keeps a per-phase record holding only that phase's own worker, not every sub-agent the
-    session ever spawned."""
-    d = subagent_dir()
-    if not d or not os.path.isdir(d):
-        return []
-    entries = []
-    for p in sorted(pathlib.Path(d).glob("agent-*.jsonl")):
-        try:
-            entries.extend(parse_transcript(str(p)))
-        except (OSError, ValueError):
-            continue
-    return collapse_responses(assistant_turns(entries, since, until))
-
-
 def agent_id_from_path(p):
     """"agent-<id>.jsonl" -> "<id>" -- the id shared verbatim by the sibling
     "agent-<id>.meta.json" and by another agent's own "parentAgentId" (verified against real
@@ -246,16 +228,12 @@ def read_agent_meta(subdir, agent_id):
     return data if isinstance(data, dict) else None
 
 
-def _resolve_layer(agent_type, depth, parent, meta_by_id):
-    """worker = type WORKER_AGENT. worker_explore = any agent whose parent chain reaches a
-    worker -- walked by id through meta_by_id, which is built from every meta file in the
-    directory (not just the ones with turns in this record's own window), so a depth->=3 agent
-    still resolves through an intermediate parent that has no turns of its own here. Everything
-    else -- a depth-1 non-worker, or a chain that runs out (missing/malformed meta) before
-    reaching a worker -- is main_explore. `seen` guards a cyclical parentAgentId from looping
-    forever; real sessions never produce one, but a malformed meta file must not hang this."""
-    if agent_type == WORKER_AGENT:
-        return "worker"
+def _parent_chain(parent, meta_by_id):
+    """Yields (id, meta) for each ancestor, nearest first, walking `parentAgentId` through
+    meta_by_id -- which is built from every meta file in the directory (not just the attributed
+    agents), so a depth->=3 agent still resolves through an intermediate parent that has no turns
+    of its own here. Stops at a missing/malformed meta. `seen` guards a cyclical parentAgentId from
+    looping forever; real sessions never produce one, but a malformed meta file must not hang this."""
     seen = set()
     cur = parent
     while cur and cur not in seen:
@@ -263,20 +241,57 @@ def _resolve_layer(agent_type, depth, parent, meta_by_id):
         pmeta = meta_by_id.get(cur)
         if not isinstance(pmeta, dict):
             break
+        yield cur, pmeta
+        cur = pmeta.get("parentAgentId") or None
+
+
+def _resolve_layer(agent_type, depth, parent, meta_by_id):
+    """worker = type WORKER_AGENT. worker_explore = any agent whose parent chain reaches a
+    worker. Everything else -- a depth-1 non-worker, or a chain that runs out (missing/malformed
+    meta) before reaching a worker -- is main_explore."""
+    if agent_type == WORKER_AGENT:
+        return "worker"
+    for _, pmeta in _parent_chain(parent, meta_by_id):
         if jqor(pmeta.get("agentType"), "") == WORKER_AGENT:
             return "worker_explore"
-        cur = pmeta.get("parentAgentId") or None
     return "main_explore"
 
 
-def collect_agent_nodes(since, until):
-    """One node per agent-<id>.jsonl with at least one turn inside (since, until] -- an agent with
-    no turns in the window is not listed. Each node's `layer` comes from _resolve_layer() against
-    its sibling meta file; a missing or unreadable meta counts as depth 1, type taken from the
-    turn's own attributionAgent (the same fallback attribution subagent_turns()'s callers already
-    read via by_agent), no parent. Returns (nodes, turns_by_id): build_record() needs the raw
-    per-agent turn lists again to sum each layer via sums(), rather than re-deriving a sum from
-    nodes[*]["totals"] by hand."""
+def _root_meta(meta, parent, meta_by_id):
+    """The meta of the depth-1 agent at the top of an agent's parent chain (the agent's own meta
+    when it has no parent); the last reachable one when the chain runs out."""
+    root = meta
+    for _, pmeta in _parent_chain(parent, meta_by_id):
+        root = pmeta
+    return root
+
+
+def tool_use_timestamps(entries):
+    """{tool_use.id: timestamp of the transcript line carrying it} over every assistant line of
+    the main transcript -- the spawn time of the Agent call an agent's meta `toolUseId` names."""
+    out = {}
+    for e in entries:
+        if e.get("type") != "assistant" or not e.get("timestamp"):
+            continue
+        content = (e.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "tool_use":
+                tid = c.get("id")
+                if tid and tid not in out:
+                    out[tid] = e["timestamp"]
+    return out
+
+
+def collect_agent_nodes(since, upper, tool_ts):
+    """One node per agent-<id>.jsonl attributed to the record window (since, upper]. An agent
+    belongs to the record when its root's `toolUseId` maps (via `tool_ts`) to a main-transcript
+    timestamp inside the window; with no usable link, when the agent's own first response is
+    inside it. An attributed agent contributes all of its responses, unclipped. Each node's
+    `layer` comes from _resolve_layer(); a missing or unreadable meta counts as depth 1, type
+    taken from the turn's own attributionAgent, no parent. Returns (nodes, turns_by_id):
+    build_record() needs the raw per-agent turn lists again to sum each layer via sums()."""
     d = subagent_dir()
     if not d or not os.path.isdir(d):
         return [], {}
@@ -292,7 +307,7 @@ def collect_agent_nodes(since, until):
             entries = parse_transcript(str(p))
         except (OSError, ValueError):
             continue
-        turns = collapse_responses(assistant_turns(entries, since, until))
+        turns = collapse_responses(assistant_turns(entries, "", ""))
         if not turns:
             continue
 
@@ -308,6 +323,14 @@ def collect_agent_nodes(since, until):
             description = ""
             depth = 1
             parent = None
+
+        root = _root_meta(meta, parent, meta_by_id)
+        link = root.get("toolUseId") if isinstance(root, dict) else None
+        stamp = tool_ts.get(link) if link else None
+        if not stamp:
+            stamp = turns[0].get("timestamp")
+        if not (since == "" or stamp > since) or not (upper == "" or stamp <= upper):
+            continue
 
         turns_by_id[aid] = turns
         nodes.append({
@@ -340,7 +363,7 @@ def build_layers(t, nodes, turns_by_id):
     `nodes` by their resolved `layer`. Invariant (asserted in tests, not just here): main +
     main_explore + worker + worker_explore == totals + subagent, field by field -- main equals
     totals by construction, and every node's turns land in exactly one of the other three layers,
-    so their union reproduces `sub` (subagent_turns()'s own sum) exactly."""
+    so their union reproduces `sub` (the attributed agents' own responses) exactly."""
     main_models = sorted({model_key(it) for it in t})
     main_efforts = sorted({jqor(it.get("effort"), "?") for it in t})
     layers = {"main": {
@@ -354,9 +377,11 @@ def build_layers(t, nodes, turns_by_id):
     return layers
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended):
+def build_record(tf, since, kind, phase, batch, repo, recommended, upper=""):
+    """`upper` bounds the main-transcript window like `since` bounds it from below (default
+    unbounded); the same (since, upper] window decides which sub-agents belong to the record."""
     entries = parse_transcript(tf)
-    raw = assistant_turns(entries, since, "")
+    raw = assistant_turns(entries, since, upper)
     t = collapse_responses(raw)
 
     # Tools are counted over the uncollapsed lines (a response's blocks are spread across its
@@ -382,7 +407,8 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     last = raw[-1] if raw else {}
 
     until = jqor(last_ts, "")
-    sub = subagent_turns(since, until)
+    agent_nodes, agent_turns_by_id = collect_agent_nodes(since, upper, tool_use_timestamps(entries))
+    sub = [it for n in agent_nodes for it in agent_turns_by_id[n["id"]]]
     by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
     mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
 
@@ -393,9 +419,8 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     worker_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") == WORKER_AGENT]
     explore_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") != WORKER_AGENT]
 
-    # Per-agent nodes and the four cost layers they group into (`agents`/`layers`, schema 2; `by_model` on both, schema 3) --
-    # additive, on top of the unchanged `by_agent`/`subagent*` fields above.
-    agent_nodes, agent_turns_by_id = collect_agent_nodes(since, until)
+    # The four cost layers the per-agent nodes group into (`agents`/`layers`, schema 2; `by_model`
+    # on both, schema 3) -- additive, on top of the unchanged `by_agent`/`subagent*` fields above.
     layers = build_layers(t, agent_nodes, agent_turns_by_id)
 
     return {

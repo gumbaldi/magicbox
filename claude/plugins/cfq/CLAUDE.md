@@ -222,9 +222,13 @@ split, and `bin/cfq telemetry show --session`'s `layers` object.
 
 **Schema 2 additionally records every sub-agent as its own node, grouped into four cost layers.**
 `by_agent`/`subagent`/`subagent_worker`/`subagent_explore` keep their existing meaning — schema 2
-is additive, not a replacement. `agents` lists one entry per `agent-<id>.jsonl` that has at least
-one turn in the record's window (`collect_agent_nodes()`), read together with its sibling
-`agent-<id>.meta.json` (`agentType`, `description`, `spawnDepth`, `parentAgentId` at depth ≥ 2) —
+is additive, not a replacement. `agents` lists one entry per `agent-<id>.jsonl` attributed to the
+record (`collect_agent_nodes()`): the agent's root (the depth-1 ancestor, walked via
+`parentAgentId`) names its spawning `Agent` call by `toolUseId`, and the record owns the agent when
+that call's main-transcript timestamp is inside the record's `(since, upper]` window — without a
+usable link, when the agent's own first response is. All responses of an attributed agent count,
+never clipped by timestamp. Read together with its sibling
+`agent-<id>.meta.json` (`agentType`, `description`, `spawnDepth`, `toolUseId`, `parentAgentId` at depth ≥ 2) —
 a missing or unreadable meta falls back to depth 1, type from the turn's own `attributionAgent`, no
 parent, the same attribution `by_agent` already uses. `layers` sums those nodes (plus the session's
 own transcript as `main`) into the tree the report reads: `main` (the session), `main_explore`

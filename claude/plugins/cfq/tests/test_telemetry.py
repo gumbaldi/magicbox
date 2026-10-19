@@ -64,13 +64,16 @@ def _resp_line(ts, mid, output, content=None, model="claude-sonnet-5", agent=Non
     return json.dumps(obj, separators=(",", ":"))
 
 
-def _write_meta(subdir, agent_id, agent_type, description="", spawn_depth=1, parent=None):
+def _write_meta(subdir, agent_id, agent_type, description="", spawn_depth=1, parent=None,
+                tool_use_id=None):
     """The sibling agent-<id>.meta.json a real subagents/ directory carries -- field names and
     shape verified against real session directories (agentType, description, spawnDepth, and
     parentAgentId only at depth >= 2)."""
     meta = {"agentType": agent_type, "description": description, "spawnDepth": spawn_depth}
     if parent:
         meta["parentAgentId"] = parent
+    if tool_use_id:
+        meta["toolUseId"] = tool_use_id
     (subdir / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
 
 
@@ -369,7 +372,9 @@ class TelemetryTest(CfqTestCase):
         )
         self.assertEqual(rec["mode"], "orchestrator", msg="a phase worker present still means orchestrator mode")
 
-    def test_subagent_entries_outside_window_excluded(self):
+    def test_subagent_attributed_once_by_first_response(self):
+        # No meta, no link: the agent belongs to the record whose main window holds its first
+        # response, with all of its responses -- later records do not count it again.
         subdir = self._subagent_dir()
         agent_file = subdir / "agent-1.jsonl"
         agent_file.write_text(_sub_line("2026-08-13T10:00:30.000Z", "cfq:cfq-phase-worker") + "\n")
@@ -377,9 +382,6 @@ class TelemetryTest(CfqTestCase):
         rec1 = self._last_record()
         self.assertEqual(rec1["subagent"]["turns"], 1, msg="first window: 1 sub-agent turn")
 
-        # Second call: bump the window forward. The old entry (before the new `since`) and a
-        # deliberately-future entry (after the new `until`) must both be excluded; only the entry
-        # that actually falls inside (since, until] counts.
         with self.transcript.open("a") as f:
             f.write(EXTRA_TURN)
         with agent_file.open("a") as f:
@@ -388,10 +390,7 @@ class TelemetryTest(CfqTestCase):
 
         self._record(str(self.batch), "phase", "01-foo")
         rec2 = self._last_record()
-        self.assertEqual(
-            rec2["subagent"]["turns"], 1,
-            msg="only the entry inside the new (since, until] window counts",
-        )
+        self.assertEqual(rec2["subagent"]["turns"], 0, msg="the agent's first response is outside the new window")
         self.assertEqual(rec2["totals"]["turns"], 1, msg="totals stays windowed the same as before")
 
     # -- agents/layers (schema 2) -------------------------------------------------------------
@@ -534,6 +533,133 @@ class TelemetryTest(CfqTestCase):
         rec = self._scenario_stale_agent_excluded()
         self.assertEqual(rec["agents"], [], msg="an agent with no turns in the new window is not listed")
         self._assert_layers_invariant(rec)
+
+    # -- attribution by spawning tool call -----------------------------------------------------
+
+    def _agent_call_line(self, ts, mid, tool_id):
+        obj = json.loads(_resp_line(
+            ts, mid, 10,
+            [{"type": "tool_use", "id": tool_id, "name": "Agent", "input": {}}],
+        ))
+        obj["sessionId"] = "testsid"
+        return json.dumps(obj, separators=(",", ":"))
+
+    def _write_agent(self, subdir, aid, atype, stamps, **meta):
+        (subdir / f"agent-{aid}.jsonl").write_text(
+            "\n".join(_sub_line(t, atype) for t in stamps) + "\n"
+        )
+        if meta is not None:
+            _write_meta(subdir, aid, atype, **meta)
+
+    def test_worker_turns_after_main_window_are_attributed_by_tool_use_id(self):
+        # The regression: the main transcript stopped at the Agent call, every worker response
+        # is later than its last line.
+        self.transcript.write_text(self._agent_call_line("2026-08-13T10:00:00.000Z", "msg_m1", "toolu_A") + "\n")
+        subdir = self._subagent_dir()
+        self._write_agent(
+            subdir, "a1", "cfq:cfq-phase-worker",
+            ["2026-08-13T10:05:00.000Z", "2026-08-13T10:06:00.000Z", "2026-08-13T10:07:00.000Z"],
+            tool_use_id="toolu_A",
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["layers"]["worker"]["turns"], 3)
+        self.assertEqual(rec["layers"]["worker"]["output"], 45)
+        self.assertEqual(rec["mode"], "orchestrator")
+        self.assertEqual(rec["subagent_worker"]["turns"], 3)
+        self._assert_layers_invariant(rec)
+
+    def test_second_record_in_one_session_does_not_recount_first_agent(self):
+        self.transcript.write_text(self._agent_call_line("2026-08-13T10:00:00.000Z", "msg_m1", "toolu_A") + "\n")
+        subdir = self._subagent_dir()
+        self._write_agent(
+            subdir, "a1", "cfq:cfq-phase-worker",
+            ["2026-08-13T10:05:00.000Z", "2026-08-13T10:15:00.000Z"], tool_use_id="toolu_A",
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec1 = self._last_record()
+        self.assertEqual(rec1["layers"]["worker"]["turns"], 2)
+
+        with self.transcript.open("a") as f:
+            f.write(self._agent_call_line("2026-08-13T10:10:00.000Z", "msg_m2", "toolu_B") + "\n")
+        self._write_agent(
+            subdir, "a2", "cfq:cfq-phase-worker", ["2026-08-13T10:12:00.000Z"], tool_use_id="toolu_B",
+        )
+        self._record(str(self.batch), "phase", "02-foo")
+        rec2 = self._last_record()
+        self.assertEqual([n["id"] for n in rec2["agents"]], ["a2"])
+        self.assertEqual(rec2["layers"]["worker"]["turns"], 1)
+        self._assert_layers_invariant(rec2)
+
+    def test_depth_two_agent_follows_its_root(self):
+        self.transcript.write_text(self._agent_call_line("2026-08-13T10:00:00.000Z", "msg_m1", "toolu_A") + "\n")
+        subdir = self._subagent_dir()
+        self._write_agent(
+            subdir, "a1", "cfq:cfq-phase-worker", ["2026-08-13T10:05:00.000Z"], tool_use_id="toolu_A",
+        )
+        # Its first response lies far outside the main window, and it has no usable toolUseId of
+        # its own (the id of a call inside a1's transcript).
+        self._write_agent(
+            subdir, "a3", "Explore", ["2026-08-13T11:00:00.000Z"],
+            spawn_depth=2, parent="a1", tool_use_id="toolu_in_a1",
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        nodes = {n["id"]: n for n in rec["agents"]}
+        self.assertEqual(set(nodes), {"a1", "a3"})
+        self.assertEqual(nodes["a3"]["layer"], "worker_explore")
+        self.assertEqual(rec["layers"]["worker_explore"]["turns"], 1)
+        self._assert_layers_invariant(rec)
+
+    def test_agents_without_link_fall_back_to_first_response_in_window(self):
+        subdir = self._subagent_dir()
+        # meta without toolUseId, and no meta file at all
+        self._write_agent(subdir, "m1", "Explore", ["2026-08-13T10:00:30.000Z", "2026-08-13T12:00:00.000Z"])
+        (subdir / "agent-nometa.jsonl").write_text(_sub_line("2026-08-13T10:01:30.000Z", "Explore") + "\n")
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        nodes = {n["id"]: n for n in rec["agents"]}
+        self.assertEqual(set(nodes), {"m1", "nometa"})
+        self.assertEqual(nodes["m1"]["totals"]["turns"], 2, msg="all responses of an attributed agent count")
+        self._assert_layers_invariant(rec)
+
+        # second window: the agents' first responses lie before `since`, a new one inside
+        with self.transcript.open("a") as f:
+            f.write(EXTRA_TURN)
+        self._write_agent(subdir, "m2", "Explore", ["2026-08-13T10:04:30.000Z"])
+        self._record(str(self.batch), "phase", "02-foo")
+        self.assertEqual([n["id"] for n in self._last_record()["agents"]], ["m2"])
+
+    def test_unknown_tool_use_id_falls_back_to_first_response(self):
+        subdir = self._subagent_dir()
+        self._write_agent(subdir, "x1", "Explore", ["2026-08-13T10:00:30.000Z"], tool_use_id="toolu_missing")
+        self._record(str(self.batch), "phase", "01-foo")
+        self.assertEqual([n["id"] for n in self._last_record()["agents"]], ["x1"])
+
+        with self.transcript.open("a") as f:
+            f.write(EXTRA_TURN)
+        self._write_agent(subdir, "x2", "Explore", ["2026-08-13T10:04:30.000Z"], tool_use_id="toolu_missing")
+        self._record(str(self.batch), "phase", "02-foo")
+        rec = self._last_record()
+        self.assertEqual([n["id"] for n in rec["agents"]], ["x2"])
+        self._assert_layers_invariant(rec)
+
+    def test_build_record_upper_bounds_main_turns_and_agent_attribution(self):
+        import cfq_telemetry
+        subdir = self._subagent_dir()
+        self._write_agent(subdir, "u1", "Explore", ["2026-08-13T10:00:30.000Z"])
+        self._write_agent(subdir, "u2", "Explore", ["2026-08-13T10:03:30.000Z"])
+        orig = cfq_telemetry.subagent_dir
+        cfq_telemetry.subagent_dir = lambda: str(subdir)
+        try:
+            rec = cfq_telemetry.build_record(
+                str(self.transcript), "", "phase", "01-foo", "b", "r", [], upper="2026-08-13T10:02:00.000Z",
+            )
+        finally:
+            cfq_telemetry.subagent_dir = orig
+        self.assertEqual(rec["totals"]["turns"], 3)
+        self.assertEqual(rec["until"], "2026-08-13T10:02:00.000Z")
+        self.assertEqual([n["id"] for n in rec["agents"]], ["u1"])
 
     # -- one count per API response, split by model (schema 3) --------------------------------
 
