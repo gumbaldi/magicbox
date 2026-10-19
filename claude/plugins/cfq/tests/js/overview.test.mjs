@@ -182,9 +182,12 @@ test("global mode builds every link through the mirror", () => {
 
 test("panels: registered overviewPanel items render above the toolbar, in order", () => {
   const cfq = loadPortal();
+  // loadPortal() loads every portal script, so the real chart panels (overview-charts.js) are
+  // already registered here; with a queue and nothing registered there would be no host at all.
+  const preset = cfq.core.registered("overviewPanel").length;
   const none = fakeRoot();
   cfq.overview.render(fakeDoc(), none, ctxFor());
-  assert.equal(byClass(none, "panels").length, 0);
+  assert.equal(byClass(none, "panels").length, preset ? 1 : 0);
 
   const doc = fakeDoc();
   cfq.core.register("overviewPanel", { id: "calibration", order: 20, render: (d, r) => r.appendChild(cfq.core.el(d, "p", "second panel")) });

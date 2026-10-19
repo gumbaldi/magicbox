@@ -307,7 +307,8 @@ file in `portal/` to `assets/`, removing `assets/` files `portal/` no longer has
 `.portal-version` stamp differs from the running plugin's own version). The viewer is several plain
 scripts on one shared `CFQ` namespace (`core.js` first, `app.js` last — router, route table and
 data-path rules; `overview.js` — KPI strip and the sortable batch table; later views register through
-`CFQ.core.register(slot, item)` instead of editing earlier files); `tests/js/helpers.mjs` holds the
+`CFQ.core.register(slot, item)` instead of editing earlier files; `charts.js` draws the inline-SVG
+charts and `overview-charts.js` registers the cost-per-batch and size-calibration `overviewPanel`s); `tests/js/helpers.mjs` holds the
 fake DOM and the contract-shaped fixtures every viewer test file shares. Every data file registers a JSON payload on
 `window.CFQ_DATA["<key>"]` (a file's path below `data/` is always its key plus `.js`, which is how
 the viewer finds it) rather than being `fetch()`-ed — a browser blocks `fetch()` of a local

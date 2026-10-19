@@ -60,10 +60,11 @@ nav.tabs .tab:hover{color:var(--fg)}
 nav.tabs .tab.active{color:var(--fg);font-weight:600;border-bottom-color:var(--accent)}
 
 /* ---- toolbar and chips -------------------------------------------------------------------- */
-.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem;
-  margin:0 0 1.25rem}
+.panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:0 0 1.25rem}
+@media (max-width:60rem){.panels{grid-template-columns:minmax(0,1fr)}}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:.9rem 1rem}
+  padding:.9rem 1rem;min-width:0}
+.panel:empty{display:none}
 .toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:0 0 .75rem}
 .toolbar .search{flex:1 1 16rem;max-width:26rem;padding:.4rem .7rem;font:inherit;color:inherit;
   background:var(--bg);border:1px solid var(--border-strong);border-radius:var(--r)}
@@ -138,6 +139,42 @@ table.data td.origin a:hover{text-decoration:underline}
 .progress{display:inline-block;vertical-align:middle;width:3rem;height:.35rem;margin-left:.5rem;
   background:var(--surface-2);border-radius:999px;overflow:hidden}
 .progress .fill{display:block;height:100%;background:var(--ok)}
+
+/* ---- overview charts ---------------------------------------------------------------------- */
+:root{
+  --m0:#0b5cad;--m1:#f0b429;--m2:#00765a;--m3:#7cc4f0;--m4:#c4501a;--m5:#e9a3c9;--m-other:#7b8190;
+}
+@media (prefers-color-scheme:dark){:root{
+  --m0:#3b82c4;--m1:#f5c451;--m2:#2fb58a;--m3:#a9d8f5;--m4:#e0703a;--m5:#f2b8d6;--m-other:#9aa1ad;
+}}
+.m0{--c:var(--m0)}.m1{--c:var(--m1)}.m2{--c:var(--m2)}.m3{--c:var(--m3)}
+.m4{--c:var(--m4)}.m5{--c:var(--m5)}.m-other{--c:var(--m-other)}
+.panel .panel-title{margin:0 0 .15rem;font-size:1rem}
+.panel .caption{margin:0 0 .6rem;font-size:.8rem}
+.panel .empty{margin:0}
+.metric-switch{display:inline-flex;gap:.35rem;margin:0 0 .5rem}
+.chart-wrap{width:100%}
+svg.chart{display:block;width:100%;height:auto;max-height:18rem}
+svg.chart text{fill:var(--fg-muted);font:10px var(--sans)}
+svg.chart text.size-label{fill:var(--fg);font-size:12px;font-weight:600}
+svg.chart text.note{fill:var(--warn)}
+svg.chart .grid{stroke:var(--border);stroke-width:1}
+svg.chart .axis{stroke:var(--border-strong);stroke-width:1}
+svg.chart rect.m0,svg.chart rect.m1,svg.chart rect.m2,svg.chart rect.m3,svg.chart rect.m4,
+svg.chart rect.m5,svg.chart rect.m-other{fill:var(--c);stroke:var(--surface);stroke-width:.75}
+svg.chart rect.empty{fill:var(--border-strong)}
+svg.chart .bar:hover rect,svg.chart .row:hover rect{opacity:.8}
+svg.chart a.chart-link:focus-visible .bar{outline:2px solid var(--accent)}
+svg.chart .dot{fill:var(--accent);fill-opacity:.75;stroke:var(--bg);stroke-width:1}
+svg.chart .dot:hover{fill-opacity:1}
+svg.chart .median{stroke:var(--fg);stroke-width:2;stroke-dasharray:5 3}
+.legend{list-style:none;display:flex;flex-wrap:wrap;gap:.25rem .9rem;margin:.4rem 0 .2rem;padding:0;
+  font-size:.78rem;color:var(--fg-muted)}
+.legend-item{display:inline-flex;align-items:center;gap:.35rem}
+.legend .swatch{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;background:var(--c)}
+.legend .swatch.dot-key{border-radius:50%;background:var(--accent)}
+.legend .swatch.median-key{height:0;width:1rem;border-radius:0;background:none;
+  border-top:2px dashed var(--fg)}
 
 /* ---- disclosure and empty state ----------------------------------------------------------- */
 .disclosure-toggle{display:flex;align-items:center;gap:.5rem;cursor:pointer;background:none;
