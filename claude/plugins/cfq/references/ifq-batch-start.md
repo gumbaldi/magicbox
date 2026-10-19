@@ -50,11 +50,14 @@ back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is show
 with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — one sentence, no more.
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
-step) — is never offered either, separately from the `dependsOn` wait list: for every name in
-`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes. If no
-`/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"` clears the marker;
-otherwise it becomes selectable on its own once the marker is older than `sessionStaleSeconds`."
-One line per such batch, no more.
+step) — is never offered either, separately from the `dependsOn` wait list. For every name in
+`selection.review` (a batch held at its plan review gate, always also in `selection.planning`):
+"Batch `<name>` is waiting for its plan review — run `/pfq` to continue the review, or release it
+unreviewed with `bin/cfq batch ready "<batch-dir>"`." It never becomes selectable on its own. For
+every other name in `selection.planning`: "Batch `<name>` is still being planned — try again once
+`/pfq` finishes. If no `/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"`
+clears the marker; otherwise it becomes selectable on its own once the marker is older than
+`sessionStaleSeconds`." One line per such batch, no more.
 
 **In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`
 non-empty) means more than one batch violates the one-in-progress-batch-per-repo invariant: **stop
@@ -72,7 +75,7 @@ has more than one entry, the preflight already picked `selection.selectable[0]` 
 flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
 for it, no question. Arguments naming a specific batch re-run the preflight with `--select <batch>`
 instead of taking the ordered default. `status: "SELECT_UNAVAILABLE"` means the named batch isn't
-selectable (blocked, still planning, or unknown) — report why, from `selection`, and end; never
+selectable (blocked, still planning, awaiting review, or unknown) — report why, from `selection`, and end; never
 falls back to the ordered default. **Never two batches in the same session**, not even once the
 first finishes and context is still free — different plans belong in separate context windows.
 
@@ -81,7 +84,7 @@ first finishes and context is still free — different plans belong in separate 
 `nextPhase: null` here means every phase already moved to `done/` but `bin/cfq finish` never ran —
 **Batch Briefing** still acquires the lock and resolves the branch as usual, then skips ahead
 straight to **Batch Done**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
-selectable) → report why, from `selection` (blocked / still planning / not found), end — never
+selectable) → report why, from `selection` (blocked / still planning / awaiting review / not found), end — never
 falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
 `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
 

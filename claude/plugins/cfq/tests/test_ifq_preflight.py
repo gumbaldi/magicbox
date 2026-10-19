@@ -559,6 +559,52 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             msg=f"queueText = {out['selection']['queueText']!r}",
         )
 
+    def test_queue_text_awaiting_review_row(self):
+        repo = self._setup_repo("queue-review")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "035-2026-09-22-ifq-batch-gate").mkdir(parents=True)
+        (qdir / "035-2026-09-22-ifq-batch-gate" / "01-a.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass").mkdir(parents=True)
+        (qdir / "037-2026-09-23-cleanup-pass" / "01-c.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".planning").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".review").write_text("{}")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        rows = [
+            ["035", "2026-09-22", "ifq-batch-gate", "ready · selected"],
+            ["037", "2026-09-23", "cleanup-pass", "awaiting review"],
+        ]
+        expected = "QUEUE · 2 open\n" + "\n".join(
+            text.table(rows, headers=["#", "Date", "Topic", "Status"])
+        )
+        self.assertEqual(out["selection"]["queueText"], expected, msg=f"queueText = {out['selection']}")
+        self.assertEqual(
+            out["selection"]["review"], ["037-2026-09-23-cleanup-pass"], msg=f"review = {out['selection']}"
+        )
+        self.assertIn(
+            "037-2026-09-23-cleanup-pass", out["selection"]["planning"],
+            msg=f"planning = {out['selection']}",
+        )
+
+    def test_only_review_batch_is_unselectable(self):
+        repo = self._setup_repo("queue-review-only")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        name = "037-2026-09-23-cleanup-pass"
+        (qdir / name).mkdir(parents=True)
+        (qdir / name / "01-c.md").touch()
+        (qdir / name / ".planning").touch()
+        (qdir / name / ".review").write_text("{}")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertEqual(out["selection"]["review"], [name], msg=f"review = {out['selection']}")
+        self.assertIn("awaiting review", out["selection"]["queueText"], msg=f"selection = {out['selection']}")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", name))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"--select review = {out}")
+        self.assertEqual(out["selection"]["review"], [name], msg=f"review = {out['selection']}")
+
     def test_queue_text_unknown_dependency_shown_in_same_cell(self):
         repo = self._setup_repo("queue-unknown-dep")
         qdir = repo / ".claude" / "cfq" / "impl"
