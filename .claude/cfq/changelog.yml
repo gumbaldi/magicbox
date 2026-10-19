@@ -21,8 +21,58 @@
   branch: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   base: cfq/049-2026-10-04-plan-review-gate-and-detail-view
   started: 2026-10-19
-  status: in-progress
+  status: done
   legacy: false
+  finished: 2026-10-19
+  phases:
+    - phase: "01-telemetry-count-per-response-and-model"
+      status: "green"
+      summary: "Telemetry counts one entry per API response (message.id, last line wins), tool_use deduped by id, by_model on every agent node and layer, schema 3"
+    - phase: "02-telemetry-agent-attribution-by-spawn"
+      status: "green"
+      summary: "Sub-agents are attributed to a telemetry record by their root's spawning toolUseId (first-response fallback) with all their responses counted; build_record gained an optional upper bound; subagent_turns removed"
+    - phase: "03-telemetry-settle"
+      status: "green"
+      summary: "telemetry records written provisional (since/settled/rev) and settled once after their session ended via the new `telemetry settle` verb, run by the portal hook; runtime --session addressing; show dedups by rev"
+    - phase: "04-phase-ledger-diffstat"
+      status: "green"
+      summary: "commit_diffstat() helper in cfq_phase.py and set_commit(diffstat=) in cfq_report.py, wired into phase commit"
+    - phase: "05-phase-observations-field"
+      status: "green"
+      summary: "Optional observations list on the phase report: validated in append_phase, carried by report detail, documented in ifq-phase.md, orchestrator.md and the worker definition"
+    - phase: "06-finish-snapshot"
+      status: "green"
+      summary: "finish persists its batch-end result as a top-level finish object in report.json"
+    - phase: "07-notes-ledger"
+      status: "green"
+      summary: "note plan/todo/merge-todo record each entry in the origin batch's report.json notes ledger (--batch, branch name or lock), and park --from-plan records fromPlan"
+    - phase: "08-markdown-renderer-upgrade"
+      status: "green"
+      summary: "md_min/md_inline now render nested lists (3 levels), tables, indented code, block quotes, hr, *emphasis*, check: lines and h5 for deep headings; renderer tests moved to new tests/test_markdown.py"
+    - phase: "09-portal-payload-v2"
+      status: "green"
+      summary: "Rebuilt the portal data layer: site/queue/batch/<name>/entry/<id> files with path = key + .js, archive entries, full per-attempt payloads with per-model cost; archived batches now count done/ phases; report index checks data/batch/<name>.js"
+    - phase: "10-portal-flags-and-baselines"
+      status: "green"
+      summary: "Pure flags/baselines module (cfq_lib/flags.py) and portal sync wiring: flags on phases, batches and queue rows, plus baselines and sizes in queue.js"
+    - phase: "11-viewer-shell-and-overview"
+      status: "green"
+      summary: "New viewer shell (index.html, style.css, core.js, overview.js, app.js) with the KPI strip, sortable/filterable batch table and entry tabs, global-mode routing, and install_shell() deriving its file list from portal/"
+    - phase: "12-overview-charts"
+      status: "green"
+      summary: "Hand-written inline SVG chart library (charts.js) and two overviewPanel items (cost per batch stacked by model with Turns/In/Out switch, size calibration strip chart with Turns/Out switch) plus styles and tests"
+    - phase: "13-batch-page-phases"
+      status: "green"
+      summary: "Batch page in portal/batch.js: header with key figures and flags, slot-driven tab bar, phase table with unfolding rows and Result/Plan/Files sub-tabs, Plan context tab"
+    - phase: "14-batch-page-cost-timeline-notes"
+      status: "green"
+      summary: "Batch page Cost tab and phase Cost sub-tab (batch-cost.js), Notes and Closing tabs (batch-notes.js) and the batchPhasesTop timeline (timeline.js), with styles and tests"
+    - phase: "15-entry-archive-and-repo-index"
+      status: "green"
+      summary: "Entry page (entry.js), cross-repo index (repos.js), their styles, entry/repos unit tests and an e2e loader walk over a real portal sync (e2e.test.mjs, run from test_portal_viewer.py)"
+    - phase: "16-docs-version-and-one-time-purge"
+      status: "green"
+      summary: "Documented schema-3 counting, settle, report.json additions and the rebuilt portal in README, CLAUDE.md, usage, configuration and design-notes; bumped cfq to 0.31.0; wrote the purge todo card for this repo"
 - batchNumber: 49
   batch: 049-2026-10-04-plan-review-gate-and-detail-view
   branch: cfq/049-2026-10-04-plan-review-gate-and-detail-view
