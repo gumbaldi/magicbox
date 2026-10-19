@@ -1255,3 +1255,34 @@
     - phase: "03-delete-dead-report-html-renderer"
       status: "green"
       summary: "Deleted the unreachable per-batch HTML renderer chain from cfq_report.py (render_report_html and its whole call tree: extract_goal(s), overview_html/OVERVIEW_SECTIONS, phase_table_html, section_list(_code), _finding_html/security_html, skills_str/_tele_pair/telemetry_html, phase_html, REPORT_STYLE_CSS), pruned every helper that became unreferenced as a result (phase_row, phase_topic, fmt_datetime, truncate_words, their two now-solely-supporting regexes, and the _SEVERITY_ORDER constant), removed the tests and imports that only served that chain, rewired the still-live Markdown-subset tests to cfq_lib.markdown directly, fixed cfq_brief.py's stale brief_awk docstring, and updated CLAUDE.md's cfq_portal.py paragraph accordingly."
+- batchNumber: 48
+  batch: 048-2026-10-04-changelog-newest-first-force-tracked
+  branch: cfq/048-2026-10-04-changelog-newest-first-force-tracked
+  base: main
+  started: 2026-10-19
+  status: in-progress
+  legacy: false
+- batchNumber: 49
+  batch: 049-2026-10-04-plan-review-gate-and-detail-view
+  status: parked
+- batchNumber: 50
+  batch: 050-2026-10-04-report-portal-rework-and-telemetry-accuracy
+  status: parked
+- batchNumber: 51
+  batch: 051-2026-10-04-phase-status-file-and-skip
+  status: parked
+- batchNumber: 52
+  batch: 052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
+  status: parked
+- batchNumber: 53
+  batch: 053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
+  status: parked
+- batchNumber: 54
+  batch: 054-2026-10-05-lint-pending-creators-default-branch-single-briefing
+  status: parked
+- batchNumber: 55
+  batch: 055-2026-10-06-drop-merge-entry-phase-template-briefing-file
+  status: parked
+- batchNumber: 56
+  batch: 056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
+  status: parked
