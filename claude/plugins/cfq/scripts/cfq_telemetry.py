@@ -3,6 +3,7 @@
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
 #        cfq_telemetry.py show <repo-root> [--session]
+#        cfq_telemetry.py settle <repo-root>
 """Telemetry for cfq. Aggregates the running session's transcript into the batch report and a
 repo-local JSONL. Numbers, timestamps and names only -- never prompt text, never tool arguments.
 
@@ -13,6 +14,10 @@ A "turn" is one API response, not one transcript line: Claude Code writes one li
 block of a response, each repeating that response's `message.id` and usage, so lines are collapsed
 to one entry per `message.id` (the last one) before anything is summed. A line without a
 `message.id` counts as its own response.
+
+A record is written provisional (`settled: false`, `rev: 1`): its session goes on after the commit
+(the worker's closing message, the orchestrator's summary, the handoff). `settle` recomputes such a
+record once, after its session has ended, and writes it back as `settled: true`, `rev: 2`.
 """
 
 import json
@@ -21,6 +26,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -34,8 +40,12 @@ PROG = "cfq_telemetry.py"
 
 USAGE = (
     f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>] | "
-    "show <repo-root> [--session]"
+    "show <repo-root> [--session] | settle <repo-root>"
 )
+
+# A session whose transcript (or any sub-agent transcript) changed within this many seconds may
+# still be running; `settle` leaves its records alone until it has been quiet for that long.
+SETTLE_QUIET_SECONDS = 120
 
 # The phase worker's plugin-namespaced agent name -- the one place it is defined is
 # agents/cfq-phase-worker.md, which resolves to this form (references/orchestrator.md,
@@ -63,9 +73,19 @@ def jqor(value, default):
     return default if value is None or value is False else value
 
 
-def transcript_path():
-    # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter.
-    return cfq_run("runtime", "transcript-path").stdout.strip()
+def _runtime_args(verb, repo, session):
+    args = ["runtime", verb]
+    if repo:
+        args += ["--repo", repo]
+    if session:
+        args += ["--session", session]
+    return args
+
+
+def transcript_path(repo="", session=""):
+    # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter. `repo`/`session`
+    # address a specific (typically ended) session instead of the running one.
+    return cfq_run(*_runtime_args("transcript-path", repo, session)).stdout.strip()
 
 
 def session_identity():
@@ -76,11 +96,11 @@ def session_identity():
     return transcript_path(), os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
 
-def subagent_dir():
-    # Same pwd-based resolution as transcript_path(), shared via the runtime adapter -- the
-    # directory is derived, never guessed here (cfq_runtime.py owns every assumption about
-    # Claude Code's on-disk layout).
-    return cfq_run("runtime", "subagent-dir").stdout.strip()
+def subagent_dir(repo="", session=""):
+    # Same resolution as transcript_path(), shared via the runtime adapter -- the directory is
+    # derived, never guessed here (cfq_runtime.py owns every assumption about Claude Code's
+    # on-disk layout).
+    return cfq_run(*_runtime_args("subagent-dir", repo, session)).stdout.strip()
 
 
 def extract_recommended_skills(dir_, phase):
@@ -284,7 +304,7 @@ def tool_use_timestamps(entries):
     return out
 
 
-def collect_agent_nodes(since, upper, tool_ts):
+def collect_agent_nodes(since, upper, tool_ts, subagents_dir):
     """One node per agent-<id>.jsonl attributed to the record window (since, upper]. An agent
     belongs to the record when its root's `toolUseId` maps (via `tool_ts`) to a main-transcript
     timestamp inside the window; with no usable link, when the agent's own first response is
@@ -292,7 +312,7 @@ def collect_agent_nodes(since, upper, tool_ts):
     `layer` comes from _resolve_layer(); a missing or unreadable meta counts as depth 1, type
     taken from the turn's own attributionAgent, no parent. Returns (nodes, turns_by_id):
     build_record() needs the raw per-agent turn lists again to sum each layer via sums()."""
-    d = subagent_dir()
+    d = subagents_dir
     if not d or not os.path.isdir(d):
         return [], {}
 
@@ -377,9 +397,12 @@ def build_layers(t, nodes, turns_by_id):
     return layers
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended, upper=""):
+def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", subagents_dir=""):
     """`upper` bounds the main-transcript window like `since` bounds it from below (default
-    unbounded); the same (since, upper] window decides which sub-agents belong to the record."""
+    unbounded); the same (since, upper] window decides which sub-agents belong to the record.
+    `subagents_dir` is the `subagents/` directory of the session `tf` belongs to -- the caller
+    resolves it, because settling a record from another session needs that session's directory,
+    not the running one's. The record is provisional: `settled: False`, `rev: 1`."""
     entries = parse_transcript(tf)
     raw = assistant_turns(entries, since, upper)
     t = collapse_responses(raw)
@@ -407,7 +430,9 @@ def build_record(tf, since, kind, phase, batch, repo, recommended, upper=""):
     last = raw[-1] if raw else {}
 
     until = jqor(last_ts, "")
-    agent_nodes, agent_turns_by_id = collect_agent_nodes(since, upper, tool_use_timestamps(entries))
+    agent_nodes, agent_turns_by_id = collect_agent_nodes(
+        since, upper, tool_use_timestamps(entries), subagents_dir,
+    )
     sub = [it for n in agent_nodes for it in agent_turns_by_id[n["id"]]]
     by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
     mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
@@ -433,6 +458,9 @@ def build_record(tf, since, kind, phase, batch, repo, recommended, upper=""):
         "session_id": jqor(last.get("sessionId"), ""),
         "branch": jqor(last.get("gitBranch"), ""),
         "cc_version": jqor(last.get("version"), ""),
+        "since": since,
+        "settled": False,
+        "rev": 1,
         "from": jqor(first_ts, ""),
         "until": jqor(last_ts, ""),
         "wallclock_s": (ts(last_ts) - ts(first_ts)) if raw else 0,
@@ -453,7 +481,10 @@ def build_record(tf, since, kind, phase, batch, repo, recommended, upper=""):
 
 
 def last_until_for_session(jsonl_path, sid):
-    matches = []
+    """The greatest `until` among the session's lines -- not the last line's: a settled record is
+    appended after later ones and carries an `until` that may be older or newer than its
+    neighbours'. ISO timestamps compare lexicographically."""
+    untils = []
     with open(jsonl_path) as f:
         for line in f:
             line = line.strip()
@@ -463,11 +494,11 @@ def last_until_for_session(jsonl_path, sid):
                 obj = json.loads(line)
             except ValueError:
                 continue
-            if obj.get("session_id") == sid:
+            if isinstance(obj, dict) and obj.get("session_id") == sid:
                 until = obj.get("until")
-                matches.append("null" if until is None else until)
-    since = matches[-1] if matches else ""
-    return "" if since == "null" else since
+                if isinstance(until, str) and until:
+                    untils.append(until)
+    return max(untils) if untils else ""
 
 
 def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
@@ -509,7 +540,7 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     recommended = extract_recommended_skills(dir_, phase)
     batch = pathlib.Path(dir_).name
-    rec = build_record(tf, since, kind, phase, batch, repo, recommended)
+    rec = build_record(tf, since, kind, phase, batch, repo, recommended, subagents_dir=subagent_dir())
 
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -563,6 +594,121 @@ def cmd_record(rest):
 
     phase = rest[2] if len(rest) > 2 else ""
     cmd_record_phase_or_planning(dir_, kind, phase)
+
+
+def _record_objects(data):
+    """Every telemetry record embedded in one parsed report.json: the top-level `planning` object
+    and each phase entry's `telemetry` object, as the live dicts so a caller can rewrite them in
+    place."""
+    out = []
+    planning = data.get("planning")
+    if isinstance(planning, dict):
+        out.append(planning)
+    for entry in data.get("phases") or []:
+        tele = entry.get("telemetry") if isinstance(entry, dict) else None
+        if isinstance(tele, dict):
+            out.append(tele)
+    return out
+
+
+def _newest_mtime(tf, subdir):
+    paths = [tf]
+    if subdir and os.path.isdir(subdir):
+        paths += [os.path.join(subdir, n) for n in os.listdir(subdir)]
+    newest = 0.0
+    for p in paths:
+        try:
+            newest = max(newest, os.stat(p).st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
+def _recompute(old, tf, subdir, upper):
+    """The settled replacement of `old`: same window start, bounded above by the next record of
+    the same session. None when the transcript cannot be read (treated like a vanished one)."""
+    try:
+        new = build_record(
+            tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
+            old.get("batch"), old.get("repo"), old.get("skills_recommended") or [],
+            upper=upper, subagents_dir=subdir,
+        )
+    except (OSError, ValueError):
+        return None
+    if not new["session_id"]:
+        new["session_id"] = old.get("session_id", "")
+    return new
+
+
+def cmd_settle(rest):
+    """Recompute every provisional record whose session has ended, exactly once -- see the module
+    docstring. Runs as a side effect of the next cfq mutation in the repo (`portal_hook.sync()`),
+    never from a hook of its own."""
+    if not rest:
+        errors.die(f"usage: {PROG} settle <repo-root>")
+    repo = rest[0]
+    impl = cfq_lib_paths.impl_dir(repo)
+    if not os.path.isdir(impl):
+        print(render.dump_json({"status": "NO_REPO", "settled": 0, "pending": 0}))
+        return
+
+    reports = {}
+    for pattern in ("*/report.json", "done/*/report.json"):
+        for p in sorted(pathlib.Path(impl).glob(pattern)):
+            try:
+                data = json.loads(p.read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                reports[str(p)] = data
+
+    # Window upper bound per record: the smallest `since` of a later record of the same session.
+    sinces = {}
+    for data in reports.values():
+        for r in _record_objects(data):
+            if r.get("session_id") and isinstance(r.get("since"), str):
+                sinces.setdefault(r["session_id"], set()).add(r["since"])
+
+    running = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    now = time.time()
+    settled, pending, appended, dirty = 0, 0, [], set()
+    for path, data in reports.items():
+        for rec in _record_objects(data):
+            if rec.get("settled") is not False:
+                continue
+            sid = rec.get("session_id") or ""
+            if sid and sid == running:
+                pending += 1
+                continue
+            tf = transcript_path(repo, sid) if sid else ""
+            subdir = subagent_dir(repo, sid) if tf else ""
+            if tf and now - _newest_mtime(tf, subdir) < SETTLE_QUIET_SECONDS:
+                pending += 1
+                continue
+
+            since = rec.get("since") or ""
+            later = [s for s in sinces.get(sid, ()) if s > since]
+            new = _recompute(rec, tf, subdir, min(later) if later else "") if tf else None
+            rev = rec.get("rev") if isinstance(rec.get("rev"), int) else 1
+            if new is None:
+                new = dict(rec)
+            new["settled"] = True
+            new["rev"] = rev + 1
+            rec.clear()
+            rec.update(new)
+            appended.append(new)
+            dirty.add(path)
+            settled += 1
+
+    for path in sorted(dirty):
+        render.write_json(path, reports[path])
+    if appended:
+        jsonl = cfq_lib_paths.telemetry_log(repo)
+        os.makedirs(os.path.dirname(jsonl), exist_ok=True)
+        with open(jsonl, "a") as f:
+            for rec in appended:
+                f.write(render.dump_json(rec) + "\n")
+    print(render.dump_json({"status": "OK", "settled": settled, "pending": pending}))
 
 
 def cmd_sync(rest):
@@ -698,6 +844,26 @@ def _totals_field(totals, key):
     return jqor(totals.get(key) if isinstance(totals, dict) else None, 0)
 
 
+def latest_revs(records):
+    """Keep only the highest `rev` per (session_id, kind, batch, phase, since): a settled record is
+    appended next to its provisional one, never replacing it on disk. A record without `rev`
+    counts as rev 0, so it loses against any revision of the same key and is otherwise kept as
+    it is."""
+    def key_of(r):
+        return tuple(r.get(k) for k in ("session_id", "kind", "batch", "phase", "since"))
+
+    best = {}
+    for i, r in enumerate(records):
+        if isinstance(r, dict) and isinstance(r.get("rev"), int):
+            key = key_of(r)
+            if key not in best or r["rev"] > records[best[key]]["rev"]:
+                best[key] = i
+    return [
+        r for i, r in enumerate(records)
+        if not isinstance(r, dict) or best.get(key_of(r), i) == i
+    ]
+
+
 def cmd_show(rest):
     if not rest:
         errors.die(f"usage: {PROG} show <repo-root> [--session]")
@@ -716,6 +882,7 @@ def cmd_show(rest):
                 except ValueError:
                     continue
 
+    records = latest_revs(records)
     if session_only:
         _, sid = session_identity()
         records = [r for r in records if isinstance(r, dict) and r.get("session_id") == sid]
@@ -732,6 +899,8 @@ def main(argv):
         cmd_sync(rest)
     elif cmd == "show":
         cmd_show(rest)
+    elif cmd == "settle":
+        cmd_settle(rest)
     else:
         errors.die(USAGE)
 

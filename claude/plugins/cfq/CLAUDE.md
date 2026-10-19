@@ -244,6 +244,19 @@ turns land in exactly one of the three non-`main` layers. Records are still appe
 telemetry repo without any change on its own part; only a reader that cares about the new fields
 needs to look at `schema` to tell schema-2 records from the 1s that came before them.
 
+**Schema 3 records are provisional until their session has ended.** `build_record()` writes `since`
+(the window's lower bound), `settled: false` and `rev: 1`. The session goes on after the commit
+(the worker's closing message, the orchestrator's summary), so `cfq telemetry settle <repo-root>`
+recomputes each such record once its session is over — transcript and `subagents/` quiet for
+`SETTLE_QUIET_SECONDS`, and not the running session — bounded above by the next record of the same
+session (that record's `since`), and writes it back into its `report.json` as `settled: true`,
+`rev: 2`; the new revision is appended to `telemetry.jsonl` next to the old one, and `telemetry show`
+aggregates only the highest `rev` per `(session_id, kind, batch, phase, since)`. A vanished
+transcript settles the record with its numbers unchanged. `cfq_lib/portal_hook.py`'s `sync()` runs
+`settle` on every mutating verb, ahead of the portal sync and regardless of `htmlReport`
+(`CFQ_PORTAL_SYNC=0` suppresses both); there is no hook of its own. Addressing an ended session by
+id goes through `cfq_runtime.py transcript-path|subagent-dir --session <id>`.
+
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
 `implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents

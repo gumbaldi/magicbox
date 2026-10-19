@@ -1,8 +1,10 @@
 """Migrated from test-telemetry.sh (bin/cfq telemetry — record/sync)."""
 
 import json
+import os
 import re
 import sys
+import time
 import unittest
 
 from cfq_testlib import CfqTestCase, SCRIPTS_DIR
@@ -163,7 +165,7 @@ class TelemetryTest(CfqTestCase):
             "schema", "kind", "repo", "batch", "phase", "mode", "session_id", "branch",
             "cc_version", "from", "until", "wallclock_s", "turns", "input", "output",
             "cache_read", "cache_creation", "billable_in", "Bash",
-            "subagent_worker", "subagent_explore", "count",
+            "subagent_worker", "subagent_explore", "count", "since", "settled", "rev",
         }
         leaves = set(_leaf_keys(rec1))
         extra = leaves - allowed
@@ -649,14 +651,10 @@ class TelemetryTest(CfqTestCase):
         subdir = self._subagent_dir()
         self._write_agent(subdir, "u1", "Explore", ["2026-08-13T10:00:30.000Z"])
         self._write_agent(subdir, "u2", "Explore", ["2026-08-13T10:03:30.000Z"])
-        orig = cfq_telemetry.subagent_dir
-        cfq_telemetry.subagent_dir = lambda: str(subdir)
-        try:
-            rec = cfq_telemetry.build_record(
-                str(self.transcript), "", "phase", "01-foo", "b", "r", [], upper="2026-08-13T10:02:00.000Z",
-            )
-        finally:
-            cfq_telemetry.subagent_dir = orig
+        rec = cfq_telemetry.build_record(
+            str(self.transcript), "", "phase", "01-foo", "b", "r", [], upper="2026-08-13T10:02:00.000Z",
+            subagents_dir=str(subdir),
+        )
         self.assertEqual(rec["totals"]["turns"], 3)
         self.assertEqual(rec["until"], "2026-08-13T10:02:00.000Z")
         self.assertEqual([n["id"] for n in rec["agents"]], ["u1"])
@@ -666,6 +664,17 @@ class TelemetryTest(CfqTestCase):
     def test_schema_is_3(self):
         self._record(str(self.batch), "phase", "01-foo")
         self.assertEqual(self._last_record()["schema"], 3)
+
+    def test_new_record_is_provisional_and_carries_its_window_start(self):
+        self._record(str(self.batch), "phase", "01-foo")
+        rec1 = self._last_record()
+        self.assertEqual((rec1["since"], rec1["settled"], rec1["rev"]), ("", False, 1))
+        with self.transcript.open("a") as f:
+            f.write(EXTRA_TURN)
+        self._record(str(self.batch), "phase", "01-foo")
+        rec2 = self._last_record()
+        self.assertEqual(rec2["since"], rec1["until"], msg="since is the lower bound that was used")
+        self.assertEqual((rec2["settled"], rec2["rev"]), (False, 1))
 
     def test_lines_of_one_response_count_once(self):
         # routine: three lines of one message.id (output 8, 8, 224), same input/cache on each.
@@ -812,6 +821,245 @@ class TelemetryTest(CfqTestCase):
             "notanumber", "420",
         )
         self.assertNotEqual(proc.returncode, 0, msg="bootstrap accepted a non-numeric callCount")
+
+
+SETTLE_SESSION = "sess-a"
+
+
+def _main_line(ts, mid, session=SETTLE_SESSION, model="claude-sonnet-5", output=10):
+    obj = json.loads(_resp_line(ts, mid, output, model=model))
+    obj["sessionId"] = session
+    return json.dumps(obj, separators=(",", ":"))
+
+
+class TelemetrySettleTest(CfqTestCase):
+    """`telemetry settle <repo-root>` -- recompute a provisional record once its session ended."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self._repos_dir / "repo"
+        self.repo.mkdir()
+        self.run_clean("git", "init", "-q", cwd=self.repo)
+        self.batch = self.repo / ".claude" / "cfq" / "impl" / "2026-01-01-demo"
+        self.batch.mkdir(parents=True)
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo))
+        self.tdir = self.home / ".claude" / "projects" / slug
+        self.tdir.mkdir(parents=True)
+        self.transcript = self.tdir / f"{SETTLE_SESSION}.jsonl"
+        self.subdir = self.tdir / SETTLE_SESSION / "subagents"
+        self.subdir.mkdir(parents=True)
+        self.jsonl = self.repo / ".claude" / "cfq" / "telemetry.jsonl"
+        self.report = self.batch / "report.json"
+        self.main_lines = []
+        self.n = 0
+
+    def _add_main(self, count, start_minute):
+        with self.transcript.open("a") as f:
+            for i in range(count):
+                self.n += 1
+                f.write(_main_line(f"2026-08-13T10:{start_minute + i:02d}:00.000Z", f"msg_{self.n}") + "\n")
+
+    def _add_agent(self, aid, stamps):
+        with (self.subdir / f"agent-{aid}.jsonl").open("a") as f:
+            for t in stamps:
+                f.write(_sub_line(t, "Explore") + "\n")
+
+    def _record(self, kind, phase=""):
+        if phase:  # the phase entry must already be report.json's last one for telemetry to attach
+            cfq_report.append_phase(
+                str(self.batch), json.dumps({"phase": phase, "status": "green", "summary": "t"}),
+                record_telemetry=False,
+            )
+        args = ["telemetry", "record", str(self.batch), kind] + ([phase] if phase else [])
+        return self.run_cfq(*args, cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": SETTLE_SESSION}, check=True)
+
+    def _age(self, seconds=3600):
+        old = time.time() - seconds
+        for p in [self.transcript, *self.subdir.glob("*")]:
+            if p.exists():
+                os.utime(p, (old, old))
+
+    def _settle(self, session="sess-b"):
+        proc = self.run_cfq(
+            "telemetry", "settle", str(self.repo), cwd=self.repo,
+            env={"CLAUDE_CODE_SESSION_ID": session}, check=True,
+        )
+        return proc.stdout.strip()
+
+    def _phase_tele(self, index):
+        return json.loads(self.report.read_text())["phases"][index]["telemetry"]
+
+    def _jsonl_lines(self):
+        return self.jsonl.read_text().splitlines() if self.jsonl.is_file() else []
+
+    def test_late_responses_are_counted_once_after_the_session_ended(self):
+        self._add_main(2, 0)
+        self._add_agent("a1", ["2026-08-13T10:00:30.000Z"])
+        self._record("phase", "01-foo")
+        before = self._phase_tele(0)
+        self.assertEqual((before["totals"]["turns"], before["layers"]["main_explore"]["turns"]), (2, 1))
+        lines_before = len(self._jsonl_lines())
+
+        self._add_main(2, 5)
+        self._add_agent("a1", ["2026-08-13T10:07:00.000Z", "2026-08-13T10:08:00.000Z", "2026-08-13T10:09:00.000Z"])
+        self._age()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
+
+        after = self._phase_tele(0)
+        self.assertEqual((after["settled"], after["rev"]), (True, 2))
+        self.assertEqual(after["totals"]["turns"], 4)
+        self.assertEqual(after["layers"]["main_explore"]["turns"], 4)
+        self.assertEqual(after["subagent"]["turns"], 4)
+        self.assertEqual(after["until"], "2026-08-13T10:06:00.000Z")
+        self.assertEqual(len(self._jsonl_lines()), lines_before + 1)
+        self.assertEqual(json.loads(self._jsonl_lines()[-1]), after)
+
+        # exactly once: a second settle finds nothing to do and appends nothing
+        self.assertEqual(self._settle(), '{"status":"OK","settled":0,"pending":0}')
+        self.assertEqual(len(self._jsonl_lines()), lines_before + 1)
+
+    def test_settle_reads_the_ended_sessions_subagents_not_the_running_ones(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        self._add_agent("a1", ["2026-08-13T10:00:30.000Z"])
+        self._age()
+        other = self.tdir / "sess-b" / "subagents"
+        other.mkdir(parents=True)
+        (other / "agent-zz.jsonl").write_text(_sub_line("2026-08-13T10:00:40.000Z", "Explore") + "\n")
+        self._settle(session="sess-b")
+        after = self._phase_tele(0)
+        self.assertEqual([n["id"] for n in after["agents"]], ["a1"])
+
+    def test_two_records_of_one_session_together_count_every_response_once(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        self._add_main(2, 5)
+        self._record("phase", "02-foo")
+        rec1, rec2 = self._phase_tele(0), self._phase_tele(1)
+        self.assertEqual(rec2["since"], rec1["until"])
+        self._add_main(3, 10)
+        self._age()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":2,"pending":0}')
+        s1, s2 = self._phase_tele(0), self._phase_tele(1)
+        self.assertEqual(s1["totals"]["turns"], 2, msg="bounded by the next record's since")
+        self.assertEqual(s2["totals"]["turns"], 5)
+        self.assertEqual(s1["totals"]["turns"] + s2["totals"]["turns"], 7)
+        self.assertEqual((s1["rev"], s2["rev"]), (2, 2))
+
+    def test_transcript_modified_within_the_quiet_window_is_left_alone(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        before = self._phase_tele(0)
+        lines = self._jsonl_lines()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":0,"pending":1}')
+        self.assertEqual(self._phase_tele(0), before)
+        self.assertEqual(self._jsonl_lines(), lines)
+
+    def test_recent_subagent_file_also_keeps_the_record_pending(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        self._add_agent("a1", ["2026-08-13T10:00:30.000Z"])
+        self._age()
+        os.utime(self.subdir / "agent-a1.jsonl", None)
+        self.assertEqual(self._settle(), '{"status":"OK","settled":0,"pending":1}')
+
+    def test_record_of_the_running_session_is_left_alone(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        self._age()
+        self.assertEqual(self._settle(session=SETTLE_SESSION), '{"status":"OK","settled":0,"pending":1}')
+        self.assertFalse(self._phase_tele(0)["settled"])
+
+    def test_planning_record_settles_the_same_way(self):
+        self._add_main(2, 0)
+        self._record("planning")
+        self._add_main(1, 5)
+        self._age()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
+        planning = json.loads(self.report.read_text())["planning"]
+        self.assertEqual((planning["settled"], planning["rev"], planning["totals"]["turns"]), (True, 2, 3))
+
+    def test_record_in_a_finished_batch_settles_too(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        done = self.repo / ".claude" / "cfq" / "impl" / "done"
+        done.mkdir()
+        self.batch.rename(done / self.batch.name)
+        self.report = done / self.batch.name / "report.json"
+        self._add_main(1, 5)
+        self._age()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
+        self.assertEqual(self._phase_tele(0)["totals"]["turns"], 3)
+
+    def test_vanished_transcript_settles_with_unchanged_numbers(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        before = self._phase_tele(0)
+        self.transcript.unlink()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
+        after = self._phase_tele(0)
+        self.assertEqual((after["settled"], after["rev"]), (True, 2))
+        for key in ("settled", "rev"):
+            before.pop(key), after.pop(key)
+        self.assertEqual(after, before)
+        self.assertEqual(len(self._jsonl_lines()), 2)
+
+    def test_record_without_a_settled_key_is_never_touched(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        data = json.loads(self.report.read_text())
+        del data["phases"][0]["telemetry"]["settled"]
+        self.report.write_text(json.dumps(data))
+        self._age()
+        self.assertEqual(self._settle(), '{"status":"OK","settled":0,"pending":0}')
+        self.assertNotIn("settled", self._phase_tele(0))
+
+    def test_repo_without_a_queue_reports_no_repo(self):
+        bare = self._repos_dir / "bare"
+        bare.mkdir()
+        proc = self.run_cfq("telemetry", "settle", str(bare), check=True)
+        self.assertEqual(proc.stdout.strip(), '{"status":"NO_REPO","settled":0,"pending":0}')
+
+    def test_empty_queue_settles_nothing(self):
+        queue = self._repos_dir / "empty"
+        (queue / ".claude" / "cfq" / "impl").mkdir(parents=True)
+        proc = self.run_cfq("telemetry", "settle", str(queue), check=True)
+        self.assertEqual(proc.stdout.strip(), '{"status":"OK","settled":0,"pending":0}')
+
+    def test_show_aggregates_a_record_present_as_rev_1_and_rev_2_once(self):
+        self._add_main(2, 0)
+        self._record("phase", "01-foo")
+        self._add_main(2, 5)
+        self._age()
+        self._settle()
+        self.assertEqual(len(self._jsonl_lines()), 2)
+        out = json.loads(self.run_cfq("telemetry", "show", str(self.repo), check=True).stdout)
+        self.assertEqual(out["turns"], 4, msg="from rev 2 only, not 2 + 4")
+
+    def test_show_prefers_a_revision_over_a_record_without_rev(self):
+        key = {"session_id": "s", "kind": "phase", "batch": "b", "phase": "p", "since": ""}
+        recs = [
+            {**key, "totals": {"turns": 1, "output": 1, "billable_in": 1}},
+            {**key, "rev": 1, "totals": {"turns": 2, "output": 2, "billable_in": 2}},
+            {**key, "rev": 2, "totals": {"turns": 3, "output": 3, "billable_in": 3}},
+            {**key, "rev": 1, "since": "x", "totals": {"turns": 10, "output": 10, "billable_in": 10}},
+        ]
+        self.jsonl.parent.mkdir(parents=True, exist_ok=True)
+        self.jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        out = json.loads(self.run_cfq("telemetry", "show", str(self.repo), check=True).stdout)
+        self.assertEqual(out["turns"], 13)
+
+    def test_last_until_for_session_is_the_maximum_not_the_last_line(self):
+        import cfq_telemetry
+        self.jsonl.parent.mkdir(parents=True, exist_ok=True)
+        self.jsonl.write_text("\n".join(json.dumps(r) for r in [
+            {"session_id": "s", "until": "2026-08-13T10:09:00.000Z"},
+            {"session_id": "s", "until": "2026-08-13T10:02:00.000Z"},
+            {"session_id": "t", "until": "2026-08-13T11:00:00.000Z"},
+            {"session_id": "s", "until": None},
+        ]) + "\n")
+        self.assertEqual(cfq_telemetry.last_until_for_session(str(self.jsonl), "s"), "2026-08-13T10:09:00.000Z")
+        self.assertEqual(cfq_telemetry.last_until_for_session(str(self.jsonl), "none"), "")
 
 
 class TelemetryShowTest(CfqTestCase):

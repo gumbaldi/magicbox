@@ -154,3 +154,82 @@ class PortalTriggersTest(CfqTestCase):
             "a portal sync failure must never change the triggering verb's own stdout",
         )
         self.assertIn("portal sync failed (non-fatal)", broken.stderr)
+
+    # ---- telemetry settle rides along with every mutation, ahead of the portal sync -----------
+
+    def _repo_with_provisional_record(self, name):
+        """A repo whose finished-session telemetry record (transcript long gone) is still
+        provisional, as `phase commit` leaves it."""
+        repo = self.make_repo(name)
+        batch_dir = repo / ".claude" / "cfq" / "impl" / "2026-01-01-widget"
+        batch_dir.mkdir(parents=True)
+        record = {
+            "schema": 3, "kind": "phase", "phase": "01-a", "batch": "2026-01-01-widget",
+            "repo": str(repo), "session_id": "ended-session", "since": "", "settled": False, "rev": 1,
+            "totals": {"turns": 2},
+        }
+        (batch_dir / "report.json").write_text(json.dumps({
+            "repo": str(repo), "batch": "2026-01-01-widget", "started": "2026-01-01T00:00:00Z",
+            "phases": [{"phase": "01-a", "status": "green", "summary": "ok", "telemetry": record}],
+        }))
+        return repo, batch_dir
+
+    def _telemetry_of(self, batch_dir):
+        return json.loads((batch_dir / "report.json").read_text())["phases"][0]["telemetry"]
+
+    def _note_plan(self, repo, home, env=ON):
+        body = self._repos_dir / f"body-{repo.name}.md"
+        body.write_text("# A finding\n\nSome detail.\n")
+        return self.run_cfq("note", "plan", str(repo), "a-finding", str(body), home=home, env=env)
+
+    def test_mutating_verb_settles_telemetry_before_the_portal_sync(self):
+        home = self._repos_dir / "home-settle"
+        home.mkdir()
+        repo, batch_dir = self._repo_with_provisional_record("repo-settle")
+
+        proc = self._note_plan(repo, home)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        self.assertEqual(self._telemetry_of(batch_dir)["settled"], True)
+        impl = self._payload(self._data(repo) / "batch" / "2026-01-01-widget.impl.js")
+        self.assertTrue(
+            impl["phases"][0]["telemetry"]["settled"],
+            "the portal sync that follows must already see the settled record",
+        )
+
+    def test_settle_runs_with_html_report_false(self):
+        home = self._repos_dir / "home-settle-off"
+        (home / ".claude" / "cfq").mkdir(parents=True)
+        (home / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"htmlReport": False}))
+        repo, batch_dir = self._repo_with_provisional_record("repo-settle-off")
+
+        self.assertEqual(self._note_plan(repo, home).returncode, 0)
+
+        self.assertEqual(self._telemetry_of(batch_dir)["settled"], True)
+        self.assertFalse((repo / ".claude" / "cfq" / "reports").exists(), "no portal output at all")
+
+    def test_portal_sync_off_switch_suppresses_settle_too(self):
+        home = self._repos_dir / "home-settle-env"
+        home.mkdir()
+        repo, batch_dir = self._repo_with_provisional_record("repo-settle-env")
+
+        self.assertEqual(self._note_plan(repo, home, env={"CFQ_PORTAL_SYNC": "0"}).returncode, 0)
+
+        self.assertEqual(self._telemetry_of(batch_dir)["settled"], False)
+
+    def test_failing_settle_leaves_the_verbs_exit_code_and_stdout_untouched(self):
+        home = self._repos_dir / "home-settle-fail"
+        home.mkdir()
+        baseline_repo = self.make_repo("repo-settle-baseline")
+        baseline = self._note_plan(baseline_repo, home, env={"CFQ_PORTAL_SYNC": "0"})
+
+        repo, batch_dir = self._repo_with_provisional_record("repo-settle-fail")
+        batch_dir.chmod(0o555)  # settle cannot write report.json back -> it exits non-zero
+        try:
+            broken = self._note_plan(repo, home)
+        finally:
+            batch_dir.chmod(0o755)
+
+        self.assertEqual(broken.returncode, baseline.returncode)
+        self.assertEqual(broken.stdout.replace(str(repo), str(baseline_repo)), baseline.stdout)
+        self.assertIn("telemetry settle failed (non-fatal)", broken.stderr)
