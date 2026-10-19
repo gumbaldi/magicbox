@@ -27,7 +27,22 @@
   branch: cfq/048-2026-10-04-changelog-newest-first-force-tracked
   base: main
   started: 2026-10-19
-  status: in-progress
+  status: done
+  legacy: true
+  finished: 2026-10-19
+  phases:
+    - phase: "01-drop-legacy-field"
+      status: "green"
+      summary: "Stopped writing and carrying forward the legacy field in changelog blocks (render_block, cmd_init, cmd_finish) and updated tests"
+    - phase: "02-newest-first-order-and-normalize"
+      status: "green"
+      summary: "Newest-first changelog: any column-0 '- ' starts a block, first-match lookup, prepend_block, and an idempotent normalize verb called by ensure and every writing verb"
+    - phase: "03-force-track-ignored-changelog"
+      status: "green"
+      summary: "changelog commit force-adds a repo-ignored changelog (result forced); finish uses it with a pathspec commit and -u push fallback; reference vocabulary updated"
+    - phase: "04-migrate-repo-file-docs-version"
+      status: "green"
+      summary: "Migrated this repo's changelog.yml to newest-first without legacy fields via normalize, documented normalize/newest-first/force-tracking in CLAUDE.md, README.md and configuration.md, bumped plugin to 0.29.0"
 - batchNumber: 47
   batch: 047-2026-09-28-branch-base-routing-dead-report-code
   branch: cfq/047-2026-09-28-branch-base-routing-dead-report-code
