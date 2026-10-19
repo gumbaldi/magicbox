@@ -414,7 +414,9 @@ to `cfq/<batch-directory-name>` per batch and record progress in `.claude/cfq/ch
 (`cfq_changelog.py`) rather than committing to `main` directly. Batches parked before the
 numbered-identity refactor keep their legacy `vX.Y-<slug>` branch and `<YYYY-MM-DD>-<slug>` directory
 name until they finish; only batches parked after cutover get a numbered
-`<NNN>-<YYYY-MM-DD>-<slug>` identity and `cfq/`-prefixed branch. `changelog.yml` itself is parsed
+`<NNN>-<YYYY-MM-DD>-<slug>` identity and `cfq/`-prefixed branch. `changelog.yml` is kept newest-first
+by every writing verb (`changelog normalize` is the idempotent re-sort) and is force-tracked even
+if a repo's own ignore rule matches it. It is parsed
 and written line-wise on purpose, never through a YAML library, so comments, field order and
 layout survive a write untouched outside the lines actually changing; adding a YAML library here
 would be a regression, not an upgrade.

@@ -157,7 +157,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `htmlReport` | — | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
+| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 
 ### Repo & git
 
