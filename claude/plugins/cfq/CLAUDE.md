@@ -122,7 +122,10 @@ re-park during the same `plan-for-queue` session but only while it still exists,
 re-creates it after `batch ready` has removed it — a re-park at that point warns on stderr instead;
 removed only once `plan-for-queue`'s lint step goes clean — a batch younger than 30 minutes with
 this marker still present is still being written and `implement-for-queue`
-never offers it, mirroring `.lock`'s staleness window), a `done/` for finished phases
+never offers it, mirroring `.lock`'s staleness window). `.review` replaces `.planning` when
+`plan-for-queue` enters its review gate (`cfq batch review`), stores a per-file hash snapshot,
+has no staleness window, and is removed only by `cfq batch ready`; `implement-for-queue` never
+offers a batch that carries it. A batch has a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`
@@ -382,7 +385,8 @@ of:
 - `MULTIPLE_IN_PROGRESS` — more than one batch has an active lock/in-progress marker (invariant
   violation, must be surfaced, never silently picked around).
 - `BLOCKED` — batch exists but `.dependsOn` is unsatisfied.
-- `PLANNING` — batch still has its `.planning` marker, not implementation-ready.
+- `PLANNING` — batch still has its `.planning` marker, or is held by `.review`; not
+  implementation-ready. The `review` field carries the distinction, no new status string.
 - `LOCKED` — another session holds the repo lock.
 - `DIRTY` — repo has uncommitted changes where a clean tree was required.
 - `UNKNOWN_CONTEXT` — context usage could not be resolved (mirrors `ctx_usage.py`'s existing

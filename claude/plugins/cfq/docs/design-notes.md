@@ -146,3 +146,27 @@ just opening a path from a file manager or `/rfq`'s own printed URL. A `<script 
 no such restriction, so each data file registers its payload on `window.CFQ_DATA["<key>"]` as a
 side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
 a request for it.
+
+## pfq: why the plan review gate exists
+
+A user saw only a truncated overview after `/pfq` had already released the batch, so they could
+not judge the plan and did not know the plan files were plain Markdown they could edit. The gate
+turns that around: `/pfq` prints a digest of the whole plan and holds the batch until the user
+answers. It sits after the files are written and linted, not before, so what is shown is
+byte-for-byte what `/ifq` will read and nothing is generated twice.
+
+The gate has no off switch and no display-only mode — decided in the interview; adding one later
+is a single schema entry. A `.review` marker has no staleness window, unlike `.planning`: a
+`.planning` marker guards a session that may have crashed mid-write, so it expires, while an
+unanswered review is a plan that is complete and waiting for a human, and expiring it would
+release a batch nobody approved.
+
+## pfq: why `changes-steps` is a warning, not a finding
+
+`/ifq`'s Lint Gate ends the session on a finding, so making the numbered-steps rule a finding
+would lock out every batch parked before the rule existed. The lint reports it as `warn:`, and
+the digest falls back to a minimal rendering for such a batch.
+
+The digest reads `## Changes` instead of a separate summary section on purpose: a second text
+describing the change could drift from the instructions the implementer actually follows, whereas
+the steps shown at the gate are the steps `/ifq` executes.

@@ -45,7 +45,7 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 | Command | Long form | Purpose |
 |---|---|---|
-| `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. |
+| `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. It shows the finished plan in detail and releases the batch only after your go-ahead. |
 | `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
 | `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
 | `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or in the report portal. |
@@ -56,12 +56,15 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 Asks for interview depth first (quick / thorough grilling / grilling with docs), reads the code,
 clarifies open points, proposes a phase split, and parks numbered plan files. Never edits code.
+It then shows the finished plan in detail (batch context, and per phase the context, files, change
+steps and verification) and releases the batch only after your go-ahead; the plan files are plain
+Markdown under `.claude/cfq/impl/<batch>/` and may be edited by hand.
 
 ### `/ifq`
 
 Gates on the model, picks the next batch in order (or the one named) and briefs it, then shows the
 batch overview and the full queue and asks — Start or cancel, plus pick a different batch when
-another one is selectable — before touching anything. Once confirmed, it takes a repo lock, creates the batch branch, works one
+another one is selectable — before touching anything. Phase announcements list the planned change steps. Once confirmed, it takes a repo lock, creates the batch branch, works one
 phase at a time, commits and pushes every
 green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
@@ -220,9 +223,9 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 
 | Noun | Purpose |
 |---|---|
-| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning`. |
+| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `review` to hold a batch for plan review, `ready` to clear `.planning`/`.review`. |
 | `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
-| `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk; `--review` prints the plan digest, `--review --changed` only the phases edited since. |
 | `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
@@ -230,7 +233,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
 | `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
-| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
+| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …), plus the warn-only `changes-steps` check. |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
 | `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
