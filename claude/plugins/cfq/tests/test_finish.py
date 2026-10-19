@@ -180,6 +180,41 @@ class FinishTest(CfqTestCase):
             f"no changelog error recorded: {out}",
         )
 
+    def test_ignored_changelog_is_force_added_and_pushed_with_upstream(self):
+        # The repo's own .gitignore covers the changelog and the batch branch has no upstream yet:
+        # finish force-adds the file, commits it and the -u fallback push succeeds.
+        home = self._repos_dir / "home-forced"
+        home.mkdir()
+        repo = self._new_repo("repo-forced")
+        bare = self._repos_dir / "origin-forced.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(bare)], check=True)
+        (repo / ".gitignore").write_text(".claude/cfq/changelog.yml\n")
+        subprocess.run(["git", "-C", str(repo), "add", ".gitignore"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "ignore"], check=True)
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "cfq/forced"], check=True)
+        name = "2026-01-01-forced"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "cfq/forced", home=home, check=True)
+        )
+        self.assertIn("force-added", out["changelog"], f"changelog field: {out}")
+        self.assertIn("committed", out["changelog"], f"changelog field: {out}")
+        self.assertFalse(
+            any(e.startswith("changelog:") for e in out["errors"]), f"unexpected errors: {out}",
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(repo), "ls-files"], capture_output=True, text=True, check=True,
+        ).stdout.split()
+        self.assertIn(".claude/cfq/changelog.yml", tracked)
+        upstream = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "@{u}"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(upstream.returncode, 0, f"no upstream after finish: {upstream.stderr}")
+
     def test_changelog_file_empty_is_not_an_error(self):
         home = self._repos_dir / "home3"
         (home / ".claude/cfq").mkdir(parents=True)

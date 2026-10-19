@@ -433,27 +433,33 @@ def cmd_commit_message(args):
 
 def cmd_commit(args):
     """Commits only the changelog file, scoped by pathspec so an unrelated staged file is never
-    swept in -- `git commit -- <file>` leaves everything else staged exactly as it was. Mirrors
-    cfq_finish.py's own changelog-commit sequence (status --porcelain -> add -> commit), minus the
-    push -- the caller's own next `git push` carries it."""
+    swept in -- `git commit -- <file>` leaves everything else staged exactly as it was. Prints
+    `off|forced|committed|clean`. `forced` means the repo's own ignore rule covered the (untracked)
+    file and it was `git add -f`-ed anyway; once tracked the ignore rule no longer applies, so later
+    calls take the normal path. No push -- the caller's own next `git push` carries it."""
     repo, message = args.repo, args.message
     target = changelog_file(repo)
     if target is None:
         print("off")
         return
     rel = os.path.relpath(target, repo)
-    if subprocess.run(
+    # check-ignore exits 0 only for an untracked, ignored path (a tracked file reports not-ignored).
+    ignored = subprocess.run(
         ["git", "-C", repo, "check-ignore", "-q", "--", rel], capture_output=True, text=True,
-    ).returncode == 0:
-        print("ignored")
-        return
-    status = subprocess.run(
-        ["git", "-C", repo, "status", "--porcelain", "--", rel], capture_output=True, text=True,
-    ).stdout
-    if not status.strip():
-        print("clean")
-        return
-    add = subprocess.run(["git", "-C", repo, "add", "--", rel], capture_output=True, text=True)
+    ).returncode == 0
+    if ignored:
+        if not os.path.isfile(target):
+            print("clean")
+            return
+    else:
+        status = subprocess.run(
+            ["git", "-C", repo, "status", "--porcelain", "--", rel], capture_output=True, text=True,
+        ).stdout
+        if not status.strip():
+            print("clean")
+            return
+    add_cmd = ["git", "-C", repo, "add"] + (["-f"] if ignored else []) + ["--", rel]
+    add = subprocess.run(add_cmd, capture_output=True, text=True)
     if add.returncode != 0:
         errors.die(add.stderr, add.returncode or 1)
     commit = subprocess.run(
@@ -461,7 +467,7 @@ def cmd_commit(args):
     )
     if commit.returncode != 0:
         errors.die(commit.stderr, commit.returncode or 1)
-    print("committed")
+    print("forced" if ignored else "committed")
 
 
 def cmd_ensure(args):

@@ -538,23 +538,77 @@ class ChangelogTest(CfqTestCase):
         finally:
             self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
 
-    def test_commit_ignored_changelog_reports_ignored(self):
-        # A changelogFile that happens to fall under the repo's own .gitignore (unrelated to cfq's
-        # managed exclude block, which never covers the changelog) -> ignored, no commit, exit 0.
-        repo = self.make_repo("commit-ignored-repo")
+    def _git_out(self, repo, *args):
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
+        ).stdout
+
+    def _ignore_changelog(self, repo):
         (repo / ".gitignore").write_text("tracked-changelog.yml\n")
         subprocess.run(["git", "-C", str(repo), "add", ".gitignore"], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "ignore changelog"], check=True)
+
+    def test_commit_ignored_changelog_is_force_added(self):
+        # A changelogFile that falls under the repo's own .gitignore (unrelated to cfq's managed
+        # exclude block, which never covers the changelog) is force-added, then behaves normally.
+        repo = self.make_repo("commit-ignored-repo")
+        self._ignore_changelog(repo)
         self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
         try:
             self.run_cfq(
                 "changelog", "init", str(repo), "cfq/example", "main", "2026-04-04-ignored", check=True,
             )
-            proc = self.run_cfq("changelog", "commit", str(repo), "no-op")
-            self.assertEqual(proc.returncode, 0, "commit on an ignored changelog should exit 0")
+            out = self.run_cfq("changelog", "commit", str(repo), "first", check=True).stdout.strip()
+            self.assertEqual(out, "forced", f"commit result, want forced, got {out}")
+            self.assertIn("tracked-changelog.yml", self._git_out(repo, "ls-files").split())
             self.assertEqual(
-                proc.stdout.strip(), "ignored", f"commit result, want ignored, got {proc.stdout.strip()}",
+                self._git_out(repo, "show", "--name-only", "--format=", "HEAD").split(),
+                ["tracked-changelog.yml"],
             )
+
+            with open(repo / "tracked-changelog.yml", "a") as fh:
+                fh.write("# edit\n")
+            out = self.run_cfq("changelog", "commit", str(repo), "second", check=True).stdout.strip()
+            self.assertEqual(out, "committed", f"second commit, want committed, got {out}")
+
+            out = self.run_cfq("changelog", "commit", str(repo), "third", check=True).stdout.strip()
+            self.assertEqual(out, "clean", f"third commit, want clean, got {out}")
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
+    def test_commit_ignored_changelog_leaves_other_staged_files_alone(self):
+        repo = self.make_repo("commit-ignored-partial-repo")
+        self._ignore_changelog(repo)
+        self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
+        try:
+            self.run_cfq(
+                "changelog", "init", str(repo), "cfq/example", "main", "2026-04-04-partial", check=True,
+            )
+            (repo / "other.txt").write_text("staged content\n")
+            subprocess.run(["git", "-C", str(repo), "add", "other.txt"], check=True)
+
+            out = self.run_cfq("changelog", "commit", str(repo), "forced only", check=True).stdout.strip()
+            self.assertEqual(out, "forced")
+            self.assertEqual(
+                self._git_out(repo, "show", "--name-only", "--format=", "HEAD").split(),
+                ["tracked-changelog.yml"],
+                "forced commit swept in an unrelated staged file",
+            )
+            self.assertEqual(
+                self._git_out(repo, "diff", "--cached", "--name-only").split(), ["other.txt"],
+                "unrelated staged file did not stay staged",
+            )
+        finally:
+            self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
+
+    def test_commit_ignored_missing_changelog_is_clean(self):
+        repo = self.make_repo("commit-ignored-missing-repo")
+        self._ignore_changelog(repo)
+        self.run_cfq("settings", "set", "changelogFile", "tracked-changelog.yml", check=True)
+        try:
+            proc = self.run_cfq("changelog", "commit", str(repo), "nothing")
+            self.assertEqual(proc.returncode, 0, f"missing ignored changelog should exit 0: {proc.stderr}")
+            self.assertEqual(proc.stdout.strip(), "clean")
         finally:
             self.run_cfq("settings", "set", "changelogFile", ".claude/cfq/changelog.yml", check=True)
 

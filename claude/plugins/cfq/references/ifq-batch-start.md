@@ -263,7 +263,7 @@ on `mode` to read any of the three.
   question minus the push option — `remoteWarning` explains why a push would be rejected.
   **`synced`**/**`unknown`** → plain `git checkout "<branch>"`, no question. Either way, don't write
   a new changelog entry — the batch is already recorded; only the stash/commit sequence above may
-  touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
+  touch the file's contents. The commit result (`committed`/`clean`/`forced`/`off`, or `➖ no
   changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
   the `new` path.
 - **`new`** → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question
@@ -324,7 +324,7 @@ never call it again, the preflight's answer already stands. Its `dirty`/`changel
 this whole path: `dirty: true` (uncommitted changes other than the changelog file) → error, report
 and end without touching anything; `changelogDirty` alone is expected here — it is exactly the pfq
 reservation this section's `changelog commit` call above just cleared, so a second re-run reports
-`changelogDirty: false` too. The commit result (`committed`/`clean`/`ignored`/`off`) is rendered as
+`changelogDirty: false` too. The commit result (`committed`/`clean`/`forced`/`off`; `forced` means the repo's own ignore rule covered the changelog and cfq tracked it anyway) is rendered as
 an indented `   └ ` sub-line under the `Branch` status line, per **Output Format**'s sub-information
 rule.
 
