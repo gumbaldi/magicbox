@@ -15,7 +15,24 @@
   branch: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
   base: cfq/051-2026-10-04-phase-status-file-and-skip
   started: 2026-10-19
-  status: in-progress
+  status: done
+  finished: 2026-10-19
+  phases:
+    - phase: "01-branch-plan-recommended-base"
+      status: "green"
+      summary: "branch plan now recommends the newest branch (batch number decides among batch branches) with at most two further options and per-option capped uncontained lists; branch check gained --batch, isCfq, isDefault, uncontained, uncontainedCount"
+    - phase: "02-branch-list-verb"
+      status: "green"
+      summary: "bin/cfq branch list verb (cmd_list) rendering the newest branches plus the default branch as listText, with BranchListTest"
+    - phase: "03-base-question-reference-text"
+      status: "green"
+      summary: "Rewrote /ifq's base-branch question text to the short menu with list path, free-text resolution and confirmation step; lock release on every abort; interaction-policy and design-notes updated"
+    - phase: "04-phase-cost-status-line"
+      status: "green"
+      summary: "Cost status line rendered by cfq_report.phase_cost_entry(), attached to phase commit's OK result and to every worker verdict result; append_phase stamps finished"
+    - phase: "05-cost-line-docs-and-version"
+      status: "green"
+      summary: "Both /ifq modes now print the script-rendered Cost line; README, design notes and references updated; plugin version bumped to 0.33.0"
 - batchNumber: 51
   batch: 051-2026-10-04-phase-status-file-and-skip
   branch: cfq/051-2026-10-04-phase-status-file-and-skip
