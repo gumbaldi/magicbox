@@ -323,6 +323,10 @@ three levels, paragraphs, fenced and indented code blocks, block quotes, pipe ta
 (batch 047 phase 03) — `read_batch_context` itself stayed, still used directly by `cfq_portal.py`,
 so `cfq_lib/markdown.py` is now used by `cfq_portal.py` alone.
 
+`cfq_lib/flags.py` derives the portal's flags (`warn`/`info`, thresholds as constants) and the per-size
+baselines and calibration points in `queue.js` as pure functions over the batch payloads; `sync()`
+reads a batch outside the `--batch` filter back from its data file and only recomputes its `flags`.
+
 With `reportDir` set, `sync()` additionally mirrors every data file into
 `<reportDir>/<repo-basename>[-<hash>]/data/…` and installs one global viewer shell at `reportDir`
 itself (batch 040 phase 03); every batch-affecting `bin/cfq` mutation (`park`, `phase`

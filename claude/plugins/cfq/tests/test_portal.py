@@ -17,6 +17,7 @@ from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_portal  # noqa: E402
+from cfq_lib import flags as cfq_flags  # noqa: E402
 
 DATA_FILE_RE = re.compile(
     r"^window\.CFQ_DATA = window\.CFQ_DATA \|\| \{\};\n"
@@ -412,7 +413,7 @@ class PortalTest(CfqTestCase):
             SONNET: T5(9, 18, 900, 4000, 160),
         })
         self.assertEqual(row["deviations"], 1)
-        self.assertEqual(row["flags"], {"warn": 0, "info": 0})
+        self.assertEqual(row["flags"], {"warn": 2, "info": 3})
         self.assertEqual((row["branch"], row["base"]), (DONE_BRANCH, "main"))
         self.assertTrue(row["settled"])
 
@@ -494,11 +495,17 @@ class PortalTest(CfqTestCase):
         self.assertEqual(totals["todos"], 2, "open todo cards only")
         self.assertEqual(totals["planEntries"], 2, "open plan entries only")
         self.assertEqual(totals["deviations"], 1)
-        self.assertEqual(totals["flags"], {"warn": 0, "info": 0})
+        self.assertEqual(totals["flags"], {"warn": 3, "info": 3}, "the open batch adds one no-telemetry warn")
         self.assertEqual(totals["cost"], T5(24, 48, 2300, 11500, 530))
         queue = self._load(repo, "queue")
-        self.assertEqual(queue["baselines"], {})
-        self.assertEqual(queue["sizes"], [])
+        self.assertEqual(queue["sizes"], [
+            {"batch": DONE_BATCH, "phase": "01-setup", "size": "S", "turns": 2, "output": 100},
+            {"batch": DONE_BATCH, "phase": "02-build", "size": "L", "turns": 12, "output": 1200},
+        ])
+        self.assertEqual(queue["baselines"], cfq_flags.baselines(queue["sizes"]))
+        self.assertEqual(queue["baselines"]["L"], {"n": 1, "turnsMedian": 12, "outputMedian": 1200})
+        self.assertEqual(sum(r["flags"]["warn"] for r in queue["batches"]), totals["flags"]["warn"])
+        self.assertEqual(sum(r["flags"]["info"] for r in queue["batches"]), totals["flags"]["info"])
         self.assertEqual(queue["repo"], str(repo.resolve()))
 
     def test_entry_rows(self):
@@ -549,7 +556,16 @@ class PortalTest(CfqTestCase):
         self.assertEqual((b["name"], b["status"], b["outcome"]), (DONE_BATCH, "done", "MIXED"))
         self.assertEqual((b["branch"], b["base"], b["merged"]), (DONE_BRANCH, "main", True))
         self.assertEqual((b["started"], b["finished"]), ("2026-09-01T09:30:00+00:00", "2026-09-01T12:02:00Z"))
-        self.assertEqual(b["flags"], [])
+        self.assertEqual(
+            [(f["phase"], f["level"], f["code"]) for f in b["flags"]],
+            [
+                ("01-setup", "warn", "reopened"),
+                ("01-setup", "info", "parked-entries"),
+                ("02-build", "warn", "red-attempt"),
+                ("02-build", "info", "observations"),
+                ("02-build", "info", "triggers"),
+            ],
+        )
 
         self.assertEqual(set(b["context"]), {"goal", "decisions", "invariants"})
         self.assertIn("<strong>portal</strong>", b["context"]["goal"])
@@ -570,7 +586,9 @@ class PortalTest(CfqTestCase):
         self.assertEqual((build["num"], build["size"]), (2, "L"))
         self.assertEqual(build["affectedFiles"], ["claude/x.py", "claude/y.py"])
         self.assertIn("Some context with", build["planHtml"])
-        self.assertEqual(build["flags"], [])
+        self.assertEqual([f["code"] for f in setup["flags"]], ["reopened", "parked-entries"])
+        self.assertEqual([f["code"] for f in build["flags"]], ["red-attempt", "observations", "triggers"])
+        self.assertEqual(build["flags"][0]["text"], "1 red attempt")
         self.assertEqual([len(p["attempts"]) for p in b["phases"]], [1, 2])
 
         red, green = build["attempts"]
@@ -721,17 +739,55 @@ class PortalTest(CfqTestCase):
 
     # ---- --batch filter: unselected batches keep their existing files, gain no new ones --------
 
-    def test_batch_filter_only_regenerates_named_batches(self):
+    def test_batch_filter_builds_a_batch_without_data_file_in_full(self):
         repo = self.make_repo()
         self._build_batch(repo, "2026-09-23-alpha")
         self._build_batch(repo, "2026-09-23-beta")
 
         result = self._sync(repo, "--batch", "2026-09-23-alpha")
         self.assertIn("batch/2026-09-23-alpha.js", result["written"])
-        self.assertNotIn("batch/2026-09-23-beta.js", result["written"])
-        self.assertFalse((self._data_dir(repo) / "batch/2026-09-23-beta.js").exists())
-        # queue.js and every entry file are always recomputed, filter or not
+        # no data file yet: built in full although outside the filter
+        self.assertIn("batch/2026-09-23-beta.js", result["written"])
         self.assertIn("queue.js", result["written"])
+
+    def test_batch_filter_leaves_an_existing_unselected_file_alone(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-alpha")
+        self._build_batch(repo, "2026-09-23-beta")
+        self._sync(repo)
+        beta = self._data_dir(repo) / "batch/2026-09-23-beta.js"
+        before = beta.read_text()
+
+        result = self._sync(repo, "--batch", "2026-09-23-alpha")
+        self.assertEqual(result["written"], [])
+        self.assertEqual(beta.read_text(), before)
+
+    def test_batch_filter_recomputes_only_flags_of_an_unselected_batch(self):
+        repo = self.make_repo()
+        for name in ("2026-09-23-alpha", "2026-09-23-beta"):
+            self._build_batch(repo, name)
+        self._sync(repo)
+        beta = self._data_dir(repo) / "batch/2026-09-23-beta.js"
+        key, payload = self._payload(beta)
+        # tamper with something the recompute must not touch, and drop a stored flag
+        payload["outcome"] = "TAMPERED"
+        payload["phases"][0]["title"] = "TAMPERED"
+        payload["phases"][0]["flags"] = []
+        beta.write_text(cfq_portal.render_data_file(key, payload))
+
+        result = self._sync(repo, "--batch", "2026-09-23-alpha")
+        self.assertEqual(result["written"], [])  # the stored flags already equal the recomputed ones
+        self.assertEqual(self._load(repo, "batch/2026-09-23-beta")["outcome"], "TAMPERED")
+
+        # a stale flag list is rewritten, everything else in the file stays as read
+        payload["phases"][0]["flags"] = [{"level": "info", "code": "stale", "text": "x", "phase": "00-setup"}]
+        beta.write_text(cfq_portal.render_data_file(key, payload))
+        result = self._sync(repo, "--batch", "2026-09-23-alpha")
+        self.assertEqual(result["written"], ["batch/2026-09-23-beta.js"])
+        rewritten = self._load(repo, "batch/2026-09-23-beta")
+        self.assertEqual(rewritten["outcome"], "TAMPERED")
+        self.assertEqual(rewritten["phases"][0]["title"], "TAMPERED")
+        self.assertEqual(rewritten["phases"][0]["flags"], [])
 
     def test_rebuild_is_sync_over_everything(self):
         repo = self.make_repo()

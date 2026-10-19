@@ -31,7 +31,10 @@ when `--batch` is omitted) and every entry file; it also deletes a `batch/*.js`/
 whose source batch or entry no longer exists (this is what retires the old
 `batch/<name>.plan.js`/`.impl.js` pair). `rebuild <repo-root>` is `sync` with no `--batch`
 filter, kept as its own verb for manual repair and, with `--migrate`, the one-time removal of the
-legacy HTML in this repo's own `reportDir` mirror too. Both print one JSON object: `{"status",
+legacy HTML in this repo's own `reportDir` mirror too. Flags (`cfq_lib/flags.py`) and the per-size
+baselines/calibration points in `queue.js` are derived from every batch's payload: a batch outside
+the `--batch` filter is read back from its existing data file, its `flags` recomputed against the
+current baselines and the file rewritten only if they changed. Both print one JSON object: `{"status",
 "written", "unchanged", "removed"}`.
 
 Reuses rather than re-derives: `cfq_brief.parse_phase_body` for a phase file's title/size,
@@ -53,6 +56,7 @@ repo-local files written exactly as if `reportDir` were unset.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -64,6 +68,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_queue_overlap import extract_affected_files  # noqa: E402
+from cfq_lib import flags as cfq_flags  # noqa: E402
 from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
@@ -721,7 +726,7 @@ def build_queue_batch_row(b, bd, data, changelog, todo_names):
     }
 
 
-def build_queue_payload(repo_root, rows, entries):
+def build_queue_payload(repo_root, rows, entries, base=None, points=None):
     groups = {"inProgress": 0, "planned": 0, "done": 0}
     for r in rows:
         if r["status"] == "in_progress":
@@ -742,11 +747,14 @@ def build_queue_payload(repo_root, rows, entries):
             "todos": sum(1 for e in open_entries if e["kind"] == "todo"),
             "planEntries": sum(1 for e in open_entries if e["kind"] == "plan"),
             "deviations": sum(r["deviations"] for r in rows),
-            "flags": {"warn": 0, "info": 0},
+            "flags": {
+                "warn": sum(r["flags"]["warn"] for r in rows),
+                "info": sum(r["flags"]["info"] for r in rows),
+            },
             "cost": cost,
         },
-        "baselines": {},
-        "sizes": [],
+        "baselines": base or {},
+        "sizes": points or [],
         "batches": sorted(rows, key=lambda r: r["name"]),
         "entries": sorted(entries, key=lambda e: e["id"]),
     }
@@ -909,16 +917,39 @@ def sync(repo_root, batch_names=None):
     }
 
     write("site", build_site_payload(repo_root))
-    queue_payload = build_queue_payload(repo_root, list(rows.values()), entries)
+
+    # one payload per batch: built fresh inside the filter (or when no usable data file exists),
+    # read back otherwise -- flags and baselines need every batch's attempts either way
+    payloads, fresh = {}, set()
+    for b in scan["batches"]:
+        name = b["name"]
+        payload = None
+        if batch_names is not None and name not in batch_names:
+            payload = read_data_payload(out_dir / "batch" / f"{name}.js")
+            if not (isinstance(payload, dict) and isinstance(payload.get("phases"), list) and "flags" in payload):
+                payload = None
+        if payload is None:
+            fresh.add(name)
+            payload = build_batch_payload(b, dirs[name], reports[name], rows[name], entry_states, entry_titles)
+        payloads[name] = payload
+
+    original = {name: copy.deepcopy(p) for name, p in payloads.items() if name not in fresh}
+    points = cfq_flags.size_points(payloads.values())
+    base = cfq_flags.baselines(points)
+    for name, payload in payloads.items():
+        for ph in payload["phases"]:
+            ph["flags"] = cfq_flags.phase_flags(ph, base, repo_root)
+        payload["flags"] = cfq_flags.batch_flags(payload, base, repo_root)
+        rows[name]["flags"] = {
+            level: sum(1 for f in payload["flags"] if f["level"] == level) for level in ("warn", "info")
+        }
+
+    queue_payload = build_queue_payload(repo_root, list(rows.values()), entries, base, points)
     write("queue", queue_payload)
 
-    target_names = set(rows) if batch_names is None else (set(rows) & set(batch_names))
-    for b in scan["batches"]:
-        if b["name"] in target_names:
-            name = b["name"]
-            write(f"batch/{name}", build_batch_payload(
-                b, dirs[name], reports[name], rows[name], entry_states, entry_titles,
-            ))
+    for name in sorted(payloads):
+        if name in fresh or payloads[name] != original[name]:
+            write(f"batch/{name}", payloads[name])
 
     for e in entry_fulls:
         write(f"entry/{e['id']}", e)
