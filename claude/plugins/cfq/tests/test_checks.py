@@ -787,23 +787,45 @@ class TestMaintenance(CfqTestCase):
         self.assertEqual(before, after, "OFF must not touch the marker")
 
 
-class TestCommandPairs(CfqTestCase):
-    def test_short_long_forms_byte_identical(self):
+class TestCommandFiles(CfqTestCase):
+    def _files(self):
+        return sorted((PLUGIN_ROOT / "commands").iterdir())
+
+    def test_only_markdown(self):
+        for f in self._files():
+            with self.subTest(file=f.name):
+                self.assertEqual(f.suffix, ".md", f"commands/{f.name} is not Markdown")
+
+    def test_expected_set(self):
+        self.assertEqual({f.stem for f in self._files()}, {"cfq", "rfq", "pfq", "ifq"})
+
+    def test_no_command_shares_a_skill_name(self):
+        skills = {d.name for d in (PLUGIN_ROOT / "skills").iterdir() if d.is_dir()}
+        for f in self._files():
+            with self.subTest(file=f.name):
+                self.assertNotIn(f.stem, skills, f"commands/{f.name} shares a skill's name")
+
+    def test_frontmatter_description(self):
+        for f in self._files():
+            with self.subTest(file=f.name):
+                text = f.read_text(encoding="utf-8")
+                self.assertTrue(text.startswith("---\n"), f"{f.name} has no frontmatter")
+                front = text.split("---\n", 2)[1]
+                desc = [l for l in front.splitlines() if l.startswith("description:")]
+                self.assertTrue(desc and desc[0][len("description:"):].strip(),
+                                f"{f.name} has no non-empty description")
+
+    def test_bodies_route_to_their_skill(self):
         commands_dir = PLUGIN_ROOT / "commands"
-        pairs = [
-            ("pfq", "plan-for-queue", "toml"),
-            ("ifq", "implement-for-queue", "toml"),
-            ("cfq", "code-for-queue", "md"),
-            ("rfq", "report-for-queue", "md"),
-        ]
-        for short, long, ext in pairs:
-            with self.subTest(pair=f"{short}:{long}"):
-                short_bytes = (commands_dir / f"{short}.{ext}").read_bytes()
-                long_bytes = (commands_dir / f"{long}.{ext}").read_bytes()
-                self.assertEqual(
-                    short_bytes, long_bytes,
-                    f"commands/{short}.{ext} and commands/{long}.{ext} are not byte-identical",
-                )
+        pfq = (commands_dir / "pfq.md").read_text(encoding="utf-8")
+        ifq = (commands_dir / "ifq.md").read_text(encoding="utf-8")
+        self.assertIn("plan-for-queue skill", pfq)
+        self.assertIn("implement-for-queue skill", ifq)
+        self.assertIn("resume", ifq)
+        self.assertIn("start", ifq)
+        for name, text in (("pfq.md", pfq), ("ifq.md", ifq)):
+            with self.subTest(file=name):
+                self.assertEqual(text.rstrip("\n").splitlines()[-1], "$ARGUMENTS")
 
 
 if __name__ == "__main__":

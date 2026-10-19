@@ -1,5 +1,9 @@
-description = "Work off one batch from this repository's phase queue, one phase at a time"
-prompt = """Use the implement-for-queue skill and follow its steps from the beginning.
+---
+description: Work off one batch from this repository's phase queue, one phase at a time
+argument-hint: <batch or phase>
+---
+
+Use the implement-for-queue skill and follow its steps from the beginning.
 
 Any text below is a hint about which batch or phase to work on, unless it is exactly `resume` or
 `start` (optionally followed by a batch name), or begins with `skip <NN>` / `unskip <NN>` — those
@@ -7,4 +11,4 @@ are keywords: `resume` continues the in-progress batch, `start` takes it or the 
 and both skip the go-ahead question instead of narrowing it; `skip <NN> [reason]` skips phase
 `<NN>` and `unskip <NN>` brings it back, after which the session continues normally.
 
-$ARGUMENTS"""
+$ARGUMENTS

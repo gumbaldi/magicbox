@@ -24,7 +24,7 @@ CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `04
 the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
 CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
-design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
+design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`). No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
@@ -398,8 +398,9 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
 - Rationale and history for skill/reference/agent rules lives in `claude/plugins/cfq/docs/design-notes.md`,
   not in the skill text itself — new rationale goes there, never back into a `SKILL.md`, reference
   file, or agent definition.
-- Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
-  `description`/`prompt`. Change one, change both.
+- Commands are Markdown only (Claude Code loads no other format), one short alias per skill. No
+  command may share a skill's name: the session's listing then shows the command's description
+  instead of the skill's.
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
   interview is the only part that runs in the user's language. Everything written into a repo (plan
   files, queue entries, batch directory names, commit messages, the changelog) follows `codeLanguage`,
