@@ -20,6 +20,12 @@ that sets its own model gets no `--model`. `--runs 1 --ablation none` is the che
 the default three runs with the no-plugin baseline is the form to quote a score from. Results land
 in `evals/results/` (git-ignored). Read the JSON through a filter, never raw.
 
+`ifq-model-gate-stops` sets `model: haiku` itself and must run without a `--model` override, which
+would replace it: run it alone with `--tag gate`, and exclude it from any `--model sonnet` pass.
+
+The suite cannot run on this host yet: fact 1 below is `no` (`socat` is not installed, so the
+sandbox the eval requires is unavailable). Install `bubblewrap` and `socat` first.
+
 ## Harness facts
 
 Recorded by the spike in batch 053 phase 01 (Claude Code 2.1.293, Linux, `bwrap` present, `socat` missing):
