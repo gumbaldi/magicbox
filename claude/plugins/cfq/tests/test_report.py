@@ -1150,5 +1150,141 @@ class TestDerivations(unittest.TestCase):
         self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
 
 
+_ZERO_LAYER = {"turns": 0, "output": 0, "billable_in": 0, "cache_read": 0, "models": []}
+
+
+def _layer(turns, output, billable_in=0, cache_read=0, models=("model-a",)):
+    return {"turns": turns, "output": output, "billable_in": billable_in,
+            "cache_read": cache_read, "models": list(models)}
+
+
+class PhaseCostEntryTest(CfqTestCase):
+    """`cfq_report.phase_cost_entry()` -- the `Cost` status line `phase commit` and `worker
+    verdict` print when a phase closes."""
+
+    def _dir(self, name="cost-batch"):
+        d = self._repos_dir / name
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _entry(self, layers=None, finished="2026-01-01T10:09:12+00:00", diffstat=True,
+               slug="02-x", **tel_extra):
+        tel = {"schema": 3, "kind": "phase", "from": "2026-01-01T10:00:00.000Z", "wallclock_s": 35}
+        tel["layers"] = layers if layers is not None else {
+            "main": _layer(10, 6692, 14561, 985297),
+            "main_explore": dict(_ZERO_LAYER),
+            "worker": _layer(60, 5615, 158631, 3636035),
+            "worker_explore": dict(_ZERO_LAYER),
+        }
+        tel.update(tel_extra)
+        entry = {"phase": slug, "status": "green", "telemetry": tel}
+        if finished is not None:
+            entry["finished"] = finished
+        if diffstat:
+            entry["diffstat"] = {"files": 5, "insertions": 212, "deletions": 40}
+        return entry
+
+    def _cost(self, *entries, slug="02-x"):
+        d = self._dir()
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": list(entries)}))
+        return cfq_report.phase_cost_entry(str(d), slug)
+
+    def test_routine_orchestrator_record(self):
+        entry = self._cost(self._entry())
+        self.assertEqual(entry["label"], "Cost")
+        self.assertEqual(entry["icon"], "done")
+        self.assertEqual(entry["detail"], "70 turns · 12k out · 173k in · 4.6M cached · 9:12")
+        self.assertEqual(entry["sub"], [
+            "session 10 turns · 7k out · worker 60 turns · 6k out",
+            "models model-a",
+            "diff 5 files · +212 -40",
+        ])
+        self.assert_status_lines_shape([entry])
+
+    def test_classic_record_has_no_layer_sub_line(self):
+        layers = {"main": _layer(8, 3000, 1000, 2000), "main_explore": dict(_ZERO_LAYER),
+                  "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertEqual(entry["sub"], ["models model-a", "diff 5 files · +212 -40"])
+
+    def test_explore_layers_are_ordered(self):
+        layers = {"main": _layer(10, 1000), "main_explore": _layer(4, 2000),
+                  "worker": _layer(60, 3000), "worker_explore": _layer(3, 4000)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertEqual(
+            entry["sub"][0],
+            "session 10 turns · 1k out · explore 4 turns · 2k out · "
+            "worker 60 turns · 3k out · worker explore 3 turns · 4k out",
+        )
+
+    def test_models_are_sorted_union(self):
+        layers = {"main": _layer(2, 10, models=("model-b", "model-a")),
+                  "main_explore": dict(_ZERO_LAYER),
+                  "worker": _layer(3, 10, models=("model-b",)), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertIn("models model-a · model-b", entry["sub"])
+
+    def test_value_below_1000_is_plain(self):
+        layers = {"main": _layer(2, 412, 5, 7), "main_explore": dict(_ZERO_LAYER),
+                  "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertIn("412 out · 5 in · 7 cached", entry["detail"])
+        self.assertNotIn("0k", entry["detail"])
+
+    def test_diffstat_singular_and_missing(self):
+        e = self._entry()
+        e["diffstat"] = {"files": 1, "insertions": 3, "deletions": 0}
+        self.assertIn("diff 1 file · +3 -0", self._cost(e)["sub"])
+        entry = self._cost(self._entry(diffstat=False))
+        self.assertFalse([s for s in entry["sub"] if s.startswith("diff")])
+
+    def test_duration_falls_back_and_is_left_out(self):
+        entry = self._cost(self._entry(finished=None))
+        self.assertTrue(entry["detail"].endswith("cached · 0:35"), entry["detail"])
+        entry = self._cost(self._entry(finished=None, wallclock_s=0))
+        self.assertTrue(entry["detail"].endswith("cached"), entry["detail"])
+        self.assertFalse(entry["detail"].endswith(" · "))
+
+    def test_record_without_layers_uses_totals_and_by_model(self):
+        tel = {"schema": 1, "kind": "phase", "from": "2026-01-01T10:00:00.000Z",
+               "totals": {"turns": 5, "output": 2000, "billable_in": 3000, "cache_read": 4000},
+               "subagent_worker": {"turns": 7, "output": 1000, "billable_in": 1000, "cache_read": 1000},
+               "by_model": {"model-b": {}, "model-a": {}}}
+        entry = self._cost({"phase": "02-x", "status": "green", "telemetry": tel,
+                            "finished": "2026-01-01T10:01:00+00:00"})
+        self.assertEqual(entry["detail"], "12 turns · 3k out · 4k in · 5k cached · 1:00")
+        self.assertEqual(entry["sub"][0], "session 5 turns · 2k out · worker 7 turns · 1k out")
+        self.assertIn("models model-a · model-b", entry["sub"])
+
+    def test_last_entry_for_the_slug_wins(self):
+        first = self._entry()
+        first["status"] = "red"
+        second = self._entry(layers={"main": _layer(3, 100), "main_explore": dict(_ZERO_LAYER),
+                                     "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)})
+        self.assertTrue(self._cost(first, second)["detail"].startswith("3 turns"))
+
+    def test_returns_none_without_usable_telemetry(self):
+        d = self._dir("none-batch")
+        self.assertIsNone(cfq_report.phase_cost_entry(str(d), "02-x"))
+        (d / "report.json").write_text("{not json")
+        self.assertIsNone(cfq_report.phase_cost_entry(str(d), "02-x"))
+        self.assertIsNone(self._cost({"phase": "02-x", "status": "green"}))
+        self.assertIsNone(self._cost(self._entry(), slug="09-other"))
+        zero = {n: dict(_ZERO_LAYER) for n in cfq_report.LAYER_NAMES}
+        self.assertIsNone(self._cost(self._entry(layers=zero)))
+        self.assertIsNone(self._cost("not a dict"))
+
+    def test_append_phase_stamps_finished(self):
+        d = self._dir("stamp-batch")
+        cfq_report.append_phase(str(d), json.dumps({"phase": "01-a", "status": "green"}),
+                                record_telemetry=False)
+        cfq_report.append_phase(
+            str(d), json.dumps({"phase": "02-b", "status": "green", "finished": "2026-02-02T01:02:03+00:00"}),
+            record_telemetry=False)
+        phases = json.loads((d / "report.json").read_text())["phases"]
+        self.assertIsNotNone(cfq_report.parse_ts(phases[0]["finished"]))
+        self.assertEqual(phases[1]["finished"], "2026-02-02T01:02:03+00:00")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, phase_state, render  # noqa: E402
+from cfq_lib import errors, phase_state, render, text  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
@@ -150,6 +150,11 @@ def append_phase(dir_, phase_json, record_telemetry=True):
     f = os.path.join(dir_, "report.json")
     ensure_report(dir_)
     data = json.loads(pathlib.Path(f).read_text())
+    # The close time is stamped here, by the script: the telemetry record's own wallclock ends
+    # when the session's transcript does, which in orchestrator mode is when the worker spawns.
+    # `phase_cost_entry()` measures the phase's duration up to this stamp.
+    if "finished" not in phase_obj:
+        phase_obj["finished"] = render.now_iso()
     data.setdefault("phases", []).append(phase_obj)
     render.write_json(f, data)
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
@@ -286,6 +291,86 @@ def phase_layer_sums(tel):
         "worker": worker if isinstance(worker, dict) else {},
         "worker_explore": {},
     }
+
+
+_LAYER_LABELS = (
+    ("main", "session"), ("main_explore", "explore"),
+    ("worker", "worker"), ("worker_explore", "worker explore"),
+)
+
+
+def _cost_tokens(n):
+    """The plain integer below 1000, otherwise `fmt_tokens()` (`12k`, `4.6M`)."""
+    if isinstance(n, (int, float)) and not isinstance(n, bool) and 0 < n < 1000:
+        return str(int(n))
+    return fmt_tokens(n)
+
+
+def _cost_num(layer, key):
+    v = layer.get(key)
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+
+
+def _cost_duration(entry, tel):
+    start, end = parse_ts(tel.get("from")), parse_ts(entry.get("finished"))
+    if start and end:
+        seconds = int((end - start).total_seconds())
+        if seconds > 0:
+            return fmt_duration(seconds)
+    wall = tel.get("wallclock_s")
+    if isinstance(wall, (int, float)) and not isinstance(wall, bool) and wall > 0:
+        return fmt_duration(wall)
+    return ""
+
+
+def phase_cost_entry(dir_, phase_slug):
+    """The `Cost` status line for `phase_slug`'s most recent ledger entry in `dir_`'s report.json:
+    turns, tokens, duration (the record's `from` up to the entry's script-stamped `finished`),
+    the layer split, the models and the commit's diffstat. Renders what the record holds right
+    now -- the commit-time state, never corrected later. Returns None when there is no usable
+    telemetry; never raises."""
+    try:
+        data = json.loads(pathlib.Path(dir_, "report.json").read_text())
+        entries = [p for p in data.get("phases", []) if isinstance(p, dict) and p.get("phase") == phase_slug]
+        if not entries:
+            return None
+        entry = entries[-1]
+        tel = entry.get("telemetry")
+        if not isinstance(tel, dict):
+            return None
+        layers = phase_layer_sums(tel)
+        total = {k: sum(_cost_num(layers[n], k) for n in LAYER_NAMES)
+                 for k in ("turns", "output", "billable_in", "cache_read")}
+        if not any(total.values()):
+            return None
+        parts = [
+            f"{int(total['turns'])} turns", f"{_cost_tokens(total['output'])} out",
+            f"{_cost_tokens(total['billable_in'])} in", f"{_cost_tokens(total['cache_read'])} cached",
+        ]
+        duration = _cost_duration(entry, tel)
+        if duration:
+            parts.append(duration)
+        sub = []
+        with_turns = [(label, layers[n]) for n, label in _LAYER_LABELS if _cost_num(layers[n], "turns") > 0]
+        if len(with_turns) >= 2:
+            sub.append(" · ".join(
+                f"{label} {int(_cost_num(l, 'turns'))} turns · {_cost_tokens(_cost_num(l, 'output'))} out"
+                for label, l in with_turns))
+        if isinstance(tel.get("layers"), dict):
+            models = {m for n in LAYER_NAMES for m in (layers[n].get("models") or []) if isinstance(m, str)}
+        else:
+            by_model = tel.get("by_model")
+            models = {m for m in by_model if isinstance(m, str)} if isinstance(by_model, dict) else set()
+        if models:
+            sub.append("models " + " · ".join(sorted(models)))
+        stat = entry.get("diffstat")
+        files = stat.get("files") if isinstance(stat, dict) else None
+        if isinstance(files, int) and not isinstance(files, bool):
+            noun = "file" if files == 1 else "files"
+            sub.append(f"diff {files} {noun} · +{stat.get('insertions') or 0} -{stat.get('deletions') or 0}")
+        return text.status_entry("Cost", "done", " · ".join(parts), sub=sub)
+    except Exception:  # noqa: BLE001 -- a cost line must never cost the phase its close
+        return None
 
 
 def cmd_summary(args):

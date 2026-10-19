@@ -220,6 +220,41 @@ class WorkerVerdictTest(CfqTestCase):
         self.assertEqual(body["triggers"], [])
         self.assertEqual(body["question"], "Two defensible approaches -- which one?")
 
+    def _batch_with_telemetry(self):
+        d = self._repos_dir / "verdict-batch"
+        d.mkdir(parents=True, exist_ok=True)
+        layer = {"turns": 4, "output": 2000, "billable_in": 3000, "cache_read": 4000, "models": ["model-a"]}
+        zero = {"turns": 0, "output": 0, "billable_in": 0, "cache_read": 0, "models": []}
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [{
+            "phase": "02-x", "status": "green", "finished": "2026-01-01T10:09:12+00:00",
+            "telemetry": {"schema": 3, "kind": "phase", "from": "2026-01-01T10:00:00.000Z",
+                          "layers": {"main": layer, "main_explore": zero, "worker": zero,
+                                     "worker_explore": zero}},
+        }]}))
+        return str(d)
+
+    def test_green_and_red_carry_the_cost_line(self):
+        d = self._batch_with_telemetry()
+        for report, verdict in (
+            ({"phase": "02-x", "status": "green"}, "CONTINUE"),
+            ({"phase": "02-x", "status": "red", "errors": ["boom"]}, "STOP"),
+            ({"phase": "02-x", "status": "green", "triggers": ["omitted"]}, "ASK"),
+        ):
+            body = json.loads(self._verdict(report, batch_dir=d).stdout)
+            self.assertEqual(body["verdict"], verdict)
+            self.assert_status_lines_shape(body["statusLines"])
+            self.assertEqual([e["label"] for e in body["statusLines"]], ["Cost"])
+
+    def test_question_and_missing_batch_have_no_status_lines(self):
+        d = self._batch_with_telemetry()
+        body = json.loads(self._verdict({"phase": "02-x", "status": "question", "question": "?"}, batch_dir=d).stdout)
+        self.assertEqual(body["statusLines"], [])
+        proc = self._verdict({"phase": "02-x", "status": "green"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = json.loads(proc.stdout)
+        self.assertEqual(body["statusLines"], [])
+        self.assertEqual(body["verdict"], "CONTINUE")
+
     def test_malformed_json_fails_loudly_never_silent_continue(self):
         run_env = self._base_env()
         run_env["HOME"] = str(self.home)

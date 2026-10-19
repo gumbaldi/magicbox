@@ -11,7 +11,8 @@ on a batch's `done/` directory originated (see `.batch-context.md`).
 `record` either moves the phase's `.md` file into `done/` and appends its ledger entry, or does
 neither -- the red-phase path, and `commit`'s own last resort once its own commit has already
 succeeded (see `cmd_commit`). `commit` is the green-phase path: it commits whatever is staged,
-then records, backfills the commit SHA, pushes and registers the repo, all from one call, so a
+then records, backfills the commit SHA, pushes and registers the repo, all from one call, and
+reports the phase's cost (a `Cost` status line) alongside the commit result, so a
 green phase costs one `bin/cfq` invocation instead of the five or six it used to (`phase record`,
 `changelog commit-message`, `git commit`, `git push`, `git rev-parse HEAD`, `report set-commit`,
 `registry add`). `reopen` is `record`'s inverse: it moves a phase back out of `done/` and marks the
@@ -276,6 +277,11 @@ def cmd_commit(args):
     if push.returncode != 0:
         result["pushError"] = _last_stderr_line(push.stderr)
     result["statusLines"] = [commit_status_line(result)]
+    # The second entry, `Cost`, is rendered from the ledger entry just written -- see
+    # `cfq_report.phase_cost_entry()`; absent without a telemetry record.
+    cost = cfq_report.phase_cost_entry(dir_, phase_id)
+    if cost is not None:
+        result["statusLines"].append(cost)
     print(render.dump_json(result))
 
 

@@ -9,6 +9,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import unittest
 from unittest import mock
 
@@ -317,6 +318,60 @@ class TestPhase(CfqTestCase):
 
         registered = self.run_cfq("registry", "list").stdout
         self.assertIn(str(repo), registered, "repo should be registered by phase commit")
+
+    def _commit_phase_01(self, repo, batch, env=None):
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        msg = self._message_file(batch)
+        return self.run_cfq("phase", "commit", str(batch), str(pf), str(msg), cwd=repo, env=env)
+
+    def test_commit_without_transcript_carries_only_the_commit_line(self):
+        repo, batch = self._git_batch("nocost-repo", "042-2026-03-01-nocost")
+        proc = self._commit_phase_01(repo, batch)
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "OK")
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit"])
+
+    def test_commit_with_transcript_appends_the_cost_line(self):
+        repo, batch = self._git_batch("cost-repo", "042-2026-03-01-cost")
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(repo))
+        tdir = self.home / ".claude" / "projects" / slug
+        tdir.mkdir(parents=True)
+        lines = []
+        for i in range(3):
+            lines.append(json.dumps({
+                "type": "assistant", "timestamp": f"2026-08-13T10:0{i}:00.000Z",
+                "sessionId": "costsid", "isSidechain": False, "effort": "high",
+                "attributionSkill": "cfq:implement-for-queue", "attributionPlugin": "cfq",
+                "message": {"model": "model-a", "usage": {
+                    "input_tokens": 100, "output_tokens": 50,
+                    "cache_read_input_tokens": 10, "cache_creation_input_tokens": 5},
+                    "content": [{"type": "text", "text": "x"}]},
+            }))
+        (tdir / "costsid.jsonl").write_text("\n".join(lines) + "\n")
+        proc = self._commit_phase_01(repo, batch, env={"CLAUDE_CODE_SESSION_ID": "costsid"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # `telemetry record` prints its own one-line summary to the shared stdout first; the JSON
+        # result is the last line.
+        body = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit", "Cost"])
+        self.assertIn("3 turns", body["statusLines"][1]["detail"])
+
+    def test_failure_results_never_carry_a_cost_line(self):
+        repo, batch = self._git_batch("nostage-repo", "042-2026-03-01-nostage")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "ok"})
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "NOTHING_STAGED")
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit"])
 
     def _commit_phase_diffstat(self, repo, batch, stage):
         """Runs `stage()` to stage a change, commits phase 01-a through `phase commit` and returns

@@ -15,6 +15,12 @@ immediate question it has no channel to ask. `verdict` only translates that self
 CONTINUE/ASK/STOP; it never re-derives the classification from `deviations` text, which stays a
 plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_report.py` already
 read) and is not inspected here.
+
+Every result also carries `statusLines`: for `green` and `red` the phase's `Cost` entry rendered
+from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_entry()`), a list of
+one, or `[]` when there is no telemetry to show or the report names no phase; for `question`
+always `[]`. The orchestrator prints those lines verbatim, so the cost summary costs no call of
+its own.
 """
 
 import argparse
@@ -26,6 +32,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import cfq_report  # noqa: E402
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
@@ -182,21 +189,32 @@ def cmd_verdict(args):
         errors.fail("MALFORMED_REPORT", detail=f"status must be one of {VALID_STATUSES}, got {status!r}")
         return
 
+    status_lines = []
+    if status in ("green", "red"):
+        cost = cfq_report.phase_cost_entry(args.batch_dir, report.get("phase"))
+        status_lines = [cost] if cost is not None else []
+
     if status == "red":
-        print(render.dump_json({"status": "OK", "verdict": "STOP", "triggers": ["red"], "question": None}))
+        print(render.dump_json({
+            "status": "OK", "verdict": "STOP", "triggers": ["red"], "question": None,
+            "statusLines": status_lines,
+        }))
         return
 
     if status == "question":
         print(render.dump_json({
             "status": "OK", "verdict": "ASK", "triggers": [],
-            "question": report.get("question", ""),
+            "question": report.get("question", ""), "statusLines": [],
         }))
         return
 
     raw_triggers = report.get("triggers") or []
     triggers = [t for t in raw_triggers if t in GREEN_TRIGGERS]
     verdict = "ASK" if triggers else "CONTINUE"
-    print(render.dump_json({"status": "OK", "verdict": verdict, "triggers": triggers, "question": None}))
+    print(render.dump_json({
+        "status": "OK", "verdict": verdict, "triggers": triggers, "question": None,
+        "statusLines": status_lines,
+    }))
 
 
 def build_parser():
