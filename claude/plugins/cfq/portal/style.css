@@ -270,6 +270,57 @@ dl.result dd{margin:0;max-width:72ch}
 .kind-untouched::before{content:"○"}
 table.data.files td.path code{background:none;padding:0;word-break:break-all}
 
+/* ---- batch cost, timeline, notes and closing ------------------------------------------------ */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.75rem;margin:.25rem 0 1.25rem}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.6rem .85rem}
+.tile-label{color:var(--fg-faint);text-transform:uppercase;font-size:.7rem;letter-spacing:.04em}
+.tile-value{font-size:1.45rem;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
+.cost-section{margin:0 0 1.5rem}
+.cost-section h3{margin:.25rem 0 .5rem}
+.cost-section .caption{margin:0 0 .4rem;font-size:.8rem}
+.provisional-note{margin:0 0 1rem;font-size:.85rem}
+table.data.cost-table td.model .model-name,table.data.cost-table td.layer{white-space:nowrap}
+table.data.cost-table .model-name{display:inline-flex;align-items:center;gap:.4rem}
+.model-name .swatch,.cost-table .swatch{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;
+  background:var(--c,var(--m-other))}
+table.data.cost-table tr.total td{font-weight:650;border-top:1px solid var(--border-strong)}
+table.data.cost-table tr.empty-layer td{color:var(--fg-faint)}
+table.data.cost-table tr.nested td{background:var(--surface);font-size:.8rem}
+table.data.cost-table tr.nested td.model{padding-left:2rem}
+table.data.cost-table tr.nested[hidden]{display:none}
+table.data.cost-table td.layer .disclosure-toggle{padding:0}
+table.data.cost-table td.desc{max-width:24rem}
+table.data.cost-table td .provisional{white-space:nowrap}
+.copy-tsv{margin:0 0 .6rem}
+.copy-tsv .tsv-area{display:block;width:100%;min-height:8rem;margin:.5rem 0 0;font:.8rem var(--mono);
+  color:inherit;background:var(--bg);border:1px solid var(--border-strong);border-radius:var(--r)}
+.copy-tsv .tsv-area[hidden]{display:none}
+table.data.numbers.exact td,table.data.numbers.exact th{font-family:var(--mono);font-size:.78rem;
+  white-space:nowrap}
+
+.timeline-section{margin:0 0 1.25rem}
+.timeline-section h3{margin:.25rem 0 .5rem}
+.timeline{display:flex;flex-direction:column;gap:.3rem;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r);padding:.6rem .8rem}
+.tl-row{display:grid;grid-template-columns:9rem minmax(0,1fr);gap:.75rem;align-items:center}
+.tl-label{font-family:var(--mono);font-size:.76rem;color:var(--fg-muted);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.tl-track{position:relative;height:.9rem}
+.tl-bar{position:absolute;top:.1rem;height:.7rem;min-width:3px;background:var(--accent);
+  border-radius:3px}
+.tl-bar.tl-point{width:.7rem;min-width:0;margin-left:-.35rem;border-radius:50%}
+.tl-gap{position:absolute;top:0;height:100%;background:repeating-linear-gradient(135deg,
+  transparent 0 3px,var(--border) 3px 4px)}
+.tl-axis .tl-track{height:1.1rem}
+.tl-break{position:absolute;top:0;height:100%;text-align:center;font-size:.68rem;line-height:1.1rem;
+  color:var(--fg-muted);background:var(--surface-2);border-radius:3px;overflow:hidden;
+  white-space:nowrap}
+.tl-note{margin:.3rem 0 0;font-size:.76rem}
+
+.notes-section{margin:0 0 1.25rem}
+.notes-section h3{margin:.25rem 0 .5rem}
+dl.closing dd table{margin:0 0 .4rem;width:auto}
+
 /* ---- narrow screens ------------------------------------------------------------------------- */
 @media (max-width:48rem){
   main{padding:1rem .75rem 2.5rem}

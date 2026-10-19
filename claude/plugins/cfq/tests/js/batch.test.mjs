@@ -31,10 +31,13 @@ const buttons = (node, label) => byTag(node, "button").filter((b) => collectText
 const rowToggles = (node) => byClass(node, "phase-row").map((tr) => byClass(tr, "disclosure-toggle")[0]);
 
 test("loading batch.js registers its tabs and sub-tabs", () => {
+  // loadPortal() loads every script, so the cost, notes and closing parts of batch 050 phase 14 are
+  // registered next to batch.js's own.
   const C = CFQ.core;
-  assert.deepEqual(C.registered("batchTab").map((t) => [t.id, t.order]), [["phases", 10], ["context", 30]]);
-  assert.deepEqual(C.registered("phaseTab").map((t) => [t.id, t.order]), [["result", 10], ["plan", 20], ["files", 40]]);
-  assert.deepEqual(C.registered("batchTab").map((t) => t.label), ["Phases", "Plan context"]);
+  assert.deepEqual(C.registered("batchTab").map((t) => [t.id, t.order]),
+    [["phases", 10], ["cost", 20], ["context", 30], ["notes", 40], ["closing", 50]]);
+  assert.deepEqual(C.registered("phaseTab").map((t) => [t.id, t.order]), [["result", 10], ["plan", 20], ["cost", 30], ["files", 40]]);
+  assert.deepEqual(C.registered("batchTab").map((t) => t.label), ["Phases", "Cost", "Plan context", "Notes", "Closing"]);
 });
 
 test("phaseRows: one row per phase with sums, latest attempt and status", () => {
@@ -141,8 +144,8 @@ test("tab bar lists exactly the registered tabs; unknown tab falls back to Phase
   const batch = fixtureBatch("done");
   const { root } = draw(batch);
   const nav = byTag(root, "nav")[0];
-  assert.deepEqual(byTag(nav, "a").map((a) => a.textContent), ["Phases (2)", "Plan context"]);
-  assert.deepEqual(links(nav), ["#/batch/047-2026-10-01-demo/phases", "#/batch/047-2026-10-01-demo/context"]);
+  assert.deepEqual(byTag(nav, "a").map((a) => a.textContent), ["Phases (2)", "Cost", "Plan context", "Notes (5)", "Closing"]);
+  assert.deepEqual(links(nav), ["phases", "cost", "context", "notes", "closing"].map((t) => "#/batch/047-2026-10-01-demo/" + t));
 
   const ctx = draw(batch, { route: { tab: "context" } });
   assert.match(collectText(ctx.root), /Decisions/);
@@ -175,7 +178,7 @@ test("opening a row shows sub-tabs and the Result of the latest attempt", () => 
   fire(toggle, "click");
   assert.equal(toggle.attrs["aria-expanded"], "true");
   const panel = byClass(root, "phase-detail")[0];
-  assert.deepEqual(byClass(panel, "subtab").map((b) => b.textContent), ["Result", "Plan", "Files"]);
+  assert.deepEqual(byClass(panel, "subtab").map((b) => b.textContent), ["Result", "Plan", "Cost", "Files"]);
   assert.equal(byClass(panel, "subtab active")[0]?.textContent ?? byClass(panel, "active")[0].textContent, "Result");
   const text = collectText(panel);
   for (const label of ["Implemented", "Verification", "Deviations", "Observations", "Mode", "Diffstat", "Commit"]) {
@@ -275,7 +278,7 @@ test("the phase route renders that row open and the others closed", () => {
   const toggles = rowToggles(root);
   assert.deepEqual(toggles.map((b) => b.attrs["aria-expanded"]), ["false", "true"]);
   assert.equal(byClass(root, "phase-detail").length, 1);
-  assert.equal(byTag(root, "nav")[0].children.length, 2);
+  assert.equal(byTag(root, "nav")[0].children.length, 5);
   assert.equal(byClass(root, "active")[0].textContent, "Phases (2)");
 });
 
@@ -381,20 +384,20 @@ test("extra slot items appear after the built-in ones and render their own body"
   const B2 = globalThis.CFQ.batch;
   C.register("batchTab", { id: "extra", label: "Extra", order: 99, count: () => 3, render: (doc, root) => root.appendChild(C.el(doc, "p", "extra body")) });
   C.register("phaseTab", { id: "more", label: "More", order: 99, render: (doc, root, ctx, phase, attempt) => root.appendChild(C.el(doc, "p", "more for " + phase.slug + " " + (attempt ? attempt.status : "none"))) });
-  C.register("batchPhasesTop", { id: "timeline", order: 10, render: (doc, root) => root.appendChild(C.el(doc, "p", "timeline above")) });
+  C.register("batchPhasesTop", { id: "extra-top", order: 10, render: (doc, root) => root.appendChild(C.el(doc, "p", "timeline above")) });
 
   const batch = fixtureBatch("done");
   const d = fakeDoc();
   const root = fakeRoot(d);
   B2.render(d, root, { mode: "repo", repo: site.repo, site, batch, setCrumbs() {}, route: { name: "batch", tab: null, batch: batch.name, phase: null } });
-  assert.deepEqual(byTag(byTag(root, "nav")[0], "a").map((a) => a.textContent), ["Phases (2)", "Plan context", "Extra (3)"]);
+  assert.deepEqual(byTag(byTag(root, "nav")[0], "a").map((a) => a.textContent), ["Phases (2)", "Cost", "Plan context", "Notes (5)", "Closing", "Extra (3)"]);
   const body = byClass(root, "batch-tab")[0];
-  assert.match(collectText(body.children[0]), /timeline above/);
-  assert.equal(body.children[1].className, "tscroll"); // the phase table follows the top slot
+  assert.match(collectText(byClass(body, "top-extra-top")[0]), /timeline above/);
+  assert.equal(body.children[body.children.length - 1].className, "tscroll"); // the phase table follows the top slots
 
   fire(rowToggles(root)[0], "click");
   let panel = byClass(root, "phase-detail")[0];
-  assert.deepEqual(byClass(panel, "subtab").map((b) => b.textContent), ["Result", "Plan", "Files", "More"]);
+  assert.deepEqual(byClass(panel, "subtab").map((b) => b.textContent), ["Result", "Plan", "Cost", "Files", "More"]);
   fire(buttons(panel, "More")[0], "click");
   panel = byClass(root, "phase-detail")[0];
   assert.match(collectText(panel), /more for 01-first green/);

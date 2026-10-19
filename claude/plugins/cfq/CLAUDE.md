@@ -308,7 +308,7 @@ file in `portal/` to `assets/`, removing `assets/` files `portal/` no longer has
 scripts on one shared `CFQ` namespace (`core.js` first, `app.js` last — router, route table and
 data-path rules; `overview.js` — KPI strip and the sortable batch table; later views register through
 `CFQ.core.register(slot, item)` instead of editing earlier files; `charts.js` draws the inline-SVG
-charts and `overview-charts.js` registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page -- header, tab bar, phase table with per-phase detail -- and registers its own `batchTab`/`phaseTab` items); `tests/js/helpers.mjs` holds the
+charts and `overview-charts.js` registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page -- header, tab bar, phase table with per-phase detail -- and registers its own `batchTab`/`phaseTab` items; `batch-cost.js`, `batch-notes.js` and `timeline.js` register the Cost tab and sub-tab, the Notes and Closing tabs and the `batchPhasesTop` timeline); `tests/js/helpers.mjs` holds the
 fake DOM and the contract-shaped fixtures every viewer test file shares. Every data file registers a JSON payload on
 `window.CFQ_DATA["<key>"]` (a file's path below `data/` is always its key plus `.js`, which is how
 the viewer finds it) rather than being `fetch()`-ed — a browser blocks `fetch()` of a local
