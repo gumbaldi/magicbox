@@ -65,7 +65,7 @@ Print the `INTERVIEW` header on entering — the preflight already ran at **Inbo
 `setup.globalDone` is `false` → read `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its
 **Global Part** now, before anything else in this step. Run the model-gate check per
 `${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Model Gate** section, then print `Model
-Check` as returned. `repo.known` is `false` → read
+Gate` as returned. `repo.known` is `false` → read
 `${CLAUDE_PLUGIN_ROOT}/references/setup-wizard.md` and run its **Repo Part** now, right before the
 call below, and print its `Config` status line. `repo.known` is `true` → print `Config  ➖ known
 repo` instead, without reading that section.

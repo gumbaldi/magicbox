@@ -2,7 +2,7 @@
 
 ## Model Gate
 
-Print `Model Check` — the preflight's own `statusLines` entry, printed as returned: it already
+Print `Model Gate` — the preflight's own `statusLines` entry, printed as returned: it already
 resolved whether `allowAnyModel` skips the check, or which list applies otherwise. The match
 itself still needs the running model's name (from the system prompt, not the preflight) — substring
 it against `planModels` yourself, like `ifq`'s gate; no match → add one more warning naming the

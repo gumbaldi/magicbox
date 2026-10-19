@@ -44,13 +44,13 @@ def inbox_count_from_overview(overview_text):
 
 
 def model_check_line(allow_any_model):
-    """The `Model Check` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
+    """The `Model Gate` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
     `model_gate_line`. The actual substring match against the running model's name stays with the
     skill (`references/interview-depth.md`'s **Model Gate**), since only the session itself knows
     its own model, from its own system prompt."""
     if allow_any_model:
-        return text.status_entry("Model Check", "skip", "skipped · allowAnyModel")
-    return text.status_entry("Model Check", "done", "checked against planModels")
+        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
+    return text.status_entry("Model Gate", "done", "checked against planModels")
 
 
 def plugin_boundaries_line(blocked):

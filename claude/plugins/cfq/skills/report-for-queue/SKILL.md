@@ -17,35 +17,7 @@ Always answer in the user's language.
 Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
 resolves against it.
 
-Progress is reported as status lines, not prose. One line per step, printed **as soon as that
-step is done** — never collected and dumped at the end. Section headers are printed once, on
-entering the section.
-
-```
-SECTION HEADER IN CAPS
-<icon> <label padded to 16 chars><detail, one short clause>
-```
-
-Icons: `✅` done · `⚠️` warning, unavailable, degraded · `❌` failed · `➖` skipped, not
-applicable, nothing to do.
-
-Rules:
-
-- The detail says what the check found, not what you are about to do next. `sonnet · implModels:
-  sonnet`, not "the model gate is satisfied, I will now look at the batch".
-- A step that did not run still gets its line, with `➖` or `⚠️` and the reason — "no security
-  data for this repo" is exactly the information the user is after.
-- Sub-information belongs on an indented `   └ ` continuation line, never in the detail column.
-- Section headers, labels, and status-line content are always English — regardless of the
-  language the rest of the conversation is in. Only interactive prose (see below) follows the
-  user's language.
-- Padding to the label column uses plain space characters, never HTML entities such as `&nbsp;`
-  — those render as visible text rather than whitespace in a terminal.
-- No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
-  what the lines already say.
-- The result section is a label/value list under the same padding, not a table.
-- Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
-  user stay in the user's language.
+Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Section Map
 

@@ -5,11 +5,16 @@ mapping (default/global/repo/env source and masked-value display), and the `THIS
 block (open-batches-only, `--all`, and the expanded next batch).
 """
 
+import contextlib
+import io
+import json
 import re
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, SCRIPTS_DIR, write_status
 
@@ -596,6 +601,77 @@ class TestDash(CfqTestCase):
 
         self.assertIn("ponytail audit: off", rendered, f"expected wording missing:\n{rendered}")
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
+
+
+    # --- `plugins.statusLine`: the rendered Plugins line, shared with `dash render` ---
+
+    def _status_line_vs_render(self, name, env_extra=None, **plugin_kwargs):
+        """Runs `dash` and `dash render` on one fixture and returns (statusLine, rendered
+        Plugins line)."""
+        tmp = self._repos_dir / f"{name}root"
+        home = self._repos_dir / f"{name}home"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+        self._plugin_home(home, **plugin_kwargs)
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        env.update(env_extra or {})
+        out = self.json_out(self.run_cfq("dash", str(tmp), home=home, env=env))
+        rendered = self.run_cfq("dash", "render", str(tmp), home=home, env=env).stdout
+        return out["plugins"]["statusLine"], self._plugins_line(rendered)
+
+    def _assert_status_line(self, name, icon_name, detail, env_extra=None, **plugin_kwargs):
+        entry, rendered_line = self._status_line_vs_render(name, env_extra, **plugin_kwargs)
+        self.assertEqual(entry["label"], "Plugins", f"statusLine = {entry}")
+        self.assertEqual(entry["icon"], icon_name, f"statusLine = {entry}")
+        self.assertEqual(entry["detail"], detail, f"statusLine = {entry}")
+        self.assertEqual(entry["sub"], [], f"statusLine = {entry}")
+        self.assertEqual(entry["text"], rendered_line, "statusLine.text must equal the rendered Plugins line")
+
+    def test_status_line_neither_installed(self):
+        self._assert_status_line(
+            "slnone", "skip", "mattpocock-skills/ponytail not installed",
+        )
+
+    def test_status_line_both_installed_one_switch_off(self):
+        self._assert_status_line(
+            "sloneoff", "skip", "installed · ponytail audit: off",
+            env_extra={"CFQ_USE_PONYTAIL": "false"},
+            mattpocock=True, ponytail=True, ponytail_default_mode="off",
+        )
+
+    def test_status_line_both_installed_both_on(self):
+        self._assert_status_line(
+            "slbothon", "done",
+            "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on",
+            mattpocock=True, ponytail=True, ponytail_default_mode="off",
+        )
+
+    def test_status_line_one_installed_one_missing(self):
+        self._assert_status_line(
+            "slmissing", "skip", "ponytail not installed · classic grill on", mattpocock=True,
+        )
+
+    def test_status_line_ponytail_mode_not_off(self):
+        self._assert_status_line(
+            "slmode", "warn",
+            "mattpocock-skills not installed · ponytail audit: on · "
+            "ponytail default mode: full · cfq expects off",
+            ponytail=True,
+        )
+
+    def test_status_line_absent_when_runtime_degraded(self):
+        def fake_cfq_run(*args, **kwargs):
+            return SimpleNamespace(
+                stdout=json.dumps({"status": "DEGRADED", "code": "X", "cap": "y"}), returncode=0,
+            )
+
+        buf = io.StringIO()
+        with mock.patch.object(cfq_dash, "cfq_run", fake_cfq_run), contextlib.redirect_stdout(buf):
+            cfq_dash.main([])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(out["status"], "RUNTIME_DEGRADED")
+        self.assertIsNone(out["plugins"], "plugins stays null when the runtime is degraded")
 
 
     # --- Phase 03: one-time `Setup` hint for existing users ---

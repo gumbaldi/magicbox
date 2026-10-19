@@ -412,12 +412,8 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   (section header in caps, per step `<icon> <label padded to 16 chars> <detail>`, icons
   `✅ ⚠️ ❌ ➖`, printed live as each step completes) lives in
   `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
-  `plan-for-queue`, and `code-for-queue`. `report-for-queue` keeps a full inline copy instead,
-  needed to stay inside the 200-line budget below without adding a reference-file read to a skill
-  that otherwise wouldn't need one. Change the block → change `references/output-format.md`, and
-  keep `report-for-queue`'s inline copy in sync with it (same content, its own bullet style — not
-  necessarily word-for-word). A new skill points at the reference file rather than copying the
-  block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
+  `plan-for-queue`, `code-for-queue` and `report-for-queue`. A new skill points at the reference
+  file rather than copying the block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
 - **200-line budget per `SKILL.md`, counted `wc -l` over the whole file, frontmatter included.**
   Every session pays for a skill's size before anything happens. Content that would push a file
   past that moves to `references/` and is loaded only on the path that needs it — pattern:

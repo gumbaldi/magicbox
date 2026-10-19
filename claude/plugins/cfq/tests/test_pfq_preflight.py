@@ -191,7 +191,7 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Model Check", "Inbox", "Review", "Plugin Boundaries"], msg=f"labels = {labels}"
+            labels, ["Model Gate", "Inbox", "Review", "Plugin Boundaries"], msg=f"labels = {labels}"
         )
 
     def test_review_line_and_awaiting_review(self):
@@ -231,12 +231,12 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.run_clean("git", "init", "-q", cwd=reg)
 
         out = self.json_out(self._run_pf(str(reg)))
-        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
         self.assertEqual(line["icon"], "done", msg=f"line = {line}")
         self.assertEqual(line["detail"], "checked against planModels", msg=f"line = {line}")
 
         out = self.json_out(self._run_pf(str(reg), env={"CFQ_ALLOW_ANY_MODEL": "1"}))
-        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
         self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
         self.assertEqual(line["detail"], "skipped · allowAnyModel", msg=f"line = {line}")
 

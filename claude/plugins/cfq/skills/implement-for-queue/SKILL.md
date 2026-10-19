@@ -25,7 +25,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 
 | Section | Steps | Contents |
 |---|---|---|
-| PRECHECKS | 1-7 | Preflight, Model Check, Batch, Start Gate, Size Gate |
+| PRECHECKS | 1-7 | Preflight, Model Gate, Batch, Start Gate, Size Gate |
 | IMPLEMENTATION | 8-9 | per phase: announcement, result, Commit |
 | POSTCHECKS | 10-12 | Context Check, Telemetry, Lock, Batch Done |
 

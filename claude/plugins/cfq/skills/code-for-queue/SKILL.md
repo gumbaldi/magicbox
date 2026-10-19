@@ -40,32 +40,10 @@ this repo has one. `RUNTIME_DEGRADED` → surface `.runtimeDiagnostic` verbatim,
 as not installed for this run. `MULTIPLE_IN_PROGRESS` → this repo has more than one batch
 locked/in-progress at once, an invariant violation — surface it, never silently pick one.
 
-## Plugin Status Line (Step A)
-
-`cfq dash render` (Step B) computes this identically inside the script — this section is Step A's
-own copy, needed there because Step A's offer flow reacts to `.plugins` directly rather than
-printing the rendered block.
-
-From `.plugins`: `.mattpocock`/`.ponytail` (installed), `.useMattpocockGrilling`/
-`.usePonytailAudit` (the switches), and `.ponytailMode` (`off`/`lite`/`full`/`ultra`/`unknown`) —
-computed once by the aggregator, no separate call.
-
-- Neither installed → `➖ mattpocock-skills/ponytail not installed`.
-- Both installed, at least one switch off → `➖ installed · <off list>`, naming only the switch(es)
-  that are actually off (`grill: classic off`, `ponytail audit: off`).
-- Both installed, both on → `✅ mattpocock-skills and ponytail installed · classic grill on ·
-  ponytail audit: on`.
-- One installed, one missing → name the missing one and the installed one's switch state, e.g.
-  `➖ ponytail not installed · classic grill on`.
-- Ponytail installed and `.ponytailMode` is not `off` → append `· ponytail default mode: <mode> ·
-  cfq expects off` and force the icon to `⚠️`, regardless of which of the four cases above
-  applies — cfq expects ponytail dormant outside the maintenance audit.
-  `.ponytailMode == "off"` → no clause appended, no icon change, no warning — `off` is the
-  expected, configured state.
-
 ## Step A — First-Time Setup (only if `setupDone` is `false`)
 
-Print the `PRECHECKS` header on entering this step.
+Print the `PRECHECKS` header on entering this step. Print `.plugins.statusLine.text` as returned;
+this step's offer flow reads `.plugins`' installed/switch fields directly.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings state get setupDone
