@@ -302,3 +302,33 @@ orchestrated phase far too short.
 Classic mode's red path is left out: `phase record` prints a bare path, and `SKILL.md` is at its line
 budget, so there is no room to tell the session to print a line there. Orchestrator mode shows the
 cost for red phases anyway, through the verdict.
+
+## cfq: why skill text is written in the present tense
+
+Skill, reference and agent text describes what applies, not how it used to be. A clause such as
+"overlap no longer asks" or "as before" costs every session tokens to read, says nothing the
+current behaviour does not, and ages into a statement about a state nobody remembers.
+`check_no_history_wording` in `tests/test_reference_paths.py` rejects the common phrasings.
+
+Reasons worth keeping from clauses removed under that rule:
+
+- `/rfq` mentions that a batch finished before reports existed has none. Reports arrived with
+  v0.2, so older batches in `done/` never got one, and `index` correctly returns `[]` for them.
+- `bin/cfq phase commit` adds the `CFQ-*` trailers itself; `changelog commit-message` is the
+  script verb that composes them, and a session never calls it directly.
+- `ifq`'s `resume` snapshot reuses the script that existed before the snapshot moved into the
+  preflight; only the caller changed, not the fields it returns.
+
+## cfq: why an item in `plan/` or `todo/` is called an entry
+
+The files called the same thing "entry", "card" and "queue note". A reader, or a model, that sees
+three words assumes three kinds of thing. The one term is "entry" (`plan/` entry, `todo/` entry,
+merge entry). Script output, CLI verbs such as `note merge-todo` and `note sweep`, and Python
+docstrings keep their wording, because renaming them is a behaviour change, not a prose fix.
+
+## cfq: why every reference file is linked from an entry point
+
+A reference file that only another reference file names risks a partial read: the session loads
+the first file, sees a pointer, and may skip it. `check_references_linked_from_entrypoint` requires
+at least one direct pointer from a `SKILL.md` or agent definition, with the condition for reading
+the file. The pointers inside reference files stay; the rule adds a direct one and removes none.

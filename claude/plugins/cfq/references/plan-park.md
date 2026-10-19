@@ -50,7 +50,7 @@ Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
 implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
-`Inbox` line, not a second `RESULT` block. Phase file structure is unchanged from the template —
+`Inbox` line, not a second `RESULT` block. Phase file structure follows the template —
 see `<plugin-root>/references/phase-quality.md`'s closing section.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`

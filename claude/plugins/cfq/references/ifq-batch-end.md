@@ -56,14 +56,14 @@ instead, with no `file://` line in **Closing Reports**.
   worker_explore_turns` always equals the total (fields 9, and the same for output against field
   7) — orchestrator·explorer·worker·worker-explorer is the full compact clause worth naming
   together when summarizing this line. A row without fields 12-15 (classic mode, or an older
-  report) renders exactly as before, no worker line — there, `orchestrator_turns + explore_turns`
+  report) renders without a worker line — there, `orchestrator_turns + explore_turns`
   equals the total, since worker and worker explorer are both zero.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
-  `   └ ` line, printed not run; also a `todo/` card, written without asking by
+  `   └ ` line, printed not run; also a `todo/` entry, written without asking by
   `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
-  `queue-entries.md`), so a forgotten merge is never lost and the card's `check:` line lets `/cfq`
+  `queue-entries.md`), so a forgotten merge is never lost and the entry's `check:` line lets `/cfq`
   close it on its own once the merge lands.
 - `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
   this batch, or omitted when `htmlReport` turned the sync off.

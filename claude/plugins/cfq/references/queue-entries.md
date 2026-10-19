@@ -1,5 +1,13 @@
 # Queue Entry Formats
 
+## Contents
+
+- Batch Allocation Errors (`cfq batch allocate`)
+- Plan Entry (`plan/<YYYY-MM-DD>-<slug>.md`)
+- Closing a Plan Entry (`note close`)
+- Parking Out-of-Scope Work
+- Follow-Up (`todo/<YYYY-MM-DD>-<slug>.md`)
+
 ## Batch Allocation Errors (`cfq batch allocate`)
 
 `BATCH_LEDGER_MISMATCH` means a numbered queue directory exists with no matching ledger entry.
@@ -86,20 +94,20 @@ own; pass `--batch <batch-name>` only once the lock is released.
 
 Same call, `note todo`: H1 title, one or two sentences describing what to do, optionally a `check:
 <shell-command>` line (exit `0` means done). `note todo` prints a non-fatal stderr warning when the
-body carries no `check:` line — the card is still written, the warning only names that `note sweep`
+body carries no `check:` line — the entry is still written, the warning only names that `note sweep`
 can never close it. Plus `## Origin`, same as above. `bin/cfq note sweep`
-is what executes those `check:` lines and closes the green cards — never a hand-run shell command.
+is what executes those `check:` lines and closes the green entries — never a hand-run shell command.
 Write a `check:` that asserts the *outcome*, not a count of files that happen to hold it today: the
-card asserting that four `SKILL.md` files contain a clause has been unfalsifiably red since that
+entry asserting that four `SKILL.md` files contain a clause has been unfalsifiably red since that
 clause moved into `<plugin-root>/references/output-format.md`, even though the work is long done.
 
-For the merge case, don't hand-compose the card: `"<plugin-root>/bin/cfq" note merge-todo
+For the merge case, don't hand-compose the entry: `"<plugin-root>/bin/cfq" note merge-todo
 "<repo-root>" "<branch>"` writes it, title, ready-to-run merge command and `check:` line together,
 so the line can never be left out. Its check resolves `origin/main` first and falls back to local
 `main` (`git merge-base --is-ancestor <branch> origin/main 2>/dev/null || git merge-base
 --is-ancestor <branch> main`) rather than `git branch --merged main | grep -q <branch>`, which
 tests only the local `main` ref and can report a branch as unmerged when the local clone is simply
-behind `origin/main`. A hand-written `todo/` card for anything else may still carry its own
+behind `origin/main`. A hand-written `todo/` entry for anything else may still carry its own
 `check:` line.
 
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`, `<slug>` normalised by `note` itself. The headings

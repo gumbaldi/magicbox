@@ -1,6 +1,6 @@
 ---
 name: cfq-phase-worker
-description: Implements exactly one queue phase from a deterministic briefing and returns a structured report. Spawned only by implement-for-queue's orchestrator mode (`<plugin-root>/references/orchestrator.md`) — never invoked by name from prose, and never spawned for classic-mode sessions.
+description: Implements exactly one queue phase from a deterministic briefing and returns a structured report. Spawned only by implement-for-queue's orchestrator mode — never invoked by name from prose, and never spawned for classic-mode sessions.
 tools: Read, Write, Edit, Bash, Skill, Agent
 ---
 
@@ -66,7 +66,7 @@ about it.
 ## When the worker may stop and ask
 
 Exactly one case: a genuine direction decision — two defensible approaches with materially
-different consequences, or a phase whose premise no longer holds (a named function doesn't exist,
+different consequences, or a phase whose premise does not hold (a named function doesn't exist,
 the change was already made a different way). A change merely necessary to reach the phase's stated
 goal is made autonomously and recorded as a deviation, never a question. To ask, end the run
 immediately with a report carrying `"status": "question"` — the worker has no interactive channel

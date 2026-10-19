@@ -22,6 +22,14 @@ TOKEN_RE = re.compile(r"CLAUDE_PLUGIN_ROOT")
 SCRIPT_NAME_RE = re.compile(r"cfq-[a-z-]+\.sh")
 SHELL_MUTATION_RE = re.compile(r"\b(rm|mv|mkdir|rmdir|jq)\s")
 SKILL_LINE_BUDGET = 200
+CONTENTS_THRESHOLD = 100
+CONTENTS_WINDOW = 30
+HISTORY_RE = re.compile(
+    r"\b(no longer|used to|as today|as before|now returning|now also|since v\d|is unchanged"
+    r"|still unchanged|unchanged from)",
+    re.IGNORECASE,
+)
+QUEUE_ITEM_TERM_RE = re.compile(r"\b(cards?|queue notes?)\b", re.IGNORECASE)
 
 
 def _md_files(root):
@@ -199,6 +207,128 @@ def check_start_gate_and_overview_mentioned(root):
     return fails
 
 
+# 10. Added by Phase 03 (batch 053): every references/*.md is named, with its full
+#     ${CLAUDE_PLUGIN_ROOT}/ or <plugin-root>/ path, in at least one skills/*/SKILL.md or
+#     agents/*.md. A file reachable only through another reference file risks a partial read.
+def check_references_linked_from_entrypoint(root):
+    fails = []
+    refs_dir = root / "references"
+    if not refs_dir.is_dir():
+        return fails
+    entrypoints = sorted(root.glob("skills/*/SKILL.md")) + sorted(root.glob("agents/*.md"))
+    named = set()
+    for f in entrypoints:
+        for m in LINK_RE.finditer(f.read_text()):
+            named.add(m.group(2))
+    for f in sorted(refs_dir.glob("*.md")):
+        if f.name not in named:
+            fails.append(
+                f"FAIL: {f} is named by no skills/*/SKILL.md or agents/*.md, link it directly"
+            )
+    return fails
+
+
+# 11. Added by Phase 03: a reference file longer than CONTENTS_THRESHOLD lines has a `## Contents`
+#     heading within its first CONTENTS_WINDOW lines, and every other `## ` heading of the file
+#     (outside code fences) appears text-identical as a `- ` bullet in that section.
+def _h2_headings(lines):
+    """Yield (index, heading text) for each `## ` heading outside a fenced code block."""
+    in_fence = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and line.startswith("## "):
+            yield i, line[3:].strip()
+
+
+def check_long_references_have_contents(root):
+    fails = []
+    for f in sorted(root.glob("references/*.md")):
+        lines = f.read_text().splitlines()
+        if len(lines) <= CONTENTS_THRESHOLD:
+            continue
+        headings = list(_h2_headings(lines))
+        contents_at = next(
+            (i for i, text in headings if text == "Contents" and i < CONTENTS_WINDOW), None
+        )
+        if contents_at is None:
+            fails.append(
+                f"FAIL: {f} has {len(lines)} lines but no `## Contents` heading within its "
+                f"first {CONTENTS_WINDOW} lines"
+            )
+            continue
+        end = next((i for i, _ in headings if i > contents_at), len(lines))
+        bullets = {l[2:].strip() for l in lines[contents_at + 1 : end] if l.startswith("- ")}
+        for i, text in headings:
+            if i != contents_at and text not in bullets:
+                fails.append(f"FAIL: {f}: `## {text}` is missing from the `## Contents` bullets")
+    return fails
+
+
+# 12. Added by Phase 03: skill, reference and agent text states what applies, not how it used to
+#     be -- history goes to docs/design-notes.md.
+def _prose_files(root):
+    return (
+        sorted(root.glob("skills/*/SKILL.md"))
+        + sorted(root.glob("references/*.md"))
+        + sorted(root.glob("agents/*.md"))
+    )
+
+
+def check_no_history_wording(root):
+    fails = []
+    for f in _prose_files(root):
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            for m in HISTORY_RE.finditer(line):
+                fails.append(f"FAIL: {f}:{lineno} history wording: {m.group(0)!r}")
+    return fails
+
+
+# 13. Added by Phase 03: one word, "entry", for an item in plan/ or todo/.
+def check_single_term_for_queue_items(root):
+    fails = []
+    for f in _prose_files(root):
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            for m in QUEUE_ITEM_TERM_RE.finditer(line):
+                fails.append(f"FAIL: {f}:{lineno} use the term 'entry', not {m.group(0)!r}")
+    return fails
+
+
+# 14. Added by Phase 03: the frontmatter `description` of a skill or agent holds neither `<` nor
+#     `>` in its text (the `>` opening a folded block is not part of the text).
+def _frontmatter_description(text):
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return None
+    front = lines[1:end]
+    for i, line in enumerate(front):
+        if not line.startswith("description:"):
+            continue
+        parts = [line[len("description:") :].strip()]
+        for nxt in front[i + 1 :]:
+            if nxt and not nxt[0].isspace():
+                break
+            parts.append(nxt.strip())
+        if parts[0] in (">", ">-", ">+", "|", "|-", "|+"):
+            parts = parts[1:]
+        return " ".join(parts)
+    return None
+
+
+def check_descriptions_have_no_angle_brackets(root):
+    fails = []
+    for f in sorted(root.glob("skills/*/SKILL.md")) + sorted(root.glob("agents/*.md")):
+        desc = _frontmatter_description(f.read_text())
+        if desc and ("<" in desc or ">" in desc):
+            fails.append(f"FAIL: {f} description contains '<' or '>'")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -210,6 +340,11 @@ def run_all(root):
     fails += check_skill_line_budget(root)
     fails += check_dashboard_todo_delegates(root)
     fails += check_start_gate_and_overview_mentioned(root)
+    fails += check_references_linked_from_entrypoint(root)
+    fails += check_long_references_have_contents(root)
+    fails += check_no_history_wording(root)
+    fails += check_single_term_for_queue_items(root)
+    fails += check_descriptions_have_no_angle_brackets(root)
     return fails
 
 
@@ -444,6 +579,100 @@ class ReferencePathsTest(CfqTestCase):
             [],
             msg=f"check 9 self-test false-flagged SKILL.md files that mention both: {out}",
         )
+
+    def test_references_linked_from_entrypoint(self):
+        tmp = self._repos_dir / "f10"
+        (tmp / "skills" / "s").mkdir(parents=True)
+        (tmp / "agents").mkdir(parents=True)
+        (tmp / "references").mkdir(parents=True)
+        for name in ("direct", "viaagent", "indirect"):
+            (tmp / "references" / f"{name}.md").write_text("x\n")
+        (tmp / "skills" / "s" / "SKILL.md").write_text("read `${CLAUDE_PLUGIN_ROOT}/references/direct.md`\n")
+        (tmp / "agents" / "a.md").write_text("read `<plugin-root>/references/viaagent.md`\n")
+        # edge case: named only by another reference file
+        (tmp / "references" / "direct.md").write_text("see `<plugin-root>/references/indirect.md`\n")
+
+        out = check_references_linked_from_entrypoint(tmp)
+        joined = "\n".join(out)
+        self.assertIn("indirect.md", joined, msg="check 10 self-test did not catch a reference named only by another reference")
+        self.assertNotIn("direct.md is", joined.replace("indirect.md is", ""), msg="check 10 self-test false-flagged a directly linked reference")
+        self.assertNotIn("viaagent", joined, msg="check 10 self-test false-flagged a reference named by an agent")
+        self.assertEqual(1, len(out), msg=f"check 10 self-test should flag only the indirect file: {out}")
+
+    def test_long_references_have_contents(self):
+        tmp = self._repos_dir / "f11"
+        (tmp / "references").mkdir(parents=True)
+
+        def body(headings, total, contents=None):
+            lines = ["# T", "", "Opening paragraph.", ""]
+            if contents is not None:
+                lines += ["## Contents"] + [f"- {h}" for h in contents] + [""]
+            for h in headings:
+                lines += [f"## {h}", "text"]
+            lines += ["```", "## Not a heading", "```"]
+            lines += ["filler"] * (total - len(lines))
+            return "\n".join(lines) + "\n"
+
+        (tmp / "references" / "good.md").write_text(body(["A", "B"], 101, ["A", "B"]))
+        (tmp / "references" / "missing-bullet.md").write_text(body(["A", "B"], 101, ["A"]))
+        (tmp / "references" / "no-contents.md").write_text(body(["A", "B"], 101))
+        # edge case: 100 lines, no Contents
+        (tmp / "references" / "short.md").write_text(body(["A", "B"], 100))
+
+        out = check_long_references_have_contents(tmp)
+        joined = "\n".join(out)
+        self.assertIn("missing-bullet.md", joined, msg="check 11 self-test did not catch a heading missing from Contents")
+        self.assertIn("no-contents.md", joined, msg="check 11 self-test did not catch a long file without Contents")
+        self.assertNotIn("good.md", joined, msg="check 11 self-test false-flagged a complete Contents")
+        self.assertNotIn("short.md", joined, msg="check 11 self-test false-flagged a 100-line file")
+        self.assertNotIn("Not a heading", joined, msg="check 11 self-test counted a fenced heading")
+        self.assertEqual(2, len(out), msg=f"check 11 self-test flagged the wrong set: {out}")
+
+    def test_no_history_wording(self):
+        tmp = self._repos_dir / "f12"
+        (tmp / "references").mkdir(parents=True)
+        (tmp / "references" / "bad.md").write_text(
+            "The overlap prompt no longer asks.\nThat part is unchanged.\nSince v0.2 it works.\n"
+        )
+        (tmp / "references" / "good.md").write_text(
+            "The interview runs unchanged.\nOverlap sets the field automatically.\n"
+        )
+        out = check_no_history_wording(tmp)
+        joined = "\n".join(out)
+        self.assertIn("no longer", joined, msg="check 12 self-test did not catch 'no longer'")
+        self.assertIn("is unchanged", joined, msg="check 12 self-test did not catch 'is unchanged'")
+        self.assertIn("Since v0", joined, msg="check 12 self-test did not catch 'since v<digit>'")
+        self.assertNotIn("good.md", joined, msg="check 12 self-test false-flagged plain 'unchanged'")
+
+    def test_single_term_for_queue_items(self):
+        tmp = self._repos_dir / "f13"
+        (tmp / "references").mkdir(parents=True)
+        (tmp / "references" / "bad.md").write_text("Park a Card.\nWrite a queue note.\n")
+        (tmp / "references" / "good.md").write_text("Park an entry. Discard the draft.\n")
+        out = check_single_term_for_queue_items(tmp)
+        joined = "\n".join(out)
+        self.assertEqual(2, len(out), msg=f"check 13 self-test flagged the wrong set: {out}")
+        self.assertNotIn("good.md", joined, msg="check 13 self-test false-flagged 'discard'")
+
+    def test_descriptions_have_no_angle_brackets(self):
+        tmp = self._repos_dir / "f14"
+        (tmp / "skills" / "bad").mkdir(parents=True)
+        (tmp / "skills" / "good").mkdir(parents=True)
+        (tmp / "agents").mkdir(parents=True)
+        (tmp / "skills" / "bad" / "SKILL.md").write_text(
+            "---\nname: bad\ndescription: >\n  Work off <repo>/.claude/cfq/ plans.\nargument-hint: x\n---\nbody\n"
+        )
+        (tmp / "skills" / "good" / "SKILL.md").write_text(
+            "---\nname: good\ndescription: >\n  Plain text only.\nargument-hint: <briefing>\n---\nbody > <\n"
+        )
+        (tmp / "agents" / "a.md").write_text(
+            "---\nname: a\ndescription: Spawned by x <plugin-root>/y.\ntools: Read\n---\n"
+        )
+        out = check_descriptions_have_no_angle_brackets(tmp)
+        joined = "\n".join(out)
+        self.assertIn("bad/SKILL.md", joined, msg="check 14 self-test did not catch '<' in a folded description")
+        self.assertIn("a.md", joined, msg="check 14 self-test did not catch '<' in a single-line description")
+        self.assertNotIn("good/SKILL.md", joined, msg="check 14 self-test false-flagged argument-hint or the fold marker")
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

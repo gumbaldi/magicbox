@@ -5,6 +5,16 @@ text — this is the picker version, entered when the skill's argument is `setti
 change request ("set stopUsed to 100000") keeps going straight to Step D, unchanged; nothing below
 replaces it.
 
+## Contents
+
+- Data
+- Scope
+- Group
+- Setting
+- Value
+- Apply
+- Loop
+
 ## Data
 
 One call, read once per scope choice, never re-run per navigation step:

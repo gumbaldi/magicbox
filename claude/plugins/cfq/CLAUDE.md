@@ -402,7 +402,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   `description`/`prompt`. Change one, change both.
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
   interview is the only part that runs in the user's language. Everything written into a repo (plan
-  files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
+  files, queue entries, batch directory names, commit messages, the changelog) follows `codeLanguage`,
   documentation additionally `docLanguages` — except structural markers, which are always English
   regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
   `(new)` marker, `.priority` values. Only the prose content inside those files follows
@@ -431,6 +431,13 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   `park --from-plan`, `batch ready`, …) is a `bin/cfq` subcommand, never a
   raw `rm`/`mv`/`mkdir`/`jq` written into the text. `tests/test_reference_paths.py` greps for this
   structurally.
+- **Four prose rules for skill, reference and agent text.** (1) Every `references/*.md` is named
+  directly, with its `${CLAUDE_PLUGIN_ROOT}/` or `<plugin-root>/` path, in at least one `SKILL.md`
+  or agent definition. (2) A reference file over 100 lines opens with a `## Contents` section
+  listing its other `## ` headings as bullets. (3) Text states what applies now, in the present
+  tense — no "no longer", "as before", "since v0.2" and the like; history goes to `docs/design-notes.md`.
+  (4) An item in `plan/` or `todo/` is an "entry", never a "card" or "queue note". A `description`
+  in frontmatter holds neither `<` nor `>`. `tests/test_reference_paths.py` enforces all of them.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Python scripts are stdlib only; JSON is written via `cfq_lib.render.write_json` (tmp file +

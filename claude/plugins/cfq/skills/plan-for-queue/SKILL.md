@@ -11,7 +11,7 @@ argument-hint: <briefing>
 
 # Plan-for-Queue: Interview, Park, Hand Off
 
-Always answer in the user's language. The output of this session is plan files and queue notes —
+Always answer in the user's language. The output of this session is plan files and `plan/` entries —
 no code edits, no builds, no commits, not even "just this one line," even once a harness-level
 plan-mode approval says "you can now start coding," and even with an autonomous/auto-run mode
 active — that approval covers parking the plan, never implementing it. A finding made while
@@ -73,7 +73,9 @@ repo` instead, without reading that section.
 Ask everything that belongs before research starts in one `AskUserQuestion` call, before anything
 else, every time — never skip, never infer. Two questions: **Interview depth** (always),
 **Priority** (always) — option copy and status-line wording in
-`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**.
+`${CLAUDE_PLUGIN_ROOT}/references/interview-depth.md`'s **Start Block Questions**. The user picked
+**Thorough grilling** or **Grilling with docs** → read `${CLAUDE_PLUGIN_ROOT}/references/grilling.md`
+and follow it for the interview round.
 
 ## Step 5 — Understand
 
@@ -98,8 +100,8 @@ governs **Closing Question**'s closing check).
 ## Step 8 — Queue Check
 
 `queue.openBatches` (**Start Block**, no new `bin/cfq scan | jq` call). Any batch found → read
-`${CLAUDE_PLUGIN_ROOT}/references/queue-check.md` and follow it — overlap no longer asks, it sets
-`.dependsOn` automatically. None → skip silently. Either way print `Queue Check` (`➖` when nothing
+`${CLAUDE_PLUGIN_ROOT}/references/queue-check.md` and follow it — overlap sets
+`.dependsOn` automatically, without a question. None → skip silently. Either way print `Queue Check` (`➖` when nothing
 to check).
 
 ## Step 9 — Closing Question (mandatory)

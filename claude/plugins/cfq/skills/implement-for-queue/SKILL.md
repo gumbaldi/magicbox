@@ -1,7 +1,7 @@
 ---
 name: implement-for-queue
 description: >
-  Work off parked phase plans from the repo-local queue (<repo>/.claude/cfq/) one
+  Work off parked phase plans from the repo-local queue (`.claude/cfq/` in the repository) one
   batch per session, phase by phase, stopping when the context window gets too full. Use for
   "/ifq", "/implement-for-queue", "implement the queue", "work off the plans", "continue with
   the plans", "next phase".
@@ -152,7 +152,7 @@ move on.
 **Stop rule**, before the next phase in the same session: (a) verification red or skipped, (b) a
 planned change omitted, (c) an unnamed new dependency/script — mechanics in
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-phase.md`'s **Stop Rule**. Any firing → ask once before
-continuing; none → continue as today, no question.
+continuing; none → continue, no question.
 
 ## Step 9 — Commit & Push (on green, every phase)
 
@@ -164,13 +164,13 @@ or checked an existing one out) — one call: `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" p
 
 ## Step 10 — Context Check After Every Phase
 
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, now returning `OK` / `WARN` / `STOP`.
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" ctx`, which returns `OK` / `WARN` / `STOP`.
 `policy.onePhasePerSession` (**Batch Selection**'s preflight, no new call) `true` → treat exactly
 like `STOP` below, regardless of the context gate's own verdict; `false` → the context gate alone
 decides. In orchestrator mode this step's own in-session check never runs — the orchestrator's
 equivalent capacity check lives in `${CLAUDE_PLUGIN_ROOT}/references/orchestrator.md` step 1
-instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` still has no effect on the
-orchestrator loop; that part is unchanged.
+instead, acting on `STOP` as well as `WARN` there. `onePhasePerSession` has no effect on the
+orchestrator loop.
 
 - `STOP` → print `POSTCHECKS` (this closes `IMPLEMENTATION`), sync telemetry and release the lock
   (`bin/cfq telemetry sync "<repo-root>"`, `bin/cfq lock release "<repo-root>" --batch "<batch>"`),

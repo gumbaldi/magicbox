@@ -97,13 +97,13 @@ skill gets invoked — natural language, or as part of Step A's flow.)
 reading what a finished batch produced — the dashboard itself never renders a report.
 
 The dashboard never executes `todo/` `check:` commands — that stays Step C's job, on request, in
-one `bin/cfq note sweep` call rather than per card.
+one `bin/cfq note sweep` call rather than per entry.
 
 ## Step C — Management (on request, always confirm before writing)
 
 Six actions, exclusively in the current repository: flag/unflag priority, delete a batch, archive
 a batch, clean the registry, set/remove a dependency, work off `todo/` entries in one
-`bin/cfq note sweep` call rather than per card. Each follows the
+`bin/cfq note sweep` call rather than per entry. Each follows the
 same shared flow — a deterministic check (already available from `.repos`/`.thisRepo`) → present →
 confirm → mutate → report under an `ACTION` header. Full per-action detail in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`.
@@ -114,6 +114,10 @@ Argument `settings` (or a request for "the settings menu") → read
 `${CLAUDE_PLUGIN_ROOT}/references/settings-menu.md` and follow it: a guided scope → group → key →
 value picker, global or per repo. A free-text change request ("set stopUsed to 100000") skips the
 picker and goes straight through the rest of this step, unchanged.
+
+Explaining a setting pairs its `bin/cfq settings describe [<key>]` text with
+`${CLAUDE_PLUGIN_ROOT}/references/settings-explain.md`, which adds only the nuance that doesn't
+reduce to schema data.
 
 Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
 each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference,

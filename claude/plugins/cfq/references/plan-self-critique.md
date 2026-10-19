@@ -13,6 +13,17 @@ autonomously; this file covers decisions the *user* made from the planner's own 
 This file governs whether a phase should **exist**. `phase-quality.md` governs what a phase's
 **text** must contain once it does. Keep the two separate.
 
+## Contents
+
+- Scope
+- The Three Categories
+- The Citation Requirement
+- The Batch Line
+- On a Fail
+- Recording
+- Rendered Example
+- The Post-Write Audit
+
 ## Scope
 
 Read unconditionally at **Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A

@@ -12,6 +12,17 @@ governs whether the phase should exist at all — keep the two separate.
 The seven rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
+## Contents
+
+- 1. Test-first, not shell exploration
+- 2. Verbatim reuse is not automatically correct
+- 3. Debugging stays out of the main context
+- 4. Smoke tests are bundled, not serialized
+- 5. Size reflects verify-the-reuse work, not just new lines
+- 6. `## Affected Files` is the complete list
+- 7. `## Changes` is a numbered step list
+- Phase File Structure
+
 ## 1. Test-first, not shell exploration
 
 A phase whose Changes move, extract, or otherwise touch non-trivial logic writes the test file
@@ -24,7 +35,7 @@ it must do.
 
 ## 2. Verbatim reuse is not automatically correct
 
-Code a phase carries over unchanged from an existing file — "reuse as-is", "move as-is", "lift
+Code a phase copies without modification from an existing file — "reuse as-is", "move as-is", "lift
 verbatim" — gets flagged, not waved through. In that phase's `Affected Files` or `Reuse` entry,
 mark the carried-over block with a trailing `(verbatim)` marker — the same structural,
 English-regardless-of-`codeLanguage` convention as the existing `(new)` marker. The phase's
@@ -115,7 +126,7 @@ None of this adds a new required heading. All seven rules live inside a phase's 
 
 ## Phase File Structure
 
-Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
+Template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
 absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
 filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.

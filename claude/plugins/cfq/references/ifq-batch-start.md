@@ -1,5 +1,18 @@
 # ifq: Batch Selection, Briefing, Branch and Resume
 
+## Contents
+
+- Arguments
+- Model Gate Stop
+- Batch Selection Rules
+- Batch Briefing
+- Briefing Warnings
+- Lint Gate
+- Start Gate
+- Lock Acquisition
+- Branch and Changelog on Go-Ahead
+- Resume Snapshot
+
 ## Arguments
 
 `$ARGUMENTS`, trimmed of surrounding whitespace and compared case-insensitively, maps onto flags
@@ -113,7 +126,7 @@ present, then one line per phase (number and title, size in brackets, context ex
 as-is, compactly: no prose around it, no repetition of the plan, no commentary on the phases. A
 phase file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
 incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
-shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
+shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders
 with no `goal:` line.
 
 `bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders — the
@@ -193,7 +206,7 @@ may hold more than two other open batches — but only when another batch is act
 
 **When it fires**: `startGate.fire` is `true` — already resolved by the preflight from `--intent`
 and whether a batch is in progress (**Arguments** above). Without either keyword this is always
-`true`, the same "no exception" behaviour as before — a resumed in-progress batch, a batch named
+`true`, with no exception — a resumed in-progress batch, a batch named
 explicitly as an argument, and orchestrator mode are all still included. `--intent resume` also
 comes back `true` (reason `resume-nothing-in-progress`) when nothing is in progress — `resume`
 never starts something new silently, it falls back to the normal gate instead.
@@ -273,7 +286,7 @@ on `mode` to read any of the three.
   commit "<repo-root>" "Record parked batch reservations in the changelog"`. On **Cancel** below
   (the `ahead`/`diverged` question), pop the stash back before ending so nothing is left changed.
   Neither flag set → resolve `remoteState` and checkout directly, no stash, no commit call.
-  **`behind`**: not checked out → `update-ref` fast-forwards the local ref as before, then `git
+  **`behind`**: not checked out → `update-ref` fast-forwards the local ref, then `git
   checkout "<branch>"`. Checked out with a clean tree → `git merge --ff-only
   "refs/remotes/origin/<branch>"` instead (the ref of the currently-checked-out branch can't move
   under `update-ref`). Checked out and dirty → nothing moves; `remoteWarning` names the dirty tree,
@@ -360,7 +373,7 @@ itself — the first `cfq phase commit` on this batch is what sets the upstream 
 `origin/<branch>`, via its own `push -u` fallback.
 
 `changelog init` keeps receiving `<base>` (the plain branch name), not `<baseRef>` — the changelog
-records which branch the work builds on, not which ref was used to cut it. `changelog commit` is a
+records which branch the work builds on, not the ref it was cut from. `changelog commit` is a
 script verb, never model discretion — it stages and commits only the changelog file (never a bare
 `git commit`), so a pfq reservation left dirty on the base branch rides along with the `checkout -b`
 and lands in this one immediate commit together with the `init` block; no push here, the first
@@ -384,5 +397,4 @@ resolved batch, minus its own `branch` sub-object (redundant with the preflight'
 `branch`, computed by that same underlying call — see the `resume` noun's own script header
 comment for the full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
 `lastCommitSource`, `deviations`, `redPhases`, `batchContext.exists`/`.path`). One JSON object,
-deterministic — no summarization, only facts read from disk, `report.json`, and git. The script
-itself is unchanged; only who calls it and what's kept from its output moved.
+deterministic — no summarization, only facts read from disk, `report.json`, and git.

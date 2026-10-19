@@ -1,5 +1,19 @@
 # ifq: Per-Phase Mechanics
 
+## Contents
+
+- Phase Announcement
+- Context Gate Reason Semantics
+- Phase Summary
+- Phase Object Fields
+- File-Scope Deviation
+- Stop Rule
+- Skipping a Phase
+- Commit Result Rendering
+- Phase Commit Trailers
+- Research and Verification Delegation
+- Reusing a Warm Explore Agent
+
 ## Phase Announcement
 
 Runs after the Size Gate, before any code is written, every phase. The announcement is
@@ -172,7 +186,7 @@ open phase in the same session. Exactly three triggers, nothing else:
 - (c) a new dependency or a new script was introduced that the plan does not name
 
 Any of the three firing → do not auto-advance; state which trigger fired and ask once
-(`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
+(`AskUserQuestion`) whether to continue anyway. None firing → continue, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
 
@@ -193,8 +207,8 @@ inbox entry per skipped phase at batch end.
 
 ## Commit Result Rendering
 
-`bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the same way
-`changelog commit-message` used to — Claude never hand-writes or hand-formats one), commits, moves
+`bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the way
+`changelog commit-message` composes them — Claude never hand-writes or hand-formats one), commits, moves
 the plan file into `done/` and appends the ledger entry in one transaction, backfills the commit
 SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git push` after), and
 registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq resume`'s
@@ -215,7 +229,7 @@ treat as a red phase, don't move on — a `RECORD_FAILED` result still carries t
 
 ## Phase Commit Trailers
 
-Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file and
+Write the human-written subject/body (plus `Co-Authored-By`) to a temp message file and
 hand it, unmodified, to `bin/cfq phase commit "<batch-dir>" "<phase-json-file>" "<message-file>"` —
 the trailers are added internally, the model never calls `changelog commit-message` itself and
 never hand-writes or hand-formats a `CFQ-*` trailer. For a numbered batch (`batchNumber` from the

@@ -1,5 +1,13 @@
 # Dashboard Detail: Plugin Offer, Management Actions, Settings
 
+## Contents
+
+- QUEUES Table and Reports (Step B)
+- Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
+- CONFIG Block: Full List and Global View (Step B)
+- Step C — Management, Six Actions (current repo only, always confirm before writing)
+- Step D — Settings, Full Detail
+
 ## QUEUES Table and Reports (Step B)
 
 The `QUEUES` table's columns are `Repo | Plan | Todo | Batches | Reports | Status`. `Reports`
@@ -46,15 +54,15 @@ mutation script executes → the structured result is shown. No new script per a
    request — the edge is fail-soft by design.
 6. **Work off todos**:
    1. Run `"<plugin-root>/bin/cfq" note sweep "<repo-root>" --text` and show its output — one line
-      per card, green first, then unresolvable, then red oldest-first, then the ones with no
+      per entry, green first, then unresolvable, then red oldest-first, then the ones with no
       `check:` line.
    2. On confirmation, run the same call with `--apply` and print one summary line under the
       `ACTION` header, e.g. `✅ Todos          3 checks green · moved to done · 44 still open`, not
-      one line per card.
-   3. A card without a `check:` line is never closed by `--apply`; closing one is an explicit act
-      and goes through `note sweep "<repo-root>" --close <filename>`, one `--close` per card, after
+      one line per entry.
+   3. An entry without a `check:` line is never closed by `--apply`; closing one is an explicit act
+      and goes through `note sweep "<repo-root>" --close <filename>`, one `--close` per entry, after
       the user names it.
-   4. Never create or edit an entry here — those are written by `ifq` at batch end. A red card
+   4. Never create or edit an entry here — those are written by `ifq` at batch end. A red entry
       simply stays open.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.

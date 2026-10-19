@@ -51,7 +51,7 @@ Rules:
 
 | Section | Step | Label | Example detail |
 |---|---|---|---|
-| PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report (only exists since v0.2)` |
+| PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report` |
 | PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: magicbox → detail view` / `2 repos, --limit 20` |
 | PRECHECKS | 2 | `Listing` | `2 repos · 20 of 80 rows` |
 | POSTCHECKS | 3 | `HTML` | `rendered · file:///…` |
@@ -69,8 +69,8 @@ no separate scan, no per-batch `summary` loop, no filtering after the fact. Prin
 line. `--any` is for a single argument that could name either a repo or a batch — see `## Arguments`
 below.
 
-No batch has a report (`index` returns `[]`) → say so plainly, and mention that reports have
-existed only since v0.2, so older batches never got one. Exactly one match → skip **Terminal Table** entirely
+No batch has a report (`index` returns `[]`) → say so plainly, and mention that batches finished before
+reports existed never got one. Exactly one match → skip **Terminal Table** entirely
 and go straight to **Detail**'s detail view.
 
 ## 2. Terminal Table

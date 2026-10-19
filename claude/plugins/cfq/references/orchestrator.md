@@ -58,7 +58,7 @@ closing call wrote, empty for a `question` report.
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
 - `STOP` → the batch ends. `errors` prints unmodified, exactly as classic mode's red case does, and those `statusLines`
-  are printed right after `errors`; run `POSTCHECKS` as today.
+  are printed right after `errors`; run `POSTCHECKS`.
 
 ## 4. Resuming after an answer
 
