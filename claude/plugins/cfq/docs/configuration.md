@@ -120,6 +120,8 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
+| `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
 
 ### Limits & handoff
@@ -228,7 +230,8 @@ restate a field list inline — read the field here, then read it back from the 
   `repo.root`/`.known` set then).
 - **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
-  implExploreModelComplex}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
+  implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
+  batchReviewFindings}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
   inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}

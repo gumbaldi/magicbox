@@ -262,6 +262,43 @@ class SettingsTest(CfqTestCase):
         proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
 
+    # 5i. batchReview / batchReviewFindings: default, every allowed value (global and repo),
+    # rejection outside the enum, env override
+    def test_05i_batch_review_settings(self):
+        cases = {
+            "batchReview": ("off", ["off", "low", "medium", "high"], "CFQ_BATCH_REVIEW"),
+            "batchReviewFindings": ("auto", ["park", "fix", "auto"], "CFQ_BATCH_REVIEW_FINDINGS"),
+        }
+        for key, (default, values, env_name) in cases.items():
+            with self.subTest(key=key):
+                got = self.run_clean(str(CFQ_BIN), "settings", "get", key).stdout.strip()
+                self.assertEqual(got, default, msg=f"default {key} = '{got}', want {default}")
+
+                for value in values:
+                    self.run_cfq("settings", "set", key, value, home=self.home, check=True)
+                    got = self.run_cfq("settings", "get", key, home=self.home).stdout.strip()
+                    self.assertEqual(got, value, msg=f"global set {key} {value} -> got '{got}'")
+                    with tempfile.TemporaryDirectory() as fixture:
+                        self.run_cfq(
+                            "settings", "set", "--repo", fixture, key, value,
+                            home=self.home, check=True,
+                        )
+                        got = self.run_cfq(
+                            "settings", "get", "--repo", fixture, key, home=self.home
+                        ).stdout.strip()
+                        self.assertEqual(
+                            got, value, msg=f"repo set {key} {value} -> got '{got}'"
+                        )
+
+                proc = self.run_cfq("settings", "set", key, "bogus", home=self.home)
+                self.assertNotEqual(proc.returncode, 0, msg=f"set {key} bogus should fail")
+
+                self.run_cfq("settings", "set", key, values[0], home=self.home, check=True)
+                got = self.run_cfq(
+                    "settings", "get", key, home=self.home, env={env_name: values[-1]}
+                ).stdout.strip()
+                self.assertEqual(got, values[-1], msg=f"env override {key} -> got '{got}'")
+
     # 5h. orchestratorModels: default, round-trip, env comma split, repo overrides global
     def test_05h_orchestrator_models(self):
         got = self.run_clean(
@@ -972,6 +1009,7 @@ class SettingsTest(CfqTestCase):
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
                 "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
+                "batchReview", "batchReviewFindings",
             },
             "limits": {
                 "stopUsed", "stopFiveHourPct", "stopSevenDayPct", "ctxWindowLimits",

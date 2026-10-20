@@ -37,5 +37,5 @@ Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_pref
 Everything else still has no script behind it and stays composed by the model, following the
 prose rules above: `Failed Attempt`, `Escalation`, `Size Gate`, `Language` on the `pfq` side,
 `Phases`, `Self-Critique`, `Park`, `Phase Audit`, `Lint`, the Start Gate's own `Start Gate`
-line, and the review gate's own `Review` line (released / discarded) — the preflight's `Review`
-line is rendered, the gate's is composed by the model.
+line, the review gate's own `Review` line (released / discarded) — the preflight's `Review`
+line is rendered, the gate's is composed by the model — and the batch review's `Review` line.

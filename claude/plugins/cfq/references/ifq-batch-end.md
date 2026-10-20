@@ -60,11 +60,14 @@ instead, with no `file://` line in **Closing Reports**.
   equals the total, since worker and worker explorer are both zero.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
+- `Review` — the `Review` status line's detail, and the parked entry's path when there is one;
+  omitted when `batchReview` is `off`.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
   `   └ ` line, printed not run; also a `todo/` entry, written without asking by
   `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
   `queue-entries.md`), so a forgotten merge is never lost and the entry's `check:` line lets `/cfq`
-  close it on its own once the merge lands.
+  close it on its own once the merge lands. Parked review findings are named on a further `   └ `
+  sub-line, so the branch is not merged without seeing them.
 - `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
   this batch, or omitted when `htmlReport` turned the sync off.
 

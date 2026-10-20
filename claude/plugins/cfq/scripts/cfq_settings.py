@@ -46,6 +46,8 @@ GROUP_IDS = [g["id"] for g in GROUPS]
 # new key is one entry here, never a second hand-written case arm.
 SCHEMA = {
     "grillMode": {"type": "enum", "default": "stepwise", "values": ["stepwise", "classic"], "scope": ["global", "repo"], "env": "CFQ_GRILL_MODE", "group": "planning", "description": "Interview style for /pfq: stepwise (one question at a time) or classic."},
+    "batchReview": {"type": "enum", "default": "off", "values": ["off", "low", "medium", "high"], "scope": ["global", "repo"], "env": "CFQ_BATCH_REVIEW", "group": "implementation", "description": "Run /code-review over the whole batch when its last phase is green: off, or the review's effort level."},
+    "batchReviewFindings": {"type": "enum", "default": "auto", "values": ["park", "fix", "auto"], "scope": ["global", "repo"], "env": "CFQ_BATCH_REVIEW_FINDINGS", "group": "implementation", "description": "What the batch review does with findings: park all as a plan entry, fix all in the session, or auto (fix small ones, park the rest)."},
     "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "group": "models", "description": "Models /pfq is allowed to run under."},
     "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "group": "models", "description": "Models /ifq is allowed to run under."},
     "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "group": "implementation", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},

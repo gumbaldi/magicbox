@@ -201,7 +201,8 @@ opens only on a `STOP`, a red phase, or a finished batch.
 ## Step 6 — Batch Done
 
 The batch has no open phase left (`nextPhase: null`) → print the `POSTCHECKS` header (this closes
-`IMPLEMENTATION`), then run
+`IMPLEMENTATION`). `policy.batchReview` is `off` → print `➖ Review  off`; anything else → read
+`${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-review.md` and follow it. Then run
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" finish "<repo-root>" "<batch-dir>" "<branch>"` and read
 `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Batch-Done Report Fields**. Hand the batch to
 **Closing Reports** for the closing report.

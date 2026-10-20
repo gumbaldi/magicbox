@@ -148,6 +148,26 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "NO_BATCH", msg=f"empty repo status = {out}")
         self.assertNotIn("usePonytailAudit", out["policy"], msg=f"NO_BATCH policy: {out}")
 
+    def test_batch_review_policy_defaults_and_overrides(self):
+        repo = self._setup_repo("batch-review-policy")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["policy"]["batchReview"], "off", msg=f"policy = {out['policy']}")
+        self.assertEqual(
+            out["policy"]["batchReviewFindings"], "auto", msg=f"policy = {out['policy']}"
+        )
+
+        out = self.json_out(self._run_pf(
+            str(repo), env={"CFQ_BATCH_REVIEW": "medium", "CFQ_BATCH_REVIEW_FINDINGS": "park"},
+        ))
+        self.assertEqual(out["policy"]["batchReview"], "medium", msg=f"policy = {out['policy']}")
+        self.assertEqual(
+            out["policy"]["batchReviewFindings"], "park", msg=f"policy = {out['policy']}"
+        )
+
     def test_orchestrator_policy_present_and_true_by_default(self):
         repo = self._setup_repo("orch-default")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
