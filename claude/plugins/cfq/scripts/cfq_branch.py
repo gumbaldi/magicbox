@@ -50,7 +50,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, paths, queue, render, text  # noqa: E402
 from cfq_lib import proc  # noqa: E402
-from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import HEADS_PREFIX, ORIGIN_PREFIX, cfq_run, default_branch  # noqa: E402
 
 PROG = "cfq_branch.py"
 
@@ -178,8 +178,6 @@ def find_suffix_match(repo, slug):
 
 UNCONTAINED_CAP = 5
 REF_FORMAT = "%(refname) %(committerdate:unix) %(committerdate:iso-strict)"
-ORIGIN_PREFIX = "refs/remotes/origin/"
-HEADS_PREFIX = "refs/heads/"
 
 
 def is_ancestor(repo, ancestor_ref, descendant_ref):
@@ -194,28 +192,6 @@ def _is_batch(name):
 
 def _batch_number(name):
     return parse_batch_number(name[len("cfq/"):]) if name.startswith("cfq/") else None
-
-
-def default_branch(repo, rchecked):
-    """(name, ref) of the default branch: `origin/HEAD`, else `main`, else `master` -- looked up on
-    `origin` once remote-checked, then (and when offline) among the local branches, falling back to
-    `main`. `ref` is the `origin` ref when remote-checked and present, else the local ref."""
-    if rchecked:
-        proc = git(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False)
-        name = proc.stdout.strip() if proc.returncode == 0 else ""
-        if name.startswith("origin/"):
-            name = name[len("origin/"):]
-        if not name:
-            name = next(
-                (n for n in ("main", "master") if ref_exists(repo, ORIGIN_PREFIX + n)), ""
-            )
-        if name:
-            origin_ref = ORIGIN_PREFIX + name
-            return name, origin_ref if ref_exists(repo, origin_ref) else HEADS_PREFIX + name
-    for name in ("main", "master"):
-        if ref_exists(repo, HEADS_PREFIX + name):
-            return name, HEADS_PREFIX + name
-    return "main", HEADS_PREFIX + "main"
 
 
 def _collect_branches(repo, rchecked):
