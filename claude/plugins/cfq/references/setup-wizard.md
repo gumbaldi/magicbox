@@ -59,7 +59,10 @@ One `AskUserQuestion` call, up to 4 questions. Every question's first option is 
 One plain sentence per question before asking: `planModels`/`implModels` gate which model `/pfq`/
 `/ifq` are allowed to run under — a mismatch only warns for planning, but aborts implementation;
 `orchestratorMode` decides whether `/ifq` hands each phase to a fresh sub-agent (no `/clear` needed
-between phases) or keeps implementing in the same session.
+between phases) or keeps implementing in the same session. Every entry of `implModels` may be
+planned and spawned as a phase worker, and while `orchestratorModels` is empty, an `/ifq` session
+itself may also run on any of them; set `orchestratorModels` to keep the session on the stronger
+model.
 
 ### Language Defaults
 

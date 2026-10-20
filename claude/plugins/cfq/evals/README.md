@@ -23,6 +23,16 @@ in `evals/results/` (git-ignored). Read the JSON through a filter, never raw.
 `ifq-model-gate-stops` sets `model: haiku` itself and must run without a `--model` override, which
 would replace it: run it alone with `--tag gate`, and exclude it from any `--model sonnet` pass.
 
+`ifq-haiku-worker-phase` sets `model: sonnet` itself and spawns a real worker, so it needs wider
+grants (`Bash(git *)` on top of the usual ones) and no `--model` override. Run it alone:
+
+```bash
+cd <repo-root> && claude plugin eval claude/plugins/cfq --tag worker \
+  --runs 1 --ablation none --scaffold --trust-plugin --max-cost-usd 5 --no-publish \
+  --json "$TMPDIR/cfq-eval.json" \
+  --allow-tools "Bash(*/bin/cfq *)" "Bash(cfq *)" "Bash(git *)" Write Edit
+```
+
 The suite cannot run on this host yet: fact 1 below is `no` (`socat` is not installed, so the
 sandbox the eval requires is unavailable). Install `bubblewrap` and `socat` first.
 

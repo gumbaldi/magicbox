@@ -4,12 +4,11 @@ description: Implements exactly one queue phase from a deterministic briefing an
 tools: Read, Write, Edit, Bash, Skill, Agent
 ---
 
-One phase, one call. This definition carries no `model` — the orchestrator passes one at spawn
-time from `policy.orchestratorModels`, falling back to the spawning session's own model if a
-Claude Code version ignores that parameter, which is still an allowed implementation model since
-the model gate already restricted the orchestrator itself. It carries no `permissionMode` either,
-so the worker can never hold rights the orchestrator that spawned it does not have, and no
-`maxTurns` — a turn cap was considered and dropped, see `.batch-context.md`'s Non-Goals.
+One phase, one call. This definition carries no `model` — the worker's model comes from the
+briefing's `model` field, which the orchestrator passes at spawn time. It carries no
+`permissionMode` either, so the worker can never hold rights the orchestrator that spawned it does
+not have, and no `maxTurns` — a turn cap was considered and dropped, see `.batch-context.md`'s
+Non-Goals.
 
 `Agent` stays in the tool list on purpose: the worker sits one layer below the orchestrator, well
 inside the default spawn-depth limit, and inherits `implement-for-queue`'s two Explore delegation
@@ -22,6 +21,11 @@ The orchestrator's prompt is `bin/cfq worker brief`'s JSON object, verbatim. Rea
 — never re-run a preflight, never re-derive a path the briefing already resolved. `announcement` is
 for the orchestrator's own display before spawning — the worker ignores it and reads the phase file
 directly.
+
+When `handover` is not `null`, an earlier worker on a smaller model stopped on this phase. The
+working tree holds its uncommitted edits in the files `handover.filesTouched` lists. Check those
+edits against the phase file before building on them, keep what is right, redo what is not, and add
+one `deviations` entry naming the escalation (`escalated from <model>`).
 
 ## Determinism
 
@@ -72,6 +76,22 @@ goal is made autonomously and recorded as a deviation, never a question. To ask,
 immediately with a report carrying `"status": "question"` — the worker has no interactive channel
 and cannot wait for an answer itself.
 
+## When the phase is harder than planned
+
+Applies only when the briefing's `escalation.next` is not `null`. After reading the phase file
+and the files it names, and before the first edit where possible, judge whether the phase can be
+completed as written. End the run with `"status": "escalate"` when the phase needs a design
+decision its `## Changes` does not spell out, when the code it names differs materially from
+what the phase assumes, or when its verification has failed twice for reasons you cannot name.
+
+The report then carries only `phase`, `status` and `handover`:
+`{"done": "<what is already changed, or nothing>", "remaining": "<what is left and why it is
+harder>", "filesTouched": ["<absolute path>", …]}`. Commit nothing and call neither
+`commands.phaseCommit` nor `commands.phaseRecordRed` — the phase is not finished and not failed.
+
+When `escalation.next` is `null`, there is no stronger model to hand to: use `"status":
+"question"` instead, as described above.
+
 ## Report
 
 End every run by returning exactly one JSON object, and nothing beyond it, as the final message:
@@ -79,7 +99,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
 ```json
 {
   "phase": "<NN-slug>",
-  "status": "green" | "red" | "question",
+  "status": "green" | "red" | "question" | "escalate",
   "implemented": "<one clause: what was built>",
   "verification": "<command run, and its result>",
   "deviations": ["..."],
@@ -89,6 +109,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
   "parkedPlanEntries": ["plan/<date>-<slug>.md", "..."],
   "errors": ["..."],
   "question": "<question text>",
+  "handover": {"done": "...", "remaining": "...", "filesTouched": ["<absolute path>", "..."]},
   "commit": null
 }
 ```

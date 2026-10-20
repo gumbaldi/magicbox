@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_worker.py brief <batch-dir> --phase <NN>
+# Usage: cfq_worker.py brief <batch-dir> --phase <NN> [--model-override <name>] [--handover-file <path>]
 #        cfq_worker.py verdict <batch-dir>
 """The deterministic spine of orchestrator mode: composing the briefing a phase worker is spawned
 with (`brief`), and deciding what the worker's returned report means for the stop rule
@@ -8,11 +8,12 @@ JSON report on stdin -- see `.batch-context.md` and `references/ifq-phase.md`'s 
 why this must be a script rather than skill prose.
 
 `verdict`'s stdin contract: `{"status": "green"|"red"|"question", "triggers": [...], "question":
-"..."}`. `triggers` is the worker's own classification against the post-018 stop rule -- whether a
+"..."}`; `"escalate"` (with a `handover` object) is the fourth status and returns `ESCALATE`.
+`triggers` is the worker's own classification against the post-018 stop rule -- whether a
 green phase omitted a planned change or introduced an unnamed dependency is a judgment call the
 same as it is in `references/ifq-classic.md`'s **Implementation** prose, just made once by the worker instead of raised as an
 immediate question it has no channel to ask. `verdict` only translates that self-report into
-CONTINUE/ASK/STOP; it never re-derives the classification from `deviations` text, which stays a
+CONTINUE/ASK/STOP (or ESCALATE); it never re-derives the classification from `deviations` text, which stays a
 plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_report.py` already
 read) and is not inspected here.
 
@@ -46,7 +47,46 @@ RECOMMENDED_HEADING_RE = re.compile(r"^## Recommended skills", re.IGNORECASE)
 RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 
 GREEN_TRIGGERS = ("omitted", "dependency")
-VALID_STATUSES = ("green", "red", "question")
+VALID_STATUSES = ("green", "red", "question", "escalate")
+
+# Capability order, weakest first. Used only to find the next stronger entry inside implModels
+# when a worker escalates; a name missing here is never an escalation target.
+MODEL_RANK = ("haiku", "sonnet", "opus", "fable")
+
+
+def default_model(settings):
+    """The model a phase runs on when its heading names none: the first orchestrator model, else
+    the first implementation model."""
+    for key in ("orchestratorModels", "implModels"):
+        models = settings.get(key) or []
+        if models:
+            return models[0]
+    return None
+
+
+def resolve_model(phase_model, settings, failed_attempt_found):
+    """(model, source) the worker is spawned on. A phase heading wins only when that model is in
+    implModels and the phase has no recorded failed attempt."""
+    default = default_model(settings)
+    if not phase_model:
+        return default, "default"
+    if failed_attempt_found:
+        return default, "default-after-failure"
+    if phase_model not in (settings.get("implModels") or []):
+        return default, "default-not-allowed"
+    return phase_model, "phase"
+
+
+def next_stronger(model, settings):
+    """The lowest-ranked model above `model` among implModels plus the default, or None."""
+    if model not in MODEL_RANK:
+        return None
+    pool = set(settings.get("implModels") or [])
+    default = default_model(settings)
+    if default:
+        pool.add(default)
+    above = [m for m in pool if m in MODEL_RANK and MODEL_RANK.index(m) > MODEL_RANK.index(model)]
+    return min(above, key=MODEL_RANK.index) if above else None
 
 
 def find_phase_file(batch_dir, phase_num):
@@ -154,6 +194,24 @@ def cmd_brief(args):
 
     recommended_skills = extract_recommended_skills(text, blocked_plugins)
 
+    model, model_source = resolve_model(fields.get("model"), settings, failed_attempt.get("found"))
+    handover = None
+    if args.model_override:
+        allowed = set(settings.get("implModels") or []) | {default_model(settings)}
+        if args.model_override not in allowed:
+            errors.fail(
+                "MODEL_OVERRIDE_NOT_ALLOWED",
+                detail=f"{args.model_override!r} is neither in implModels nor the default model",
+            )
+            return
+        model, model_source = args.model_override, "escalated"
+    if args.handover_file:
+        try:
+            handover = json.loads(pathlib.Path(args.handover_file).read_text())
+        except (OSError, ValueError) as e:
+            errors.fail("HANDOVER_UNREADABLE", detail=f"{args.handover_file}: {e}")
+            return
+
     commands = build_commands(str(PLUGIN_ROOT), repo_root, batch_dir)
 
     print(render.dump_json({
@@ -170,6 +228,10 @@ def cmd_brief(args):
         "exploreModels": explore_models,
         "recommendedSkills": recommended_skills,
         "failedAttempt": failed_attempt,
+        "model": model,
+        "modelSource": model_source,
+        "escalation": {"next": next_stronger(model, settings)},
+        "handover": handover,
         "priorDeviations": prior_deviations,
         "commands": commands,
         "announcement": render_phase(phase_num(phase_file), fields),
@@ -201,6 +263,17 @@ def cmd_verdict(args):
         }))
         return
 
+    if status == "escalate":
+        handover = report.get("handover")
+        if not isinstance(handover, dict):
+            errors.fail("MALFORMED_REPORT", detail="status escalate needs a handover object")
+            return
+        print(render.dump_json({
+            "status": "OK", "verdict": "ESCALATE", "triggers": [], "question": None,
+            "handover": handover,
+        }))
+        return
+
     if status == "question":
         print(render.dump_json({
             "status": "OK", "verdict": "ASK", "triggers": [],
@@ -224,6 +297,8 @@ def build_parser():
     p = sub.add_parser("brief")
     p.add_argument("batch_dir")
     p.add_argument("--phase", required=True)
+    p.add_argument("--model-override")
+    p.add_argument("--handover-file")
     p.set_defaults(func=cmd_brief)
 
     p = sub.add_parser("verdict")

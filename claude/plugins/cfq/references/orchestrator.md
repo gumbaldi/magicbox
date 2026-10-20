@@ -6,6 +6,16 @@ only when `policy.orchestratorMode` is `true` — on by default. Everything the 
 or returns is defined in `<plugin-root>/agents/cfq-phase-worker.md`; this file is the
 orchestrator's own loop around it.
 
+## Contents
+
+- 1. Per phase, before spawning
+- 2. Spawn
+- 3. On return
+- 4. Resuming after an answer
+- 5. Phase summary and batch end
+- 6. Fallback to classic
+- Sub-agent type
+
 ## 1. Per phase, before spawning
 
 Re-run `bin/cfq preflight-impl "<repo-root>" --select "<batch>"` to resolve the next open phase,
@@ -42,8 +52,7 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase Announcement**), just carried
 in this JSON instead of printed by `bin/cfq brief` directly, since that call refuses while
 `orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent, the briefing JSON as its
-prompt verbatim, and `policy.orchestratorModels[0]` (`policy.implModels[0]` when
-`orchestratorModels` is empty) as its model.
+prompt verbatim, and the briefing's `model` as its model.
 
 ## 3. On return
 
@@ -57,6 +66,13 @@ closing call wrote, empty for a `question` report.
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
+- `ESCALATE` → the worker judged the phase harder than planned. If the briefing's
+  `escalation.next` is `null`, or this phase was already escalated once in this session, handle
+  it exactly as `ASK`, with the worker's `handover.remaining` as the question. Otherwise write
+  the verdict's `handover` object to a temp file, re-run `bin/cfq worker brief "<batch-dir>"
+  --phase <NN> --model-override <escalation.next> --handover-file <file>`, print `⚠️ Escalation`
+  with the phase and `<from> → <to>` and `handover.remaining` on a `   └ ` sub-line, and spawn a
+  new worker with that briefing and model. No question — the user chose automatic escalation.
 - `STOP` → the batch ends. `errors` prints unmodified, exactly as `<plugin-root>/references/ifq-classic.md`'s **Implementation** red case does, and those `statusLines`
   are printed right after `errors`; run `POSTCHECKS`.
 
