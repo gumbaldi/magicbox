@@ -9,7 +9,8 @@ Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today'
 reserves it in the local changelog (`status: parked`) and the queue directory, returning the final
 `batch` name. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing parked. Number
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
-leaves no gap in the numbering.
+leaves no gap in the numbering. Each `NN-<slug>.md` starts as a copy of
+`<plugin-root>/references/phase-template.md`.
 
 A phase-file `Write` denied by a `PreToolUse` hook ends the session. Print `❌ Park`, then
 quote the hook's `stopReason` verbatim on a `   └ ` sub-line (paraphrasing it loses the path
@@ -50,8 +51,7 @@ Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
 implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
-`Inbox` line, not a second `RESULT` block. Phase file structure follows the template —
-see `<plugin-root>/references/phase-quality.md`'s closing section.
+`Inbox` line, not a second `RESULT` block.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
 and render its own top-level fields, field by field: `turns`, `billable_in` as "in", `output` as

@@ -138,7 +138,8 @@ output too: plan files, `## Decisions`, the batch directory name. A phase touchi
 read `${CLAUDE_PLUGIN_ROOT}/references/language.md` and follow it. Print `Language`. Propose a
 split — one phase = one self-testable, individually committable unit — as a status update (phase
 list + S/M/L sizes); no dedicated confirmation question gates the write, that gate is
-**Self-Critique of the Phase Cut**. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` and
+**Self-Critique of the Phase Cut**. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` (and, once,
+`${CLAUDE_PLUGIN_ROOT}/references/phase-template.md` as the phase-file skeleton) and
 follow it, always, before writing any phase's Changes and Verification text — it also steers the
 Size letter (rule 5). For each phase, estimate **Size** `S`/`M`/`L` and write the `## Size` heading
 — mechanics (letter placement, what parses it, the degrade-to-`M` fallback, **Recommended
