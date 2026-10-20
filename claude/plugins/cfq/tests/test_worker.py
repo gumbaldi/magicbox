@@ -6,7 +6,10 @@ tree.
 """
 
 import json
+import os
+import pathlib
 import subprocess
+import sys
 import textwrap
 import unittest
 
@@ -71,9 +74,18 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
             home=(home or self.home),
         )
 
+    def _file(self):
+        return json.loads((self.batch_dir / ".worker-brief.json").read_text())
+
+    def _brief_file(self, phase="02"):
+        out = self.json_out(self._brief(phase))
+        self.assertEqual(out["status"], "OK", f"unexpected status: {out}")
+        return self._file()
+
     def test_routine_brief_carries_every_field(self):
-        proc = self._brief("02", home=self.home)
-        body = self.json_out(proc)
+        out = self.json_out(self._brief("02", home=self.home))
+        self.assertEqual(out["status"], "OK", f"unexpected status: {out}")
+        body = dict(self._file(), announcement=out["announcement"])
         self.assertEqual(body["status"], "OK", f"unexpected status: {body}")
         self.assertEqual(body["batch"], "2026-01-01-workerbatch")
         self.assertTrue(body["batchDir"].startswith("/"), f"batchDir not absolute: {body}")
@@ -101,6 +113,75 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
             f"announcement must carry no trailing whitespace: {body['announcement']!r}",
         )
 
+    def test_stdout_names_the_briefing_file_and_a_one_line_prompt(self):
+        out = self.json_out(self._brief("02"))
+        brief_file = out["briefFile"]
+        self.assertTrue(brief_file.startswith("/"), out)
+        self.assertEqual(brief_file, str(self.batch_dir.resolve() / ".worker-brief.json"))
+        self.assertTrue(pathlib.Path(brief_file).is_file(), out)
+        self.assertNotIn("\n", out["prompt"])
+        self.assertIn(brief_file, out["prompt"])
+        self.assertEqual(
+            out["prompt"], f"Read your briefing at {brief_file} first, then implement that phase."
+        )
+        self.assertTrue(out["announcement"].startswith("PHASE 02 · "), out)
+        self.assertEqual(
+            {"status", "batch", "batchDir", "phase", "briefFile", "prompt", "announcement",
+             "model", "escalation"},
+            set(out),
+        )
+
+    def test_stdout_does_not_leak_the_briefing(self):
+        out = self.json_out(self._brief("02"))
+        for key in ("priorDeviations", "commands", "handover", "phaseFile", "language"):
+            self.assertNotIn(key, out)
+
+    def test_stdout_size_is_constant_in_the_number_of_deviations(self):
+        empty = self._brief("02").stdout
+        (self.batch_dir / "report.json").write_text(json.dumps({"batch": "x", "phases": [{
+            "phase": "01-prior", "status": "green", "summary": "s",
+            "deviations": [f"deviation number {i} with some text" for i in range(20)],
+            "finished": "2026-01-01T10:00:00+00:00",
+        }]}))
+        full = self._brief("02").stdout
+        self.assertEqual(len(full), len(empty))
+        self.assertEqual(len(self._file()["priorDeviations"]), 20)
+
+    def test_second_call_replaces_the_file(self):
+        (self.batch_dir / "03-other.md").write_text(PHASE_NO_SIZE)
+        self.assertEqual(self._brief_file("02")["phase"], "02-something")
+        self.assertEqual(self._brief_file("03")["phase"], "03-other")
+
+    def test_file_has_no_announcement(self):
+        out = self.json_out(self._brief("02"))
+        self.assertNotIn("announcement", self._file())
+        self.assertIn("announcement", out)
+
+    def test_no_batch_writes_no_file_and_leaves_an_existing_one(self):
+        self._brief("99")
+        self.assertFalse((self.batch_dir / ".worker-brief.json").exists())
+        self._brief("02")
+        before = (self.batch_dir / ".worker-brief.json").read_text()
+        self._brief("99")
+        self.assertEqual((self.batch_dir / ".worker-brief.json").read_text(), before)
+        gone = self.repo / ".claude/cfq/impl/no-such-batch"
+        self.run_cfq("worker", "brief", str(gone), "--phase", "01", home=self.home)
+        self.assertFalse((gone / ".worker-brief.json").exists())
+
+    @unittest.skipIf(sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "read-only directories do not stop root or Windows")
+    def test_unwritable_batch_directory_fails_without_output(self):
+        self._prepare_status()
+        os.chmod(self.batch_dir, 0o555)
+        try:
+            proc = self._brief("02")
+        finally:
+            os.chmod(self.batch_dir, 0o755)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+        self.assertTrue(proc.stderr.strip())
+        self.assertNotIn("Traceback", proc.stderr)
+
     def test_announcement_matches_cfq_brief_render_phase(self):
         body = self.json_out(self._brief("02"))
         phase_file = self.batch_dir / "02-something.md"
@@ -111,7 +192,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.assertIn("  Steps    1. First step of the phase.\n           2. Second step of the phase.", body["announcement"])
 
     def test_note_plan_framework_command_inserts_flag_after_note_plan(self):
-        body = self.json_out(self._brief("02"))
+        body = self._brief_file()
         note_plan = body["commands"]["notePlan"]
         note_plan_framework = body["commands"]["notePlanFramework"]
         self.assertEqual(
@@ -126,18 +207,18 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
 
     def test_no_batch_context_is_null_not_an_error(self):
         (self.batch_dir / ".batch-context.md").unlink()
-        body = self.json_out(self._brief("02"))
+        body = self._brief_file()
         self.assertEqual(body["status"], "OK")
         self.assertIsNone(body["batchContext"])
 
     def test_missing_size_heading_degrades_to_m(self):
         (self.batch_dir / "03-nosize.md").write_text(PHASE_NO_SIZE)
-        body = self.json_out(self._brief("03"))
+        body = self._brief_file("03")
         self.assertEqual(body["status"], "OK")
         self.assertEqual(body["size"], "M")
 
     def test_blocked_plugin_filtered_from_recommended_skills(self):
-        body = self.json_out(self._brief("02"))
+        body = self._brief_file()
         self.assertNotIn("superpowers", body["recommendedSkills"], f"blocked plugin leaked: {body}")
         self.assertIn("mattpocock-skills:tdd", body["recommendedSkills"], f"kept entry missing: {body}")
 
@@ -147,7 +228,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         body = self.json_out(self._brief("02"))
         self.assertEqual(body["status"], "OK", f"unexpected status: {body}")
         self.assertEqual(body["phase"], "02-something")
-        self.assertTrue(body["phaseFile"].endswith("skipped/02-something.md"), f"phaseFile: {body}")
+        self.assertTrue(self._file()["phaseFile"].endswith("skipped/02-something.md"))
 
     def test_unknown_phase_number_is_no_batch(self):
         proc = self._brief("99")
@@ -196,12 +277,18 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
     def _brief(self, *extra):
         return self.run_cfq("worker", "brief", str(self.batch_dir), "--phase", "02", *extra)
 
+    def _read(self, proc):
+        """Standard output of a brief call, checked, merged over the file's object."""
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "OK", out)
+        return dict(json.loads((self.batch_dir / ".worker-brief.json").read_text()), **out)
+
     def _resolved(self, phase_model, settings, failed=False):
         self._phase(phase_model)
         self._settings(**settings)
         if failed:
             self._failed()
-        return self.json_out(self._brief())
+        return self._read(self._brief())
 
     def test_model_resolution_table(self):
         both = {"implModels": ["sonnet", "haiku"]}
@@ -249,7 +336,7 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
         handover = {"done": "nothing", "remaining": "everything", "filesTouched": ["/tmp/x.py"]}
         hf = self._repos_dir / "handover.json"
         hf.write_text(json.dumps(handover))
-        body = self.json_out(self._brief("--model-override", "sonnet", "--handover-file", str(hf)))
+        body = self._read(self._brief("--model-override", "sonnet", "--handover-file", str(hf)))
         self.assertEqual(body["status"], "OK", body)
         self.assertEqual((body["model"], body["modelSource"]), ("sonnet", "escalated"), body)
         self.assertEqual(body["handover"], handover)

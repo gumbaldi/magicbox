@@ -626,6 +626,15 @@ class ScanStatusCountsTest(CfqTestCase):
             (2, 1, 1, 1, True), msg=rec,
         )
 
+    def test_worker_brief_file_does_not_change_the_counts(self):
+        b = self._batch("repo-brief", "2026-05-01-brief", ["01-a", "02-b"])
+        write_status(b, **{"01_a": "done"})
+        before = self._batches(self._scan(), "repo-brief")["2026-05-01-brief"]
+        (b / ".worker-brief.json").write_text("{}")
+        after = self._batches(self._scan(), "repo-brief")["2026-05-01-brief"]
+        self.assertEqual(after, before)
+        self.assertEqual((after["open"], after["done"]), (1, 1), msg=after)
+
     def test_only_error_is_in_progress_only_skipped_is_not(self):
         err = self._batch("repo-edge", "2026-05-01-err", ["01-a", "02-b"])
         write_status(err, **{"01_a": "error"})

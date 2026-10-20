@@ -47,12 +47,14 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 
 ## 2. Spawn
 
-`bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase. Print the briefing's
-`announcement` field verbatim, no rewording — the same rendering classic mode's own phase
-announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase Announcement**), just carried
-in this JSON instead of printed by `bin/cfq brief` directly, since that call refuses while
-`orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent, the briefing JSON as its
-prompt verbatim, and the briefing's `model` as its model.
+`bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase. The call writes the
+briefing to `<batch-dir>/.worker-brief.json` and prints `announcement`, `prompt`, `briefFile`, the
+worker's `model` and `escalation`. Print `announcement` verbatim, no rewording — the same rendering
+classic mode's own phase announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase
+Announcement**), just carried in this JSON instead of printed by `bin/cfq brief` directly, since
+that call refuses while `orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent with
+`prompt` as its prompt, unchanged, and `model` as its model. The briefing file's content never goes
+into the prompt.
 
 ## 3. On return
 
@@ -66,13 +68,14 @@ closing call wrote, empty for a `question` report.
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
-- `ESCALATE` → the worker judged the phase harder than planned. If the briefing's
+- `ESCALATE` → the worker judged the phase harder than planned. If the brief call's
   `escalation.next` is `null`, or this phase was already escalated once in this session, handle
   it exactly as `ASK`, with the worker's `handover.remaining` as the question. Otherwise write
   the verdict's `handover` object to a temp file, re-run `bin/cfq worker brief "<batch-dir>"
   --phase <NN> --model-override <escalation.next> --handover-file <file>`, print `⚠️ Escalation`
   with the phase and `<from> → <to>` and `handover.remaining` on a `   └ ` sub-line, and spawn a
-  new worker with that briefing and model. No question — the user chose automatic escalation.
+  new worker with the new call's `prompt` and `model`; the handover reaches it through the
+  rewritten briefing file. No question — the user chose automatic escalation.
 - `STOP` → the batch ends. `errors` prints unmodified, exactly as `<plugin-root>/references/ifq-classic.md`'s **Implementation** red case does, and those `statusLines`
   are printed right after `errors`; run `POSTCHECKS`.
 
@@ -80,8 +83,8 @@ closing call wrote, empty for a `question` report.
 
 Send the answer to the same worker with `SendMessage` so its context survives — it already holds
 the phase file and everything it read while implementing. If that fails, spawn a fresh worker with
-the answer folded into a new briefing and say so in the status line; the fallback is visible, never
-silent.
+the answer appended below `prompt` after re-running `worker brief`, and say so in the status line;
+the fallback is visible, never silent.
 
 ## 5. Phase summary and batch end
 
@@ -93,9 +96,9 @@ follows `implement-for-queue/SKILL.md`'s **Batch Done** in full.
 
 ## 6. Fallback to classic
 
-A spawn that fails outright, or a worker that returns nothing usable (malformed report, no report
-at all), does not end the batch: the orchestrator implements that phase itself, in-session, exactly
-as `<plugin-root>/references/ifq-classic.md`'s **Implementation** step would, and prints one `⚠️` line naming what failed before
+A spawn that fails outright, a `worker brief` call that exits non-zero, or a worker that returns
+nothing usable (malformed report, no report at all), does not end the batch: the orchestrator
+implements that phase itself, in-session, exactly as `<plugin-root>/references/ifq-classic.md`'s **Implementation** step would, and prints one `⚠️` line naming what failed before
 falling back. `<plugin-root>/references/ifq-classic.md`'s own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
 refuses while `orchestratorMode` is still on, so this in-session fallback calls it with
 `--classic-fallback` appended — the flag that is what makes this documented fallback pass the
