@@ -468,6 +468,7 @@ x
 
         newmarker = qdir / "2026-01-03-newmarker"
         newmarker.mkdir()
+        (newmarker / ".planning").touch()
         self._write(newmarker / "01-a.md", f"""# Phase A
 ## Size
 M
@@ -485,6 +486,161 @@ x
         out = proc.stdout + proc.stderr
         self.assertIn(": stale-new:", out, f"English (new) marker did not fire stale-new: {out}")
         self.assertNotIn(": priority:", out, f"batch without .priority should not fire priority: {out}")
+
+    # ---- pending creators (batch 054 phase 01) --------------------------------------------------
+
+    def _creator_phase(self, path, new):
+        marker = " (new)" if new else ""
+        return f"""# Phase
+## Size
+M
+## Context
+x
+## Affected Files
+- `{path}`{marker}
+## Changes
+1. x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+    def _creator_batch(self, qdir, name, phases, planning=False, depends=None, statuses=None, done=False):
+        """`phases` maps a slug to (path, is_new). A batch for `done=True` lies under `done/`."""
+        base = qdir / "done" if done else qdir
+        batch = base / name
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        if planning:
+            (batch / ".planning").touch()
+        if depends:
+            (batch / ".dependsOn").write_text("\n".join(depends) + "\n")
+        for slug, (path, is_new) in phases.items():
+            self._write(batch / f"{slug}.md", self._creator_phase(path, is_new))
+        write_status(batch, **(statuses or {}))
+        return batch
+
+    def _creator_qdir(self, label):
+        qdir = self._repos_dir / label / ".claude" / "cfq"
+        qdir.mkdir(parents=True)
+        return qdir, self._repos_dir / f"{label}-x.sh"
+
+    def test_creator_in_same_batch_accepts_later_bare_path(self):
+        qdir, x = self._creator_qdir("creator1")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(str(x), out)
+
+    def test_creator_in_dependency_batch_accepts_bare_path(self):
+        qdir, x = self._creator_qdir("creator2")
+        self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=["2026-02-01-a"])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(str(x), out)
+
+    def test_creator_done_and_file_present_is_clean(self):
+        qdir, x = self._creator_qdir("creator3")
+        x.touch()
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            planning=True, statuses={"01-a": "done"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+
+    def test_creator_done_but_file_absent_fails_naming_the_creator(self):
+        qdir, x = self._creator_qdir("creator4")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            statuses={"01-a": "done"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: missing: {x} does not exist (created by 01-a, which is done)", out)
+
+    def test_creator_skipped_fails_naming_the_creator(self):
+        qdir, x = self._creator_qdir("creator5")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            statuses={"01-a": "skipped"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: missing: {x} does not exist (created by 01-a, which is skipped)", out)
+
+    def test_creator_numbered_later_fails_as_running_later(self):
+        qdir, x = self._creator_qdir("creator6")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, False), "02-b": (x, True)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist (created by 02-b, which runs later)", out)
+
+    def test_creator_in_skipped_dependency_batch_fails(self):
+        qdir, x = self._creator_qdir("creator7")
+        a = self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)}, statuses={"01-a": "skipped"})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=[a.name])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist (created by {a.name}/01-a, which is skipped)", out)
+
+    def test_finished_dependency_batch_and_unclaimed_path_stay_plain_missing(self):
+        qdir, x = self._creator_qdir("creator8")
+        self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)}, done=True)
+        b = self._creator_batch(
+            qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=["2026-02-01-a"])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist\n", out)
+        self.assertNotIn("created by", out)
+
+    def test_second_marker_in_same_batch_is_duplicate_new(self):
+        qdir, x = self._creator_qdir("creator9")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, True)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: duplicate-new: {x} is created by 01-a; list it without (new)", out)
+        self.assertNotIn("01-a.md: duplicate-new", out)
+
+    def test_second_marker_across_batches_is_duplicate_new(self):
+        qdir, x = self._creator_qdir("creator10")
+        a = self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, True)}, depends=[a.name])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: duplicate-new: {x} is created by {a.name}/01-a; list it without (new)", out)
+
+    def test_stale_new_on_resume_is_a_warning(self):
+        qdir, x = self._creator_qdir("creator11")
+        x.touch()
+        batch = self._creator_batch(qdir, "2026-02-01-resume", {"01-a": (x, True)})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"warn: 01-a.md: stale-new: {x} already exists", out)
+        self.assertNotIn("\n01-a.md: stale-new", "\n" + out)
+
+    def test_stale_new_on_a_later_phase_is_a_finding(self):
+        qdir, x = self._creator_qdir("creator12")
+        x.touch()
+        y = self._repos_dir / "creator12-y.sh"
+        batch = self._creator_batch(
+            qdir, "2026-02-01-later", {"01-a": (y, True), "02-b": (x, True)})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: stale-new: {x} already exists", out)
+        self.assertNotIn(f"warn: 02-b.md: stale-new", out)
+
+    def test_unreadable_status_does_not_crash_the_creator_scan(self):
+        qdir, x = self._creator_qdir("creator13")
+        x.touch()
+        batch = self._creator_batch(qdir, "2026-02-01-nostatus", {"01-a": (x, True)})
+        (batch / "status.json").unlink()
+        self.auto_status = False
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 1, out)
+        self.assertIn(f"{batch.name}: status: missing status.json", out)
+        self.assertNotIn("Traceback", proc.stderr)
 
     def test_batch_context_checks(self):
         qdir = self._repos_dir / "lintrepo4" / ".claude" / "cfq"

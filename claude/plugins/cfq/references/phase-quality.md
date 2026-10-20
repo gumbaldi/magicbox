@@ -99,6 +99,12 @@ look for; a phase that legitimately has none of a category simply has nothing to
 - generated or derived files that have to be regenerated
 - cross-references elsewhere that point at what is being renamed, renumbered, or moved
 
+`(new)` marks a file on the phase that creates it, and only there. A later phase of the same batch
+that extends the file, and a phase of a batch whose `.dependsOn` names the creating batch, list the
+path bare. `bin/cfq lint` accepts a bare path that is not on disk while the creating phase is
+pending, and reports `duplicate-new` when a second phase marks the same path. A bullet is never
+reworded to keep a path out of lint: `bin/cfq overlap` reads the same bullets.
+
 Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
 decide whether a file is in scope, that uncertainty is a research task for the planning session,
 not a hedge in the plan — resolve it before parking: `bin/cfq overlap` intersects

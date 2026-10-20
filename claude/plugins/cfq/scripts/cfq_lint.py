@@ -4,6 +4,12 @@
 aborts on soft findings (`depends` and `changes-steps` are warn-only and never affect the exit
 code).
 
+Three rules resolve a file that no phase has created yet, against the plan itself: a bare absolute
+path that is not on disk is accepted while a pending phase creates it (an earlier phase of the same
+batch, or any phase of a `.dependsOn` batch that is still queued); a second phase that marks the
+same path `(new)` is a `duplicate-new` finding; and `stale-new` is a `warn:` line, not a finding,
+for the next pending phase of a batch that has left planning (no `.planning` file).
+
 Ported from cfq-lint.sh -- a port, not a redesign: every finding string, the `warn:` prefix, the
 exit-code rule and the `## Size` degradation are carried over verbatim.
 """
@@ -69,9 +75,60 @@ def phase_num(name):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
-def lint_open_file(f, findings, warn_findings, impl_models=None):
+def affected_entries(text):
+    """The `(path, is_new)` pairs of a phase text's `## Affected Files` bullets."""
+    out = []
+    for line in extract_files_section(text).split("\n"):
+        if not line.startswith("- `"):
+            continue
+        m = BULLET_RE.match(line)
+        path = m.group(1) if m else ""
+        if path:
+            out.append((path, "(new)" in line))
+    return out
+
+
+def _creators_of(batch_dir, label_prefix, own, creators):
+    try:
+        recs = phase_state.phases(batch_dir)
+    except phase_state.PhaseStateError:
+        return
+    for rec in recs:
+        if rec["path"] is None:
+            continue
+        for path, is_new in affected_entries(rec["path"].read_text()):
+            if is_new and path.startswith("/"):
+                creators.setdefault(path, []).append({
+                    "label": label_prefix + rec["slug"], "slug": rec["slug"],
+                    "status": rec["status"], "own": own,
+                })
+
+
+def collect_creators(d):
+    """absolute path -> creators (`label`, `slug`, `status`, `own`): the phases of `d` itself,
+    then those of each `.dependsOn` batch lying next to `d` (not under `done/`)."""
+    creators = {}
+    _creators_of(d, "", True, creators)
+    for dep in cfq_queue.read_depends(d):
+        dep_dir = d.parent / dep
+        if dep_dir.is_dir():
+            _creators_of(dep_dir, dep + "/", False, creators)
+    return creators
+
+
+def _qualifies(creator, prefix):
+    if creator["status"] not in phase_state.PENDING:
+        return False
+    return not creator["own"] or creator["slug"][:2] < prefix
+
+
+def lint_open_file(f, findings, warn_findings, impl_models=None, creators=None,
+                   relaxed=False, next_pending=None):
     """`impl_models` is the repo's `implModels` list, or None when it could not be read (the
-    caller has warned once already, so `## Model` goes unchecked)."""
+    caller has warned once already, so `## Model` goes unchecked). `creators` is
+    collect_creators()'s map; `relaxed` is true for a batch without `.planning` and
+    `next_pending` the slug of its next pending phase (stale-new is warn-only for that one)."""
+    creators = creators or {}
     name = f.name
     text = f.read_text()
 
@@ -111,21 +168,31 @@ def lint_open_file(f, findings, warn_findings, impl_models=None):
         if not any(line.startswith("- `") for line in files_section.split("\n")):
             findings.append(f"{name}: files-empty: Affected Files has no entries")
 
-        for line in files_section.split("\n"):
-            if not line.startswith("- `"):
-                continue
-            m = BULLET_RE.match(line)
-            path = m.group(1) if m else ""
-            if not path:
-                continue
-            if path.startswith("/"):
-                if "(new)" in line:
-                    if os.path.exists(path):
-                        findings.append(f"{name}: stale-new: {path} already exists")
-                elif not os.path.exists(path):
-                    findings.append(f"{name}: missing: {path} does not exist")
-            else:
+        prefix = f.stem[:2]
+        for path, is_new in affected_entries(text):
+            if not path.startswith("/"):
                 findings.append(f"{name}: abspath: {path} is not absolute")
+                continue
+            made_by = creators.get(path, [])
+            qualifying = [c for c in made_by if _qualifies(c, prefix)]
+            if is_new:
+                if qualifying:
+                    findings.append(
+                        f"{name}: duplicate-new: {path} is created by {qualifying[0]['label']}; "
+                        "list it without (new)")
+                elif os.path.exists(path):
+                    if relaxed and f.stem == next_pending:
+                        warn_findings.append(f"warn: {name}: stale-new: {path} already exists")
+                    else:
+                        findings.append(f"{name}: stale-new: {path} already exists")
+            elif not os.path.exists(path) and not qualifying:
+                msg = f"{name}: missing: {path} does not exist"
+                if made_by:
+                    first = made_by[0]
+                    later = first["own"] and first["status"] in phase_state.PENDING
+                    reason = "runs later" if later else f"is {first['status']}"
+                    msg += f" (created by {first['label']}, which {reason})"
+                findings.append(msg)
 
 
 def check_numbering(all_files, batch_name, findings):
@@ -250,8 +317,14 @@ def cmd_lint(args):
         impl_models = read_impl_models(d)
         if impl_models is None:
             warn_findings.append("warn: model: implModels unavailable, ## Model not checked")
+    creators = collect_creators(d)
+    relaxed = not (d / ".planning").exists()
+    try:
+        next_pending = phase_state.next_pending(d)
+    except phase_state.PhaseStateError:
+        next_pending = None
     for f in files:
-        lint_open_file(f, findings, warn_findings, impl_models)
+        lint_open_file(f, findings, warn_findings, impl_models, creators, relaxed, next_pending)
 
     check_numbering(all_files, batch_name, findings)
     check_priority(d, batch_name, findings)
