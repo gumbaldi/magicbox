@@ -431,19 +431,143 @@ class PortalTest(CfqTestCase):
         self._sync(repo)
         self.assertFalse(self._row(repo, DONE_BATCH)["settled"])
 
-    def test_merged_follows_the_merge_card(self):
-        repo = self._world()
-        self.assertIs(self._row(repo, DONE_BATCH)["merged"], True)
+    # ---- merged: read from Git ---------------------------------------------------------------
 
+    MERGE_BATCH = "001-2026-09-01-a"
+    MERGE_BRANCH = "cfq/001-a"
+
+    def _git(self, repo, *args):
+        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True)
+        return proc.stdout.strip()
+
+    def _default(self, repo):
+        return self._git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+
+    def _branch_commit(self, repo, merge, branch=None, delete=False):
+        """Creates `branch` with one commit; `merge` merges it into the default branch with
+        `--no-ff`; `delete` removes the branch afterwards. Returns the branch tip's SHA."""
+        branch = branch or self.MERGE_BRANCH
+        default = self._default(repo)
+        self._git(repo, "checkout", "-q", "-b", branch)
+        (repo / "feature.txt").write_text(branch + "\n")
+        self._git(repo, "add", "feature.txt")
+        self._git(repo, "commit", "-q", "-m", "feature")
+        tip = self._git(repo, "rev-parse", "HEAD")
+        self._git(repo, "checkout", "-q", default)
+        if merge:
+            self._git(repo, "merge", "-q", "--no-ff", "-m", "merge", branch)
+        if delete:
+            self._git(repo, "branch", "-q", "-D", branch)
+        return tip
+
+    def _merge_batch(self, repo, branch=True, commit=None, done=True):
+        """A one-phase batch with a changelog block; `done` puts it under `impl/done/`."""
+        cfq = self._cfq(repo)
+        impl = cfq / "impl" / ("done" if done else "") / self.MERGE_BATCH
+        self._write(impl / "done" / "01-x.md", "# X\n\n## Size\n\nS\n")
+        if not done:
+            self._write(impl / "02-y.md", "# Y\n\n## Size\n\nS\n")
+        phase = ledger_phase("01-x", "green", GREEN_TEL)
+        if commit is None:
+            del phase["commit"]
+        else:
+            phase["commit"] = commit
+        self._write(impl / "report.json", json.dumps({
+            "repo": str(repo), "batch": self.MERGE_BATCH, "started": "2026-09-01T09:30:00+00:00",
+            "phases": [phase],
+        }))
+        self._write(cfq / "changelog.yml", (
+            "- batchNumber: 1\n"
+            f"  batch: {self.MERGE_BATCH}\n"
+            + (f"  branch: {self.MERGE_BRANCH}\n" if branch else "")
+            + "  base: main\n"
+            f"  status: {'done' if done else 'in-progress'}\n"
+        ))
+
+    def _merged(self, repo):
+        row = self._row(repo, self.MERGE_BATCH)["merged"]
+        payload = self._load(repo, f"batch/{self.MERGE_BATCH}")["merged"]
+        self.assertIs(row, payload)
+        return row
+
+    def test_merged_true_when_the_branch_is_in_the_default_branch(self):
+        repo = self.make_repo()
+        self._branch_commit(repo, merge=True)
+        self._merge_batch(repo)
+        self._sync(repo)
+        self.assertIs(self._merged(repo), True)
+
+    def test_merged_false_when_the_branch_is_open(self):
+        repo = self.make_repo()
+        self._branch_commit(repo, merge=False)
+        self._merge_batch(repo)
+        self._sync(repo)
+        self.assertIs(self._merged(repo), False)
+
+    def test_merged_after_the_branch_was_deleted_reads_the_ledger_commit(self):
+        repo = self.make_repo()
+        tip = self._branch_commit(repo, merge=True, delete=True)
+        self._merge_batch(repo, commit=tip)
+        self._sync(repo)
+        self.assertIs(self._merged(repo), True)
+
+    def test_unmerged_deleted_branch_reads_false_from_the_ledger_commit(self):
+        repo = self.make_repo()
+        tip = self._branch_commit(repo, merge=False, delete=True)
+        self._merge_batch(repo, commit=tip)
+        self._sync(repo)
+        self.assertIs(self._merged(repo), False)
+
+    def test_merged_prefers_origin_over_a_lagging_local_default_branch(self):
+        origin = self.make_repo("origin-src")
+        self._branch_commit(origin, merge=True)
+        clone = self._repos_dir / "clone"
+        subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+        self._git(clone, "reset", "-q", "--hard", "HEAD~1")  # local default behind origin/<default>
+        self.assertNotIn(
+            self._git(clone, "rev-parse", f"origin/{self._default(clone)}"),
+            self._git(clone, "rev-list", "HEAD").split(),
+        )
+        self._merge_batch(clone)
+        self._sync(clone)
+        self.assertIs(self._merged(clone), True)
+
+    def test_merged_is_null_while_the_batch_is_not_done(self):
+        repo = self.make_repo()
+        self._branch_commit(repo, merge=True)
+        self._merge_batch(repo, done=False)
+        self._sync(repo)
+        self.assertIsNone(self._merged(repo))
+
+    def test_merged_is_null_without_branch_and_commit(self):
+        repo = self.make_repo()
+        self._branch_commit(repo, merge=True)
+        self._merge_batch(repo, branch=False)
+        self._sync(repo)
+        self.assertIsNone(self._merged(repo))
+
+    def test_merged_is_null_without_a_git_repository(self):
+        repo = self._repos_dir / "no-git"
+        repo.mkdir()
+        self._merge_batch(repo)
+        self._sync(repo)
+        self.assertIsNone(self._merged(repo))
+
+    def test_a_merge_entry_file_does_not_change_merged(self):
+        repo = self.make_repo()
+        self._branch_commit(repo, merge=False)
+        self._merge_batch(repo)
+        name = f"2026-01-01-merge-{self.MERGE_BRANCH.replace('/', '-')}.md"
         todo = self._cfq(repo) / "todo"
-        shutil.move(str(todo / "done" / MERGE_CARD), str(todo / MERGE_CARD))
+        for folder in (todo, todo / "done"):
+            entry = self._write(folder / name, "# Merge\n\ncheck: true\n")
+            self._sync(repo)
+            self.assertIs(self._merged(repo), False, folder)
+            entry.unlink()
+        self._git(repo, "merge", "-q", "--no-ff", "-m", "merge", self.MERGE_BRANCH)
+        self._write(todo / name, "# Merge\n\ncheck: true\n")
         self._sync(repo)
-        self.assertIs(self._row(repo, DONE_BATCH)["merged"], False)
-
-        (todo / MERGE_CARD).unlink()
-        self._sync(repo)
-        self.assertIsNone(self._row(repo, DONE_BATCH)["merged"])
-        self.assertIsNone(self._row(repo, OPEN_BATCH)["merged"])
+        self.assertIs(self._merged(repo), True)
 
     def test_row_without_telemetry_has_no_cost(self):
         repo = self._world()
@@ -559,7 +683,7 @@ class PortalTest(CfqTestCase):
             "security", "flags",
         })
         self.assertEqual((b["name"], b["status"], b["outcome"]), (DONE_BATCH, "done", "MIXED"))
-        self.assertEqual((b["branch"], b["base"], b["merged"]), (DONE_BRANCH, "main", True))
+        self.assertEqual((b["branch"], b["base"], b["merged"]), (DONE_BRANCH, "main", None))
         self.assertEqual((b["started"], b["finished"]), ("2026-09-01T09:30:00+00:00", "2026-09-01T12:02:00Z"))
         self.assertEqual(
             [(f["phase"], f["level"], f["code"]) for f in b["flags"]],
