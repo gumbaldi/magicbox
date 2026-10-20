@@ -3,7 +3,10 @@
   status: parked
 - batchNumber: 55
   batch: 055-2026-10-06-drop-merge-entry-phase-template-briefing-file
-  status: parked
+  branch: cfq/055-2026-10-06-drop-merge-entry-phase-template-briefing-file
+  base: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
+  started: 2026-10-20
+  status: in-progress
 - batchNumber: 54
   batch: 054-2026-10-05-lint-pending-creators-default-branch-single-briefing
   branch: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
