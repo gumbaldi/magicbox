@@ -6,7 +6,10 @@
   status: parked
 - batchNumber: 54
   batch: 054-2026-10-05-lint-pending-creators-default-branch-single-briefing
-  status: parked
+  branch: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
+  base: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
+  started: 2026-10-20
+  status: in-progress
 - batchNumber: 53
   batch: 053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
   branch: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
