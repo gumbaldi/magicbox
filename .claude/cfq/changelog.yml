@@ -6,7 +6,30 @@
   branch: cfq/055-2026-10-06-drop-merge-entry-phase-template-briefing-file
   base: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
   started: 2026-10-20
-  status: in-progress
+  status: done
+  finished: 2026-10-20
+  phases:
+    - phase: "01-portal-merged-from-git"
+      status: "green"
+      summary: "Portal reads merged (queue row and batch payload) from Git: two Git calls per sync, tip from local branch, origin branch or last full-SHA ledger commit; merge-entry lookup removed"
+    - phase: "02-finish-language-check-against-batch-base"
+      status: "green"
+      summary: "bin/cfq finish compares both language checks against the batch's recorded changelog base branch (origin first, then local), falling back to the default branch; batch_base() and lang_base_ref() added to cfq_finish.py"
+    - phase: "03-branch-line-replaces-merge-field"
+      status: "green"
+      summary: "bin/cfq finish renders a Branch status line (branch and base) after Changelog plus a branch JSON object; ifq-batch-end.md's Merge field replaced by Branch; output-format.md lists Branch"
+    - phase: "04-remove-merge-entry-verb-and-entries"
+      status: "green"
+      summary: "Removed the note merge-todo verb (cmd_merge_todo, sub-parser, usage, docstring, ledger branch lookup), its tests and its queue-entries.md paragraph; moved all merge entries in magicbox and atlas to the cfq trash"
+    - phase: "05-phase-file-template"
+      status: "green"
+      summary: "references/phase-template.md skeleton, wired into phase-quality.md, plan-park.md and the plan-for-queue skill, plus TestPhaseTemplate (lint clean, brief reads title and size, missing heading fails lint)"
+    - phase: "06-worker-briefing-as-file"
+      status: "green"
+      summary: "worker brief writes the full briefing to <batch-dir>/.worker-brief.json and prints a small object (briefFile, prompt, announcement, model, escalation); orchestrator and worker prose read the briefing from the file"
+    - phase: "07-docs-design-notes-version"
+      status: "green"
+      summary: "README, plugin CLAUDE.md and design notes updated for the batch (no merge entry, Branch line, Git-read merged state, worker briefing file, phase template, base-compared language checks); cfq bumped to 0.36.0"
 - batchNumber: 54
   batch: 054-2026-10-05-lint-pending-creators-default-branch-single-briefing
   branch: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
