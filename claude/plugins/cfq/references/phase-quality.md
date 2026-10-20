@@ -153,9 +153,10 @@ rule 8's heading is optional.
 
 ## Phase File Structure
 
-Template: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading) · Context · Affected Files (always
-absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
-filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
+Every phase file is a copy of `<plugin-root>/references/phase-template.md` with its placeholders
+replaced: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading, not in the template) ·
+Context · Affected Files (always absolute paths) · Changes (copy-ready) · Reuse · Dependencies ·
+Verification (with output filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.
 `Reuse` entries that carry logic over verbatim, and `Verification`'s test-first/bundled-smoke/
 sandboxed-debugging requirements are rules 2-4 above.

@@ -37,6 +37,14 @@ the `--batch` filter is read back from its existing data file, its `flags` recom
 current baselines and the file rewritten only if they changed. Both print one JSON object: `{"status",
 "written", "unchanged", "removed"}`.
 
+`merged` (queue row and batch payload) is read from Git, never from a queue file: `true` when the
+batch's tip is reachable from the default branch (`cfq_lib.proc.default_branch`, `origin` first),
+`false` when not, `null` when it cannot be told (batch not done, no `branch:` in the changelog block,
+no tip, no default branch, no Git repository). The tip is, in this order, the local branch named in
+the changelog block, the same branch on `origin`, the full-SHA `commit` of the last ledger phase
+that has one (so a branch deleted after the merge stays `true`). Two Git calls per `sync`
+(`git_merge_lookup()`), none per batch; a squash-merged branch stays `false`.
+
 Reuses rather than re-derives: `cfq_brief.parse_phase_body` for a phase file's title/size,
 `cfq_queue_overlap.extract_affected_files` for its affected files, `cfq_report.read_batch_context`
 for `.batch-context.md`'s sections, `cfq_report.phase_layer_sums` (the four-layer cost split) for
@@ -73,7 +81,7 @@ from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import render  # noqa: E402
-from cfq_lib.proc import git, settings_get  # noqa: E402
+from cfq_lib.proc import default_branch, git, settings_get  # noqa: E402
 
 import cfq_changelog  # noqa: E402
 import cfq_report  # noqa: E402
@@ -479,7 +487,7 @@ def count_deviations(data):
     return total
 
 
-# ---- batch identity: directory name, changelog block, merge card -------------------------------
+# ---- batch identity: directory name, changelog block, merged state -------------------------------
 
 BATCH_NAME_RE = re.compile(r"^(?:(\d+)-)?(\d{4}-\d{2}-\d{2})-(.+)$")
 
@@ -516,18 +524,48 @@ def load_changelog(repo_root):
     return blocks
 
 
-def merge_state(branch, open_names, closed_names):
-    """`True` when the batch's merge card sits in `todo/done/`, `False` when it is still in
-    `todo/`, `None` when there is none (or the branch is unknown). The card is a todo file named
-    `...-merge-<branch with "/" replaced by "-">.md`."""
-    if not branch:
+FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def git_merge_lookup(repo_root):
+    """Two Git calls, once per `sync`: `{"merged": {commits reachable from the default branch},
+    "refs": {ref name: commit}}` for `refs/heads` and `refs/remotes/origin`. `{}` when the default
+    branch cannot be resolved, the directory is no Git repository or either call fails."""
+    _name, ref = default_branch(repo_root, True)
+    try:
+        reach = git(repo_root, "rev-list", ref)
+        listing = git(repo_root, "for-each-ref", "--format=%(refname) %(objectname)",
+                      "refs/heads", "refs/remotes/origin")
+    except OSError:
+        return {}
+    if reach.returncode != 0 or listing.returncode != 0:
+        return {}
+    refs = {}
+    for line in listing.stdout.splitlines():
+        name, _, sha = line.partition(" ")
+        if name and sha:
+            refs[name] = sha
+    return {"merged": set(reach.stdout.split()), "refs": refs}
+
+
+def merge_state(lookup, status, branch, phases):
+    """`True` when the batch's tip is reachable from the default branch, `False` when not, `None`
+    when it cannot be told. The tip is the local branch, else the same branch on `origin`, else the
+    full-SHA `commit` of the last ledger phase that has one. No Git call: `lookup` is
+    `git_merge_lookup()`'s result."""
+    if status != "done" or not branch or not lookup:
         return None
-    suffix = f"-merge-{branch.replace('/', '-')}.md"
-    if any(n.endswith(suffix) for n in closed_names):
-        return True
-    if any(n.endswith(suffix) for n in open_names):
-        return False
-    return None
+    refs = lookup["refs"]
+    tip = refs.get(f"refs/heads/{branch}") or refs.get(f"refs/remotes/origin/{branch}")
+    if not tip:
+        for p in reversed(phases):
+            commit = p.get("commit") if isinstance(p, dict) else None
+            if isinstance(commit, str) and FULL_SHA_RE.match(commit):
+                tip = commit
+                break
+    if not tip:
+        return None
+    return tip in lookup["merged"]
 
 
 # ---- site.js -------------------------------------------------------------------------------------
@@ -701,7 +739,7 @@ def first_paragraph_html(markdown):
     return cfq_lib_markdown.md_inline(cfq_lib_markdown.esc(" ".join(lines))) if lines else ""
 
 
-def build_queue_batch_row(b, bd, data, changelog, todo_names):
+def build_queue_batch_row(b, bd, data, changelog, merge_lookup):
     number, date, title = parse_batch_name(b["name"])
     status = batch_status(b)
     cost = batch_cost(data)
@@ -731,7 +769,7 @@ def build_queue_batch_row(b, bd, data, changelog, todo_names):
         "flags": {"warn": 0, "info": 0},
         "branch": info["branch"],
         "base": info["base"],
-        "merged": merge_state(info["branch"], todo_names["open"], todo_names["done"]),
+        "merged": merge_state(merge_lookup, status, info["branch"], report_phases(data)),
         "settled": all(is_settled(t) for t in records),
     }
 
@@ -925,12 +963,9 @@ def sync(repo_root, batch_names=None):
     entry_titles = {e["id"]: e["title"] for e in entries}
 
     changelog = load_changelog(repo_root)
-    todo_names = {
-        "open": [f.name for f in entry_files(repo_root, "todo", "open")],
-        "done": [f.name for f in entry_files(repo_root, "todo", "done")],
-    }
+    merge_lookup = git_merge_lookup(repo_root)
     rows = {
-        b["name"]: build_queue_batch_row(b, dirs[b["name"]], reports[b["name"]], changelog, todo_names)
+        b["name"]: build_queue_batch_row(b, dirs[b["name"]], reports[b["name"]], changelog, merge_lookup)
         for b in scan["batches"]
     }
 

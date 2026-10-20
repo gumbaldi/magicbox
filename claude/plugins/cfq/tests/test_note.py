@@ -191,15 +191,6 @@ class NoteTest(CfqTestCase):
         )
         self.assertEqual(proc.stderr, "")
 
-    # Should-not-fire: note merge-todo always composes its own check: line, so cmd_merge_todo's
-    # direct _write_entry call must never trip the cmd_note warning.
-    def test_merge_todo_never_warns(self):
-        proc = self.run_cfq(
-            "note", "merge-todo", str(self.repo), "cfq/030-2026-09-20-some-slug", check=True,
-        )
-        self.assertEqual(proc.stderr, "")
-
-    # Should-not-fire: plan/ entries have no check: convention at all -- the warning is todo-only.
     def test_plan_with_no_check_line_has_no_warning(self):
         body = self._body_file("# Finding\n\nsomething noticed, no check line.\n")
         proc = self.run_cfq("note", "plan", str(self.repo), "a finding", str(body), check=True)
@@ -346,123 +337,13 @@ class NoteTest(CfqTestCase):
         self.assertEqual(len(remaining), 1, "the colliding entry must stay in the inbox")
         self.assertEqual(remaining[0].name, f"{self.today}-finding.md")
 
-    # note merge-todo composes the whole card itself -- title, ready-to-run merge command and a
-    # `check:` line -- so the line can never be forgotten the way a model-composed card leaves it
-    # out (see .batch-context.md for phase 01's rationale).
-    def test_merge_todo_writes_card_with_check_line(self):
-        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "main"], check=True)
-        branch = "cfq/030-2026-09-20-some-slug"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        expected = (
-            self.repo / ".claude" / "cfq" / "todo"
-            / f"{self.today}-merge-cfq-030-2026-09-20-some-slug.md"
-        )
-        self.assertEqual(out, str(expected))
-
-        content = expected.read_text()
-        lines = content.splitlines()
-        self.assertTrue(lines[0].startswith("# "), "card must open with an H1 title")
-        self.assertIn(f"git checkout main && git merge --ff-only {branch}", content)
-        check_lines = [line for line in lines if line.startswith("check: ")]
-        self.assertEqual(len(check_lines), 1, "card must carry exactly one check: line")
-
-    # Edge case that actually bites: normalise_slug() maps anything outside [a-z0-9-] to nothing,
-    # so a raw branch slug with a "/" would collapse the segment boundary (cfq030-x) unless the
-    # subcommand translates "/" to "-" itself before normalising.
-    def test_merge_todo_branch_slash_keeps_segment_boundary(self):
-        branch = "cfq/030-x"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
-        self.assertEqual(out, str(expected))
-
-    # The check: line must try origin/main first and fall back to local main -- a repo without a
-    # remote still closes its cards, and a stale/missing origin ref leaves the card open rather
-    # than reporting a merge that hasn't happened (never a false positive). Same resolution order
-    # as cfq_branch.py:331/341.
-    def test_merge_todo_check_line_tries_origin_then_local_main(self):
-        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "main"], check=True)
-        branch = "cfq/030-x"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        content = pathlib.Path(out).read_text()
-        expected_check = (
-            "check: git merge-base --is-ancestor cfq/030-x origin/main 2>/dev/null "
-            "|| git merge-base --is-ancestor cfq/030-x main"
-        )
-        self.assertIn(expected_check, content)
-
-    # The default branch is detected, not assumed to be `main`: title, checkout command and both
-    # halves of the check: line carry the detected name.
-    def test_merge_todo_names_the_detected_default_branch(self):
-        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "master"], check=True)
-        branch = "cfq/030-x"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        lines = pathlib.Path(out).read_text().splitlines()
-        self.assertTrue(lines[0].endswith("into master"), lines[0])
-        self.assertIn("    git checkout master && git merge --ff-only cfq/030-x", lines)
-        self.assertIn(
-            "check: git merge-base --is-ancestor cfq/030-x origin/master 2>/dev/null "
-            "|| git merge-base --is-ancestor cfq/030-x master",
-            lines,
-        )
-
-    def test_merge_todo_follows_origin_head(self):
-        clone = self._repos_dir / "clone"
-        subprocess.run(["git", "clone", "-q", str(self.repo), str(clone)], check=True)
-        subprocess.run(
-            ["git", "-C", str(clone), "update-ref", "refs/remotes/origin/trunk", "HEAD"], check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(clone), "symbolic-ref", "refs/remotes/origin/HEAD",
-             "refs/remotes/origin/trunk"], check=True,
-        )
-        out = self.run_cfq(
-            "note", "merge-todo", str(clone), "cfq/030-x", check=True,
-        ).stdout.strip()
-
-        content = pathlib.Path(out).read_text()
-        self.assertTrue(content.splitlines()[0].endswith("into trunk"), content)
-        self.assertIn("git checkout trunk && git merge --ff-only cfq/030-x", content)
-        self.assertIn(
-            "check: git merge-base --is-ancestor cfq/030-x origin/trunk 2>/dev/null "
-            "|| git merge-base --is-ancestor cfq/030-x trunk",
-            content,
-        )
-
-    def test_merge_todo_without_a_default_branch_names_main(self):
-        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "work"], check=True)
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), "cfq/030-x", check=True,
-        ).stdout.strip()
-
-        content = pathlib.Path(out).read_text()
-        self.assertTrue(content.splitlines()[0].endswith("into main"), content)
-        self.assertIn("git checkout main && git merge --ff-only cfq/030-x", content)
-
-    # Same day, same branch, twice: the second call must fail with the existing EXISTS error and
-    # must not overwrite the first card -- merge-todo inherits cmd_note's write path rather than
-    # inventing its own overwrite behaviour.
-    def test_merge_todo_twice_same_day_fails_and_leaves_first_card_unchanged(self):
-        branch = "cfq/030-x"
-        self.run_cfq("note", "merge-todo", str(self.repo), branch, check=True)
-        target = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
-        before = target.read_text()
-
-        proc = self.run_cfq("note", "merge-todo", str(self.repo), branch)
-        self.assertNotEqual(proc.returncode, 0, "writing onto an existing card must fail")
-        self.assertIn("EXISTS", proc.stderr)
-        self.assertEqual(target.read_text(), before, "existing card's bytes must be unchanged")
+    # The merge entry is gone: merging a batch branch is the user's own step, so the verb is
+    # not part of `note` and writes nothing.
+    def test_merge_todo_verb_is_rejected_and_writes_nothing(self):
+        proc = self.run_cfq("note", "merge-todo", str(self.repo), "cfq/030-x")
+        self.assertNotEqual(proc.returncode, 0)
+        todo = self.repo / ".claude" / "cfq" / "todo"
+        self.assertEqual(list(todo.rglob("*")) if todo.exists() else [], [])
 
     # Empty/missing inbox directory: exit 0, imported: [], no directory created as a side effect.
     def test_import_with_missing_inbox_directory(self):
@@ -479,7 +360,7 @@ class NoteTest(CfqTestCase):
 
 
 class NoteLedgerTest(CfqTestCase):
-    """`note plan|todo|merge-todo` record the entry in the origin batch's report.json `notes`
+    """`note plan|todo` record the entry in the origin batch's report.json `notes`
     list (batch 050 phase 07): zero model tokens, entries written before it get no link."""
 
     BATCH = "050-2026-10-04-ledger"
@@ -572,24 +453,6 @@ class NoteLedgerTest(CfqTestCase):
         proc = self._note("todo", "late", "# Late\n", session=None, batch_flag=self.BATCH)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(len(self._notes(done / self.BATCH)), 1)
-
-    def test_merge_todo_recorded_by_branch_name(self):
-        proc = self.run_cfq("note", "merge-todo", str(self.repo), f"cfq/{self.BATCH}")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        notes = self._notes()
-        self.assertEqual(notes[0]["kind"], "todo")
-        self.assertEqual(notes[0]["phase"], "02-b")
-
-    def test_merge_todo_phase_is_null_when_no_open_phase(self):
-        (self.batch_dir / "02-b.md").unlink()
-        (self.batch_dir / "03-c.md").unlink()
-        self.run_cfq("note", "merge-todo", str(self.repo), f"cfq/{self.BATCH}", check=True)
-        self.assertIsNone(self._notes()[0]["phase"])
-
-    def test_merge_todo_unknown_branch_records_nothing(self):
-        proc = self.run_cfq("note", "merge-todo", str(self.repo), "cfq/999-nothing")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIsNone(self._notes())
 
     def test_framework_inbox_entry_recorded_with_framework_true(self):
         self._lock()

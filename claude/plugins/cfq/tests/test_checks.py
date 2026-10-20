@@ -742,6 +742,56 @@ x
         self.assertNotIn("02-b.md:", out, f"done phase file content should never be linted: {out}")
 
 
+class TestPhaseTemplate(PhaseDirsStatus, CfqTestCase):
+    """`references/phase-template.md` stays in the form `bin/cfq lint` and `bin/cfq brief` read."""
+    TITLE = "<Imperative one-sentence title, no phase number>"
+    EXISTING = "`<absolute path of an existing file>`"
+    NEW = "`<absolute path of a new file>` (new)"
+
+    def _template(self):
+        text = (PLUGIN_ROOT / "references" / "phase-template.md").read_text()
+        for placeholder in (self.TITLE, self.EXISTING, self.NEW):
+            self.assertIn(placeholder, text, f"placeholder missing from phase-template.md: {placeholder}")
+        return text
+
+    def _batch(self, text, name="007-2026-02-01-template"):
+        existing = self._repos_dir / "existing-target"
+        existing.touch()
+        text = text.replace(self.EXISTING, f"`{existing}`")
+        text = text.replace(self.NEW, f"`{self._repos_dir / 'not-yet-there'}` (new)")
+        batch = self._repos_dir / name
+        batch.mkdir()
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nExample.\n")
+        (batch / "01-example.md").write_text(text)
+        return batch
+
+    def test_template_copy_lints_clean(self):
+        batch = self._batch(self._template())
+        proc = self.run_cfq("lint", str(batch))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("01-example.md", proc.stdout + proc.stderr)
+
+    def test_template_title_and_size_are_read_by_brief(self):
+        template = self._template()
+        size = re.search(r"^## Size\n\n(\S+)\n", template, re.MULTILINE).group(1)
+        out = self.run_cfq("brief", str(self._batch(template)), "--overview", check=True).stdout
+        title = self.TITLE[2:] if self.TITLE.startswith("# ") else self.TITLE
+        self.assertRegex(out, rf"01\s+{re.escape(title)}\s+{re.escape(size)}\s", out)
+
+    def test_template_copy_without_a_required_heading_fails_lint(self):
+        template = self._template()
+        for heading in ("Size", "Context", "Affected Files", "Changes", "Verification"):
+            with self.subTest(heading=heading):
+                self.assertIn(f"\n## {heading}\n", template)
+                batch = self._batch(
+                    template.replace(f"\n## {heading}\n", "\n## Other\n"),
+                    name=f"007-2026-02-01-no-{heading.lower().replace(' ', '-')}",
+                )
+                proc = self.run_cfq("lint", str(batch))
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertIn(f"missing {heading} heading", proc.stdout + proc.stderr)
+
+
 class TestSecurity(CfqTestCase):
     def _plain_repo(self, name):
         d = self._repos_dir / name

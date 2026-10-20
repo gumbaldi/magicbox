@@ -101,15 +101,7 @@ Write a `check:` that asserts the *outcome*, not a count of files that happen to
 entry asserting that four `SKILL.md` files contain a clause has been unfalsifiably red since that
 clause moved into `<plugin-root>/references/output-format.md`, even though the work is long done.
 
-For the merge case, don't hand-compose the entry: `"<plugin-root>/bin/cfq" note merge-todo
-"<repo-root>" "<branch>"` writes it, title, ready-to-run merge command and `check:` line together,
-so the line can never be left out. Its check resolves the default branch on `origin` first and falls
-back to the local one (`git merge-base --is-ancestor <branch> origin/<default> 2>/dev/null || git
-merge-base --is-ancestor <branch> <default>`); `<default>` is detected -- `origin/HEAD`, then
-`main`, then `master`. It does not use `git branch --merged <default> | grep -q <branch>`, which
-tests only the local `<default>` ref and reports a branch as unmerged when the local clone is
-behind `origin/<default>`. A hand-written `todo/` entry for anything else may still carry its own
-`check:` line.
+Merging a batch branch is the user's own step, and no `todo/` entry is written for it. A hand-written `todo/` entry may carry its own `check:` line.
 
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`, `<slug>` normalised by `note` itself. The headings
 are always English; only the prose inside them follows `codeLanguage`.

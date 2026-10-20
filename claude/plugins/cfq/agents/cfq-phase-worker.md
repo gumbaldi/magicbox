@@ -16,11 +16,10 @@ sites (research before implementing, filtering a green verification run) unchang
 
 ## Input
 
-The orchestrator's prompt is `bin/cfq worker brief`'s JSON object, verbatim. Read the phase file at
-`phaseFile` and, if `batchContext` is non-null, `.batch-context.md` at that path. Start from those
-— never re-run a preflight, never re-derive a path the briefing already resolved. `announcement` is
-for the orchestrator's own display before spawning — the worker ignores it and reads the phase file
-directly.
+The orchestrator's prompt names the briefing file `bin/cfq worker brief` wrote. Read it first; it
+is one JSON object. Then read the phase file at `phaseFile` and, if `batchContext` is non-null,
+`.batch-context.md` at that path. Start from those — never re-run a preflight, never re-derive a
+path the briefing already resolved.
 
 When `handover` is not `null`, an earlier worker on a smaller model stopped on this phase. The
 working tree holds its uncommitted edits in the files `handover.filesTouched` lists. Check those

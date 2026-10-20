@@ -443,3 +443,54 @@ dropped without a replacement, and `batch.briefText` leaves the preflight result
 Priority is already in the queue listing, which marks a flagged batch, and a batch `/ifq` offers has
 no open dependency, so a header line for either would repeat or state nothing. The dashboard keeps
 the flat listing through `bin/cfq brief --with-done`.
+
+## ifq: why no merge entry is written
+
+`/ifq` wrote a `todo/` entry at the end of every batch that asked the user to merge the batch
+branch, with a `check:` line that closed it once the branch was merged. In a repository that keeps
+its default branch untouched, the entries piled up and were never closed. Merging is the user's own
+step and needs no reminder from cfq, so no entry is written and the `note merge-todo` verb is
+removed with its tests and documentation. The closing report names the batch branch and the branch
+it was cut from on a `Branch` line instead.
+
+The report portal keeps its merged column and reads the state from Git: the batch's branch, or its
+last recorded commit, is reachable from the default branch. A squash merge shows as not merged. The
+portal raises no flag for an unmerged batch, because an unmerged batch is a normal state.
+
+Rejected: keeping the entry with a setting that turns it off. The user wants it gone, and a setting
+would keep the verb, its tests and its documentation alive for a behaviour nobody asked for.
+
+## ifq: why the language checks at finish compare against the batch's base
+
+The language checks at finish compared the batch's changes against the default branch. A chained
+batch, cut from an unmerged predecessor, therefore re-reported every finding of its predecessors at
+each finish. The comparison now uses the base branch recorded in the batch's changelog block, the
+state on `origin` first. The default branch is the fallback when no base is recorded or the base
+branch no longer exists.
+
+Rejected: keeping the default branch as the only base. It is the right base for a batch cut from
+it and the wrong one for every other batch.
+
+## ifq: why the worker briefing is a file
+
+The orchestrator passed the worker its briefing as the verbatim output of `worker brief`, and a rule
+in the prose said to pass it unchanged. The rule did not hold: an orchestrator shortened the
+briefing to save its own context, and the workers lost the recorded deviations of earlier phases.
+`worker brief` now writes the briefing to `.worker-brief.json` in the batch directory, replaced per
+phase, and the orchestrator passes only the path together with the fields it reads itself. A path
+cannot be shortened.
+
+Rejected: capping `priorDeviations` in the script, because the worker then no longer sees everything
+a phase before it recorded. Also rejected: a hash check between `worker brief` and `worker verdict`,
+which detects a shortened briefing after the fact and does not prevent it.
+
+## pfq: why phase files start from a shipped template
+
+`phase-quality.md` and `plan-park.md` referred to "the template" for phase files, but the plugin
+shipped none. The planning model copied the format from an old batch, the format drifted from batch
+to batch, and the drift cost tool calls in lint and in the phase announcement.
+`references/phase-template.md` is now the one skeleton, and a test keeps it in line with
+`cfq lint`, so the template cannot fall behind the checks.
+
+Rejected: spelling the structure out in `phase-quality.md`. Every planning session reads that file
+in full, and the skeleton is only needed at the moment a phase file is written.

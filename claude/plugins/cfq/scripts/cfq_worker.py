@@ -7,6 +7,13 @@ with (`brief`), and deciding what the worker's returned report means for the sto
 JSON report on stdin -- see `.batch-context.md` and `references/ifq-phase.md`'s `## Stop Rule` for
 why this must be a script rather than skill prose.
 
+`brief` writes the full briefing object to `<batch-dir>/.worker-brief.json` (one file per batch,
+replaced on every call) and prints a small object: `status`, `batch`, `batchDir`, `phase`,
+`briefFile`, `prompt` (the one line that names the file, passed to the worker unchanged), the
+`model` and `escalation` the orchestrator reads itself, and `announcement`. A batch or phase that
+does not resolve prints `NO_BATCH` and writes no file; an unwritable file exits non-zero with one
+line on standard error and nothing on standard output.
+
 `verdict`'s stdin contract: `{"status": "green"|"red"|"question", "triggers": [...], "question":
 "..."}`; `"escalate"` (with a `handover` object) is the fourth status and returns `ESCALATE`.
 `triggers` is the worker's own classification against the post-018 stop rule -- whether a
@@ -39,6 +46,8 @@ from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 
 PROG = "cfq_worker.py"
+
+BRIEF_FILE = ".worker-brief.json"
 
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -214,26 +223,42 @@ def cmd_brief(args):
 
     commands = build_commands(str(PLUGIN_ROOT), repo_root, batch_dir)
 
+    brief_file = batch_dir / BRIEF_FILE
+    try:
+        render.write_json(brief_file, {
+            "status": "OK",
+            "batch": batch_dir.name,
+            "batchDir": str(batch_dir),
+            "phase": phase_slug,
+            "phaseFile": str(phase_file),
+            "size": size,
+            "batchContext": batch_context,
+            "branch": branch,
+            "language": language,
+            "blockedPlugins": blocked_plugins,
+            "exploreModels": explore_models,
+            "recommendedSkills": recommended_skills,
+            "failedAttempt": failed_attempt,
+            "model": model,
+            "modelSource": model_source,
+            "escalation": {"next": next_stronger(model, settings)},
+            "handover": handover,
+            "priorDeviations": prior_deviations,
+            "commands": commands,
+        })
+    except OSError as e:
+        errors.die(f"cannot write the worker briefing {brief_file}: {e}")
+        return
+
     print(render.dump_json({
         "status": "OK",
         "batch": batch_dir.name,
         "batchDir": str(batch_dir),
         "phase": phase_slug,
-        "phaseFile": str(phase_file),
-        "size": size,
-        "batchContext": batch_context,
-        "branch": branch,
-        "language": language,
-        "blockedPlugins": blocked_plugins,
-        "exploreModels": explore_models,
-        "recommendedSkills": recommended_skills,
-        "failedAttempt": failed_attempt,
+        "briefFile": str(brief_file),
+        "prompt": f"Read your briefing at {brief_file} first, then implement that phase.",
         "model": model,
-        "modelSource": model_source,
         "escalation": {"next": next_stronger(model, settings)},
-        "handover": handover,
-        "priorDeviations": prior_deviations,
-        "commands": commands,
         "announcement": render_phase(phase_num(phase_file), fields),
     }))
 
