@@ -150,10 +150,19 @@ def lint_result(batch_dir):
 
 
 def lint_line(lint_json):
-    """The `Lint` status line -- `done` when clean, `fail` with every finding as a `   └ ` sub-line
-    otherwise. `lint_json['warnings']` never affects this, matching lint's own exit-code rule."""
+    """The `Lint` status line -- `fail` with every finding as a `   └ ` sub-line when lint is not
+    clean; `warn` with every warning (its `warn: ` prefix removed) as a sub-line when lint is clean
+    but printed warnings; `done` otherwise. Warnings never affect `clean`, matching lint's own
+    exit-code rule, and they are shown rather than dropped."""
     if lint_json["clean"]:
-        return text.status_entry("Lint", "done", "clean")
+        warnings = lint_json["warnings"]
+        if not warnings:
+            return text.status_entry("Lint", "done", "clean")
+        n = len(warnings)
+        return text.status_entry(
+            "Lint", "warn", f"clean · {n} warning{'s' if n != 1 else ''}",
+            sub=[w.removeprefix("warn: ") for w in warnings],
+        )
     n = len(lint_json["findings"])
     return text.status_entry("Lint", "fail", f"{n} findings", sub=lint_json["findings"])
 

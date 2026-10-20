@@ -129,7 +129,10 @@ handoff — run again here since a plan file is plain Markdown the user may edit
 later deterministic script misparses it mid-implementation. `lint.clean: false` → print `Lint` (its
 `lint.findings` already rendered as `   └ ` sub-lines) and **end the session immediately** — before
 the lock, the branch, or any file is touched — the user fixes the phase files by hand or re-plans
-the batch with `/pfq`. `lint.warnings` (an unresolvable `.dependsOn`, the same kind of `warn:` line
-`selection.blocked`'s `unknownDeps` already surfaces) never blocks, matching lint's own exit-code
-rule — `lint.clean` stays `true` even when `lint.warnings` is non-empty. `lint.clean: true` → print
-`Lint` and continue straight to lock acquisition.
+the batch with `/pfq`. Warnings never block and `lint.clean` stays `true` when `lint.warnings` is
+non-empty; the preflight's `Lint` line lists every one of them as a sub-line and is printed as
+returned. Typical warnings are an unresolvable `.dependsOn`, a `## Changes` section without
+numbered steps, an unchecked `## Model` heading when `implModels` cannot be read, and `stale-new`
+on the next pending phase's own `(new)` files, which means that phase was started before and
+created them. The list is a set of examples, not a complete one. `lint.clean: true` → print `Lint`
+and continue straight to lock acquisition.

@@ -1151,7 +1151,60 @@ x
             msg=f"lint = {out['lint']}",
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
-        self.assertEqual(entry["icon"], "done", msg=f"entry = {entry}")
+        self.assertEqual(entry["icon"], "warn", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "clean · 1 warning", msg=f"entry = {entry}")
+        self.assertEqual(
+            entry["sub"], [out["lint"]["warnings"][0].removeprefix("warn: ")], msg=f"entry = {entry}"
+        )
+        self.assertTrue(out["lint"]["warnings"][0].startswith("warn: "), msg=f"lint = {out['lint']}")
+
+    def test_lint_two_warnings_listed_in_order(self):
+        repo = self._setup_repo("lint-two-warns")
+        target = self._repos_dir / "lint-two-warns-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(self._clean_phase_body(target))
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / ".dependsOn").write_text("does-not-exist\nalso-missing\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertTrue(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(len(out["lint"]["warnings"]), 2, msg=f"lint = {out['lint']}")
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "warn", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "clean · 2 warnings", msg=f"entry = {entry}")
+        self.assertEqual(
+            entry["sub"], [w.removeprefix("warn: ") for w in out["lint"]["warnings"]],
+            msg=f"entry = {entry}",
+        )
+
+    def test_lint_finding_and_warning_stays_fail(self):
+        repo = self._setup_repo("lint-find-warn")
+        target = self._repos_dir / "lint-find-warn-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(f"""# Phase A
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+1. x
+""")
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / ".dependsOn").write_text("does-not-exist\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertFalse(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(len(out["lint"]["warnings"]), 1, msg=f"lint = {out['lint']}")
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "fail", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "1 findings", msg=f"entry = {entry}")
+        self.assertEqual(entry["sub"], out["lint"]["findings"], msg=f"entry = {entry}")
 
     def test_lint_absent_when_no_batch_resolved(self):
         # NO_BATCH
