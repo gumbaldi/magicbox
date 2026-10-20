@@ -365,7 +365,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertTrue(alpha_goal.endswith("…"), msg=f"goal not ellipsized: {alpha_goal!r}")
         self.assertIsNone(by_name["2026-01-02-beta"]["goal"], msg=f"no context -> goal should be null: {out}")
 
-    def test_resolved_batch_brief_text_contains_goal(self):
+    def test_resolved_batch_has_no_brief_text(self):
         repo = self._setup_repo("goal-resolved")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
@@ -373,10 +373,32 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nSolo batch goal.\n")
 
         out = self.json_out(self._run_pf(str(repo)))
-        self.assertIn(
-            "goal: Solo batch goal.", out["batch"]["briefText"].splitlines(),
-            msg=f"resolved batch briefText missing goal line: {out['batch']['briefText']!r}",
-        )
+        self.assertNotIn("briefText", out["batch"], msg=f"batch carries briefText: {out['batch']!r}")
+        for key in ("name", "priority", "phaseCount", "dependsOn"):
+            self.assertIn(key, out["batch"], msg=f"batch missing {key}: {out['batch']!r}")
+
+    def test_selected_batch_has_no_brief_text(self):
+        repo = self._setup_repo("select-no-brief")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        for name in ("2026-01-01-alpha", "2026-01-02-beta"):
+            (qdir / name).mkdir(parents=True)
+            (qdir / name / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "2026-01-02-beta"))
+        self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"--select batch = {out}")
+        self.assertNotIn("briefText", out["batch"], msg=f"batch carries briefText: {out['batch']!r}")
+        for key in ("name", "priority", "phaseCount", "dependsOn"):
+            self.assertIn(key, out["batch"], msg=f"batch missing {key}: {out['batch']!r}")
+
+    def test_high_priority_batch_queue_text_row_shows_high(self):
+        repo = self._setup_repo("high-row")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertIn("high · ", out["selection"]["queueText"], msg=f"queueText = {out['selection']['queueText']!r}")
 
     def test_all_done_not_finished_batch_resumes_with_null_next_phase(self):
         repo = self._setup_repo("all-done-not-finished")

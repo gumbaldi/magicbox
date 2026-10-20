@@ -204,8 +204,8 @@ def impl_model(settings_json):
 
 def build_next(repo, scan_repos):
     """Next-batch expansion: the batch `/ifq` would pick next (`bin/cfq scan --format=next`)
-    rendered to its individual phases (`bin/cfq brief --with-done`) -- same lines as /ifq's own
-    Step 4 briefing. Render mode only."""
+    rendered to its individual phases (`bin/cfq brief --with-done`) -- the flat per-phase listing
+    the dashboard shows. Render mode only."""
     expanded, header, note = "", "", ""
     if not repo:
         return expanded, header, note

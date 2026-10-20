@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_ifq_preflight.py <repo-root> [--select <batch>] [--intent {resume,start}]
 """Single read-only preflight aggregator for implement-for-queue's Steps 1-2 (model/plugin policy),
-3a (batch selection), 3b's read-only half (briefing) and 4a/4b (failed-attempt lookup, context
-gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_brief.py/cfq_resume.py/cfq_report.py
+3a (batch selection), 3b's read-only half (resume and lint state) and 4a/4b (failed-attempt lookup, context
+gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_resume.py/cfq_report.py
 last-failure/ctx_usage.py gate call the skill used to issue separately into one JSON object.
 Mutations (cfq_lock.py acquire, git checkout, cfq_changelog.py init, and cfq_branch.py plan's
 post-checkout re-confirm on new-mode) stay explicit skill-level steps, never hidden in here -- the
@@ -351,7 +351,6 @@ def cmd_preflight(args):
 
     batch_dir = qdir / chosen
     lint_json = lint_result(batch_dir)
-    brief_text = cfq_run("brief", str(batch_dir), "--with-done").stdout.rstrip("\n")
     cand = next(b for b in candidates if b["name"] == chosen)
 
     resume_json = json.loads(cfq_run("resume", repo, str(batch_dir)).stdout)
@@ -420,7 +419,7 @@ def cmd_preflight(args):
         },
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],
-            "skipped": cand.get("skipped", 0), "dependsOn": cand["dependsOn"], "briefText": brief_text,
+            "skipped": cand.get("skipped", 0), "dependsOn": cand["dependsOn"],
             "consistency": cand.get("consistency"),
         },
         "lint": lint_json,

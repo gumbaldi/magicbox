@@ -244,7 +244,7 @@ restate a field list inline — read the field here, then read it back from the 
   implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
   batchReviewFindings}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
-  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
+  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,

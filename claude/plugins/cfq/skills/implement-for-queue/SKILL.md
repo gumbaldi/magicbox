@@ -73,25 +73,15 @@ phase files in full here, that's **Implementation**'s job. `contextGate.verdict`
 
 ### Batch Briefing
 
-`batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
-batch — batch name, priority, phase count, then a `goal:` line from `.batch-context.md`'s
-`## Goal` (cut at about 300 characters, on a word boundary) when the batch has one, `.dependsOn` if
-present, then one line per phase (number and title, size in brackets, context excerpt). Present it
-as-is, compactly: no prose around it, no repetition of the plan, no commentary on the phases. A
-phase file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
-incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
-shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders
-with no `goal:` line.
-
-`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders — the
+`bin/cfq brief <batch-dir> --overview` renders the batch overview the start gate shows — the
 aligned-monospace batch-overview block: header, phase count with done/red breakdown, the labelled,
 untruncated `.batch-context.md` block (`Goal`, `Decisions`, `Invariants`, `Cross-Phase Contracts`,
 `Non-Goals`, each only when present), then the phase table with a `done`/`open`/`red` status
 column, each row followed by that phase's own `## Context` excerpt and a `→ <file>` pointer
 (`done/<file>` for a finished phase), a closing `Plans` line naming the batch directory so a hand
-edit knows exactly where to reach in, and a `Portal` line when the report portal is on.
-`--with-done` stays exactly as described above for any caller that still wants the old flat
-listing.
+edit knows exactly where to reach in, and a `Portal` line when the report portal is on. A phase
+file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
+incomplete plan is worth showing, not worth aborting over.
 
 ### Start Gate
 

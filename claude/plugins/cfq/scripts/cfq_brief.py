@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed]]
-"""Prints the batch briefing block shown before a batch is offered for implementation, or (with
+"""Prints the flat batch listing the dashboard's next-batch expansion shows (default mode), or (with
 --phase <NN>) a single-phase announcement block (title, goal, files, the first 10 numbered
-`## Changes` steps at two lines each, check command), or (with --with-done) the same batch briefing
+`## Changes` steps at two lines each, check command), or (with --with-done) the same flat listing
 with done phases listed first, ticked, and skipped ones after them, or (with --overview) the aligned-monospace batch-overview
 block (header, phase count/done/error/skipped line, the untruncated labelled `.batch-context.md` block, the
 phase table interleaved with each phase's own `## Context` excerpt and a `-> <file>` pointer, and
