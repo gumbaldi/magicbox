@@ -402,3 +402,44 @@ it is done.
 The bare `cfq` command works on current Claude Code, and skill text would be shorter with it. The
 user chose not to depend on the Claude Code version that provides it, so skill and reference texts
 keep `"${CLAUDE_PLUGIN_ROOT}/bin/cfq"`, and `<plugin-root>/bin/cfq` inside reference files.
+
+## pfq/ifq: why lint resolves a missing file against pending phases
+
+A file that an earlier phase, or a batch listed in `.dependsOn`, creates does not exist when a later
+phase is planned. Lint used to report it as `missing` when the later phase listed it bare, and as
+`stale-new` once it existed and was marked `(new)`, so the file failed at every point in time.
+Planners worked around it by hiding such bullets from lint and from the overlap check.
+
+Lint now looks the path up in the plan data it reads anyway: only the creating phase marks the
+file `(new)`, and later phases and dependent batches list it bare. There is no third marker,
+because a marker is one more thing a planner can set wrongly, while the answer is derivable. A
+missing file whose creating phase is done, skipped or numbered later stays a blocking finding that
+names that phase, and two phases that both mark one file `(new)` are a `duplicate-new` finding.
+
+`stale-new` is a warning only for the next pending phase of a batch that has left planning. A phase
+interrupted after it created its files must be resumable, so its own `(new)` files existing is
+expected. While `.planning` exists nothing has been implemented, so an existing "new" file is a
+plan error and stays a finding.
+
+## cfq: why the default branch is detected and has no setting
+
+Batch finish and the merge entry assumed `main`. A repository whose default branch is `master`, or
+another name, got a wrong comparison. `default_branch()` in `cfq_lib/proc.py` resolves it in one
+place for every script: `origin/HEAD` first, then `main`, then `master`.
+
+The remote state comes first because a local default branch can lag far behind it, and the finish
+comparison must measure against what the remote holds. The local branch is the fallback. No fetch
+is added, so the answer is as fresh as the last fetch the user made.
+
+A `defaultBranch` setting is not added. It waits for a repository whose merge target differs from
+its default branch, which none of the managed repositories is.
+
+## ifq: why the start prints the batch overview only
+
+`/ifq` printed the phases twice at its start: the batch overview, and a flat listing of all phases
+below it. The listing repeated the overview and cost input and output tokens in every session. It is
+dropped without a replacement, and `batch.briefText` leaves the preflight result.
+
+Priority is already in the queue listing, which marks a flagged batch, and a batch `/ifq` offers has
+no open dependency, so a header line for either would repeat or state nothing. The dashboard keeps
+the flat listing through `bin/cfq brief --with-done`.
