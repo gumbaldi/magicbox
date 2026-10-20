@@ -2,7 +2,6 @@
 # Usage: cfq_note.py plan <repo-root> <slug> <body-file|-> [--framework] [--batch <name>]
 #        cfq_note.py todo <repo-root> <slug> <body-file|-> [--batch <name>]
 #        cfq_note.py close <repo-root> <entry>... --reason <text>
-#        cfq_note.py merge-todo <repo-root> <branch>
 #        cfq_note.py import <repo-root>
 #        cfq_note.py list <repo-root> [--text | --overview | --detail]
 #        cfq_note.py sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S]
@@ -17,15 +16,15 @@ since a body written to a temp file first can be blocked by a write-guard hook t
 writes under `.claude/cfq/`. An empty stdin body fails with `EMPTY_BODY`; the file form is
 unchanged.
 
-`_write_entry()` (shared by `plan`, `todo` and `merge-todo`) also repairs two writer defects:
+`_write_entry()` (shared by `plan` and `todo`) also repairs two writer defects:
 a slug carrying a leading `YYYY-MM-DD-` prefix (repeated, too -- e.g. copied from another entry's
 filename) has it stripped before normalising, and a body whose first non-empty line doesn't open
 with `# ` gets a `# <Title>` derived from the slug prepended, with a stderr warning naming it --
 never rejected.
 
-Origin ledger: `plan`/`todo`/`merge-todo` also append `{kind, file, title, at, phase, framework}`
+Origin ledger: `plan`/`todo` also append `{kind, file, title, at, phase, framework}`
 to the origin batch's `report.json` `notes` list, at zero model-token cost. The batch is the
-explicit `--batch`, else (`merge-todo`) the branch name minus `cfq/`, else the batch the repo lock
+explicit `--batch`, else the batch the repo lock
 holds for `CLAUDE_CODE_SESSION_ID`; looked up in `impl/` then `impl/done/`. `phase` is the lowest
 open phase file, `null` when none is left. Nothing resolves, no `report.json` -> nothing recorded
 (never created); an unknown `--batch` warns once on stderr. The exit code never changes.
@@ -44,13 +43,6 @@ the target repo is `frameworkRepo` itself, in which case it writes the ordinary 
 no session ever writes into a second repo. `import <repo-root>` is the inverse, run inside the
 framework repo: it moves every inbox entry into that repo's own `plan/`, and is a no-op unless
 `<repo-root>` is `frameworkRepo`.
-
-`merge-todo <repo-root> <branch>` composes a deterministic `todo/` merge card itself -- title,
-ready-to-run merge command and a `check:` line that resolves `origin/<default>` first and falls
-back to the local `<default>` -- the default branch is detected (`origin/HEAD`, then `main`, then
-`master`) -- so the check line can never be left out the way a model-composed card leaves it out. It reuses the same write path as `todo` (target directory, date prefix, slug normalisation,
-`EXISTS` refusal); only the body text and the slug source (the branch name, `/` translated to `-`
-before normalisation) differ.
 
 `list <repo-root>` renders the `plan/` inbox without consuming it -- one record per
 `plan/*.md` (non-recursive, so `plan/done/` is never listed), sorted by filename ascending, which
@@ -221,20 +213,15 @@ def _lock_batch(repo):
     return data.get("batch") or None
 
 
-def _origin_batch_dir(repo, explicit=None, branch=None):
-    """Resolves the batch an entry came from: explicit `--batch`, then (merge-todo) the branch
-    name minus a leading `cfq/`, then the batch the lock holds for this session. `None` when
+def _origin_batch_dir(repo, explicit=None):
+    """Resolves the batch an entry came from: explicit `--batch`, then the batch the lock holds
+    for this session. `None` when
     nothing resolves. An explicit name that names no batch warns once on stderr."""
     if explicit:
         d = _batch_dir(repo, explicit)
         if d is None:
             print(f"warning: --batch {explicit}: no such batch -- entry not linked", file=sys.stderr)
         return d
-    if branch:
-        name = branch[len("cfq/"):] if branch.startswith("cfq/") else branch
-        d = _batch_dir(repo, name)
-        if d is not None:
-            return d
     return _batch_dir(repo, _lock_batch(repo))
 
 
@@ -245,11 +232,11 @@ def _entry_title(path):
     return ""
 
 
-def _record_note(repo, kind, written, framework=False, explicit=None, branch=None):
+def _record_note(repo, kind, written, framework=False, explicit=None):
     """Appends the written entry to its origin batch's report.json `notes` ledger. Never creates
     report.json, never raises, never changes the verb's exit code. Returns whether it recorded."""
     try:
-        batch_dir = _origin_batch_dir(repo, explicit=explicit, branch=branch)
+        batch_dir = _origin_batch_dir(repo, explicit=explicit)
         if batch_dir is None:
             return False
         report = batch_dir / "report.json"
@@ -386,29 +373,6 @@ def cmd_close(args):
 
     portal_hook.sync(args.repo)
     print(render.dump_json({"status": "OK", "closed": closed}))
-
-
-def cmd_merge_todo(args):
-    branch = args.branch
-    name, _ = cfq_lib_proc.default_branch(args.repo, True)
-    check = (
-        f"git merge-base --is-ancestor {branch} origin/{name} 2>/dev/null "
-        f"|| git merge-base --is-ancestor {branch} {name}"
-    )
-    body = (
-        f"# Merge branch `{branch}` into {name}\n"
-        "\n"
-        "Batch finished -- merge the branch and delete it once the merge is in.\n"
-        "\n"
-        f"    git checkout {name} && git merge --ff-only {branch}\n"
-        "\n"
-        f"check: {check}\n"
-    )
-    slug = "merge-" + branch.replace("/", "-")
-    written = _write_entry(TARGET_DIR["todo"](args.repo), slug, body)
-    if written is not None:
-        _record_note(args.repo, "todo", written, branch=branch)
-    portal_hook.sync(args.repo)
 
 
 def cmd_import(args):
@@ -761,11 +725,6 @@ def build_parser():
     close_p.add_argument("--reason", required=True)
     close_p.set_defaults(func=cmd_close)
 
-    merge_todo_p = sub.add_parser("merge-todo")
-    merge_todo_p.add_argument("repo")
-    merge_todo_p.add_argument("branch")
-    merge_todo_p.set_defaults(func=cmd_merge_todo)
-
     import_p = sub.add_parser("import")
     import_p.add_argument("repo")
     import_p.set_defaults(func=cmd_import)
@@ -798,7 +757,7 @@ def main(argv):
         errors.die(
             f"usage: {PROG} plan|todo <repo-root> <slug> <body-file|-> [--framework] [--batch <name>] | "
             f"close <repo-root> <entry>... --reason <text> | "
-            f"merge-todo <repo-root> <branch> | import <repo-root> | "
+            f"import <repo-root> | "
             f"list <repo-root> [--text | --overview | --detail] | "
             f"sweep <repo-root> [--apply] [--text] [--stale-days N] [--timeout S] "
             f"[--close <filename>]..."
