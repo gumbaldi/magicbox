@@ -28,7 +28,7 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 | PRECHECKS | 2 | `Listing` | `2 repos · 20 of 80 rows` |
 | POSTCHECKS | 3 | `HTML` | `rendered · file:///…` |
 
-## 1. Collect
+## Step 1 — Collect
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>]
@@ -45,7 +45,7 @@ No batch has a report (`index` returns `[]`) → say so plainly, and mention tha
 reports existed never got one. Exactly one match → skip **Terminal Table** entirely
 and go straight to **Detail**'s detail view.
 
-## 2. Terminal Table
+## Step 2 — Terminal Table
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] --text
@@ -58,7 +58,7 @@ call), then print `index --text`'s output exactly as returned: one section per r
 full history. A row's `📄` column says whether that batch's own data is already in the portal;
 nothing here prints a path. No rebuilding the table from **Collect**'s JSON by hand.
 
-## 3. Detail
+## Step 3 — Detail
 
 On request for a single batch, print the `POSTCHECKS` header, then call:
 

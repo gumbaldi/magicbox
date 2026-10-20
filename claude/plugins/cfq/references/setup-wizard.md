@@ -138,7 +138,7 @@ wizard:
 "<plugin-root>/bin/cfq" settings set <key> <value>
 ```
 
-Print one status line per change, same wording as `code-for-queue`'s **Step D**: `✅ Setting  <key>:
+Print one status line per change, same wording as `code-for-queue`'s **Settings**: `✅ Setting  <key>:
 <old> → <new> (global)`. Then mark the wizard done:
 
 ```bash
@@ -242,7 +242,7 @@ repo wizard:
 "<plugin-root>/bin/cfq" settings set --repo <repo-root> <key> <value>
 ```
 
-Print one status line per change, same wording as `code-for-queue`'s **Step D**: `✅ Setting  <key>:
+Print one status line per change, same wording as `code-for-queue`'s **Settings**: `✅ Setting  <key>:
 <old> → <new> (repo)`. Then print the `Config` status line, the one `pfq`'s start
 block prints for a new repo: `⚠️ new repo · reviewed` (the user
 kept every value, including the keep-all fast path) or `⚠️ new repo · adjusted <n>` (`<n>` = number

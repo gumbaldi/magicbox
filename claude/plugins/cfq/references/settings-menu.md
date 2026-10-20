@@ -1,8 +1,8 @@
 # Settings Menu: `/cfq settings`
 
-Guided navigation over the same settings schema `code-for-queue`'s Step D already changes via free
+Guided navigation over the same settings schema `code-for-queue`'s **Settings** already changes via free
 text — this is the picker version, entered when the skill's argument is `settings`. A free-text
-change request ("set stopUsed to 100000") keeps going straight to Step D, unchanged; nothing below
+change request ("set stopUsed to 100000") keeps going straight to **Settings**, unchanged; nothing below
 replaces it.
 
 ## Contents
@@ -42,7 +42,7 @@ previews — print it exactly as returned, no reformatting.
 
 ## Scope
 
-Outside a repo (no repo root resolves), skip this question — everything is global, same as Step D.
+Outside a repo (no repo root resolves), skip this question — everything is global, same as **Settings**.
 Inside a repo, ask first, one `AskUserQuestion`, framed per
 `<plugin-root>/references/interaction-policy.md`'s **Decision Question Context**:
 
@@ -50,7 +50,7 @@ Inside a repo, ask first, one `AskUserQuestion`, framed per
 - **this repo** — a repo-scoped override, applies only here.
 
 A key whose `scopes` excludes `repo` can only ever be global (`<plugin-root>/references/dashboard.md`'s
-**Step D — Settings, Full Detail** names the three: `scanRoots`, `securityTimeoutSeconds`,
+**Settings, Full Detail** names the three: `scanRoots`, `securityTimeoutSeconds`,
 `securityFindingsCap`). When scope is "this repo" and the key picked at **Setting** turns out to be
 one of those, explain plainly at **Value** — the change applies everywhere, not just this repo —
 and fall back to a global `set` rather than erroring the way a raw `settings set --repo` call does;
@@ -83,7 +83,7 @@ One `AskUserQuestion`:
   exceed 4 options — nothing in the schema today needs a second page here (`docLevel`'s two values
   plus reset is 3), but a future enum that grows past it still pages the same way.
 - **int** / **string** / **array** / **object** — no value options to enumerate. The question's own
-  text carries the schema's `min`/`pattern` (from `describe`, the same source Step D already reads)
+  text carries the schema's `min`/`pattern` (from `describe`, the same source **Settings** already reads)
   and the current value; the answer comes back through the option list's own free-text **Other**
   rather than a value each. **reset to default** is still offered as an explicit option alongside
   **Other**.
@@ -99,7 +99,7 @@ before asking.
 "<plugin-root>/bin/cfq" settings unset [--repo <repo-root>] <key>          # reset to default
 ```
 
-Print one status line, exactly Step D's own wording: `✅ Setting  <key>: <old> → <new>
+Print one status line, exactly **Settings**' own wording: `✅ Setting  <key>: <old> → <new>
 (<scope>)`, or `⚠️ Setting  <key> set, but <ENV_VAR> overrides` when the key's `source` in the menu
 JSON already started with `env` before this write — the write still happens, the note only warns
 it stays invisible until the variable is gone.

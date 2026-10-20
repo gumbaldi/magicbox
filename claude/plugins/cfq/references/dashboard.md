@@ -2,13 +2,13 @@
 
 ## Contents
 
-- QUEUES Table and Reports (Step B)
+- QUEUES Table and Reports (**Dashboard**)
 - Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
-- CONFIG Block: Full List and Global View (Step B)
-- Step C — Management, Six Actions (current repo only, always confirm before writing)
-- Step D — Settings, Full Detail
+- CONFIG Block: Full List and Global View (**Dashboard**)
+- Management, Six Actions (current repo only, always confirm before writing)
+- Settings, Full Detail
 
-## QUEUES Table and Reports (Step B)
+## QUEUES Table and Reports (**Dashboard**)
 
 The `QUEUES` table's columns are `Repo | Plan | Todo | Batches | Reports | Status`. `Reports`
 counts the batch records (open and archived both) whose `report.json` exists — same `report` flag
@@ -19,15 +19,15 @@ when the batch has skipped phases.
 The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing at `/rfq`
 (`report-for-queue`), the skill that lists and renders them, plus this repo's own report portal
 path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
-and isn't one of Step C's six mutating actions below.
+and isn't one of **Management**'s six mutating actions below.
 
 ## Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
 
-Moved into `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
-former Step A, first-time-setup only, is now the setup wizard's global part, run automatically the
-first time and any time by name via `/cfq setup`).
+Lives in `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
+setup wizard's global part, run automatically the first time and any time by name via
+`/cfq setup`).
 
-## CONFIG Block: Full List and Global View (Step B)
+## CONFIG Block: Full List and Global View (**Dashboard**)
 
 On request, two extensions of the same block, same rendering:
 
@@ -36,7 +36,7 @@ On request, two extensions of the same block, same rendering:
 - **Global view** — `"<plugin-root>/bin/cfq" settings list --sources` without
   `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
-## Step C — Management, Six Actions (current repo only, always confirm before writing)
+## Management, Six Actions (current repo only, always confirm before writing)
 
 Every action follows the same shared flow: a deterministic check computes the proposed action
 (file count, dependency existence, blocked status — already available from `.repos`/`.thisRepo`,
@@ -78,7 +78,7 @@ ACTION
 ⚠️ Dependency      2026-08-10-auth does not exist · edge written anyway
 ```
 
-## Step D — Settings, Full Detail
+## Settings, Full Detail
 
 The guided `/cfq settings` picker (`<plugin-root>/references/settings-menu.md`) navigates the same
 schema this section describes and reuses everything below — scope inference, the global-only

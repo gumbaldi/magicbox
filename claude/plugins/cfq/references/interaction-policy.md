@@ -6,7 +6,7 @@ Shared rules for `pfq` and `ifq` sessions on gating against harness state and on
 ## Plan-Mode Gate
 
 If a "Plan mode is active" system-reminder is present in context, call `ExitPlanMode`
-immediately — before `pfq`'s **Start Block** / before `ifq`'s **Preflight** call — naming what this
+immediately — before `pfq`'s and `ifq`'s **Preflight** call — naming what this
 session is about to write (`pfq`: "interview and park plan files for `<repo>`"; `ifq`: "implement
 the next open phase of `<batch>`"). Neither skill can function under Plan Mode (`pfq` writes
 batch/phase files in **Park**, `ifq` writes code in `<plugin-root>/references/ifq-classic.md`'s **Implementation**) — resolve this before the

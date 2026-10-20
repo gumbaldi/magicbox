@@ -181,7 +181,7 @@ def setup_hint_line():
     settings` for a user whose global setup already ran (`setupDone: true`) before the guided
     wizard/menu existed. Shown at most once per machine -- `setupHintShown` lives in the same
     schema-less state store as `setupDone`, flipped to true as a side effect of showing it once.
-    `setupDone` still `false` means the wizard itself is about to run instead (Step A), so this
+    `setupDone` still `false` means the wizard itself is about to run instead (**First-Time Setup**), so this
     line stays silent then -- never both in the same render."""
     setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
     if not setup_done:

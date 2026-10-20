@@ -22,7 +22,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_dash  # noqa: E402
 
-# The seven capability rows the ACTIONS section names (Step C's six actions plus Step D's
+# The seven capability rows the ACTIONS section names (**Management**'s six actions plus **Settings**'
 # settings change) -- kept as one list so the drift guard below can check both directions: every
 # keyword must show up in the rendered dashboard AND in references/dashboard.md's own prose.
 ACTION_KEYWORDS = [

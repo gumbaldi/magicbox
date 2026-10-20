@@ -171,7 +171,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 13) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq`'s **Park** step) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set

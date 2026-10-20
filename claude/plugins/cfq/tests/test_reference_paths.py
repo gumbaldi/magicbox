@@ -408,6 +408,68 @@ def check_moved_sections_exist_once(root):
     return fails
 
 
+# 17. Added by Phase 08 (batch 053): every step heading in a skills/*/SKILL.md is
+#     `## Step <n> — <Name>` and the numbers run 1..N without a gap or a repeat. A heading that
+#     starts with `Step ` or with `<digit>.` but misses the form (`## Step A — Setup`,
+#     `## 1. Collect`) fails. A SKILL.md with no step headings passes.
+STEP_HEADING_RE = re.compile(r"^## Step (\d+) \u2014 \S")
+STEP_LIKE_RE = re.compile(r"^## (Step\b|\d+\.)")
+
+
+def check_step_headings_uniform(root):
+    fails = []
+    for f in sorted(root.glob("skills/*/SKILL.md")):
+        numbers = []
+        in_fence = False
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence or not STEP_LIKE_RE.match(line):
+                continue
+            m = STEP_HEADING_RE.match(line)
+            if m is None:
+                fails.append(f"FAIL: {f}:{lineno} step heading is not `## Step <n> \u2014 <Name>`: {line}")
+            else:
+                numbers.append(int(m.group(1)))
+        if numbers and numbers != list(range(1, len(numbers) + 1)):
+            fails.append(f"FAIL: {f}: step numbers {numbers} do not run 1..{len(numbers)}")
+    return fails
+
+
+# 18. Added by Phase 08 (batch 053): no skill, reference, agent or the plugin CLAUDE.md refers to a
+#     step by letter or as `Step 0` -- the form breaks on every renumbering; a step is named in bold.
+STEP_LETTER_RE = re.compile(r"\bSteps? (?:[A-E]\b|0\b)")
+
+
+def check_no_step_letter_references(root):
+    fails = []
+    files = (
+        sorted(root.glob("skills/*/SKILL.md"))
+        + sorted(root.glob("references/*.md"))
+        + sorted(root.glob("agents/*.md"))
+    )
+    if (root / "CLAUDE.md").is_file():
+        files.append(root / "CLAUDE.md")
+    for f in files:
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            for m in STEP_LETTER_RE.finditer(line):
+                fails.append(f"FAIL: {f}:{lineno} step referred to by letter: {m.group(0)!r}")
+    return fails
+
+
+# 19. Added by Phase 08 (batch 053): plan-for-queue/SKILL.md has one step that comes first -- the
+#     phrase `before anything else` occurs at most once.
+def check_pfq_single_first_step(root):
+    f = root / "skills" / "plan-for-queue" / "SKILL.md"
+    if not f.is_file():
+        return []
+    n = f.read_text().count("before anything else")
+    if n > 1:
+        return [f"FAIL: {f} says 'before anything else' {n} times, only one step comes first"]
+    return []
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -426,6 +488,9 @@ def run_all(root):
     fails += check_descriptions_have_no_angle_brackets(root)
     fails += check_ifq_skill_is_mode_neutral(root)
     fails += check_moved_sections_exist_once(root)
+    fails += check_step_headings_uniform(root)
+    fails += check_no_step_letter_references(root)
+    fails += check_pfq_single_first_step(root)
     return fails
 
 
@@ -826,6 +891,59 @@ class ReferencePathsTest(CfqTestCase):
         out = check_moved_sections_exist_once(twice)
         self.assertEqual(1, len(out), msg=f"check 16 self-test flagged the wrong set: {out}")
         self.assertIn("'Start Gate' occurs 2 times", out[0])
+
+    def test_step_headings_uniform(self):
+        def build(name, text):
+            d = self._repos_dir / name
+            (d / "skills" / "s").mkdir(parents=True)
+            (d / "skills" / "s" / "SKILL.md").write_text(text)
+            return d
+
+        good = build("f17-good", "# T\n\n## Output Format\n## Step 1 \u2014 One\n## Step 2 \u2014 Two\n")
+        self.assertEqual(check_step_headings_uniform(good), [])
+
+        # edge case: no step headings at all
+        self.assertEqual(check_step_headings_uniform(build("f17-none", "# T\n\n## Boundary\n")), [])
+
+        letter = "\n".join(check_step_headings_uniform(build("f17-letter", "## Step A \u2014 Setup\n")))
+        self.assertIn("Step A", letter, msg="check 17 self-test missed a letter heading")
+        dotted = "\n".join(check_step_headings_uniform(build("f17-dot", "## 1. Collect\n")))
+        self.assertIn("1. Collect", dotted, msg="check 17 self-test missed a dotted heading")
+        gap = "\n".join(
+            check_step_headings_uniform(build("f17-gap", "## Step 1 \u2014 One\n## Step 3 \u2014 Three\n"))
+        )
+        self.assertIn("[1, 3]", gap, msg="check 17 self-test missed a gap")
+        repeat = "\n".join(
+            check_step_headings_uniform(build("f17-rep", "## Step 1 \u2014 One\n## Step 1 \u2014 Again\n"))
+        )
+        self.assertIn("[1, 1]", repeat, msg="check 17 self-test missed a repeat")
+
+    def test_no_step_letter_references(self):
+        bad = self._repos_dir / "f18-bad"
+        good = self._repos_dir / "f18-good"
+        for d in (bad, good):
+            (d / "skills" / "s").mkdir(parents=True)
+            (d / "references").mkdir(parents=True)
+        (bad / "skills" / "s" / "SKILL.md").write_text("reused by Steps A through D\n")
+        (bad / "references" / "r.md").write_text("see Step C and Step 0\n")
+        (bad / "CLAUDE.md").write_text("works off todo (Step E)\n")
+        (good / "skills" / "s" / "SKILL.md").write_text("## Step 1 \u2014 One\nSee **Management** and Step 12.\n")
+        (good / "references" / "r.md").write_text("Step Aggregate is a name, Steps 1-3 are numbers.\n")
+        out = check_no_step_letter_references(bad)
+        self.assertEqual(4, len(out), msg=f"check 18 self-test flagged the wrong set: {out}")
+        self.assertEqual(check_no_step_letter_references(good), [])
+
+    def test_pfq_single_first_step(self):
+        def build(name, text):
+            d = self._repos_dir / name
+            (d / "skills" / "plan-for-queue").mkdir(parents=True)
+            (d / "skills" / "plan-for-queue" / "SKILL.md").write_text(text)
+            return d
+
+        two = check_pfq_single_first_step(build("f19-two", "run before anything else\nand before anything else\n"))
+        self.assertEqual(1, len(two), msg="check 19 self-test missed a second first step")
+        self.assertEqual(check_pfq_single_first_step(build("f19-one", "run before anything else\n")), [])
+        self.assertEqual(check_pfq_single_first_step(self._repos_dir / "f19-missing"), [])
 
     def test_real_plugin_tree_passes(self):
         fails = run_all(PLUGIN_ROOT)

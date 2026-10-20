@@ -446,7 +446,7 @@ cfq only collects this data — it doesn't analyze it beyond the portal's own fl
 
 ## Security
 
-`pfq` checks in Step 12, `ifq` checks again at the end of the batch. The forge
+`pfq` checks in its **Security Check** step, `ifq` checks again at the end of the batch. The forge
 is detected from the origin remote; both common CLIs are supported:
 
 | Forge | CLI | Source |

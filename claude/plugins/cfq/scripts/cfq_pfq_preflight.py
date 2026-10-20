@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Usage: cfq_pfq_preflight.py <repo-root>
-"""Single read-only preflight aggregator for plan-for-queue's Step 1: batches every
+"""Single read-only preflight aggregator for plan-for-queue's **Preflight**: batches every
 cfq_settings.py/cfq_scan.py/cfq_registry.py/cfq_maintenance.py call the skill used to issue
-separately (Steps 1, 3, 5, 7, 9a, 11) into one JSON object, one process invocation of
-cfq_settings.py covering every policy/language key at once. Security (Step 8) stays a separate
+separately into one JSON object, one process invocation of
+cfq_settings.py covering every policy/language key at once. Security (**Security Check**) stays a separate
 call on purpose -- this only reports capability (a security backend reachable at all), never live
 finding counts, which need a network round-trip.
 
@@ -46,7 +46,7 @@ def inbox_count_from_overview(overview_text):
 def model_check_line(allow_any_model):
     """The `Model Gate` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
     `model_gate_line`. The actual substring match against the running model's name stays with the
-    skill (`references/interview-depth.md`'s **Model Gate**), since only the session itself knows
+    skill (`plan-for-queue/SKILL.md`'s **Start Block**), since only the session itself knows
     its own model, from its own system prompt."""
     if allow_any_model:
         return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
