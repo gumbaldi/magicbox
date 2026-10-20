@@ -332,3 +332,73 @@ A reference file that only another reference file names risks a partial read: th
 the first file, sees a pointer, and may skip it. `check_references_linked_from_entrypoint` requires
 at least one direct pointer from a `SKILL.md` or agent definition, with the condition for reading
 the file. The pointers inside reference files stay; the rule adds a direct one and removes none.
+
+## cfq: why the SKILL.md budget counts characters
+
+The budget used to be 200 lines. A line count rewarded long lines: a `SKILL.md` stayed under it by
+packing more text into each one, while the cost every session pays is the text itself. Claude Code
+also re-attaches only the first 5,000 tokens of a skill after a context compaction, so what sits
+past that point is silently lost in a long session. The budget is now 16,000 characters on the text
+as loaded, with each `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length.
+
+## ifq: why the SKILL.md is mode-neutral
+
+Orchestrator mode is the default, yet the classic per-phase loop was part of the `SKILL.md` and so
+loaded by every session, including the ones that never ran it. The `SKILL.md` now carries only what
+both modes share. The per-phase loop of each mode, the batch start, the branch handling and the
+batch end each live in their own reference file, named in the `SKILL.md` together with the
+condition under which it is read.
+
+## cfq: why commands are Markdown and never share a skill's name
+
+The `.toml` command files were never loaded: Claude Code reads command files as Markdown only. They
+are replaced by `pfq.md` and `ifq.md`. A command with the same name as a skill also hides the
+skill's description from the session's listing and shows the command's instead, so the four
+commands (`cfq`, `pfq`, `ifq`, `rfq`) are short aliases and none repeats a skill name.
+
+## cfq: why the skill prose has eval cases
+
+Nearly all of cfq's behaviour lives in prose that no test exercised: the unit tests cover scripts,
+not what a model does when it reads a `SKILL.md`. Each case in `evals/` comes from a recorded
+incident, so it pins down a failure that happened once rather than one somebody imagined. A case
+tests behaviour only up to the first user question, because nobody answers one in an eval run. The
+cases run on demand and never in CI, because every run spends model usage.
+
+## pfq/ifq: why the phase model uses implModels and no setting of its own
+
+A phase names its model in an optional `## Model` heading, and the name must be an `implModels`
+entry. A separate setting for "models a phase may use" was considered and rejected on the user's
+rule: a model that may not implement may not be planned. One list therefore answers both questions,
+and its first entry is the default for a phase without the heading.
+
+## ifq: why a failed cheap phase retries on the default model, and escalation continues on the working tree
+
+Two answers from the planning interview. A phase that failed on a smaller model than the default
+runs on the default model the next time, because retrying the same model repeats the same failure.
+A worker that judges its phase harder than planned escalates to the next stronger `implModels`
+entry, and that model continues on the working tree with a handover note instead of starting over;
+discarding the half-done work would throw away what the smaller model got right. The switch is
+made by the orchestrator, which spawns a new worker: a running worker cannot change its own model.
+
+## ifq: why the batch review's "small" is a fixed rule
+
+`batchReviewFindings: auto` fixes small findings in the session and parks the rest. "Small" is a
+fixed rule, not a judgment: the fix is at one location, the file is one a phase of the batch already
+changed, and it needs no new file, dependency or setting. A judgment call would vary from run to run,
+and a fix the reviewer calls small on one run and large on the next is not something a setting can
+promise.
+
+## pfq/ifq: why the preflight is not injected at load time
+
+Injecting the preflight with the `` !`<command>` `` syntax would save one model turn per session.
+It is not done: a load-time command that fails aborts the whole skill, and whether such commands run
+at all under Plan Mode could not be verified from a planning session. Both skills carry a Plan-Mode
+Gate that calls `ExitPlanMode` themselves, so a failure there would stop both from loading. The
+manual check is parked in the planning inbox as a `plan/` entry, and the decision stays open until
+it is done.
+
+## cfq: why skill texts keep the full dispatcher path
+
+The bare `cfq` command works on current Claude Code, and skill text would be shorter with it. The
+user chose not to depend on the Claude Code version that provides it, so skill and reference texts
+keep `"${CLAUDE_PLUGIN_ROOT}/bin/cfq"`, and `<plugin-root>/bin/cfq` inside reference files.

@@ -32,6 +32,13 @@ gate and afterwards, until `/ifq` starts the phase; `/ifq` lints the batch again
 A review that was never answered keeps the batch held, with no time limit; the next `/pfq`
 offers to resume it, and `bin/cfq batch ready "<batch-dir>"` releases it without a review.
 
+### Choosing a model per phase
+
+A phase may carry an optional `## Model` heading, followed by a model name on the next non-empty
+line. The planner sets it, and only with a name from `implModels`: a model that may not implement
+may not be planned. A phase without the heading runs on the default model, the first entry of
+`implModels`. `bin/cfq lint` checks the name.
+
 Configurable (see [configuration.md](configuration.md#settings-reference)): `planModels`,
 `planExploreModel`, `planExploreModelComplex`, `allowAnyModel`, `grillMode`,
 `useMattpocockGrilling`, `usePonytailAudit`, `planBlockedPlugins`.
@@ -64,7 +71,7 @@ early.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `implModels`,
 `allowAnyModel`, `orchestratorMode`, `orchestratorModels`, `implExploreModel`,
-`implExploreModelComplex`, `stopUsed`, `stopFiveHourPct`, `stopSevenDayPct`,
+`implExploreModelComplex`, `batchReview`, `batchReviewFindings`, `stopUsed`, `stopFiveHourPct`, `stopSevenDayPct`,
 `onePhasePerSession`, `branchPerBatch`, `changelogFile`, `implBlockedPlugins`, `maintenanceEvery`.
 
 The classic-mode phase announcement (`bin/cfq brief --phase`) refuses to run while orchestrator
@@ -82,6 +89,23 @@ CFQ_ORCHESTRATOR_MODE=0   # one shell session
 Exact steps: [`skills/implement-for-queue/SKILL.md`](../skills/implement-for-queue/SKILL.md)
 (classic mode) and [`references/orchestrator.md`](../references/orchestrator.md) (orchestrator
 mode, the default).
+
+### Escalation and the batch review
+
+`⚠️ Escalation` appears when a worker judged its phase harder than planned and handed it to the
+next stronger model from `implModels`. That model continues on the working tree with a handover
+note; no question is asked. A phase is escalated once per session, and a worker that cannot
+escalate further asks you instead. A phase that failed on a smaller model than the default is
+retried on the default model on the next `/ifq` run.
+
+With `batchReview` set, a `Review` line closes the batch after its last phase is green and a
+`/code-review` has run over the whole batch. It has three outcomes:
+
+- `✅ Review  low · no findings` — nothing found.
+- `✅ Review  low · 3 findings · 2 fixed · 1 parked` — small findings were fixed in one commit,
+  the rest went to a `plan/` entry, as `batchReviewFindings` decides.
+- `➖ Review  skipped · <reason>` — the review did not run (context too full, no base branch to
+  diff against, or `code-review` not available) and the batch finishes anyway.
 
 ### Phase states and skipping a phase
 

@@ -24,7 +24,7 @@ CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `04
 the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
 CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
-design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`). No build step, no package
+design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 

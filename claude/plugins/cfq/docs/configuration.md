@@ -97,7 +97,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
+| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. With a smaller model added, set `orchestratorModels` to keep the `/ifq` session itself on the stronger one |
 | `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
@@ -123,6 +123,17 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
+
+Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
+runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit
+and parks the rest as one `plan/` entry. A finding is small when its fix is at one location, the
+file is one a phase of the batch already changed, and the fix needs no new file, dependency or
+setting; the rule is fixed, never a judgment call.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReview low
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReviewFindings auto
+```
 
 ### Limits & handoff
 

@@ -43,6 +43,8 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 ## The four commands
 
+Every skill is reachable by its short command and by its skill name; both start the same skill.
+
 | Command | Long form | Purpose |
 |---|---|---|
 | `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. It shows the finished plan in detail and releases the batch only after your go-ahead. |
@@ -117,6 +119,19 @@ that stopped a classic session doesn't apply to a worker that starts fresh every
 Turn it off per repo (`bin/cfq settings set --repo <path> orchestratorMode false`), globally
 (`bin/cfq settings set orchestratorMode false`), or for one shell (`CFQ_ORCHESTRATOR_MODE=0`) to
 go back to implementing every phase in the session itself.
+
+#### Model per phase
+
+The planner can name a model for a single phase (an optional `## Model` heading, chosen from
+`implModels`), so a small phase runs on a cheaper model than the rest. A worker that finds its phase
+harder than planned can hand it to the next stronger model, which continues on the working tree;
+a phase that failed on a smaller model runs on the default model the next time.
+
+#### Batch review
+
+Optionally (`batchReview`, off by default), a `/code-review` runs over the finished batch once its
+last phase is green. Small findings are fixed and the rest is parked as a `plan/` entry,
+as `batchReviewFindings` decides.
 
 ### `/cfq`
 
@@ -530,6 +545,11 @@ Git Bash, which is the supported setup above.
 
 Everything except classic grill mode and the ponytail maintenance audit works fully without either plugin —
 "Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
+
+## Maintainers
+
+Behavioural eval cases for the skill prose live in `evals/`; see [`evals/README.md`](evals/README.md)
+for how to run them.
 
 ## Credits
 
