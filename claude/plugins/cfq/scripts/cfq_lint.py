@@ -9,6 +9,7 @@ exit-code rule and the `## Size` degradation are carried over verbatim.
 """
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -16,8 +17,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_brief import has_numbered_steps  # noqa: E402
-from cfq_lib import phase_state, queue as cfq_queue  # noqa: E402
+from cfq_brief import _repo_root_from_batch_dir, has_numbered_steps, parse_phase_body  # noqa: E402
+from cfq_lib import phase_state, proc as cfq_proc, queue as cfq_queue  # noqa: E402
 
 PROG = "cfq_lint.py"
 
@@ -68,7 +69,9 @@ def phase_num(name):
     return name[:2] if len(name) >= 3 and name[2] == "-" and name[:2].isdigit() else None
 
 
-def lint_open_file(f, findings, warn_findings):
+def lint_open_file(f, findings, warn_findings, impl_models=None):
+    """`impl_models` is the repo's `implModels` list, or None when it could not be read (the
+    caller has warned once already, so `## Model` goes unchecked)."""
     name = f.name
     text = f.read_text()
 
@@ -87,6 +90,15 @@ def lint_open_file(f, findings, warn_findings):
             findings.append(f"{name}: verification-cmd: no runnable command in Verification")
         if not re.search(r"expect|PASS|exit 0|prints|must", verification, re.IGNORECASE):
             findings.append(f"{name}: verification-expect: no expected result stated")
+
+    if has_heading(text, "Model") and impl_models is not None:
+        model = parse_phase_body(text)["model"]
+        if model is None:
+            findings.append(f"{name}: model: ## Model heading has no value")
+        elif model not in [m.lower() for m in impl_models]:
+            findings.append(
+                f"{name}: model: '{model}' is not in implModels ({', '.join(impl_models)})"
+            )
 
     if has_heading(text, "Changes"):
         if not re.search(r"\S", extract_section(text, "Changes")):
@@ -203,6 +215,21 @@ def check_depends(d, batch_name, warn_findings):
             warn_findings.append(f"warn: {batch_name}: depends: {dep} does not exist")
 
 
+def read_impl_models(d):
+    """The repo's `implModels` list for the batch at `d`, or None when it cannot be read."""
+    repo = _repo_root_from_batch_dir(d)
+    if repo is None:
+        return None
+    proc = cfq_proc.cfq_run("settings", "list", "--repo", str(repo))
+    if proc.returncode != 0:
+        return None
+    try:
+        models = json.loads(proc.stdout)["implModels"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return models if isinstance(models, list) else None
+
+
 def cmd_lint(args):
     d = pathlib.Path(str(args.batch_dir).rstrip("/"))
     if not d.is_dir():
@@ -217,8 +244,14 @@ def cmd_lint(args):
     warn_findings = []
 
     entries = check_status(d, batch_name, findings)
-    for f in pending_files(d, entries):
-        lint_open_file(f, findings, warn_findings)
+    files = pending_files(d, entries)
+    impl_models = None
+    if any(has_heading(f.read_text(), "Model") for f in files):
+        impl_models = read_impl_models(d)
+        if impl_models is None:
+            warn_findings.append("warn: model: implModels unavailable, ## Model not checked")
+    for f in files:
+        lint_open_file(f, findings, warn_findings, impl_models)
 
     check_numbering(all_files, batch_name, findings)
     check_priority(d, batch_name, findings)

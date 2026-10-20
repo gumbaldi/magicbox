@@ -5,11 +5,11 @@ text is written — not only for a phase that moves, extracts, or reuses existin
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
 simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6 and 7 apply
-to every phase without exception. This file governs what a phase's text must contain once it
+to every phase without exception; rule 8 is optional. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The seven rules below are a standing checkpoint against runaway debugging tokens and untested
+The eight rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## Contents
@@ -21,6 +21,7 @@ verbatim moves, not a one-time lesson repeated only in a post-mortem.
 - 5. Size reflects verify-the-reuse work, not just new lines
 - 6. `## Affected Files` is the complete list
 - 7. `## Changes` is a numbered step list
+- 8. `## Model` names the smallest model that fits
 - Phase File Structure
 
 ## 1. Test-first, not shell exploration
@@ -119,14 +120,34 @@ opening sentences, so they are what the user approves.
 `bin/cfq lint` reports a missing numbered step as `warn: … changes-steps`, never as a finding, so an
 older batch still starts.
 
+## 8. `## Model` names the smallest model that fits
+
+Optional. Without the heading a phase runs on the default implementation model. Write the heading
+— `## Model`, then the model name alone on the next non-empty line, placed after `## Size` — only
+to move a phase off that default, and only with a name from `planningPolicy.implModels`
+(**Start Block**'s preflight result); `bin/cfq lint` rejects any other.
+
+A smaller model than the default fits when all of these hold:
+
+- Size is `S`.
+- `## Changes` spells out every edit; no step asks the implementer to decide, design or choose.
+- `## Verification` is one deterministic command with a stated expected result.
+- No `(verbatim)` block, and no rework of skill, reference or agent prose.
+- Apart from tests, the phase touches at most two files.
+
+One condition failing means no heading. A larger model than the default is planned the same way,
+for a phase whose `## Changes` cannot avoid a design decision. The first entry of `implModels` is
+the default; when the list has one entry, never write the heading.
+
 ---
 
-None of this adds a new required heading. All seven rules live inside a phase's existing `Changes`,
-`Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected.
+None of this adds a new required heading. Rules 1-7 live inside a phase's existing `Changes`,
+`Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected;
+rule 8's heading is optional.
 
 ## Phase File Structure
 
-Template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
+Template: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading) · Context · Affected Files (always
 absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
 filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.

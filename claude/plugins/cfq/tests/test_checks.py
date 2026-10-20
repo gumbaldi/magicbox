@@ -4,6 +4,7 @@ Self-test for scripts/cfq_lint.py, scripts/cfq_security.py, scripts/cfq_lang.py 
 scripts/cfq_maintenance.py, plus the commands/* short/long-form pairs.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -312,6 +313,63 @@ x
         self.assertEqual(proc.returncode, 1, out)
         self.assertIn("01-a.md: sections: missing Changes heading", out)
         self.assertNotIn("changes-steps", out)
+
+    # ---- ## Model heading (batch 053 phase 09) ---------------------------------------------------
+
+    def _model_batch(self, repo, model_block, impl_models=("sonnet", "haiku")):
+        """A parked batch whose single phase carries `model_block` after `## Size`, in a repo whose
+        settings.json sets implModels."""
+        root = self.make_repo(repo)
+        (root / ".claude" / "cfq").mkdir(parents=True, exist_ok=True)
+        (root / ".claude" / "cfq" / "settings.json").write_text(
+            json.dumps({"implModels": list(impl_models)})
+        )
+        target = self._repos_dir / f"{repo}-target"
+        target.touch()
+        batch = root / ".claude" / "cfq" / "impl" / "2026-01-05-model"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        phase = self._valid_phase(target).replace("## Size\nM\n", f"## Size\nM\n{model_block}")
+        self._write(batch / "01-a.md", phase)
+        self.run_cfq("park", str(root), batch.name, "normal", check=True)
+        self.auto_status = False
+        return batch
+
+    def test_model_from_implmodels_is_clean(self):
+        batch = self._model_batch("modelrepo1", "## Model\nHaiku\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("model", out)
+
+    def test_model_outside_implmodels_is_reported(self):
+        batch = self._model_batch("modelrepo2", "## Model\nopus\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn("01-a.md: model: 'opus' is not in implModels (sonnet, haiku)", out)
+
+    def test_empty_model_heading_is_reported(self):
+        batch = self._model_batch("modelrepo3", "## Model\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn("01-a.md: model: ## Model heading has no value", out)
+
+    def test_phase_without_model_heading_is_clean(self):
+        batch = self._model_batch("modelrepo4", "")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("model", out)
+
+    def test_unavailable_settings_warn_without_blocking(self):
+        """A batch outside any queue layout has no repo to read implModels from."""
+        batch = self._repos_dir / "loose" / "2026-01-05-loose"
+        batch.mkdir(parents=True)
+        target = self._repos_dir / "loose-target"
+        target.touch()
+        phase = self._valid_phase(target).replace("## Size\nM\n", "## Size\nM\n## Model\nopus\n")
+        self._write(batch / "01-a.md", phase)
+        _, out = self._lint_out(batch)
+        self.assertEqual(out.count("warn: model: implModels unavailable, ## Model not checked"), 1, out)
+        self.assertNotIn("01-a.md: model:", out)
 
     # ---- status.json (batch 051 phase 05) -------------------------------------------------------
 

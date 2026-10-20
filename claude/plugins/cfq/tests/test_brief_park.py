@@ -1533,3 +1533,60 @@ class ParsePhaseBodySectionBoundaryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhaseModelHeadingTest(PhaseDirsStatus, CfqTestCase):
+    """The optional `## Model` heading: parsed like `## Size`, rendered in the phase header and the
+    overview's size cell; classic-mode `--phase` shows it as not applied."""
+
+    def _batch(self, name, model_block):
+        batch = self._repos_dir / name
+        batch.mkdir(parents=True)
+        (batch / "01-first.md").write_text(
+            "# First phase\n\n## Size\n\nS\n\n" + model_block
+            + "## Context\n\nCtx line.\n\n## Affected Files\n\n- `/tmp/example/foo.sh`\n"
+        )
+        return batch
+
+    def test_routine_model_parses_and_renders_in_header_and_overview(self):
+        fields = parse_phase_body("# P\n\n## Size\n\nS\n\n## Model\n\nhaiku\n\n## Context\n\nx\n")
+        self.assertEqual(fields["model"], "haiku")
+        from cfq_brief import render_phase
+        head = render_phase("01", fields).splitlines()[0]
+        self.assertEqual(head, "PHASE 01 · P · Size S · Model haiku")
+
+        batch = self._batch("model-overview", "## Model\n\nhaiku\n\n")
+        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout
+        self.assertRegex(out, r"01  First phase  S · haiku  open")
+
+    def test_edge_empty_heading_gives_none_and_renders_like_no_heading(self):
+        body = "# P\n\n## Size\n\nS\n\n## Model\n\n## Context\n\nx\n"
+        fields = parse_phase_body(body)
+        self.assertIsNone(fields["model"])
+        self.assertEqual(fields["context"], "x ")
+        from cfq_brief import render_phase
+        plain = parse_phase_body("# P\n\n## Size\n\nS\n\n## Context\n\nx\n")
+        self.assertIsNone(plain["model"])
+        self.assertEqual(render_phase("01", fields), render_phase("01", plain))
+
+    def test_edge_capitalised_model_is_lowercased(self):
+        fields = parse_phase_body("# P\n\n## Model\n\nHaiku extra words\n")
+        self.assertEqual(fields["model"], "haiku")
+
+    def test_classic_phase_output_says_not_applied(self):
+        batch = self._batch("model-classic", "## Model\n\nhaiku\n\n")
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout.splitlines()
+        self.assertEqual(out[0], "PHASE 01 · First phase · Size S · Model haiku (not applied: classic mode)")
+        out = self.run_cfq(
+            "brief", str(batch), "--phase", "01", "--classic-fallback", check=True,
+        ).stdout.splitlines()
+        self.assertIn("(not applied: classic mode)", out[0])
+
+    def test_worker_default_keeps_plain_model_clause(self):
+        from cfq_brief import render_phase
+        fields = parse_phase_body("# P\n\n## Model\n\nhaiku\n")
+        self.assertEqual(render_phase("01", fields).splitlines()[0], "PHASE 01 · P · Size M · Model haiku")
+        self.assertEqual(
+            render_phase("01", fields, model_applies=False).splitlines()[0],
+            "PHASE 01 · P · Size M · Model haiku (not applied: classic mode)",
+        )

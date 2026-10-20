@@ -41,7 +41,8 @@ TITLE_PREFIX_RE = re.compile(r"^# +")
 
 def parse_phase_body(text, fallback_title=None):
     """Pulls the first `# ` heading (title), the token on the first non-empty line after `##
-    Size`, the first two non-empty lines after `## Context` (raw, untruncated), the last path
+    Size`, the lower-cased first token after an optional `## Model` (same capture rule as `##
+    Size`, `None` when absent or empty), the first two non-empty lines after `## Context` (raw, untruncated), the last path
     segment of each `- \\`...\\`` bullet under `## Affected Files`, and the first non-empty line
     inside the first fenced code block under `## Verification`. Both the `## Size` token capture
     and the `## Context` capture (up to two non-empty lines) stop at the next `## ` heading,
@@ -57,6 +58,8 @@ def parse_phase_body(text, fallback_title=None):
     caller that doesn't pass one."""
     title = None
     size = None
+    model = None
+    m = False
     g = False
     context_lines = []
     k = False
@@ -75,6 +78,14 @@ def parse_phase_body(text, fallback_title=None):
         if line.startswith("## "):
             g = False
             k = False
+            m = False
+        if line.startswith("## Model"):
+            m = True
+            continue
+        if m and non_empty:
+            model = line.split()[0].lower()
+            m = False
+            continue
         if line.startswith("## Size"):
             g = True
             continue
@@ -113,7 +124,7 @@ def parse_phase_body(text, fallback_title=None):
 
     context = "".join(f"{line} " for line in context_lines)
     return {
-        "title": title or fallback_title, "size": size, "context": context, "files": files,
+        "title": title or fallback_title, "size": size, "model": model, "context": context, "files": files,
         "check": check, "steps": changes_steps(text),
     }
 
@@ -121,8 +132,13 @@ def parse_phase_body(text, fallback_title=None):
 MAX_ANNOUNCED_STEPS = 10
 
 
-def render_phase(num, fields):
-    lines = [f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"]
+def render_phase(num, fields, model_applies=True):
+    head = f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"
+    if fields.get("model"):
+        head += f" · Model {fields['model']}"
+        if not model_applies:
+            head += " (not applied: classic mode)"
+    lines = [head]
     goal_lines = cfq_text.wrap(fields["context"], width=68, max_lines=4)
     for i, line in enumerate(goal_lines):
         prefix = "  Goal     " if i == 0 else " " * 11
@@ -201,7 +217,10 @@ def _overview_rows(d):
     for r in done + skipped + pending:
         f = r["path"]
         fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
-        rows.append([r["num"], fields["title"], fields["size"] or "M", r["status"]])
+        size = fields["size"] or "M"
+        if fields["model"]:
+            size = f"{size} · {fields['model']}"
+        rows.append([r["num"], fields["title"], size, r["status"]])
         contexts.append(fields["context"])
         pointers.append(str(f.relative_to(d)))
 
@@ -577,7 +596,8 @@ def cmd_brief(args):
         if f is None:
             print(f"{PROG}: no phase {args.phase} in {d}", file=sys.stderr)
             sys.exit(1)
-        print(render_phase(phase_num(f), parse_phase_body(f.read_text(), fallback_title=f.stem)))
+        fields = parse_phase_body(f.read_text(), fallback_title=f.stem)
+        print(render_phase(phase_num(f), fields, model_applies=False))
         return
 
     if args.overview:

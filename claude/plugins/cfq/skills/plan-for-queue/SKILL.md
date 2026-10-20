@@ -142,7 +142,8 @@ list + S/M/L sizes); no dedicated confirmation question gates the write, that ga
 follow it, always, before writing any phase's Changes and Verification text — it also steers the
 Size letter (rule 5). For each phase, estimate **Size** `S`/`M`/`L` and write the `## Size` heading
 — mechanics (letter placement, what parses it, the degrade-to-`M` fallback, **Recommended
-skills**) in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` rule 5. Print `Phases` once
+skills**) in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` rule 5. Per phase, decide the
+optional `## Model` heading per that file's rule 8, from `planningPolicy.implModels`. Print `Phases` once
 written — no phase file is written to disk yet, that's **Park**, after **Self-Critique of the
 Phase Cut**.
 

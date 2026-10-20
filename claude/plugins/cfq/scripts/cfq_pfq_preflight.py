@@ -131,6 +131,7 @@ def cmd_preflight(args):
         "setup": {"globalDone": setup_done},
         "planningPolicy": {
             "planModels": settings["planModels"],
+            "implModels": settings["implModels"],
             "allowAnyModel": settings["allowAnyModel"],
             "planExploreModel": settings["planExploreModel"],
             "planExploreModelComplex": settings["planExploreModelComplex"],
