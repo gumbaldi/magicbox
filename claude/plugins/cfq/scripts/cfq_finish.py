@@ -20,7 +20,9 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, phase_state, portal_hook, render, text as cfq_text  # noqa: E402
-from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
+from cfq_lib.proc import (  # noqa: E402
+    capture, cfq_argv, cfq_run, cfq_run_merged, default_branch, git, settings_get,
+)
 
 PROG = "cfq_finish.py"
 
@@ -253,7 +255,9 @@ def cmd_finish(args):
         skipped_failed = len(errs) > errs_before
 
         lang_json = {"issues": 0, "findings": []}
-        proc = cfq_run_merged("lang", str(repo_root), "--changed", "main")
+        # True: the `origin` refs on disk are used when present; this call does not fetch.
+        _, base_ref = default_branch(repo_root, True)
+        proc = cfq_run_merged("lang", str(repo_root), "--changed", base_ref)
         out = capture(proc)
         if proc.returncode == 0:
             data = load_json_or(out, None)
@@ -270,7 +274,7 @@ def cmd_finish(args):
         else:
             add_error("lang", out)
 
-        prose_proc = cfq_run_merged("lang", "prose", str(repo_root), "main")
+        prose_proc = cfq_run_merged("lang", "prose", str(repo_root), base_ref)
         prose_out = capture(prose_proc)
         if prose_proc.returncode == 0:
             prose_val = load_json_or(prose_out, None)

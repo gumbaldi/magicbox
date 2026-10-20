@@ -14,6 +14,7 @@ import unittest
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
 import cfq_finish  # noqa: E402
+from cfq_lib import proc as proc_lib  # noqa: E402
 
 # The suite's own default (`tests/cfq_testlib.py`'s `_base_env()`) sets `CFQ_PORTAL_SYNC=0` so
 # every other test's directory-content assertions stay unaffected by the portal sync `finish`
@@ -80,9 +81,8 @@ class FinishTest(CfqTestCase):
     auto_status = True
 
     def _new_repo(self, name):
-        # cfq-finish.sh diffs the changed-files check against a branch literally named "main"
-        # (cfq_lang.py --changed main), so the fixture needs that branch regardless of this host's
-        # git init.defaultBranch.
+        # The fixture pins the branch name so the tests do not depend on the host's
+        # init.defaultBranch.
         repo = self.make_repo(name)
         subprocess.run(["git", "-C", str(repo), "branch", "-M", "main"], check=True)
         return repo
@@ -625,6 +625,85 @@ class FinishTest(CfqTestCase):
         self.assertEqual(line["icon"], "warn", line)
         status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
         self.assertNotIn("inbox", status["phases"]["03-c"])
+
+    def _lang_refs(self, repo, tag):
+        """Runs finish on `repo` with a logging shim in front of cfq_lang.py and returns the
+        reference each of the two language checks received (changed-files check, prose check)."""
+        home = self._repos_dir / f"home-{tag}"
+        (home / ".claude/cfq").mkdir(parents=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        batch = self._new_batch(repo, "2026-01-01-" + tag)
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-" + tag, home=home, check=True)
+
+        shim_root = self._repos_dir / f"shim-{tag}"
+        shim_root.mkdir()
+        scripts_copy = shim_root / "scripts"
+        shutil.copytree(SCRIPTS_DIR, scripts_copy)
+        bin_copy = shim_root / "bin"
+        shutil.copytree(PLUGIN_ROOT / "bin", bin_copy)
+        log_file = shim_root / "lang.log"
+        log_file.write_text("")
+        orig = scripts_copy / "cfq_lang.py"
+        real = scripts_copy / "cfq_lang_real.py"
+        orig.rename(real)
+        orig.write_text(f"""#!/usr/bin/env python3
+import subprocess
+import sys
+
+with open({str(log_file)!r}, "a") as f:
+    f.write(" ".join(sys.argv[1:]) + "\\n")
+sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
+""")
+        orig.chmod(0o755)
+
+        run_env = self._base_env()
+        run_env["HOME"] = str(home)
+        proc = subprocess.run(
+            [str(bin_copy / "cfq"), "finish", str(repo), str(batch), "v0.1-" + tag],
+            capture_output=True, text=True, env=run_env,
+        )
+        self.assertEqual(proc.returncode, 0, f"finish via copy failed: {proc.stderr}")
+        calls = [line.split() for line in log_file.read_text().splitlines() if line]
+        changed = [c for c in calls if "--changed" in c]
+        prose = [c for c in calls if c and c[0] == "prose"]
+        self.assertEqual(len(changed), 1, calls)
+        self.assertEqual(len(prose), 1, calls)
+        return changed[0][-1], prose[0][-1], json.loads(proc.stdout)
+
+    def _rev(self, repo, ref):
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", ref], capture_output=True, text=True, check=True,
+        ).stdout.strip()
+
+    def test_language_checks_use_the_detected_default_branch(self):
+        repo = self._new_repo("repo-master")
+        subprocess.run(["git", "-C", str(repo), "branch", "-M", "master"], check=True)
+        changed_ref, prose_ref, _out = self._lang_refs(repo, "master")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(changed_ref, proc_lib.default_branch(str(repo), True)[1])
+        self.assertEqual(self._rev(repo, changed_ref), self._rev(repo, "master"))
+
+    def test_language_checks_compare_against_origin_first(self):
+        source = self._new_repo("repo-source")
+        clone = self._repos_dir / "repo-clone"
+        subprocess.run(["git", "clone", "-q", str(source), str(clone)], check=True)
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(clone), "config", key, value], check=True)
+        (source / "more.txt").write_text("more\n")
+        subprocess.run(["git", "-C", str(source), "add", "more.txt"], check=True)
+        subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "more"], check=True)
+        subprocess.run(["git", "-C", str(clone), "fetch", "-q", "origin"], check=True)
+        self.assertNotEqual(self._rev(clone, "main"), self._rev(clone, "origin/main"))
+
+        changed_ref, prose_ref, _out = self._lang_refs(clone, "clone")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(self._rev(clone, changed_ref), self._rev(clone, "origin/main"))
+
+    def test_language_check_survives_a_repo_without_a_default_branch(self):
+        repo = self._new_repo("repo-work")
+        subprocess.run(["git", "-C", str(repo), "branch", "-M", "work"], check=True)
+        _changed, _prose, out = self._lang_refs(repo, "work")
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
 
     def test_nine_subcalls_run_in_expected_order(self):
         # Order: cfq-finish.sh runs its nine sub-nouns as a sequence where later steps depend on

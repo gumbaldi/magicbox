@@ -103,11 +103,12 @@ clause moved into `<plugin-root>/references/output-format.md`, even though the w
 
 For the merge case, don't hand-compose the entry: `"<plugin-root>/bin/cfq" note merge-todo
 "<repo-root>" "<branch>"` writes it, title, ready-to-run merge command and `check:` line together,
-so the line can never be left out. Its check resolves `origin/main` first and falls back to local
-`main` (`git merge-base --is-ancestor <branch> origin/main 2>/dev/null || git merge-base
---is-ancestor <branch> main`) rather than `git branch --merged main | grep -q <branch>`, which
-tests only the local `main` ref and can report a branch as unmerged when the local clone is simply
-behind `origin/main`. A hand-written `todo/` entry for anything else may still carry its own
+so the line can never be left out. Its check resolves the default branch on `origin` first and falls
+back to the local one (`git merge-base --is-ancestor <branch> origin/<default> 2>/dev/null || git
+merge-base --is-ancestor <branch> <default>`); `<default>` is detected -- `origin/HEAD`, then
+`main`, then `master`. It does not use `git branch --merged <default> | grep -q <branch>`, which
+tests only the local `<default>` ref and reports a branch as unmerged when the local clone is
+behind `origin/<default>`. A hand-written `todo/` entry for anything else may still carry its own
 `check:` line.
 
 Both formats: filename `<YYYY-MM-DD>-<slug>.md`, `<slug>` normalised by `note` itself. The headings

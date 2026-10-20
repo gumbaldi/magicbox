@@ -350,6 +350,7 @@ class NoteTest(CfqTestCase):
     # `check:` line -- so the line can never be forgotten the way a model-composed card leaves it
     # out (see .batch-context.md for phase 01's rationale).
     def test_merge_todo_writes_card_with_check_line(self):
+        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "main"], check=True)
         branch = "cfq/030-2026-09-20-some-slug"
         out = self.run_cfq(
             "note", "merge-todo", str(self.repo), branch, check=True,
@@ -385,6 +386,7 @@ class NoteTest(CfqTestCase):
     # than reporting a merge that hasn't happened (never a false positive). Same resolution order
     # as cfq_branch.py:331/341.
     def test_merge_todo_check_line_tries_origin_then_local_main(self):
+        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "main"], check=True)
         branch = "cfq/030-x"
         out = self.run_cfq(
             "note", "merge-todo", str(self.repo), branch, check=True,
@@ -396,6 +398,57 @@ class NoteTest(CfqTestCase):
             "|| git merge-base --is-ancestor cfq/030-x main"
         )
         self.assertIn(expected_check, content)
+
+    # The default branch is detected, not assumed to be `main`: title, checkout command and both
+    # halves of the check: line carry the detected name.
+    def test_merge_todo_names_the_detected_default_branch(self):
+        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "master"], check=True)
+        branch = "cfq/030-x"
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), branch, check=True,
+        ).stdout.strip()
+
+        lines = pathlib.Path(out).read_text().splitlines()
+        self.assertTrue(lines[0].endswith("into master"), lines[0])
+        self.assertIn("    git checkout master && git merge --ff-only cfq/030-x", lines)
+        self.assertIn(
+            "check: git merge-base --is-ancestor cfq/030-x origin/master 2>/dev/null "
+            "|| git merge-base --is-ancestor cfq/030-x master",
+            lines,
+        )
+
+    def test_merge_todo_follows_origin_head(self):
+        clone = self._repos_dir / "clone"
+        subprocess.run(["git", "clone", "-q", str(self.repo), str(clone)], check=True)
+        subprocess.run(
+            ["git", "-C", str(clone), "update-ref", "refs/remotes/origin/trunk", "HEAD"], check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(clone), "symbolic-ref", "refs/remotes/origin/HEAD",
+             "refs/remotes/origin/trunk"], check=True,
+        )
+        out = self.run_cfq(
+            "note", "merge-todo", str(clone), "cfq/030-x", check=True,
+        ).stdout.strip()
+
+        content = pathlib.Path(out).read_text()
+        self.assertTrue(content.splitlines()[0].endswith("into trunk"), content)
+        self.assertIn("git checkout trunk && git merge --ff-only cfq/030-x", content)
+        self.assertIn(
+            "check: git merge-base --is-ancestor cfq/030-x origin/trunk 2>/dev/null "
+            "|| git merge-base --is-ancestor cfq/030-x trunk",
+            content,
+        )
+
+    def test_merge_todo_without_a_default_branch_names_main(self):
+        subprocess.run(["git", "-C", str(self.repo), "branch", "-M", "work"], check=True)
+        out = self.run_cfq(
+            "note", "merge-todo", str(self.repo), "cfq/030-x", check=True,
+        ).stdout.strip()
+
+        content = pathlib.Path(out).read_text()
+        self.assertTrue(content.splitlines()[0].endswith("into main"), content)
+        self.assertIn("git checkout main && git merge --ff-only cfq/030-x", content)
 
     # Same day, same branch, twice: the second call must fail with the existing EXISTS error and
     # must not overwrite the first card -- merge-todo inherits cmd_note's write path rather than
