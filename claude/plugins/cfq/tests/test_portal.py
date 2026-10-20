@@ -12,7 +12,7 @@ import subprocess
 import sys
 import unittest
 
-from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR
+from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -143,6 +143,8 @@ def ledger_phase(slug, status, telemetry=None, **extra):
 
 
 class PortalTest(CfqTestCase):
+    auto_status = True
+
     # ---- fixture builders --------------------------------------------------------------------
 
     def _cfq(self, repo):
@@ -399,7 +401,7 @@ class PortalTest(CfqTestCase):
         self.assertEqual(row["title"], "demo batch")
         self.assertEqual(row["date"], "2026-09-01")
         self.assertEqual(row["status"], "done")
-        self.assertEqual(row["phases"], {"done": 2, "total": 2})
+        self.assertEqual(row["phases"], {"done": 2, "total": 2, "skipped": 0, "error": 0})
         self.assertEqual(row["priority"], "")
         self.assertEqual(row["dependsOn"], [])
         self.assertEqual(
@@ -447,7 +449,7 @@ class PortalTest(CfqTestCase):
         repo = self._world()
         for name in (OPEN_BATCH, BARE_BATCH):
             self.assertIsNone(self._row(repo, name)["cost"], name)
-        self.assertEqual(self._row(repo, OPEN_BATCH)["phases"], {"done": 1, "total": 3})
+        self.assertEqual(self._row(repo, OPEN_BATCH)["phases"], {"done": 1, "total": 3, "skipped": 0, "error": 0})
         self.assertEqual(self._row(repo, OPEN_BATCH)["status"], "in_progress")
         self.assertEqual(self._row(repo, BARE_BATCH)["status"], "planned")
         self.assertIsNone(self._row(repo, BARE_BATCH)["number"])
@@ -671,6 +673,72 @@ class PortalTest(CfqTestCase):
         self.assertEqual(attempt["time"], {"from": "", "until": "", "wallclock_s": 0})
         self.assertEqual(attempt["tools"], {})
         self.assertEqual(b["phases"][1]["attempts"], [])
+
+    def _build_states_batch(self, repo, batch_name):
+        """done, error (one red attempt), skipped ("obsolete", with its skip ledger entry), open."""
+        impl = self._cfq(repo) / "impl" / batch_name
+        self._write(impl / ".batch-context.md", "# Batch Context\n\n## Goal\nStates.\n")
+        self._write(impl / "done" / "01-a.md", "# A\n\n## Size\n\nS\n")
+        self._write(impl / "02-b.md", "# B\n\n## Size\n\nM\n")
+        self._write(impl / "03-c.md", "# C skipped title\n\n## Size\n\nM\n\n## Context\n\nSkipped body text.\n")
+        self._write(impl / "04-d.md", "# D\n\n## Size\n\nS\n")
+        write_status(impl, {"02-b": "error", "03-c": {"status": "skipped", "reason": "obsolete"}})
+        self._write(impl / "report.json", json.dumps({
+            "repo": str(repo), "batch": batch_name, "started": "2026-09-23T10:00:00+02:00",
+            "phases": [
+                ledger_phase("01-a", "green", GREEN_TEL),
+                ledger_phase("02-b", "red", RED_TEL, errors=["boom"]),
+                {"phase": "03-c", "status": "skipped", "summary": "obsolete", "previous": "open",
+                 "finished": "2026-09-23T11:00:00+02:00"},
+            ],
+        }))
+        return impl
+
+    def test_phase_states_error_and_skipped_reach_the_payload(self):
+        repo = self.make_repo()
+        impl = self._build_states_batch(repo, "2026-09-23-states")
+        self.assertTrue((impl / "skipped" / "03-c.md").is_file())
+        self._sync(repo)
+        b = self._load(repo, "batch/2026-09-23-states")
+        self.assertEqual(
+            [(p["slug"], p["state"]) for p in b["phases"]],
+            [("01-a", "done"), ("02-b", "error"), ("03-c", "skipped"), ("04-d", "open")],
+        )
+        skipped = b["phases"][2]
+        self.assertEqual(skipped["skipReason"], "obsolete")
+        self.assertEqual(skipped["title"], "C skipped title")
+        self.assertIn("Skipped body text.", skipped["planHtml"])
+        self.assertEqual([(a["status"], a["summary"]) for a in skipped["attempts"]], [("skipped", "obsolete")])
+        self.assertEqual(b["phases"][1]["attempts"][0]["status"], "red")
+        row = self._row(repo, "2026-09-23-states")
+        self.assertEqual(row["phases"], {"done": 1, "total": 4, "skipped": 1, "error": 1})
+
+    def test_batch_without_skipped_or_failed_phases_has_zero_counts_and_no_skip_reason(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-plain")
+        self._sync(repo)
+        self.assertEqual(self._row(repo, "2026-09-23-plain")["phases"], {"done": 1, "total": 2, "skipped": 0, "error": 0})
+        for p in self._load(repo, "batch/2026-09-23-plain")["phases"]:
+            self.assertNotIn("skipReason", p)
+
+    def test_batch_without_a_readable_status_json_falls_back_to_no_phases(self):
+        self.auto_status = False
+        repo = self.make_repo()
+        good = self._build_batch(repo, "2026-09-23-good")
+        write_status(good)
+        self._build_batch(repo, "2026-09-24-nostatus")
+        result = self._sync(repo)
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(self._load(repo, "batch/2026-09-24-nostatus")["phases"], [])
+        self.assertEqual(
+            self._row(repo, "2026-09-24-nostatus")["phases"], {"done": 0, "total": 0, "skipped": 0, "error": 0},
+        )
+        self.assertEqual(
+            [p["slug"] for p in self._load(repo, "batch/2026-09-23-good")["phases"]], ["00-setup", "01-first"],
+        )
+        (good / "status.json").write_text("{ not json")
+        self.assertEqual(self._sync(repo)["status"], "OK")
+        self.assertEqual(self._load(repo, "batch/2026-09-23-good")["phases"], [])
 
     def test_batch_without_report_json_still_gets_a_payload(self):
         repo = self._world()

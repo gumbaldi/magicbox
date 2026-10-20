@@ -2,7 +2,7 @@
 # Usage: cfq_scan.py [--format=json|md|tsv|overview|next]
 """The single source of numbers for the dashboard. json (default): one JSON object on stdout:
 { "repos": [ { "path", "plan", "todo", "batches": [
-  {name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps, inProgress,
+  {name, priority, open, error, done, skipped, archived, report, dependsOn, blocked, unknownDeps, inProgress,
    planning, review} ] } ] } -- byte-identical to the no-flag output for every existing caller.
 md/tsv: one row per batch across all repos (Repo, Batch, Priority, Open/Done, Status), status
 one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
@@ -14,7 +14,7 @@ next: one object per repo -- { path, next, reason, blocked, planning, review } -
 `/ifq` would pick (null if none selectable), reason one of inProgress/priority/order/
 multipleInProgress/null, blocked/planning/review are arrays of batch names (review is the subset of planning held at
 the plan review gate by a `.review` marker, which never goes stale). This is the one place the
-`/ifq` selection ranking (non-archived, open>0, planning/blocked drop out, a single inProgress
+`/ifq` selection ranking (non-archived, open>0 or done>0 or skipped>0, planning/blocked drop out, a single inProgress
 batch wins, otherwise flagged priority first then name) is decided -- see
 cfq_ifq_preflight.py, which consumes this format rather than re-deciding the ranking itself.
 
@@ -33,6 +33,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from cfq_lib import consistency as cfq_lib_consistency  # noqa: E402
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
@@ -134,11 +135,22 @@ def resolve_deps(deps, impl_dir):
     return blocked, unknown
 
 
+def phase_counts(batch_dir):
+    """`status.json`'s counts, or None when it is missing or unreadable -- whatever the cause,
+    such a batch is reported with zero counts and an unknown consistency, never a scan abort."""
+    try:
+        return phase_state.counts(batch_dir)
+    except phase_state.PhaseStateError:
+        return None
+
+
 def open_batch_record(batch_dir, impl_dir, stale_s):
     deps = cfq_queue.read_depends(batch_dir)
     blocked, unknown = resolve_deps(deps, impl_dir)
-    open_n = md_count(batch_dir, "[0-9][0-9]-*.md")
-    done_n = md_count(batch_dir / "done", "*.md")
+    c = phase_counts(batch_dir)
+    readable = c is not None
+    if not readable:
+        c = {s: 0 for s in phase_state.STATUSES}
 
     planning = False
     marker = batch_dir / ".planning"
@@ -150,27 +162,35 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
     return {
         "name": batch_dir.name,
         "priority": cfq_queue.read_priority(batch_dir),
-        "open": open_n,
-        "done": done_n,
+        # `open` keeps meaning "phases still to implement" (open + error) for every caller.
+        "open": c["open"] + c["error"],
+        "error": c["error"],
+        "done": c["done"],
+        "skipped": c["skipped"],
         "archived": False,
         "report": (batch_dir / "report.json").is_file(),
         "dependsOn": deps,
         "blocked": blocked,
         "unknownDeps": unknown,
-        "inProgress": done_n > 0,
+        "inProgress": c["done"] > 0 or c["error"] > 0,
         "planning": planning or review,
         "review": review,
-        "consistency": cfq_lib_consistency.scan_consistency(batch_dir),
+        "consistency": cfq_lib_consistency.scan_consistency(batch_dir) if readable else "unknown",
     }
 
 
 def archived_batch_record(batch_dir):
-    return {
+    c = phase_counts(batch_dir)
+    readable = c is not None
+    if not readable:
+        c = {s: 0 for s in phase_state.STATUSES}
+    rec = {
         "name": batch_dir.name,
         "priority": cfq_queue.read_priority(batch_dir),
         "open": 0,
-        # Finished phases live in done/; a batch archived before that layout kept them in its root.
-        "done": md_count(batch_dir / "done", "[0-9][0-9]-*.md") + md_count(batch_dir, "[0-9][0-9]-*.md"),
+        "error": 0,
+        "done": c["done"],
+        "skipped": c["skipped"],
         "archived": True,
         "report": (batch_dir / "report.json").is_file(),
         "dependsOn": [],
@@ -180,6 +200,9 @@ def archived_batch_record(batch_dir):
         "planning": False,
         "review": False,
     }
+    if not readable:
+        rec["consistency"] = "unknown"
+    return rec
 
 
 def scan_repo(repo):
@@ -285,7 +308,7 @@ def render_overview(data):
 
 
 def rank_next(batches):
-    candidates = [b for b in batches if not b["archived"] and (b["open"] > 0 or b["done"] > 0)]
+    candidates = [b for b in batches if not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b["skipped"] > 0)]
     planning = [b["name"] for b in candidates if b["planning"]]
     blocked = [b["name"] for b in candidates if not b["planning"] and b["blocked"]]
     eligible = [b for b in candidates if not b["planning"] and not b["blocked"]]

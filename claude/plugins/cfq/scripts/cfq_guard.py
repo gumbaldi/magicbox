@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: cfq_guard.py pretooluse   (reads a PreToolUse hook payload as JSON on stdin)
-"""PreToolUse guard: denies shell mutations and `done/` writes under `<repo>/.claude/cfq/`.
+"""PreToolUse guard: denies shell mutations and `done/`/`skipped/`/`status.json` writes under
+`<repo>/.claude/cfq/`.
 
 The incident this exists for: `rm -rf` on a batch's `done/` directory, issued from inside the
 batch directory while cleaning up after a `mv` typo. `.claude/cfq` is git-excluded, so that delete
@@ -76,6 +77,8 @@ HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)(-)?\s*(?:'([^']*)'|\"([^\"]*)\"|(\S+))")
 
 SUGGEST_PHASE_RECORD = "bin/cfq phase record <batch-dir> <phase-json-file>"
 SUGGEST_PHASE_REOPEN = "bin/cfq phase reopen <batch-dir> <phase-slug>"
+SUGGEST_PHASE_SKIP = "bin/cfq phase skip <batch-dir> <NN|slug> [--reason <text>]"
+SUGGEST_PHASE_UNSKIP = "bin/cfq phase unskip <batch-dir> <NN|slug>"
 SUGGEST_TRASH_PUT = "bin/cfq trash put <repo-root> <path>"
 SUGGEST_BATCH_READY = "bin/cfq batch ready <batch-dir>"
 
@@ -94,8 +97,17 @@ def resolve(cwd, arg):
     return posixpath.normpath(posixpath.join(cwd or "/", arg))
 
 
-def suggestion_for(resolved_path, *, is_mv=False, mv_dest_in_done=False, mv_source_in_done=False):
+def suggestion_for(resolved_path, *, is_mv=False, mv_dest_in_done=False, mv_source_in_done=False,
+                   mv_source=None):
+    """`resolved_path` is the path the reason names; for an `mv`, `mv_source` is its source, so a
+    move out of `skipped/` is told apart from one into it even when the named path is the dest."""
     basename = posixpath.basename(resolved_path)
+    if is_mv and path_in_skipped(resolved_path):
+        return SUGGEST_PHASE_SKIP
+    if is_mv and mv_source is not None and path_in_skipped(mv_source):
+        return SUGGEST_PHASE_UNSKIP
+    if path_in_skipped(resolved_path) or path_is_status_file(resolved_path):
+        return SUGGEST_PHASE_SKIP
     if is_mv and mv_dest_in_done:
         return SUGGEST_PHASE_RECORD
     if is_mv and mv_source_in_done:
@@ -113,17 +125,43 @@ def build_reason(resolved_path, suggestion):
     )
 
 
-def path_in_done(resolved_path):
-    """`.../impl/<batch>/done/**` or `.../impl/done/<batch>/**`, anchored under the queue --
-    including the `done` directory itself, not only entries inside it (a plain `rm -rf done`
-    from inside a batch directory is the incident this guard exists for)."""
+STATUS_FILE = "status.json"
+
+
+def _queue_rest(resolved_path):
+    """The path components below `.claude/cfq` (None when the path is not under a queue)."""
     parts = [p for p in resolved_path.replace("\\", "/").split("/") if p]
     for i in range(len(parts) - 1):
         if (parts[i], parts[i + 1]) == QUEUE_COMPONENTS:
-            rest = parts[i + 2:]
-            if rest[:1] == ["impl"] and "done" in rest[1:]:
-                return True
-    return False
+            return parts[i + 2:]
+    return None
+
+
+def path_is_status_file(resolved_path):
+    """A `status.json` directly inside a batch directory, open (`impl/<batch>/`) or archived
+    (`impl/done/<batch>/`)."""
+    rest = _queue_rest(resolved_path)
+    if not rest or rest[0] != "impl" or rest[-1] != STATUS_FILE:
+        return False
+    return len(rest) == 3 or (len(rest) == 4 and rest[1] == "done")
+
+
+def path_in_skipped(resolved_path):
+    """`.../impl/<batch>/skipped/**`, including the `skipped` directory itself."""
+    rest = _queue_rest(resolved_path)
+    return bool(rest) and rest[0] == "impl" and "skipped" in rest[2:]
+
+
+def path_in_done(resolved_path):
+    """A path the phase verbs own and a raw write must never reach: `.../impl/<batch>/done/**`,
+    `.../impl/<batch>/skipped/**`, `.../impl/done/<batch>/**` and a batch's `status.json` -- the
+    `done`/`skipped` directory itself included, not only entries inside it (a plain `rm -rf done`
+    from inside a batch directory is the incident this guard exists for). The name is historical;
+    `done/` was the only mirror directory when the guard was written."""
+    rest = _queue_rest(resolved_path)
+    if rest and rest[:1] == ["impl"] and "done" in rest[1:]:
+        return True
+    return path_in_skipped(resolved_path) or path_is_status_file(resolved_path)
 
 
 def split_simple_commands(command):
@@ -274,6 +312,7 @@ def check_destructive_call(argv, cwd):
             is_mv=True,
             mv_dest_in_done=path_in_done(dest),
             mv_source_in_done=path_in_done(source) and not path_in_done(dest),
+            mv_source=source,
         ), (dest if touches_queue(dest) else source)
 
     return suggestion_for(hits[0]), hits[0]
@@ -376,8 +415,12 @@ def check_write(file_path):
     if path_in_done(file_path):
         # A file only belongs in done/ via the phase-record transaction (the move + ledger
         # entry); a raw Write/Edit landing there directly is never the sanctioned path in
-        # either direction, so phase record -- not reopen -- is the correct pointer.
-        return build_reason(file_path.replace("\\", "/"), SUGGEST_PHASE_RECORD)
+        # either direction, so phase record -- not reopen -- is the correct pointer. A
+        # skipped/ target or status.json points at the phase verbs instead.
+        norm = file_path.replace("\\", "/")
+        if path_in_skipped(norm) or path_is_status_file(norm):
+            return build_reason(norm, SUGGEST_PHASE_SKIP)
+        return build_reason(norm, SUGGEST_PHASE_RECORD)
     return None
 
 

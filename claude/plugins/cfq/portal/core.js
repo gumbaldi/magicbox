@@ -225,6 +225,8 @@
     red: ["✖", "Red"],
     question: ["?", "Question"],
     open: ["○", "Open"],
+    error: ["!", "Error"],
+    skipped: ["↷", "Skipped"],
   };
 
   // Status is always icon plus text, never colour alone.

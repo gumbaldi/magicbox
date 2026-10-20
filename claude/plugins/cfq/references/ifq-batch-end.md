@@ -8,7 +8,9 @@ unconditionally (a `trap`, so a mid-sequence failure can never leave the repo lo
 one JSON object whose `statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/
 `Changelog`/`Telemetry`/`Report`/`Lock` rendered from that same object's fields — print each entry
 as returned, in order; `Security Diff` is entirely absent from the array on an older batch with no
-planning snapshot to diff against, rather than printed empty. Any `.errors` entry
+planning snapshot to diff against, rather than printed empty. `Skipped` (phases skipped and the inbox
+entries written for them, `➖ none` when nothing was skipped) is printed as returned like the rest.
+Any `.errors` entry
 (`"<step>: <message>"`) already arrives attached as a `sub` line under its matching entry above —
 the sequence still completed, no separate error line to compose.
 
@@ -32,7 +34,8 @@ instead, with no `file://` line in **Closing Reports**.
 
 `RESULT · implement-for-queue` header, one label/value line per field:
 
-- `Batch` — batch and repo, phases total, green/red split.
+- `Batch` — batch and repo, phases total, green/red split, and the skipped phases next to it
+  (`5 green, 1 red, 2 skipped`) when there are any.
 - `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
   `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
   tokens total, models, efforts. Fields 9/7 mean the **whole batch** — session + every sub-agent,
@@ -53,15 +56,18 @@ instead, with no `file://` line in **Closing Reports**.
   worker_explore_turns` always equals the total (fields 9, and the same for output against field
   7) — orchestrator·explorer·worker·worker-explorer is the full compact clause worth naming
   together when summarizing this line. A row without fields 12-15 (classic mode, or an older
-  report) renders exactly as before, no worker line — there, `orchestrator_turns + explore_turns`
+  report) renders without a worker line — there, `orchestrator_turns + explore_turns`
   equals the total, since worker and worker explorer are both zero.
 - `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
 - `Security` — the difference only, one line.
+- `Review` — the `Review` status line's detail, and the parked entry's path when there is one;
+  omitted when `batchReview` is `off`.
 - `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
-  `   └ ` line, printed not run; also a `todo/` card, written without asking by
+  `   └ ` line, printed not run; also a `todo/` entry, written without asking by
   `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
-  `queue-entries.md`), so a forgotten merge is never lost and the card's `check:` line lets `/cfq`
-  close it on its own once the merge lands.
+  `queue-entries.md`), so a forgotten merge is never lost and the entry's `check:` line lets `/cfq`
+  close it on its own once the merge lands. Parked review findings are named on a further `   └ `
+  sub-line, so the branch is not merged without seeing them.
 - `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
   this batch, or omitted when `htmlReport` turned the sync off.
 

@@ -4,19 +4,20 @@ Self-test for scripts/cfq_lint.py, scripts/cfq_security.py, scripts/cfq_lang.py 
 scripts/cfq_maintenance.py, plus the commands/* short/long-form pairs.
 """
 
+import json
 import os
 import re
 import subprocess
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, PhaseDirsStatus, write_status
 
 
 def _rule_count(output, rule):
     return len(re.findall(rf": {re.escape(rule)}:", output))
 
 
-class TestLint(CfqTestCase):
+class TestLint(PhaseDirsStatus, CfqTestCase):
     def _write(self, path, content):
         path.write_text(content)
 
@@ -313,6 +314,152 @@ x
         self.assertIn("01-a.md: sections: missing Changes heading", out)
         self.assertNotIn("changes-steps", out)
 
+    # ---- ## Model heading (batch 053 phase 09) ---------------------------------------------------
+
+    def _model_batch(self, repo, model_block, impl_models=("sonnet", "haiku")):
+        """A parked batch whose single phase carries `model_block` after `## Size`, in a repo whose
+        settings.json sets implModels."""
+        root = self.make_repo(repo)
+        (root / ".claude" / "cfq").mkdir(parents=True, exist_ok=True)
+        (root / ".claude" / "cfq" / "settings.json").write_text(
+            json.dumps({"implModels": list(impl_models)})
+        )
+        target = self._repos_dir / f"{repo}-target"
+        target.touch()
+        batch = root / ".claude" / "cfq" / "impl" / "2026-01-05-model"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        phase = self._valid_phase(target).replace("## Size\nM\n", f"## Size\nM\n{model_block}")
+        self._write(batch / "01-a.md", phase)
+        self.run_cfq("park", str(root), batch.name, "normal", check=True)
+        self.auto_status = False
+        return batch
+
+    def test_model_from_implmodels_is_clean(self):
+        batch = self._model_batch("modelrepo1", "## Model\nHaiku\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("model", out)
+
+    def test_model_outside_implmodels_is_reported(self):
+        batch = self._model_batch("modelrepo2", "## Model\nopus\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn("01-a.md: model: 'opus' is not in implModels (sonnet, haiku)", out)
+
+    def test_empty_model_heading_is_reported(self):
+        batch = self._model_batch("modelrepo3", "## Model\n")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn("01-a.md: model: ## Model heading has no value", out)
+
+    def test_phase_without_model_heading_is_clean(self):
+        batch = self._model_batch("modelrepo4", "")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("model", out)
+
+    def test_unavailable_settings_warn_without_blocking(self):
+        """A batch outside any queue layout has no repo to read implModels from."""
+        batch = self._repos_dir / "loose" / "2026-01-05-loose"
+        batch.mkdir(parents=True)
+        target = self._repos_dir / "loose-target"
+        target.touch()
+        phase = self._valid_phase(target).replace("## Size\nM\n", "## Size\nM\n## Model\nopus\n")
+        self._write(batch / "01-a.md", phase)
+        _, out = self._lint_out(batch)
+        self.assertEqual(out.count("warn: model: implModels unavailable, ## Model not checked"), 1, out)
+        self.assertNotIn("01-a.md: model:", out)
+
+    # ---- status.json (batch 051 phase 05) -------------------------------------------------------
+
+    def _status_batch(self, repo, phases=("01-a", "02-b")):
+        """A batch parked through a real `bin/cfq park` -- git repo, plan files written first,
+        status.json created by park itself."""
+        root = self.make_repo(repo)
+        target = self._repos_dir / f"{repo}-target"
+        target.touch()
+        batch = root / ".claude" / "cfq" / "impl" / "2026-01-04-status"
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        for slug in phases:
+            self._write(batch / f"{slug}.md", self._valid_phase(target))
+        self.run_cfq("park", str(root), batch.name, "normal", check=True)
+        self.auto_status = False  # park wrote status.json; a test breaks it on purpose
+        return root, batch
+
+    def _valid_phase(self, target):
+        return f"""# Phase
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+1. x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+    def _lint_out(self, batch):
+        proc = self.run_cfq("lint", str(batch))
+        return proc.returncode, proc.stdout + proc.stderr
+
+    def test_lint_on_a_parked_batch_is_clean(self):
+        _, batch = self._status_batch("statusrepo1")
+        self.assertTrue((batch / "status.json").is_file(), "park should have written status.json")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertIn("OK 2 phases", out)
+
+    def test_lint_reports_missing_status_file(self):
+        _, batch = self._status_batch("statusrepo2")
+        (batch / "status.json").unlink()
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: missing status.json", out)
+
+    def test_lint_reports_unparsable_status_file(self):
+        _, batch = self._status_batch("statusrepo3")
+        (batch / "status.json").write_text("{not json")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: status.json is not valid JSON", out)
+
+    def test_lint_reports_phase_file_added_after_park(self):
+        _, batch = self._status_batch("statusrepo4", phases=("01-a",))
+        self._write(batch / "02-b.md", self._valid_phase(self._repos_dir / "statusrepo4-target"))
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b has no status entry", out)
+        self.assertNotIn("sections:", out, "the unregistered open file is still linted by location")
+
+    def test_lint_reports_entry_without_file(self):
+        _, batch = self._status_batch("statusrepo5")
+        (batch / "02-b.md").unlink()
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b entry has no file", out)
+
+    def test_lint_reports_mirror_mismatch(self):
+        _, batch = self._status_batch("statusrepo6")
+        (batch / "done").mkdir()
+        (batch / "02-b.md").rename(batch / "done" / "02-b.md")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{batch.name}: status: 02-b is open but lies in done/", out)
+
+    def test_skipped_phase_is_not_linted_for_headings_but_still_numbered(self):
+        _, batch = self._status_batch("statusrepo7", phases=("01-a", "02-b", "03-c"))
+        (batch / "02-b.md").write_text("no headings at all\n")
+        write_status(batch, **{"02_b": {"status": "skipped", "reason": "obsolete"}})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("02-b.md", out)
+        self.assertNotIn("numbering", out, "a skipped phase must not read as a gap")
+        self.assertIn("OK 3 phases", out)
+
     def test_new_marker_on_existing_path_fires_stale_new(self):
         qdir = self._repos_dir / "lintrepo3" / ".claude" / "cfq"
         qdir.mkdir(parents=True)
@@ -321,6 +468,7 @@ x
 
         newmarker = qdir / "2026-01-03-newmarker"
         newmarker.mkdir()
+        (newmarker / ".planning").touch()
         self._write(newmarker / "01-a.md", f"""# Phase A
 ## Size
 M
@@ -338,6 +486,161 @@ x
         out = proc.stdout + proc.stderr
         self.assertIn(": stale-new:", out, f"English (new) marker did not fire stale-new: {out}")
         self.assertNotIn(": priority:", out, f"batch without .priority should not fire priority: {out}")
+
+    # ---- pending creators (batch 054 phase 01) --------------------------------------------------
+
+    def _creator_phase(self, path, new):
+        marker = " (new)" if new else ""
+        return f"""# Phase
+## Size
+M
+## Context
+x
+## Affected Files
+- `{path}`{marker}
+## Changes
+1. x
+## Verification
+`bash tests/foo.sh` must exit 0
+"""
+
+    def _creator_batch(self, qdir, name, phases, planning=False, depends=None, statuses=None, done=False):
+        """`phases` maps a slug to (path, is_new). A batch for `done=True` lies under `done/`."""
+        base = qdir / "done" if done else qdir
+        batch = base / name
+        batch.mkdir(parents=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        if planning:
+            (batch / ".planning").touch()
+        if depends:
+            (batch / ".dependsOn").write_text("\n".join(depends) + "\n")
+        for slug, (path, is_new) in phases.items():
+            self._write(batch / f"{slug}.md", self._creator_phase(path, is_new))
+        write_status(batch, **(statuses or {}))
+        return batch
+
+    def _creator_qdir(self, label):
+        qdir = self._repos_dir / label / ".claude" / "cfq"
+        qdir.mkdir(parents=True)
+        return qdir, self._repos_dir / f"{label}-x.sh"
+
+    def test_creator_in_same_batch_accepts_later_bare_path(self):
+        qdir, x = self._creator_qdir("creator1")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(str(x), out)
+
+    def test_creator_in_dependency_batch_accepts_bare_path(self):
+        qdir, x = self._creator_qdir("creator2")
+        self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=["2026-02-01-a"])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(str(x), out)
+
+    def test_creator_done_and_file_present_is_clean(self):
+        qdir, x = self._creator_qdir("creator3")
+        x.touch()
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            planning=True, statuses={"01-a": "done"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+
+    def test_creator_done_but_file_absent_fails_naming_the_creator(self):
+        qdir, x = self._creator_qdir("creator4")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            statuses={"01-a": "done"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: missing: {x} does not exist (created by 01-a, which is done)", out)
+
+    def test_creator_skipped_fails_naming_the_creator(self):
+        qdir, x = self._creator_qdir("creator5")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, False)},
+            statuses={"01-a": "skipped"})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: missing: {x} does not exist (created by 01-a, which is skipped)", out)
+
+    def test_creator_numbered_later_fails_as_running_later(self):
+        qdir, x = self._creator_qdir("creator6")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, False), "02-b": (x, True)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist (created by 02-b, which runs later)", out)
+
+    def test_creator_in_skipped_dependency_batch_fails(self):
+        qdir, x = self._creator_qdir("creator7")
+        a = self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)}, statuses={"01-a": "skipped"})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=[a.name])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist (created by {a.name}/01-a, which is skipped)", out)
+
+    def test_finished_dependency_batch_and_unclaimed_path_stay_plain_missing(self):
+        qdir, x = self._creator_qdir("creator8")
+        self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)}, done=True)
+        b = self._creator_batch(
+            qdir, "2026-02-02-b", {"01-a": (x, False)}, depends=["2026-02-01-a"])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: missing: {x} does not exist\n", out)
+        self.assertNotIn("created by", out)
+
+    def test_second_marker_in_same_batch_is_duplicate_new(self):
+        qdir, x = self._creator_qdir("creator9")
+        batch = self._creator_batch(
+            qdir, "2026-02-01-same", {"01-a": (x, True), "02-b": (x, True)}, planning=True)
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: duplicate-new: {x} is created by 01-a; list it without (new)", out)
+        self.assertNotIn("01-a.md: duplicate-new", out)
+
+    def test_second_marker_across_batches_is_duplicate_new(self):
+        qdir, x = self._creator_qdir("creator10")
+        a = self._creator_batch(qdir, "2026-02-01-a", {"01-a": (x, True)})
+        b = self._creator_batch(qdir, "2026-02-02-b", {"01-a": (x, True)}, depends=[a.name])
+        code, out = self._lint_out(b)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"01-a.md: duplicate-new: {x} is created by {a.name}/01-a; list it without (new)", out)
+
+    def test_stale_new_on_resume_is_a_warning(self):
+        qdir, x = self._creator_qdir("creator11")
+        x.touch()
+        batch = self._creator_batch(qdir, "2026-02-01-resume", {"01-a": (x, True)})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"warn: 01-a.md: stale-new: {x} already exists", out)
+        self.assertNotIn("\n01-a.md: stale-new", "\n" + out)
+
+    def test_stale_new_on_a_later_phase_is_a_finding(self):
+        qdir, x = self._creator_qdir("creator12")
+        x.touch()
+        y = self._repos_dir / "creator12-y.sh"
+        batch = self._creator_batch(
+            qdir, "2026-02-01-later", {"01-a": (y, True), "02-b": (x, True)})
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"02-b.md: stale-new: {x} already exists", out)
+        self.assertNotIn(f"warn: 02-b.md: stale-new", out)
+
+    def test_unreadable_status_does_not_crash_the_creator_scan(self):
+        qdir, x = self._creator_qdir("creator13")
+        x.touch()
+        batch = self._creator_batch(qdir, "2026-02-01-nostatus", {"01-a": (x, True)})
+        (batch / "status.json").unlink()
+        self.auto_status = False
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 1, out)
+        self.assertIn(f"{batch.name}: status: missing status.json", out)
+        self.assertNotIn("Traceback", proc.stderr)
 
     def test_batch_context_checks(self):
         qdir = self._repos_dir / "lintrepo4" / ".claude" / "cfq"
@@ -698,23 +1001,45 @@ class TestMaintenance(CfqTestCase):
         self.assertEqual(before, after, "OFF must not touch the marker")
 
 
-class TestCommandPairs(CfqTestCase):
-    def test_short_long_forms_byte_identical(self):
+class TestCommandFiles(CfqTestCase):
+    def _files(self):
+        return sorted((PLUGIN_ROOT / "commands").iterdir())
+
+    def test_only_markdown(self):
+        for f in self._files():
+            with self.subTest(file=f.name):
+                self.assertEqual(f.suffix, ".md", f"commands/{f.name} is not Markdown")
+
+    def test_expected_set(self):
+        self.assertEqual({f.stem for f in self._files()}, {"cfq", "rfq", "pfq", "ifq"})
+
+    def test_no_command_shares_a_skill_name(self):
+        skills = {d.name for d in (PLUGIN_ROOT / "skills").iterdir() if d.is_dir()}
+        for f in self._files():
+            with self.subTest(file=f.name):
+                self.assertNotIn(f.stem, skills, f"commands/{f.name} shares a skill's name")
+
+    def test_frontmatter_description(self):
+        for f in self._files():
+            with self.subTest(file=f.name):
+                text = f.read_text(encoding="utf-8")
+                self.assertTrue(text.startswith("---\n"), f"{f.name} has no frontmatter")
+                front = text.split("---\n", 2)[1]
+                desc = [l for l in front.splitlines() if l.startswith("description:")]
+                self.assertTrue(desc and desc[0][len("description:"):].strip(),
+                                f"{f.name} has no non-empty description")
+
+    def test_bodies_route_to_their_skill(self):
         commands_dir = PLUGIN_ROOT / "commands"
-        pairs = [
-            ("pfq", "plan-for-queue", "toml"),
-            ("ifq", "implement-for-queue", "toml"),
-            ("cfq", "code-for-queue", "md"),
-            ("rfq", "report-for-queue", "md"),
-        ]
-        for short, long, ext in pairs:
-            with self.subTest(pair=f"{short}:{long}"):
-                short_bytes = (commands_dir / f"{short}.{ext}").read_bytes()
-                long_bytes = (commands_dir / f"{long}.{ext}").read_bytes()
-                self.assertEqual(
-                    short_bytes, long_bytes,
-                    f"commands/{short}.{ext} and commands/{long}.{ext} are not byte-identical",
-                )
+        pfq = (commands_dir / "pfq.md").read_text(encoding="utf-8")
+        ifq = (commands_dir / "ifq.md").read_text(encoding="utf-8")
+        self.assertIn("plan-for-queue skill", pfq)
+        self.assertIn("implement-for-queue skill", ifq)
+        self.assertIn("resume", ifq)
+        self.assertIn("start", ifq)
+        for name, text in (("pfq.md", pfq), ("ifq.md", ifq)):
+            with self.subTest(file=name):
+                self.assertEqual(text.rstrip("\n").splitlines()[-1], "$ARGUMENTS")
 
 
 if __name__ == "__main__":

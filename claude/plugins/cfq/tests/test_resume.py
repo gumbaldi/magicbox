@@ -4,7 +4,7 @@ import json
 import subprocess
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, PhaseDirsStatus, write_status
 
 
 def git(repo, *args, check=True):
@@ -13,7 +13,7 @@ def git(repo, *args, check=True):
     )
 
 
-class ResumeTest(CfqTestCase):
+class ResumeTest(PhaseDirsStatus, CfqTestCase):
     def setUp(self):
         super().setUp()
         self.tmp = self._repos_dir / "tmp"
@@ -156,8 +156,8 @@ class ResumeTest(CfqTestCase):
         self.assertEqual(
             out["phasesOpen"],
             [
-                {"num": "02", "slug": "02-b", "size": "L"},
-                {"num": "03", "slug": "03-c", "size": "M"},
+                {"num": "02", "slug": "02-b", "size": "L", "status": "open"},
+                {"num": "03", "slug": "03-c", "size": "M", "status": "open"},
             ],
             msg="two-open phasesOpen",
         )
@@ -177,13 +177,14 @@ class ResumeTest(CfqTestCase):
 
         proc = self.run_cfq("resume", str(self.tmp), str(batch))
         out = self.json_out(proc)
-        self.assertEqual(out["phasesOpen"], [{"num": "01", "slug": "01-a", "size": "M"}])
+        self.assertEqual(out["phasesOpen"], [{"num": "01", "slug": "01-a", "size": "M", "status": "open"}])
 
     def test_empty_batch_dir_no_phase_files(self):
         # Edge: the directory exists but holds no phase files at all -- both lists empty, no
         # crash.
         batch = self.tmp / ".claude" / "cfq" / "impl" / "2026-01-06-empty"
         batch.mkdir(parents=True)
+        write_status(batch)
 
         proc = self.run_cfq("resume", str(self.tmp), str(batch))
         out = self.json_out(proc)
@@ -191,6 +192,45 @@ class ResumeTest(CfqTestCase):
         self.assertEqual(out["phasesDone"], [], msg="empty phasesDone")
         self.assertIsNone(out["lastCommit"], msg="empty lastCommit")
         self.assertFalse(out["batchContext"]["exists"], msg="empty batchContext")
+
+    def test_done_skipped_error_open_are_split_by_status_json(self):
+        # Routine: the four states in one batch -- phasesOpen holds the error and the open phase
+        # in number order with their status, phasesDone the done one, phasesSkipped the skipped
+        # one with its reason (from a real `phase skip`), whatever directory each file lies in.
+        batch = self.tmp / ".claude" / "cfq" / "impl" / "2026-01-09-states"
+        batch.mkdir(parents=True)
+        for name, size in (("01-a", "S"), ("02-b", "M"), ("03-c", "L"), ("04-d", "S")):
+            (batch / f"{name}.md").write_text(f"# T\n\n## Size\n\n{size}\n")
+        write_status(batch, **{"01_a": "done", "03_c": "error"})
+        self.run_cfq("phase", "skip", str(batch), "02", "--reason", "obsolete", check=True)
+
+        out = self.json_out(self.run_cfq("resume", str(self.tmp), str(batch)))
+        self.assertEqual(
+            out["phasesOpen"],
+            [
+                {"num": "03", "slug": "03-c", "size": "L", "status": "error"},
+                {"num": "04", "slug": "04-d", "size": "S", "status": "open"},
+            ],
+            msg=f"phasesOpen = {out['phasesOpen']}",
+        )
+        self.assertEqual(
+            out["phasesDone"], [{"num": "01", "slug": "01-a", "commit": None}], msg="phasesDone"
+        )
+        self.assertEqual(
+            out["phasesSkipped"], [{"num": "02", "slug": "02-b", "reason": "obsolete"}],
+            msg="phasesSkipped",
+        )
+
+    def test_batch_without_status_file_fails(self):
+        # Failure: no status.json -- plain-text error naming the file, exit 1, no JSON.
+        self.auto_status = False
+        batch = self.tmp / ".claude" / "cfq" / "impl" / "2026-01-10-nostatus"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n")
+
+        proc = self.run_cfq("resume", str(self.tmp), str(batch))
+        self.assertEqual(proc.returncode, 1, msg="missing status.json exit code")
+        self.assertIn("status.json", proc.stderr, msg=f"stderr = {proc.stderr!r}")
 
     def test_nonexistent_batch_directory_fails(self):
         # Failure: no such batch directory -- pins the exact plain-text message and exit code,

@@ -2,6 +2,8 @@
 # Usage: cfq_phase.py record <batch-dir> <phase-json-file> [--no-telemetry]
 #        cfq_phase.py commit <batch-dir> <phase-json-file> <message-file>
 #        cfq_phase.py reopen <batch-dir> <phase-slug>
+#        cfq_phase.py skip <batch-dir> <phase> [--reason <text>]
+#        cfq_phase.py unskip <batch-dir> <phase>
 """Closing (and reopening) a phase as one transaction, not several agent-issued operations in the
 wrong order with a `mkdir -p` improvised in between -- that gap is where an accidental `rm -rf`
 on a batch's `done/` directory originated (see `.batch-context.md`).
@@ -9,18 +11,25 @@ on a batch's `done/` directory originated (see `.batch-context.md`).
 `record` either moves the phase's `.md` file into `done/` and appends its ledger entry, or does
 neither -- the red-phase path, and `commit`'s own last resort once its own commit has already
 succeeded (see `cmd_commit`). `commit` is the green-phase path: it commits whatever is staged,
-then records, backfills the commit SHA, pushes and registers the repo, all from one call, so a
+then records, backfills the commit SHA, pushes and registers the repo, all from one call, and
+reports the phase's cost (a `Cost` status line) alongside the commit result, so a
 green phase costs one `bin/cfq` invocation instead of the five or six it used to (`phase record`,
 `changelog commit-message`, `git commit`, `git push`, `git rev-parse HEAD`, `report set-commit`,
 `registry add`). `reopen` is `record`'s inverse: it moves a phase back out of `done/` and marks the
 ledger entry `reopened`, never erasing `status`/`commit` -- that history is what `/rfq` and `ifq`
-Step 5's failed-attempt detection read.
+Step 5's failed-attempt detection read. `skip` takes an `open` or `error` phase out of the way
+without implementing it (file into `skipped/`, a `skipped` ledger entry), `unskip` brings it back
+to the status it held before.
+
+Every verb changes the phase through `cfq_lib/phase_state.py`, so `status.json` -- the authority
+for a phase's state -- and the `done/` / `skipped/` mirror directories move together; a batch
+directory without a readable `status.json` is refused with `STATUS_FILE_MISSING` /
+`STATUS_FILE_INVALID` before anything is touched.
 """
 
 import argparse
 import json
 import pathlib
-import shutil
 import subprocess
 import sys
 
@@ -29,7 +38,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
-from cfq_lib import errors, portal_hook, render, text  # noqa: E402
+from cfq_lib import errors, phase_state, portal_hook, render, text  # noqa: E402
 
 PROG = "cfq_phase.py"
 
@@ -50,6 +59,32 @@ def commit_status_line(result):
     if status in ("COMMIT_FAILED", "RECORD_FAILED"):
         return text.status_entry("Commit", "fail", result.get("detail") or status)
     return text.status_entry("Commit", "fail", status or "unknown")
+
+
+def _state_fail(batch_dir, e):
+    """Maps a `PhaseStateError` onto the structured error shape. The two status.json codes name
+    the batch directory only -- there is no migration hint in the framework."""
+    if e.code in ("STATUS_FILE_MISSING", "STATUS_FILE_INVALID"):
+        errors.fail(e.code, detail=str(batch_dir))
+    errors.fail(e.code, detail=e.message)
+
+
+def _statuses(batch_dir):
+    """slug -> status over the batch's status.json; refuses a missing or unreadable file."""
+    try:
+        return {s: v["status"] for s, v in phase_state.load(batch_dir)["phases"].items()}
+    except phase_state.PhaseStateError as e:
+        _state_fail(batch_dir, e)
+
+
+def _ledger_entry_index(phases, slug, pred=lambda p: True):
+    """Index of the last ledger entry for `slug` that satisfies `pred` -- the same last-match
+    rule as cfq_report.py's set-commit: with two entries for one slug, the later attempt wins."""
+    matches = [
+        i for i, p in enumerate(phases)
+        if isinstance(p, dict) and p.get("phase") == slug and pred(p)
+    ]
+    return matches[-1] if matches else None
 
 
 def cmd_record(args):
@@ -79,33 +114,34 @@ def cmd_record(args):
     if status not in ("green", "red"):
         errors.die(f"{PROG} record: status must be 'green' or 'red', got '{status}'")
 
-    root_path = pathlib.Path(dir_) / f"{phase_id}.md"
-    done_path = pathlib.Path(dir_) / "done" / f"{phase_id}.md"
+    batch_dir = pathlib.Path(dir_)
+    current = _statuses(batch_dir).get(phase_id)
+    if current is None:
+        _state_fail(batch_dir, phase_state.PhaseStateError(
+            "UNKNOWN_PHASE", f"no phase '{phase_id}' in {batch_dir.name}"))
+    if current == "done":
+        errors.fail("ALREADY_RECORDED", detail=f"{phase_id} is already in done/")
+    if phase_state.locate(batch_dir, phase_id) is None:
+        errors.die(f"{PROG} record: no such phase file {batch_dir / (phase_id + '.md')}")
 
-    if not root_path.is_file():
-        if done_path.is_file():
-            errors.fail("ALREADY_RECORDED", detail=f"{phase_id} is already in done/")
-        errors.die(f"{PROG} record: no such phase file {root_path}")
-
-    moved = False
-    if status == "green":
-        try:
-            done_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(root_path), str(done_path))
-            moved = True
-        except OSError as e:
-            errors.die(f"{PROG} record: could not move {root_path} to done/: {e}")
+    snap = phase_state.snapshot(batch_dir, phase_id)
+    try:
+        new_path = phase_state.transition(
+            batch_dir, phase_id, "done" if status == "green" else "error")
+    except phase_state.PhaseStateError as e:
+        _state_fail(batch_dir, e)
+    except OSError as e:
+        errors.die(f"{PROG} record: could not move {phase_id}.md: {e}")
 
     try:
         cfq_report.append_phase(dir_, phase_json, record_telemetry=not args.no_telemetry)
-    except SystemExit:
-        if moved:
-            shutil.move(str(done_path), str(root_path))
+    except (SystemExit, OSError):
+        phase_state.restore(batch_dir, phase_id, snap)
         raise
 
-    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[pathlib.Path(dir_).name])
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[batch_dir.name])
 
-    print(str(done_path) if moved else str(root_path))
+    print(str(new_path))
 
 
 def _git(repo, *args):
@@ -181,7 +217,15 @@ def cmd_commit(args):
             f"{PROG} commit: status must be 'green' (red phases use 'phase record'), got '{status}'"
         )
 
-    root_path = pathlib.Path(dir_) / f"{phase_id}.md"
+    batch_dir = pathlib.Path(dir_)
+    current = _statuses(batch_dir).get(phase_id)
+    if current is None:
+        _state_fail(batch_dir, phase_state.PhaseStateError(
+            "UNKNOWN_PHASE", f"no phase '{phase_id}' in {batch_dir.name}"))
+    if current not in phase_state.PENDING:
+        _state_fail(batch_dir, phase_state.PhaseStateError(
+            "INVALID_TRANSITION", f"{phase_id}: {current} -> done is not allowed"))
+    root_path = batch_dir / f"{phase_id}.md"
     if not root_path.is_file():
         errors.die(f"{PROG} commit: no such phase file {root_path}")
 
@@ -208,12 +252,10 @@ def cmd_commit(args):
         print(render.dump_json(result))
         sys.exit(1)
 
-    done_path = pathlib.Path(dir_) / "done" / f"{phase_id}.md"
     try:
-        done_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(root_path), str(done_path))
+        phase_state.transition(batch_dir, phase_id, "done")
         cfq_report.append_phase(dir_, phase_json, record_telemetry=True)
-    except (OSError, SystemExit) as e:
+    except (OSError, SystemExit, phase_state.PhaseStateError) as e:
         sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
         result = {"status": "RECORD_FAILED", "sha": sha, "detail": str(e)}
         result["statusLines"] = [commit_status_line(result)]
@@ -235,6 +277,11 @@ def cmd_commit(args):
     if push.returncode != 0:
         result["pushError"] = _last_stderr_line(push.stderr)
     result["statusLines"] = [commit_status_line(result)]
+    # The second entry, `Cost`, is rendered from the ledger entry just written -- see
+    # `cfq_report.phase_cost_entry()`; absent without a telemetry record.
+    cost = cfq_report.phase_cost_entry(dir_, phase_id)
+    if cost is not None:
+        result["statusLines"].append(cost)
     print(render.dump_json(result))
 
 
@@ -243,34 +290,112 @@ def cmd_reopen(args):
     if not pathlib.Path(dir_).is_dir():
         errors.die(f"{PROG}: no such batch directory: {dir_}")
 
-    done_path = pathlib.Path(dir_) / "done" / f"{phase_slug}.md"
-    root_path = pathlib.Path(dir_) / f"{phase_slug}.md"
-    if not done_path.is_file():
-        errors.fail("NOT_DONE", detail=f"no {phase_slug}.md in done/")
+    batch_dir = pathlib.Path(dir_)
+    if _statuses(batch_dir).get(phase_slug) != "done":
+        errors.fail("NOT_DONE", detail=f"{phase_slug} is not done")
 
-    f = pathlib.Path(dir_) / "report.json"
+    f = batch_dir / "report.json"
     if not f.is_file():
         errors.die(f"{PROG}: no report.json in {dir_}")
     data = json.loads(f.read_text())
     phases = data.get("phases", [])
-    # Same last-match rule as cfq_report.py's set-commit: with two entries for the same slug,
-    # the later attempt is the one that gets marked.
-    matches = [i for i, p in enumerate(phases) if isinstance(p, dict) and p.get("phase") == phase_slug]
-    if not matches:
+    idx = _ledger_entry_index(phases, phase_slug)
+    if idx is None:
         errors.die(f"{PROG} reopen: no phase entry '{phase_slug}' in {f}")
 
-    shutil.move(str(done_path), str(root_path))
+    snap = phase_state.snapshot(batch_dir, phase_slug)
     try:
-        at = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
-        phases[matches[-1]]["reopened"] = at
+        root_path = phase_state.transition(batch_dir, phase_slug, "open")
+    except phase_state.PhaseStateError as e:
+        _state_fail(batch_dir, e)
+    try:
+        phases[idx]["reopened"] = render.now_iso()
         render.write_json(str(f), data)
     except OSError:
-        shutil.move(str(root_path), str(done_path))
+        phase_state.restore(batch_dir, phase_slug, snap)
         raise
 
-    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[pathlib.Path(dir_).name])
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[batch_dir.name])
 
     print(str(root_path))
+
+
+def cmd_skip(args):
+    """Takes an `open` or `error` phase out of the way: file into `skipped/`, status `skipped`
+    (remembering the earlier status), one `skipped` ledger entry. Only ever user-initiated."""
+    dir_ = args.dir
+    batch_dir = pathlib.Path(dir_)
+    if not batch_dir.is_dir():
+        errors.die(f"{PROG}: no such batch directory: {dir_}")
+
+    try:
+        slug = phase_state.resolve_slug(batch_dir, args.phase)
+        snap = phase_state.snapshot(batch_dir, slug)
+        previous = snap["entry"]["status"]
+        path = phase_state.transition(batch_dir, slug, "skipped", reason=args.reason or None)
+    except phase_state.PhaseStateError as e:
+        _state_fail(batch_dir, e)
+
+    reason = args.reason or ""
+    entry = {
+        "phase": slug, "status": "skipped", "summary": reason,
+        "previous": previous, "finished": render.now_iso(),
+    }
+    try:
+        cfq_report.append_phase(dir_, json.dumps(entry), record_telemetry=False)
+    except (SystemExit, OSError):
+        phase_state.restore(batch_dir, slug, snap)
+        raise
+
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[batch_dir.name])
+
+    detail = f"{slug} · was {previous}" + (f" · {reason}" if reason else "")
+    print(render.dump_json({
+        "status": "OK", "phase": slug, "previous": previous, "reason": reason,
+        "path": str(path) if path else None,
+        "statusLines": [text.status_entry("Skip", "done", detail)],
+    }))
+
+
+def cmd_unskip(args):
+    """Brings a skipped phase back to the status it held before the skip and marks the skip's
+    ledger entry `unskipped`."""
+    dir_ = args.dir
+    batch_dir = pathlib.Path(dir_)
+    if not batch_dir.is_dir():
+        errors.die(f"{PROG}: no such batch directory: {dir_}")
+
+    try:
+        slug = phase_state.resolve_slug(batch_dir, args.phase)
+        snap = phase_state.snapshot(batch_dir, slug)
+        path, restored = phase_state.unskip(batch_dir, slug)
+    except phase_state.PhaseStateError as e:
+        if e.code == "INVALID_TRANSITION":
+            errors.fail("NOT_SKIPPED", detail=e.message)
+        _state_fail(batch_dir, e)
+
+    f = batch_dir / "report.json"
+    try:
+        if f.is_file():
+            data = json.loads(f.read_text())
+            phases = data.get("phases", [])
+            idx = _ledger_entry_index(
+                phases, slug, lambda p: p.get("status") == "skipped" and "unskipped" not in p)
+            if idx is not None:
+                phases[idx]["unskipped"] = render.now_iso()
+                render.write_json(str(f), data)
+    except (OSError, ValueError):
+        phase_state.restore(batch_dir, slug, snap)
+        raise
+
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(dir_), batches=[batch_dir.name])
+
+    print(render.dump_json({
+        "status": "OK", "phase": slug, "previous": "skipped", "restored": restored,
+        "reason": (snap["entry"] or {}).get("reason", ""),
+        "path": str(path) if path else None,
+        "statusLines": [text.status_entry("Unskip", "done", f"{slug} · back to {restored}")],
+    }))
 
 
 def build_parser():
@@ -294,6 +419,17 @@ def build_parser():
     p.add_argument("phase_slug")
     p.set_defaults(func=cmd_reopen)
 
+    p = sub.add_parser("skip")
+    p.add_argument("dir")
+    p.add_argument("phase")
+    p.add_argument("--reason", default="")
+    p.set_defaults(func=cmd_skip)
+
+    p = sub.add_parser("unskip")
+    p.add_argument("dir")
+    p.add_argument("phase")
+    p.set_defaults(func=cmd_unskip)
+
     return parser
 
 
@@ -305,7 +441,9 @@ def main(argv):
         errors.die(
             f"usage: {PROG} record <batch-dir> <phase-json-file> [--no-telemetry] | "
             f"commit <batch-dir> <phase-json-file> <message-file> | "
-            f"reopen <batch-dir> <phase-slug>"
+            f"reopen <batch-dir> <phase-slug> | "
+            f"skip <batch-dir> <phase> [--reason <text>] | "
+            f"unskip <batch-dir> <phase>"
         )
         return
     func(args)

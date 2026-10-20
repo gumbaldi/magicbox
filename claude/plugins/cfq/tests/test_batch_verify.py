@@ -11,10 +11,15 @@ import subprocess
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, write_status
 
 
 class BatchVerifyTest(CfqTestCase):
+    # Every batch fixture gets the status.json its plan files imply before each run_cfq(); a test
+    # whose fixture needs a different status.json writes it itself (see _write_status_raw) or
+    # turns this off for its own duration.
+    auto_status = True
+
     def _repo(self, name):
         return self.make_repo(name)
 
@@ -26,6 +31,15 @@ class BatchVerifyTest(CfqTestCase):
         (batch_dir / "report.json").write_text(json.dumps({
             "repo": "", "batch": batch_dir.name, "started": "2026-01-01T00:00:00+00:00",
             "phases": phases,
+        }))
+
+    def _write_status_raw(self, batch_dir, phases):
+        """A status.json listing `phases` ({slug: status}) whether or not a plan file exists for
+        each -- write_status() can only adopt files, and several cases need an entry without one."""
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "status.json").write_text(json.dumps({
+            "schema": 1, "phases": {slug: {"status": st, "at": "2026-01-01T00:00:00+00:00"}
+                                    for slug, st in phases.items()},
         }))
 
     def _report(self, batch_dir):
@@ -119,6 +133,7 @@ class BatchVerifyTest(CfqTestCase):
             shas[slug] = sha
             phases.append({"phase": slug, "status": "green", "commit": sha})
         self._write_report(batch_dir, phases)
+        self._write_status_raw(batch_dir, {slug: "done" for slug in shas})
 
         proc = self._verify(repo, batch)
         self.assertNotEqual(proc.returncode, 0)
@@ -226,6 +241,7 @@ class BatchVerifyTest(CfqTestCase):
         batch_dir = self._batch_dir(repo, batch)
         (batch_dir / "done").mkdir(parents=True)
         (batch_dir / "done" / "01-mystery.md").write_text("# mystery\n")
+        (batch_dir / "02-open.md").write_text("# open\n")  # keeps COMPLETE_NOT_ARCHIVED out of it
 
         findings = self._findings(repo, batch)
         self.assertEqual(
@@ -267,6 +283,7 @@ class BatchVerifyTest(CfqTestCase):
         sha = self._commit_phase(repo, batch, "01-a")
         self._write_report(batch_dir, [{"phase": "01-a", "status": "green", "commit": sha}])
         (batch_dir / "done").mkdir()  # exists, but 01-a.md is simply gone, never trashed
+        self._write_status_raw(batch_dir, {"01-a": "done", "02-open": "open"})
 
         findings = self._findings(repo, batch)
         self.assertEqual(
@@ -302,12 +319,212 @@ class BatchVerifyTest(CfqTestCase):
         os.utime(marker, (two_days_ago, two_days_ago))
         sha = self._commit_phase(repo, batch_a, "01-a")
         self._write_report(dir_a, [{"phase": "01-a", "status": "green", "commit": sha}])
+        self._write_status_raw(dir_a, {"01-a": "done"})
 
         proc = self._verify(repo)
         self.assertNotEqual(proc.returncode, 0)
         findings = self.json_out(proc)["findings"]
         batches_seen = {f["batch"] for f in findings}
         self.assertEqual(batches_seen, {batch_a, batch_b}, msg=findings)
+
+    # ---- status.json is the authority, the directories mirror it -------------------------------
+
+    def test_routine_batch_with_every_status_has_no_findings(self):
+        repo = self._repo("every-status")
+        batch = "2026-04-11-every-status"
+        batch_dir = self._batch_dir(repo, batch)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "skipped").mkdir()
+        (batch_dir / "done" / "01-a.md").write_text("# a\n")
+        (batch_dir / "skipped" / "02-b.md").write_text("# b\n")
+        (batch_dir / "03-c.md").write_text("# c\n")
+        (batch_dir / "04-d.md").write_text("# d\n")
+        write_status(batch_dir, {"01-a": "done", "02-b": "skipped", "03-c": "error"})
+        sha = self._commit_phase(repo, batch, "01-a")
+        self._write_report(batch_dir, [
+            {"phase": "01-a", "status": "green", "commit": sha},
+            {"phase": "02-b", "status": "skipped", "summary": "obsolete"},
+            {"phase": "03-c", "status": "red"},
+        ])
+
+        proc = self._verify(repo, batch)
+        self.assertEqual(proc.returncode, 0, msg=f"stderr={proc.stderr} stdout={proc.stdout}")
+        self.assertEqual(self.json_out(proc)["findings"], [], msg=proc.stdout)
+
+    def test_mirror_mismatch_done_phase_is_reported_and_moved_back(self):
+        repo = self._repo("mismatch-done")
+        batch = "2026-04-12-mismatch-done"
+        batch_dir = self._batch_dir(repo, batch)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        (batch_dir / "02-b.md").write_text("# b\n")
+        write_status(batch_dir, {"01-a": "done"})
+        sha = self._commit_phase(repo, batch, "01-a")
+        self._write_report(batch_dir, [{"phase": "01-a", "status": "green", "commit": sha}])
+        # a hand move of the finished phase back into the root
+        (batch_dir / "done" / "01-a.md").rename(batch_dir / "01-a.md")
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(
+            [(f["code"], f["phase"]) for f in findings], [("STATUS_LOCATION_MISMATCH", "01-a")],
+            msg=findings,
+        )
+
+        dry = self._recover(repo, batch, dry_run=True)
+        self.assertIn("STATUS_LOCATION_MISMATCH 01-a", dry.stdout, msg=dry.stdout)
+        self.assertTrue((batch_dir / "01-a.md").is_file(), "dry-run must not move anything")
+
+        status_before = (batch_dir / "status.json").read_text()
+        rproc = self._recover(repo, batch)
+        self.assertEqual(rproc.returncode, 0, msg=rproc.stdout)
+        self.assertTrue((batch_dir / "done" / "01-a.md").is_file())
+        self.assertFalse((batch_dir / "01-a.md").exists())
+        self.assertEqual((batch_dir / "status.json").read_text(), status_before)
+        self.assertEqual(self._findings(repo, batch), [])
+
+    def test_mirror_mismatch_skipped_phase_is_moved_into_skipped(self):
+        repo = self._repo("mismatch-skipped")
+        batch = "2026-04-13-mismatch-skipped"
+        batch_dir = self._batch_dir(repo, batch)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        (batch_dir / "02-b.md").write_text("# b\n")
+        write_status(batch_dir, {"02-b": "skipped"})
+        (batch_dir / "skipped" / "02-b.md").rename(batch_dir / "02-b.md")  # back into the root
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(
+            [(f["code"], f["phase"]) for f in findings], [("STATUS_LOCATION_MISMATCH", "02-b")],
+            msg=findings,
+        )
+        rproc = self._recover(repo, batch)
+        self.assertEqual(rproc.returncode, 0, msg=rproc.stdout)
+        self.assertTrue((batch_dir / "skipped" / "02-b.md").is_file())
+        self.assertEqual(self._findings(repo, batch), [])
+
+    def test_entry_missing_is_adopted_by_where_the_file_lies(self):
+        repo = self._repo("entry-missing")
+        batch = "2026-04-14-entry-missing"
+        batch_dir = self._batch_dir(repo, batch)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        write_status(batch_dir)  # 01-a open, the only entry
+        (batch_dir / "02-b.md").write_text("# b\n")  # root, no entry
+        (batch_dir / "done" / "03-c.md").write_text("# c\n")  # done/, no entry
+        sha = self._commit_phase(repo, batch, "03-c")
+        self._write_report(batch_dir, [{"phase": "03-c", "status": "green", "commit": sha}])
+        self.auto_status = False  # the adoption is recover's job here, not the fixture helper's
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(
+            sorted((f["code"], f["phase"]) for f in findings),
+            [("STATUS_ENTRY_MISSING", "02-b"), ("STATUS_ENTRY_MISSING", "03-c")], msg=findings,
+        )
+        rproc = self._recover(repo, batch)
+        self.assertEqual(rproc.returncode, 0, msg=rproc.stdout)
+        entries = json.loads((batch_dir / "status.json").read_text())["phases"]
+        self.assertEqual(
+            {k: v["status"] for k, v in entries.items()},
+            {"01-a": "open", "02-b": "open", "03-c": "done"},
+        )
+        self.assertEqual(self._findings(repo, batch), [])
+
+    def test_done_entry_without_file_and_orphan_open_entry(self):
+        repo = self._repo("file-missing")
+        batch = "2026-04-15-file-missing"
+        batch_dir = self._batch_dir(repo, batch)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "03-c.md").write_text("# c\n")
+        sha = self._commit_phase(repo, batch, "01-a")
+        self._write_report(batch_dir, [{"phase": "01-a", "status": "green", "commit": sha}])
+        self._write_status_raw(batch_dir, {"01-a": "done", "02-b": "error", "03-c": "open"})
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(
+            sorted((f["code"], f["phase"]) for f in findings),
+            [("DONE_FILE_MISSING", "01-a"), ("STATUS_FILE_ORPHAN", "02-b")], msg=findings,
+        )
+        rproc = self._recover(repo, batch)
+        self.assertNotEqual(rproc.returncode, 0)
+        self.assertIn("TEXT_UNRECOVERABLE 01-a", rproc.stdout, msg=rproc.stdout)
+        self.assertIn("STATUS_FILE_ORPHAN 02-b no automatic repair", rproc.stdout, msg=rproc.stdout)
+
+    def test_ledger_disagreements(self):
+        repo = self._repo("ledger-vs-status")
+        batch = "2026-04-16-ledger-vs-status"
+        batch_dir = self._batch_dir(repo, batch)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "done" / "01-a.md").write_text("# a\n")  # done, no ledger entry, no trailer
+        (batch_dir / "02-b.md").write_text("# b\n")  # open, but the ledger says green
+        (batch_dir / "03-c.md").write_text("# c\n")  # open, green but reopened -- fine
+        sha_b = self._commit_phase(repo, batch, "02-b")
+        sha_c = self._commit_phase(repo, batch, "03-c")
+        self._write_report(batch_dir, [
+            {"phase": "02-b", "status": "green", "commit": sha_b},
+            {"phase": "03-c", "status": "green", "commit": sha_c, "reopened": True},
+        ])
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(
+            sorted((f["code"], f["phase"]) for f in findings),
+            [("DONE_FILE_UNRECORDED", "01-a"), ("STATUS_LEDGER_MISMATCH", "02-b")], msg=findings,
+        )
+        rproc = self._recover(repo, batch)
+        self.assertIn("STATUS_LEDGER_MISMATCH 02-b no automatic repair", rproc.stdout, msg=rproc.stdout)
+        after = self._findings(repo, batch)
+        self.assertIn(("STATUS_LEDGER_MISMATCH", "02-b"), [(f["code"], f["phase"]) for f in after])
+
+    def test_skipped_ledger_entry_is_ignored(self):
+        repo = self._repo("skipped-ledger")
+        batch = "2026-04-17-skipped-ledger"
+        batch_dir = self._batch_dir(repo, batch)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        (batch_dir / "02-b.md").write_text("# b\n")
+        write_status(batch_dir, {"02-b": "skipped"})
+        self._write_report(batch_dir, [{"phase": "02-b", "status": "skipped", "summary": "later"}])
+        self.assertEqual(self._findings(repo, batch), [])
+
+    def test_complete_when_only_done_and_skipped_remain(self):
+        repo = self._repo("complete-skip")
+        batch = "2026-04-18-complete-skip"
+        batch_dir = self._batch_dir(repo, batch)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        (batch_dir / "02-b.md").write_text("# b\n")
+        write_status(batch_dir, {"01-a": "done", "02-b": "skipped"})
+        sha = self._commit_phase(repo, batch, "01-a")
+        self._write_report(batch_dir, [{"phase": "01-a", "status": "green", "commit": sha}])
+
+        findings = self._findings(repo, batch)
+        self.assertEqual(self._batch_level_codes(findings), ["COMPLETE_NOT_ARCHIVED"], msg=findings)
+
+        # a pending phase keeps the batch open
+        (batch_dir / "03-c.md").write_text("# c\n")
+        write_status(batch_dir)
+        self.assertEqual(self._findings(repo, batch), [])
+
+    def test_missing_or_invalid_status_file_is_the_single_finding(self):
+        repo = self._repo("no-status")
+        batch = "2026-04-19-no-status"
+        batch_dir = self._batch_dir(repo, batch)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# a\n")
+        self.auto_status = False
+
+        findings = self._findings(repo, batch)
+        self.assertEqual([(f["code"], f["phase"]) for f in findings], [("STATUS_FILE_MISSING", None)])
+        rproc = self._recover(repo, batch)
+        self.assertNotEqual(rproc.returncode, 0)
+        self.assertIn("STATUS_FILE_MISSING - no automatic repair", rproc.stdout, msg=rproc.stdout)
+        self.assertFalse((batch_dir / "status.json").exists(), "recover must not invent a status.json")
+
+        (batch_dir / "status.json").write_text("{not json")
+        findings = self._findings(repo, batch)
+        self.assertEqual([(f["code"], f["phase"]) for f in findings], [("STATUS_FILE_INVALID", None)])
+        rproc = self._recover(repo, batch)
+        self.assertIn("STATUS_FILE_INVALID - no automatic repair", rproc.stdout, msg=rproc.stdout)
+        self.assertEqual((batch_dir / "status.json").read_text(), "{not json")
 
 
 if __name__ == "__main__":

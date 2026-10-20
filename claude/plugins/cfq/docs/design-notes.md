@@ -82,7 +82,7 @@ Reported from `/home/code/git/kankuri` (batch 031 depending on 028, 2026-09-28):
 recommended on the stale dependency branch `cfq/028-…` while newer unmerged batch branches
 `cfq/029-…` and `cfq/030-…` already existed — `bin/cfq branch plan` used to derive the base from
 `.dependsOn` first (two now-removed `baseSource` values named after the dependency chain itself)
-and only fall back to the chain decision (`_chain_base()`) when no unmerged dependency branch
+and only fall back to the chain decision when no unmerged dependency branch
 existed at all.
 
 `.dependsOn` is a selection gate, not a base-branch signal: a batch whose dependency isn't yet in
@@ -92,7 +92,7 @@ dependency it names is already implemented — its work is either already folded
 unmerged batch branch (the routine case) or already merged into `main`. Basing on the dependency
 branch itself could then only ever produce a base *older* than the one the chain decision would
 already pick, exactly the kankuri incident. The fix removes both of those `baseSource` values
-entirely — the chain decision (`_chain_base()`) is now the only base path, unconditional.
+entirely — the chain decision is now the only base path, unconditional.
 
 The rare case an unmerged dependency branch does diverge from the chain — most commonly a
 non-numbered branch the chain logic never considers as a candidate at all, or one abandoned in
@@ -101,6 +101,28 @@ favor of a parallel branch — still needs a safety net rather than silently van
 batch's own `.dependsOn` and is missing from the chosen base. An entry appended this way (one that
 never became a chain candidate on its own) never flips `baseSource` — it's a warning surfaced in
 the base-branch question, not a vote for a different base.
+
+The base-branch question itself was later cut down to a short menu; see "ifq: why the base-branch
+question offers at most three branches" below.
+
+## ifq: why the base-branch question offers at most three branches
+
+The previous question listed the base, two more candidates and `main` because they existed. The
+user (2026-10-04) wanted nothing shown without a reason: the newest branch recommended, the newest
+batch branch offered only when the newest branch is not one, an on-demand list of ten, and a
+free-text field for anything else.
+
+Among batch branches the batch number, not the commit date, decides "newest": the highest batch
+normally contains every earlier one and loses least when an older branch gets a late commit. That
+late commit is then offered as its own option and named in a warning in the first question.
+
+A deviation from the recommendation that drops unmerged batch branches is confirmed in a second
+question, because a new batch normally builds on all earlier ones and such a pick is almost always
+a mistake. The recommendation itself is never confirmed twice: what it lacks is already stated in
+the first question.
+
+The list is its own `branch list` verb because the path is rare, and a preflight result that
+carried eleven rows every time would cost tokens in every session.
 
 ## pfq/ifq: why framework findings never go through SendFeedback
 
@@ -230,3 +252,194 @@ rewrites one file and the viewer loads only what the route needs. The path is th
 is a bug a test finds, not a mapping somebody forgot to update. The earlier mismatch — the viewer
 loading a nested `batch/<name>/…` path while the writer produced a dotted file name beside it —
 left every batch page empty.
+
+## cfq: why phase state lives in `status.json` and the directories only mirror it
+
+Until now a phase's state was inferred from where its file lay: in the batch directory it was open,
+in `done/` it was done. That left no place for a third state. A phase the user wanted to leave out
+had to be deleted or faked as done, and a red phase was only visible in `report.json`. Every script
+that needed a state globbed the directories and re-derived it, each a little differently. A status
+file gives the state one writer (`cfq_lib/phase_state.py`) and one reader path, so every consumer
+agrees by construction.
+
+The directories stay as a mirror because they cost nothing and are what a person sees when they open
+a batch. `status.json` wins when the two disagree: a file moved by hand or a crash between the move
+and the write is then a recoverable mismatch that `batch verify` reports and `batch recover` fixes
+by moving the file, whereas trusting the directory would let an accident rewrite the state. Only a
+phase file with no entry at all is adopted by where it lies, since there is nothing to contradict.
+
+`error` still blocks. It is retryable, not terminal, and the lowest-numbered open-or-error phase is
+always the next phase, exactly as before this change; letting the batch step past a red phase on its
+own would turn a failure into silent skipped work. The only way past it is an explicit skip.
+
+A skip is user-only because skipping is a scope decision, and a cheap model working under a failing
+verification is the worst place to make one. The model may suggest it; the verb, the argument and
+the start-gate option all require the user to act. A skipped phase's plan is not thrown away: the
+reason and the plan text go to the `plan/` inbox at the batch's end, so the next planning session
+can pick the work up.
+
+The migration of existing batches is a throwaway script under `tools/`, not a `bin/cfq` verb, a new
+status or a read-time fallback. cfq runs on two machines, each repo needs the migration once, and a
+verb, a `MIGRATION_REQUIRED` status or a derive-on-read branch would be framework code that lives
+on in every reader long after its single use. A batch without a readable `status.json` is handled
+the same way everywhere, whatever the cause: it is not offered and the verbs refuse. The script and
+its README note are deleted together once both machines are migrated.
+
+## ifq: why a phase ends in a script-rendered cost line
+
+The user asked on 2026-10-04 to see what a phase cost when it closes. The `Cost` line is rendered by a
+script because a model's own estimate of its token use is never trusted, the same rule as `pfq`'s
+final report: the numbers come off the transcripts, the model only prints them.
+
+It rides on `phase commit` (classic mode) and `worker verdict` (orchestrator mode) because both calls
+already happen, so the line costs no extra turn. It shows the state at commit time; the report portal
+shows the settled one once the session is over.
+
+The ledger entry gets a script-stamped `finished` because a record's `wallclock_s` covers only the
+session's own transcript and ends when a worker is spawned, which would make the duration of an
+orchestrated phase far too short.
+
+Classic mode's red path is left out: `phase record` prints a bare path, and `SKILL.md` is at its line
+budget, so there is no room to tell the session to print a line there. Orchestrator mode shows the
+cost for red phases anyway, through the verdict.
+
+## cfq: why skill text is written in the present tense
+
+Skill, reference and agent text describes what applies, not how it used to be. A clause such as
+"overlap no longer asks" or "as before" costs every session tokens to read, says nothing the
+current behaviour does not, and ages into a statement about a state nobody remembers.
+`check_no_history_wording` in `tests/test_reference_paths.py` rejects the common phrasings.
+
+Reasons worth keeping from clauses removed under that rule:
+
+- `/rfq` mentions that a batch finished before reports existed has none. Reports arrived with
+  v0.2, so older batches in `done/` never got one, and `index` correctly returns `[]` for them.
+- `bin/cfq phase commit` adds the `CFQ-*` trailers itself; `changelog commit-message` is the
+  script verb that composes them, and a session never calls it directly.
+- `ifq`'s `resume` snapshot reuses the script that existed before the snapshot moved into the
+  preflight; only the caller changed, not the fields it returns.
+
+## cfq: why an item in `plan/` or `todo/` is called an entry
+
+The files called the same thing "entry", "card" and "queue note". A reader, or a model, that sees
+three words assumes three kinds of thing. The one term is "entry" (`plan/` entry, `todo/` entry,
+merge entry). Script output, CLI verbs such as `note merge-todo` and `note sweep`, and Python
+docstrings keep their wording, because renaming them is a behaviour change, not a prose fix.
+
+## cfq: why every reference file is linked from an entry point
+
+A reference file that only another reference file names risks a partial read: the session loads
+the first file, sees a pointer, and may skip it. `check_references_linked_from_entrypoint` requires
+at least one direct pointer from a `SKILL.md` or agent definition, with the condition for reading
+the file. The pointers inside reference files stay; the rule adds a direct one and removes none.
+
+## cfq: why the SKILL.md budget counts characters
+
+The budget used to be 200 lines. A line count rewarded long lines: a `SKILL.md` stayed under it by
+packing more text into each one, while the cost every session pays is the text itself. Claude Code
+also re-attaches only the first 5,000 tokens of a skill after a context compaction, so what sits
+past that point is silently lost in a long session. The budget is now 16,000 characters on the text
+as loaded, with each `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length.
+
+## ifq: why the SKILL.md is mode-neutral
+
+Orchestrator mode is the default, yet the classic per-phase loop was part of the `SKILL.md` and so
+loaded by every session, including the ones that never ran it. The `SKILL.md` now carries only what
+both modes share. The per-phase loop of each mode, the batch start, the branch handling and the
+batch end each live in their own reference file, named in the `SKILL.md` together with the
+condition under which it is read.
+
+## cfq: why commands are Markdown and never share a skill's name
+
+The `.toml` command files were never loaded: Claude Code reads command files as Markdown only. They
+are replaced by `pfq.md` and `ifq.md`. A command with the same name as a skill also hides the
+skill's description from the session's listing and shows the command's instead, so the four
+commands (`cfq`, `pfq`, `ifq`, `rfq`) are short aliases and none repeats a skill name.
+
+## cfq: why the skill prose has eval cases
+
+Nearly all of cfq's behaviour lives in prose that no test exercised: the unit tests cover scripts,
+not what a model does when it reads a `SKILL.md`. Each case in `evals/` comes from a recorded
+incident, so it pins down a failure that happened once rather than one somebody imagined. A case
+tests behaviour only up to the first user question, because nobody answers one in an eval run. The
+cases run on demand and never in CI, because every run spends model usage.
+
+## pfq/ifq: why the phase model uses implModels and no setting of its own
+
+A phase names its model in an optional `## Model` heading, and the name must be an `implModels`
+entry. A separate setting for "models a phase may use" was considered and rejected on the user's
+rule: a model that may not implement may not be planned. One list therefore answers both questions,
+and its first entry is the default for a phase without the heading.
+
+## ifq: why a failed cheap phase retries on the default model, and escalation continues on the working tree
+
+Two answers from the planning interview. A phase that failed on a smaller model than the default
+runs on the default model the next time, because retrying the same model repeats the same failure.
+A worker that judges its phase harder than planned escalates to the next stronger `implModels`
+entry, and that model continues on the working tree with a handover note instead of starting over;
+discarding the half-done work would throw away what the smaller model got right. The switch is
+made by the orchestrator, which spawns a new worker: a running worker cannot change its own model.
+
+## ifq: why the batch review's "small" is a fixed rule
+
+`batchReviewFindings: auto` fixes small findings in the session and parks the rest. "Small" is a
+fixed rule, not a judgment: the fix is at one location, the file is one a phase of the batch already
+changed, and it needs no new file, dependency or setting. A judgment call would vary from run to run,
+and a fix the reviewer calls small on one run and large on the next is not something a setting can
+promise.
+
+## pfq/ifq: why the preflight is not injected at load time
+
+Injecting the preflight with the `` !`<command>` `` syntax would save one model turn per session.
+It is not done: a load-time command that fails aborts the whole skill, and whether such commands run
+at all under Plan Mode could not be verified from a planning session. Both skills carry a Plan-Mode
+Gate that calls `ExitPlanMode` themselves, so a failure there would stop both from loading. The
+manual check is parked in the planning inbox as a `plan/` entry, and the decision stays open until
+it is done.
+
+## cfq: why skill texts keep the full dispatcher path
+
+The bare `cfq` command works on current Claude Code, and skill text would be shorter with it. The
+user chose not to depend on the Claude Code version that provides it, so skill and reference texts
+keep `"${CLAUDE_PLUGIN_ROOT}/bin/cfq"`, and `<plugin-root>/bin/cfq` inside reference files.
+
+## pfq/ifq: why lint resolves a missing file against pending phases
+
+A file that an earlier phase, or a batch listed in `.dependsOn`, creates does not exist when a later
+phase is planned. Lint used to report it as `missing` when the later phase listed it bare, and as
+`stale-new` once it existed and was marked `(new)`, so the file failed at every point in time.
+Planners worked around it by hiding such bullets from lint and from the overlap check.
+
+Lint now looks the path up in the plan data it reads anyway: only the creating phase marks the
+file `(new)`, and later phases and dependent batches list it bare. There is no third marker,
+because a marker is one more thing a planner can set wrongly, while the answer is derivable. A
+missing file whose creating phase is done, skipped or numbered later stays a blocking finding that
+names that phase, and two phases that both mark one file `(new)` are a `duplicate-new` finding.
+
+`stale-new` is a warning only for the next pending phase of a batch that has left planning. A phase
+interrupted after it created its files must be resumable, so its own `(new)` files existing is
+expected. While `.planning` exists nothing has been implemented, so an existing "new" file is a
+plan error and stays a finding.
+
+## cfq: why the default branch is detected and has no setting
+
+Batch finish and the merge entry assumed `main`. A repository whose default branch is `master`, or
+another name, got a wrong comparison. `default_branch()` in `cfq_lib/proc.py` resolves it in one
+place for every script: `origin/HEAD` first, then `main`, then `master`.
+
+The remote state comes first because a local default branch can lag far behind it, and the finish
+comparison must measure against what the remote holds. The local branch is the fallback. No fetch
+is added, so the answer is as fresh as the last fetch the user made.
+
+A `defaultBranch` setting is not added. It waits for a repository whose merge target differs from
+its default branch, which none of the managed repositories is.
+
+## ifq: why the start prints the batch overview only
+
+`/ifq` printed the phases twice at its start: the batch overview, and a flat listing of all phases
+below it. The listing repeated the overview and cost input and output tokens in every session. It is
+dropped without a replacement, and `batch.briefText` leaves the preflight result.
+
+Priority is already in the queue listing, which marks a flagged batch, and a batch `/ifq` offers has
+no open dependency, so a header line for either would repeat or state nothing. The dashboard keeps
+the flat listing through `bin/cfq brief --with-done`.

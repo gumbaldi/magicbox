@@ -46,9 +46,9 @@ framework repo: it moves every inbox entry into that repo's own `plan/`, and is 
 `<repo-root>` is `frameworkRepo`.
 
 `merge-todo <repo-root> <branch>` composes a deterministic `todo/` merge card itself -- title,
-ready-to-run merge command and a `check:` line that resolves `origin/main` first and falls back to
-local `main` -- so the check line can never be left out the way a model-composed card leaves it
-out. It reuses the same write path as `todo` (target directory, date prefix, slug normalisation,
+ready-to-run merge command and a `check:` line that resolves `origin/<default>` first and falls
+back to the local `<default>` -- the default branch is detected (`origin/HEAD`, then `main`, then
+`master`) -- so the check line can never be left out the way a model-composed card leaves it out. It reuses the same write path as `todo` (target directory, date prefix, slug normalisation,
 `EXISTS` refusal); only the body text and the slug source (the branch name, `/` translated to `-`
 before normalisation) differ.
 
@@ -390,16 +390,17 @@ def cmd_close(args):
 
 def cmd_merge_todo(args):
     branch = args.branch
+    name, _ = cfq_lib_proc.default_branch(args.repo, True)
     check = (
-        f"git merge-base --is-ancestor {branch} origin/main 2>/dev/null "
-        f"|| git merge-base --is-ancestor {branch} main"
+        f"git merge-base --is-ancestor {branch} origin/{name} 2>/dev/null "
+        f"|| git merge-base --is-ancestor {branch} {name}"
     )
     body = (
-        f"# Merge branch `{branch}` into main\n"
+        f"# Merge branch `{branch}` into {name}\n"
         "\n"
         "Batch finished -- merge the branch and delete it once the merge is in.\n"
         "\n"
-        f"    git checkout main && git merge --ff-only {branch}\n"
+        f"    git checkout {name} && git merge --ff-only {branch}\n"
         "\n"
         f"check: {check}\n"
     )

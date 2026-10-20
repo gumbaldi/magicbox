@@ -6,23 +6,141 @@
   status: parked
 - batchNumber: 54
   batch: 054-2026-10-05-lint-pending-creators-default-branch-single-briefing
-  status: parked
+  branch: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
+  base: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
+  started: 2026-10-20
+  status: done
+  finished: 2026-10-20
+  phases:
+    - phase: "01-lint-pending-creators"
+      status: "green"
+      summary: "lint accepts a bare path that a pending phase (same batch or .dependsOn batch) creates, reports duplicate-new, and downgrades stale-new to a warn for the next pending phase of a non-planning batch"
+    - phase: "02-lint-warnings-in-status-line"
+      status: "green"
+      summary: "lint_line() renders a warn-icon 'clean · N warning(s)' Lint line with each warning as a sub-line; Lint Gate prose updated"
+    - phase: "03-default-branch-shared-helper"
+      status: "green"
+      summary: "Moved default_branch into cfq_lib/proc.py with DefaultBranchTest fixture tests; cfq_branch.py imports it"
+    - phase: "04-finish-and-merge-entry-default-branch"
+      status: "green"
+      summary: "cmd_finish and note merge-todo use proc.default_branch instead of the literal main; queue-entries.md describes the detected default branch"
+    - phase: "05-drop-flat-briefing-from-ifq-start"
+      status: "green"
+      summary: "Removed batch.briefText and the --with-done call from the ifq preflight; SKILL.md Batch Briefing, configuration.md and two docstrings updated"
+    - phase: "06-docs-design-notes-version"
+      status: "green"
+      summary: "Three design-notes sections (lint pending-phase resolution, default-branch detection, overview-only start), default_branch() noted in the plugin CLAUDE.md, cfq version bumped 0.34.0 to 0.35.0"
 - batchNumber: 53
   batch: 053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
-  status: parked
+  branch: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
+  base: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
+  started: 2026-10-19
+  status: done
+  finished: 2026-10-20
+  phases:
+    - phase: "01-eval-harness-and-sandbox-spike"
+      status: "green"
+      summary: "Eval layout test, pfq-start-block smoke case with four graders, evals/README.md with harness facts from the spike, results ignore rule, eval command in plugin CLAUDE.md"
+    - phase: "02-eval-cases-from-incidents"
+      status: "green"
+      summary: "four eval cases (pfq-never-implements, ifq-no-batch-ends-cleanly, ifq-model-gate-stops, ifq-start-gate-before-lock) with fixtures and graders, plus README notes"
+    - phase: "03-reference-structure-and-wording-rules"
+      status: "green"
+      summary: "Five structural checks (entry-point links, Contents above 100 lines, present-tense wording, single term entry, no angle brackets in descriptions) with fixture tests, plus the prose fixes across skills, references and the worker agent, a Conventions bullet and design-notes rationale"
+    - phase: "04-command-layer-markdown-aliases"
+      status: "green"
+      summary: "Markdown pfq.md and ifq.md commands replace the four TOML files, the two skill-named command files are deleted, TestCommandFiles replaces TestCommandPairs, plugin CLAUDE.md updated"
+    - phase: "05-script-rendered-status-lines"
+      status: "green"
+      summary: "cfq dash returns plugins.statusLine shared with dash render; Plugin Status Line prose section and report-for-queue's inline output format removed; Model Check renamed to Model Gate"
+    - phase: "06-skill-size-budget"
+      status: "green"
+      summary: "SKILL.md budget measured as 16,000 characters as loaded (check_skill_size_budget) instead of 200 lines; plugin CLAUDE.md rewritten to match"
+    - phase: "07-ifq-skill-restructure-by-mode"
+      status: "green"
+      summary: "implement-for-queue SKILL.md split by mode and condition: classic loop moved to ifq-classic.md, branch section to ifq-branch.md, briefing/start gate/lock/resume inlined, condition-named pointers, two new structural checks"
+    - phase: "08-pfq-skill-restructure-and-step-order"
+      status: "green"
+      summary: "plan-for-queue SKILL.md reordered into one step sequence with Plan-Mode trigger, model gate, start-block questions and Security rules inlined (interview-depth.md and plan-security.md deleted); uniform '## Step <n> — <Name>' headings in code-for-queue and report-for-queue with letter references replaced by bold step names; three new structural checks"
+    - phase: "09-phase-model-heading-and-lint"
+      status: "green"
+      summary: "Optional ## Model heading: parsed and rendered by cfq_brief, validated against implModels by cfq_lint, implModels handed to the planner via pfq preflight, documented as phase-quality rule 8 and referenced from plan-for-queue"
+    - phase: "10-phase-model-orchestrator-and-escalation"
+      status: "green"
+      summary: "worker brief resolves the spawn model (phase heading, failed attempt, implModels) with escalation target, --model-override/--handover-file, an ESCALATE verdict; worker, orchestrator, output-format and setup-wizard texts updated; ifq-haiku-worker-phase eval case added"
+    - phase: "11-batch-end-review"
+      status: "green"
+      summary: "batchReview and batchReviewFindings settings, both in the ifq preflight policy, plus the ifq-batch-review.md reference wired into Batch Done, the closing report fields and output-format"
+    - phase: "12-docs-design-notes-version"
+      status: "green"
+      summary: "Documented the short commands, the per-phase model with escalation, and the batch review in README and docs, added nine design-notes sections, noted evals/ in the plugin CLAUDE.md, bumped version to 0.34.0"
 - batchNumber: 52
   batch: 052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
-  status: parked
+  branch: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
+  base: cfq/051-2026-10-04-phase-status-file-and-skip
+  started: 2026-10-19
+  status: done
+  finished: 2026-10-19
+  phases:
+    - phase: "01-branch-plan-recommended-base"
+      status: "green"
+      summary: "branch plan now recommends the newest branch (batch number decides among batch branches) with at most two further options and per-option capped uncontained lists; branch check gained --batch, isCfq, isDefault, uncontained, uncontainedCount"
+    - phase: "02-branch-list-verb"
+      status: "green"
+      summary: "bin/cfq branch list verb (cmd_list) rendering the newest branches plus the default branch as listText, with BranchListTest"
+    - phase: "03-base-question-reference-text"
+      status: "green"
+      summary: "Rewrote /ifq's base-branch question text to the short menu with list path, free-text resolution and confirmation step; lock release on every abort; interaction-policy and design-notes updated"
+    - phase: "04-phase-cost-status-line"
+      status: "green"
+      summary: "Cost status line rendered by cfq_report.phase_cost_entry(), attached to phase commit's OK result and to every worker verdict result; append_phase stamps finished"
+    - phase: "05-cost-line-docs-and-version"
+      status: "green"
+      summary: "Both /ifq modes now print the script-rendered Cost line; README, design notes and references updated; plugin version bumped to 0.33.0"
 - batchNumber: 51
   batch: 051-2026-10-04-phase-status-file-and-skip
-  status: parked
+  branch: cfq/051-2026-10-04-phase-status-file-and-skip
+  base: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
+  started: 2026-10-19
+  status: done
+  finished: 2026-10-19
+  phases:
+    - phase: "01-phase-state-module"
+      status: "green"
+      summary: "cfq_lib/phase_state.py (status.json owner with move-then-write transitions, skip/unskip, sync, mismatches, snapshot/restore), its test file, and write_status() in cfq_testlib"
+    - phase: "02-status-file-at-planning-and-migration"
+      status: "green"
+      summary: "status.json is born in batch allocate and synced by batch ready and park; tools/once_migrate_status.py migrates existing batches; removal todo card written"
+    - phase: "03-phase-transitions-and-skip-verbs"
+      status: "green"
+      summary: "record, commit and reopen route through phase_state with snapshot/restore rollback; added phase skip and phase unskip with ledger entries, NOT_SKIPPED/UNKNOWN_PHASE/INVALID_TRANSITION/STATUS_FILE_* errors"
+    - phase: "04-scan-dash-preflight-status-counts"
+      status: "green"
+      summary: "cfq_scan, cfq_dash and cfq_ifq_preflight count phases from status.json (error/skipped fields, skipped candidates, unreadable status.json handled as zero counts and unknown consistency)"
+    - phase: "05-resume-next-phase-brief-lint-worker"
+      status: "green"
+      summary: "resume/preflight/brief/lint/worker/telemetry read phase state from status.json: phasesSkipped, nextPhase.status, startGate.offerSkip, batch.skipped, error/skipped overview, check_status lint findings"
+    - phase: "06-verify-recover-and-guard"
+      status: "green"
+      summary: "batch verify/recover read status.json as the authority (new STATUS_* findings, mirror-move and entry-adopt repairs, divergent scan on mismatch) and the guard denies skipped/ and status.json writes"
+    - phase: "07-finish-inbox-entries-changelog-report"
+      status: "green"
+      summary: "finish writes one plan/ inbox entry per skipped phase, counts phases from status.json with a skipped suffix and a Skipped status line; report and changelog treat skip entries correctly"
+    - phase: "08-portal-phase-states"
+      status: "green"
+      summary: "Portal phase list built from status.json with error/skipped states, skipReason, extended queue row counts, empty-list fallback, and viewer rendering of both states"
+    - phase: "09-skill-prose-skip"
+      status: "green"
+      summary: "skip/unskip keywords, start-gate skip option and Skipping a Phase section in the ifq references; status wording in SKILL.md; skipped phases covered in batch end, report skill, orchestrator, worker, dashboard, output-format, plan-park and both command aliases"
+    - phase: "10-docs-design-notes-version"
+      status: "green"
+      summary: "Documented status.json, skipped/ and the skip/unskip verbs in README, CLAUDE.md, usage and design notes, added the Upgrading note and bumped cfq to 0.32.0"
 - batchNumber: 50
   batch: 050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   branch: cfq/050-2026-10-04-report-portal-rework-and-telemetry-accuracy
   base: cfq/049-2026-10-04-plan-review-gate-and-detail-view
   started: 2026-10-19
   status: done
-  legacy: false
   finished: 2026-10-19
   phases:
     - phase: "01-telemetry-count-per-response-and-model"
@@ -79,7 +197,6 @@
   base: cfq/048-2026-10-04-changelog-newest-first-force-tracked
   started: 2026-10-19
   status: done
-  legacy: false
   finished: 2026-10-19
   phases:
     - phase: "01-review-digest-renderer"
@@ -109,7 +226,6 @@
   base: main
   started: 2026-10-19
   status: done
-  legacy: true
   finished: 2026-10-19
   phases:
     - phase: "01-drop-legacy-field"

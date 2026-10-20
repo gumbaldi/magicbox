@@ -126,7 +126,7 @@ def this_repo_rollup(scan_repos, repo):
         "path": r["path"], "name": r["path"].split("/")[-1],
         "batches": [
             {"name": b["name"], "priority": b["priority"], "open": b["open"], "done": b["done"],
-             "archived": b["archived"], "status": batch_status(b)}
+             "skipped": b.get("skipped", 0), "archived": b["archived"], "status": batch_status(b)}
             for b in r["batches"]
         ],
     }
@@ -172,12 +172,16 @@ def plugins_line(p):
     return icon, detail
 
 
+def _icon_name(icon):
+    return next(name for name, glyph in text.ICONS.items() if glyph == icon)
+
+
 def setup_hint_line():
     """`Setup` PRECHECKS line (batch 041 phase 03): a one-time nudge toward `/cfq setup` / `/cfq
     settings` for a user whose global setup already ran (`setupDone: true`) before the guided
     wizard/menu existed. Shown at most once per machine -- `setupHintShown` lives in the same
     schema-less state store as `setupDone`, flipped to true as a side effect of showing it once.
-    `setupDone` still `false` means the wizard itself is about to run instead (Step A), so this
+    `setupDone` still `false` means the wizard itself is about to run instead (**First-Time Setup**), so this
     line stays silent then -- never both in the same render."""
     setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
     if not setup_done:
@@ -200,8 +204,8 @@ def impl_model(settings_json):
 
 def build_next(repo, scan_repos):
     """Next-batch expansion: the batch `/ifq` would pick next (`bin/cfq scan --format=next`)
-    rendered to its individual phases (`bin/cfq brief --with-done`) -- same lines as /ifq's own
-    Step 4 briefing. Render mode only."""
+    rendered to its individual phases (`bin/cfq brief --with-done`) -- the flat per-phase listing
+    the dashboard shows. Render mode only."""
     expanded, header, note = "", "", ""
     if not repo:
         return expanded, header, note
@@ -247,13 +251,14 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     if this_repo is not None:
         rows = [
             b for b in this_repo["batches"]
-            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0))
+            if all_flag or (not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b["skipped"] > 0))
         ]
         if rows:
             table = ["", f"THIS REPO · {this_repo['name']}", "| Batch | Priority | Open/Done | Status |", "|---|---|---|---|"]
             for b in rows:
                 prio = b["priority"] if b["priority"] != "" else "-"
-                table.append(f"| {b['name']} | {prio} | {b['open']}/{b['done']} | {b['status']} |")
+                skipped = f" · {b['skipped']} skipped" if b["skipped"] else ""
+                table.append(f"| {b['name']} | {prio} | {b['open']}/{b['done']}{skipped} | {b['status']} |")
         else:
             table = ["", f"THIS REPO · {this_repo['name']}"]
 
@@ -349,6 +354,8 @@ def main(argv):
         "mattpocock": has_mp, "ponytail": has_pt, "useMattpocockGrilling": use_grill,
         "usePonytailAudit": use_pony, "ponytailMode": pony_mode,
     }
+    p_icon, p_text = plugins_line(plugins_obj)
+    plugins_obj["statusLine"] = text.status_entry("Plugins", _icon_name(p_icon), p_text)
 
     scan_json = json.loads(cfq_run("scan").stdout)
     repos_json = [repo_rollup(r) for r in scan_json["repos"]]
@@ -375,13 +382,12 @@ def main(argv):
     next_expanded, next_header, next_note = build_next(repo, scan_json["repos"])
 
     d_icon, d_text = dash_line(status, repos_json, this_repo_json)
-    p_icon, p_text = plugins_line(plugins_obj)
 
     hint_line = setup_hint_line()
 
     print("PRECHECKS")
     print(text.status_line(d_icon, "Dash", d_text))
-    print(text.status_line(p_icon, "Plugins", p_text))
+    print(plugins_obj["statusLine"]["text"])
     if hint_line:
         print(hint_line)
     print(render_body(repos_json, this_repo_json, settings_json, all_flag, next_expanded, next_header, next_note))

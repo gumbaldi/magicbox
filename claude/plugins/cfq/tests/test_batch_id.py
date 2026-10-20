@@ -166,6 +166,12 @@ class BatchIdTest(CfqTestCase):
         # a parseable ISO timestamp, same shape as render.now_iso() produces elsewhere
         datetime.fromisoformat(lines[0])
 
+    def test_allocate_writes_empty_status_file(self):
+        repo = self._plain_repo("repo-st1")
+        out = self.json_out(self._allocate(repo, "2026-08-19", "status-test"))
+        status = json.loads((repo / ".claude/cfq/impl" / out["batch"] / "status.json").read_text())
+        self.assertEqual(status, {"schema": 1, "phases": {}})
+
     def test_failed_allocate_does_not_leak_number(self):
         # simulated failure after changelog reservation never allows the number to be reused: make
         # the impl directory unwritable so allocate's own mkdir fails after the changelog reserve
@@ -513,6 +519,48 @@ class BatchIdTest(CfqTestCase):
         self.run_cfq("batch", "ready", str(batch_dir), check=True)
         proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
         self.assertIn("already ready", proc.stdout)
+
+    # ---- ready syncs status.json with the phase files (batch 051 phase 02) ----------------------
+
+    def _phase_status(self, batch_dir):
+        return {
+            k: v["status"]
+            for k, v in json.loads((batch_dir / "status.json").read_text())["phases"].items()
+        }
+
+    def test_ready_after_a_rename_lists_the_new_slug_only(self):
+        repo = self._plain_repo("repo-st2")
+        batch = self.json_out(self._allocate(repo, "2026-08-19", "rename-test"))["batch"]
+        batch_dir = repo / ".claude/cfq/impl" / batch
+        (batch_dir / "01-old.md").write_text("# Old\n")
+        self.run_cfq("park", str(repo), batch, "normal", check=True)
+        self.assertEqual(self._phase_status(batch_dir), {"01-old": "open"})
+        (batch_dir / "01-old.md").rename(batch_dir / "01-new.md")
+        self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertEqual(self._phase_status(batch_dir), {"01-new": "open"})
+
+    def test_ready_on_an_already_ready_batch_still_syncs(self):
+        repo = self._plain_repo("repo-st3")
+        batch_dir = repo / ".claude/cfq/impl/example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# A\n")
+        self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        (batch_dir / "02-b.md").write_text("# B\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertIn("already ready", proc.stdout)
+        self.assertEqual(self._phase_status(batch_dir), {"01-a": "open", "02-b": "open"})
+
+    def test_ready_refuses_an_unreadable_status_file_and_keeps_the_markers(self):
+        repo = self._plain_repo("repo-st4")
+        batch_dir = repo / ".claude/cfq/impl/example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+        (batch_dir / "status.json").write_text("{not json")
+        proc = self.run_cfq("batch", "ready", str(batch_dir))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("STATUS_FILE_INVALID", proc.stderr)
+        self.assertTrue((batch_dir / ".planning").exists())
+        self.assertEqual((batch_dir / "status.json").read_text(), "{not json")
 
     # ---- review (phase 03 of batch 049: `.review` replaces `.planning` at the review gate) ----
 

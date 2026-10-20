@@ -97,7 +97,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
+| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. With a smaller model added, set `orchestratorModels` to keep the `/ifq` session itself on the stronger one |
 | `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
@@ -120,7 +120,20 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
+| `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
+
+Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
+runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit
+and parks the rest as one `plan/` entry. A finding is small when its fix is at one location, the
+file is one a phase of the batch already changed, and the fix needs no new file, dependency or
+setting; the rule is fixed, never a judgment call.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReview low
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReviewFindings auto
+```
 
 ### Limits & handoff
 
@@ -171,7 +184,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 13) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq`'s **Park** step) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set
@@ -228,9 +241,10 @@ restate a field list inline — read the field here, then read it back from the 
   `repo.root`/`.known` set then).
 - **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
-  implExploreModelComplex}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
+  implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
+  batchReviewFindings}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
-  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
+  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,

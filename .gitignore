@@ -9,3 +9,4 @@
 __pycache__/
 *.pyc
 .serena/
+claude/plugins/cfq/evals/results/

@@ -18,6 +18,9 @@ the denial: no `Bash` fallback for phase files, no unlock marker of any kind. Bo
 defeat the guard the user configured. What a guard hook has to allow: **Hook contract** in
 the plugin's `README.md`.
 
+`bin/cfq park` writes `status.json` (every phase `open`); after renaming, adding or removing a phase
+file, re-run `bin/cfq park` so a `status:` lint finding clears.
+
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
 repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
@@ -47,7 +50,7 @@ Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
 implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
-`Inbox` line, not a second `RESULT` block. Phase file structure is unchanged from the template —
+`Inbox` line, not a second `RESULT` block. Phase file structure follows the template —
 see `<plugin-root>/references/phase-quality.md`'s closing section.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`

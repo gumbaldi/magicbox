@@ -407,3 +407,42 @@ test("extra slot items appear after the built-in ones and render their own body"
   assert.match(collectText(extra), /extra body/);
   assert.equal(byTag(extra, "table").length, 0);
 });
+
+function stateBatch() {
+  const batch = fixtureBatch("in_progress");
+  const [first, second, third] = batch.phases;
+  second.state = "error";
+  second.attempts = [{ ...first.attempts[0], status: "red", summary: "", errors: ["boom"], commit: "" }];
+  third.state = "skipped";
+  third.skipReason = "obsolete";
+  third.attempts = [{ ...first.attempts[0], status: "skipped", summary: "obsolete", commit: "", cost: null, tools: {} }];
+  return batch;
+}
+
+test("phase states: error and skipped render with their own icon and word; the skip reason shows", () => {
+  const rows = B.phaseRows(stateBatch());
+  assert.deepEqual(rows.map((r) => r.status), ["green", "error", "skipped"]);
+  assert.equal(rows[2].skipReason, "obsolete");
+  const { root } = draw(stateBatch());
+  const [, errorRow, skippedRow] = byClass(root, "phase-row");
+  const errorPill = byClass(errorRow, "pill")[0];
+  const skippedPill = byClass(skippedRow, "pill")[0];
+  assert.match(errorPill.className, /pill-error/);
+  assert.match(skippedPill.className, /pill-skipped/);
+  assert.match(collectText(errorPill), /error/i);
+  assert.match(collectText(skippedPill), /skipped/i);
+  assert.notEqual(byClass(errorPill, "icon")[0].textContent, byClass(skippedPill, "icon")[0].textContent);
+  assert.match(collectText(skippedRow), /obsolete/);
+  assert.doesNotMatch(collectText(errorRow), /obsolete/);
+  assert.match(collectText(byClass(root, "facts")[0]), /1\/3 · 1 skipped/);
+});
+
+test("a skip attempt renders as a row labelled skipped", () => {
+  const { root } = draw(stateBatch());
+  fire(rowToggles(root)[2], "click");
+  const panel = byClass(root, "phase-detail")[0];
+  const pill = byClass(panel, "pill")[0];
+  assert.match(pill.className, /pill-skipped/);
+  assert.match(collectText(pill), /skipped/i);
+  assert.match(collectText(panel), /obsolete/);
+});

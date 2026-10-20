@@ -71,6 +71,7 @@ from cfq_queue_overlap import extract_affected_files  # noqa: E402
 from cfq_lib import flags as cfq_flags  # noqa: E402
 from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import git, settings_get  # noqa: E402
 
@@ -687,17 +688,6 @@ def load_report(batch_dir):
     return data if isinstance(data, dict) else {}
 
 
-def batch_phase_files(batch_dir):
-    """`{slug: path}` for every phase file, open and done -- an open file (a reopened phase) wins
-    over a done one of the same slug."""
-    files = {}
-    for f in sorted((batch_dir / "done").glob("[0-9][0-9]-*.md")):
-        files[f.stem] = f
-    for f in sorted(batch_dir.glob("[0-9][0-9]-*.md")):
-        files[f.stem] = f
-    return files
-
-
 def first_paragraph_html(markdown):
     """The whole first paragraph (up to the first blank line) with inline formatting -- not cut
     at the first line break."""
@@ -727,7 +717,12 @@ def build_queue_batch_row(b, bd, data, changelog, todo_names):
         "priority": b.get("priority", ""),
         "dependsOn": b.get("dependsOn", []),
         "unknownDeps": b.get("unknownDeps", []),
-        "phases": {"done": b.get("done", 0), "total": b.get("done", 0) + b.get("open", 0)},
+        "phases": {
+            "done": b.get("done", 0),
+            "total": b.get("done", 0) + b.get("open", 0) + b.get("skipped", 0),
+            "skipped": b.get("skipped", 0),
+            "error": b.get("error", 0),
+        },
         "goalHtml": first_paragraph_html(sections.get("goal", "")),
         "started": render.jq_alt(data.get("started"), ""),
         "finished": cfq_report.batch_finished(data) if status == "done" else "",
@@ -817,27 +812,35 @@ def attempt_payload(p):
 
 
 def phase_payloads(bd, data):
-    files = batch_phase_files(bd)
+    """One object per `status.json` entry, in slug order; `[]` for a batch whose status.json is
+    missing or unreadable (the sync never fails on it)."""
+    try:
+        records = phase_state.phases(bd)
+    except phase_state.PhaseStateError:
+        return []
     attempts = {}
     for p in report_phases(data):
         attempts.setdefault(p.get("phase", ""), []).append(attempt_payload(p))
     phases = []
-    for slug in sorted(set(files) | {s for s in attempts if s}):
-        f = files.get(slug)
+    for rec in records:
+        slug, f = rec["slug"], rec["path"]
         text = f.read_text() if f else ""
         fields = parse_phase_body(text, fallback_title=slug) if f else {}
         num = re.match(r"^(\d+)-", slug)
-        phases.append({
+        phase = {
             "slug": slug,
             "num": int(num.group(1)) if num else None,
             "title": fields.get("title") or slug,
             "size": fields.get("size") or "",
-            "state": "open" if f and f.parent == bd else "done",
+            "state": rec["status"],
             "planHtml": cfq_lib_markdown.md_min(text, keep_h1=False) if f else "",
             "affectedFiles": extract_affected_files(text) if f else [],
             "attempts": attempts.get(slug, []),
             "flags": [],
-        })
+        }
+        if rec["status"] == "skipped":
+            phase["skipReason"] = rec["reason"] or ""
+        phases.append(phase)
     return phases
 
 

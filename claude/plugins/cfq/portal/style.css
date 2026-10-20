@@ -122,6 +122,10 @@ table.data td.origin a:hover{text-decoration:underline}
 .pill-blocked,.pill-question,.pill-awaiting_review{color:var(--warn);background:var(--warn-bg);
   border-color:var(--warn)}
 .pill-in_progress{color:var(--accent);background:var(--accent-bg);border-color:var(--accent)}
+.pill-error{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
+.pill-skipped{color:var(--fg-muted);background:var(--surface-2);border-style:dashed}
+tr.phase-row.status-skipped .phase-title{color:var(--fg-muted)}
+.skip-reason{font-style:italic}
 
 .flags{display:inline-flex;gap:.35rem;white-space:nowrap}
 .flag{font-size:.78rem;font-weight:600;font-variant-numeric:tabular-nums;padding:.05rem .4rem;

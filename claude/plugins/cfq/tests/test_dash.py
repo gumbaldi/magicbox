@@ -5,19 +5,24 @@ mapping (default/global/repo/env source and masked-value display), and the `THIS
 block (open-batches-only, `--all`, and the expanded next batch).
 """
 
+import contextlib
+import io
+import json
 import re
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
-from cfq_testlib import CfqTestCase, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_dash  # noqa: E402
 
-# The seven capability rows the ACTIONS section names (Step C's six actions plus Step D's
+# The seven capability rows the ACTIONS section names (**Management**'s six actions plus **Settings**'
 # settings change) -- kept as one list so the drift guard below can check both directions: every
 # keyword must show up in the rendered dashboard AND in references/dashboard.md's own prose.
 ACTION_KEYWORDS = [
@@ -35,6 +40,8 @@ DASHBOARD_MD = Path(__file__).resolve().parents[1] / "references" / "dashboard.m
 
 
 class TestDash(CfqTestCase):
+    auto_status = True
+
     def _plain_repo(self, path):
         path.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", "-q"], cwd=path, check=True)
@@ -285,6 +292,32 @@ class TestDash(CfqTestCase):
         self.assertIn(
             "0/2 | IN_PROGRESS", rendered, f"unfinished batch status wrong:\n{rendered}"
         )
+
+    def test_batch_row_shows_skipped_suffix_only_when_present(self):
+        tmp = self._repos_dir / "skippedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        with_skip = self._open_batch(repo, "2026-05-01-with-skip", open_nums=("01", "02"), done_nums=("00",))
+        write_status(with_skip, **{"01_phase": "skipped"})
+        plain = self._open_batch(repo, "2026-05-02-plain", open_nums=("01", "02"), done_nums=("00",))
+        write_status(plain)
+
+        rendered = self.run_cfq("dash", "render", str(repo), env={"CFQ_SCAN_ROOTS": str(tmp)}).stdout
+
+        self.assertIn("| 1/1 · 1 skipped | IN_PROGRESS |", rendered, f"skipped suffix missing:\n{rendered}")
+        self.assertIn("| 2/1 | IN_PROGRESS |", rendered, f"plain batch row changed:\n{rendered}")
+
+    def test_all_skipped_batch_is_still_listed(self):
+        tmp = self._repos_dir / "allskippedroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        b = self._open_batch(repo, "2026-05-01-allskip", open_nums=("01", "02"))
+        write_status(b, **{"01_phase": "skipped", "02_phase": "skipped"})
+
+        rendered = self.run_cfq("dash", "render", str(repo), env={"CFQ_SCAN_ROOTS": str(tmp)}).stdout
+
+        self.assertIn("| 2026-05-01-allskip |", rendered, f"all-skipped batch row missing:\n{rendered}")
+        self.assertIn("0/0 · 2 skipped | OK |", rendered, f"all-skipped batch row wrong:\n{rendered}")
 
     def test_this_repo_all_flag_lists_archived_too(self):
         # --all: every batch shown, archived included, no summary line, expansion unchanged.
@@ -570,6 +603,77 @@ class TestDash(CfqTestCase):
         self.assertIn("➖ Plugins", rendered, f"audit off keeps the plain icon, as today:\n{rendered}")
 
 
+    # --- `plugins.statusLine`: the rendered Plugins line, shared with `dash render` ---
+
+    def _status_line_vs_render(self, name, env_extra=None, **plugin_kwargs):
+        """Runs `dash` and `dash render` on one fixture and returns (statusLine, rendered
+        Plugins line)."""
+        tmp = self._repos_dir / f"{name}root"
+        home = self._repos_dir / f"{name}home"
+        repo = tmp / "repo"
+        (repo / ".claude" / "cfq").mkdir(parents=True)
+        self._plain_repo(repo)
+        self._plugin_home(home, **plugin_kwargs)
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        env.update(env_extra or {})
+        out = self.json_out(self.run_cfq("dash", str(tmp), home=home, env=env))
+        rendered = self.run_cfq("dash", "render", str(tmp), home=home, env=env).stdout
+        return out["plugins"]["statusLine"], self._plugins_line(rendered)
+
+    def _assert_status_line(self, name, icon_name, detail, env_extra=None, **plugin_kwargs):
+        entry, rendered_line = self._status_line_vs_render(name, env_extra, **plugin_kwargs)
+        self.assertEqual(entry["label"], "Plugins", f"statusLine = {entry}")
+        self.assertEqual(entry["icon"], icon_name, f"statusLine = {entry}")
+        self.assertEqual(entry["detail"], detail, f"statusLine = {entry}")
+        self.assertEqual(entry["sub"], [], f"statusLine = {entry}")
+        self.assertEqual(entry["text"], rendered_line, "statusLine.text must equal the rendered Plugins line")
+
+    def test_status_line_neither_installed(self):
+        self._assert_status_line(
+            "slnone", "skip", "mattpocock-skills/ponytail not installed",
+        )
+
+    def test_status_line_both_installed_one_switch_off(self):
+        self._assert_status_line(
+            "sloneoff", "skip", "installed · ponytail audit: off",
+            env_extra={"CFQ_USE_PONYTAIL": "false"},
+            mattpocock=True, ponytail=True, ponytail_default_mode="off",
+        )
+
+    def test_status_line_both_installed_both_on(self):
+        self._assert_status_line(
+            "slbothon", "done",
+            "mattpocock-skills and ponytail installed · classic grill on · ponytail audit: on",
+            mattpocock=True, ponytail=True, ponytail_default_mode="off",
+        )
+
+    def test_status_line_one_installed_one_missing(self):
+        self._assert_status_line(
+            "slmissing", "skip", "ponytail not installed · classic grill on", mattpocock=True,
+        )
+
+    def test_status_line_ponytail_mode_not_off(self):
+        self._assert_status_line(
+            "slmode", "warn",
+            "mattpocock-skills not installed · ponytail audit: on · "
+            "ponytail default mode: full · cfq expects off",
+            ponytail=True,
+        )
+
+    def test_status_line_absent_when_runtime_degraded(self):
+        def fake_cfq_run(*args, **kwargs):
+            return SimpleNamespace(
+                stdout=json.dumps({"status": "DEGRADED", "code": "X", "cap": "y"}), returncode=0,
+            )
+
+        buf = io.StringIO()
+        with mock.patch.object(cfq_dash, "cfq_run", fake_cfq_run), contextlib.redirect_stdout(buf):
+            cfq_dash.main([])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(out["status"], "RUNTIME_DEGRADED")
+        self.assertIsNone(out["plugins"], "plugins stays null when the runtime is degraded")
+
+
     # --- Phase 03: one-time `Setup` hint for existing users ---
 
     def test_setup_hint_shown_once_after_setup_done(self):
@@ -689,7 +793,7 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
         this_repo = {
             "path": "/x/repo-a", "name": "repo-a",
             "batches": [{
-                "name": "2026-01-01-demo", "priority": "", "open": 1, "done": 0,
+                "name": "2026-01-01-demo", "priority": "", "open": 1, "done": 0, "skipped": 0,
                 "archived": False, "status": "OK",
             }],
         }

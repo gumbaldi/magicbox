@@ -6,6 +6,7 @@ settings to Python, so the stub is a Python script now too (the dispatcher invok
 with `python3`).
 """
 
+import json
 import os
 import pathlib
 import shutil
@@ -16,6 +17,8 @@ from cfq_testlib import CfqTestCase, PLUGIN_ROOT
 
 
 class PfqPreflightTest(CfqTestCase):
+    auto_status = True
+
     def setUp(self):
         super().setUp()
         # Copies the whole scripts/ dir so cfq_pfq_preflight.py's own script_dir resolution (and
@@ -177,6 +180,16 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         changed = self.run_clean("find", str(reg), "-newer", str(marker)).stdout
         self.assertEqual(changed, "", msg=f"run modified files under the fixture repo: {changed}")
 
+    def test_planning_policy_carries_impl_models(self):
+        reg = self._repos_dir / "implmodels-reg"
+        (reg / ".claude" / "cfq").mkdir(parents=True)
+        self.run_clean("git", "init", "-q", cwd=reg)
+        (reg / ".claude" / "cfq" / "settings.json").write_text(
+            json.dumps({"implModels": ["sonnet", "haiku"]})
+        )
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["planningPolicy"]["implModels"], ["sonnet", "haiku"], msg=f"{out}")
+
     # ---- statusLines (batch 035 phase 08) -----------------------------------------------------
 
     def test_status_lines_shape_and_labels(self):
@@ -189,7 +202,7 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Model Check", "Inbox", "Review", "Plugin Boundaries"], msg=f"labels = {labels}"
+            labels, ["Model Gate", "Inbox", "Review", "Plugin Boundaries"], msg=f"labels = {labels}"
         )
 
     def test_review_line_and_awaiting_review(self):
@@ -229,12 +242,12 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.run_clean("git", "init", "-q", cwd=reg)
 
         out = self.json_out(self._run_pf(str(reg)))
-        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
         self.assertEqual(line["icon"], "done", msg=f"line = {line}")
         self.assertEqual(line["detail"], "checked against planModels", msg=f"line = {line}")
 
         out = self.json_out(self._run_pf(str(reg), env={"CFQ_ALLOW_ANY_MODEL": "1"}))
-        line = next(e for e in out["statusLines"] if e["label"] == "Model Check")
+        line = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
         self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
         self.assertEqual(line["detail"], "skipped · allowAnyModel", msg=f"line = {line}")
 

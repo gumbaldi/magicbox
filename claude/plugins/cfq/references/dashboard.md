@@ -1,24 +1,33 @@
 # Dashboard Detail: Plugin Offer, Management Actions, Settings
 
-## QUEUES Table and Reports (Step B)
+## Contents
+
+- QUEUES Table and Reports (**Dashboard**)
+- Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
+- CONFIG Block: Full List and Global View (**Dashboard**)
+- Management, Six Actions (current repo only, always confirm before writing)
+- Settings, Full Detail
+
+## QUEUES Table and Reports (**Dashboard**)
 
 The `QUEUES` table's columns are `Repo | Plan | Todo | Batches | Reports | Status`. `Reports`
 counts the batch records (open and archived both) whose `report.json` exists — same `report` flag
 `cfq_scan.py` already puts on every batch record, no new scan. Like `Plan`/`Todo`/`Batches`, a repo
-with none prints a bare `0`, never a dash or blank.
+with none prints a bare `0`, never a dash or blank. The `open/done` cell of a batch row carries a ` · <n> skipped` suffix
+when the batch has skipped phases.
 
 The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing at `/rfq`
 (`report-for-queue`), the skill that lists and renders them, plus this repo's own report portal
 path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
-and isn't one of Step C's six mutating actions below.
+and isn't one of **Management**'s six mutating actions below.
 
 ## Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
 
-Moved into `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
-former Step A, first-time-setup only, is now the setup wizard's global part, run automatically the
-first time and any time by name via `/cfq setup`).
+Lives in `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
+setup wizard's global part, run automatically the first time and any time by name via
+`/cfq setup`).
 
-## CONFIG Block: Full List and Global View (Step B)
+## CONFIG Block: Full List and Global View (**Dashboard**)
 
 On request, two extensions of the same block, same rendering:
 
@@ -27,7 +36,7 @@ On request, two extensions of the same block, same rendering:
 - **Global view** — `"<plugin-root>/bin/cfq" settings list --sources` without
   `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
-## Step C — Management, Six Actions (current repo only, always confirm before writing)
+## Management, Six Actions (current repo only, always confirm before writing)
 
 Every action follows the same shared flow: a deterministic check computes the proposed action
 (file count, dependency existence, blocked status — already available from `.repos`/`.thisRepo`,
@@ -45,15 +54,15 @@ mutation script executes → the structured result is shown. No new script per a
    request — the edge is fail-soft by design.
 6. **Work off todos**:
    1. Run `"<plugin-root>/bin/cfq" note sweep "<repo-root>" --text` and show its output — one line
-      per card, green first, then unresolvable, then red oldest-first, then the ones with no
+      per entry, green first, then unresolvable, then red oldest-first, then the ones with no
       `check:` line.
    2. On confirmation, run the same call with `--apply` and print one summary line under the
       `ACTION` header, e.g. `✅ Todos          3 checks green · moved to done · 44 still open`, not
-      one line per card.
-   3. A card without a `check:` line is never closed by `--apply`; closing one is an explicit act
-      and goes through `note sweep "<repo-root>" --close <filename>`, one `--close` per card, after
+      one line per entry.
+   3. An entry without a `check:` line is never closed by `--apply`; closing one is an explicit act
+      and goes through `note sweep "<repo-root>" --close <filename>`, one `--close` per entry, after
       the user names it.
-   4. Never create or edit an entry here — those are written by `ifq` at batch end. A red card
+   4. Never create or edit an entry here — those are written by `ifq` at batch end. A red entry
       simply stays open.
 
 No pulling things back out of `done/` and no editing phase files — that's `pfq`'s job.
@@ -69,7 +78,7 @@ ACTION
 ⚠️ Dependency      2026-08-10-auth does not exist · edge written anyway
 ```
 
-## Step D — Settings, Full Detail
+## Settings, Full Detail
 
 The guided `/cfq settings` picker (`<plugin-root>/references/settings-menu.md`) navigates the same
 schema this section describes and reuses everything below — scope inference, the global-only

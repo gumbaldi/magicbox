@@ -9,7 +9,7 @@ only this module opts back in, per test, via `env=ON`.
 import json
 import subprocess
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, write_status
 
 import cfq_portal  # noqa: E402
 
@@ -54,6 +54,7 @@ class PortalTriggersTest(CfqTestCase):
         self.assertTrue(queue_path.is_file(), "lock acquire should re-sync without erroring")
 
         (batch_dir / "01-a.md").write_text("# A phase\n\n## Size\n\nS\n")
+        write_status(batch_dir)
         (repo / "feature.txt").write_text("built\n")
         subprocess.run(["git", "-C", str(repo), "add", "feature.txt"], check=True)
         phase_file = batch_dir / "_phase.json"
@@ -165,7 +166,9 @@ class PortalTriggersTest(CfqTestCase):
         provisional, as `phase commit` leaves it."""
         repo = self.make_repo(name)
         batch_dir = repo / ".claude" / "cfq" / "impl" / "2026-01-01-widget"
-        batch_dir.mkdir(parents=True)
+        (batch_dir / "done").mkdir(parents=True)
+        (batch_dir / "done" / "01-a.md").write_text("# A\n\n## Size\n\nS\n")
+        write_status(batch_dir)
         record = {
             "schema": 3, "kind": "phase", "phase": "01-a", "batch": "2026-01-01-widget",
             "repo": str(repo), "session_id": "ended-session", "since": "", "settled": False, "rev": 1,

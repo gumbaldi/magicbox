@@ -30,7 +30,9 @@ marks `setupDone` so it doesn't open on its own again. Three choices up front: k
 pick only some:
 
 - **Models** — which model families `/pfq`/`/ifq` are allowed to run under, and whether `/ifq`
-  runs each phase in its own sub-agent (`orchestratorMode`).
+  runs each phase in its own sub-agent (`orchestratorMode`). Every `implModels` entry may be
+  planned and spawned as a phase worker; set `orchestratorModels` to keep the `/ifq` session
+  itself on the stronger model.
 - **Language defaults** — `codeLanguage`, `docLanguages`, `docLevel`.
 - **Environment & plugins** — `scanRoots`, `frameworkRepo`, the grill procedure, and the two
   optional third-party plugin offers below (including, when `ponytail` is installed and not

@@ -113,5 +113,94 @@ class ProcTest(unittest.TestCase):
         self.assertEqual(merged_args[0][0], bash_path)
 
 
+def _git(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _make_repo(root, name, branch):
+    """A repository whose first branch is `branch` (named explicitly, so the host's
+    init.defaultBranch plays no role) with one commit."""
+    repo = pathlib.Path(root) / name
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "symbolic-ref", "HEAD", f"refs/heads/{branch}")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "first")
+    return repo
+
+
+class DefaultBranchTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+
+    def _clone_of(self, branch):
+        origin = _make_repo(self.root, "origin", branch)
+        clone = pathlib.Path(self.root) / "clone"
+        subprocess.run(
+            ["git", "clone", "-q", str(origin), str(clone)], capture_output=True, check=True
+        )
+        _git(clone, "config", "user.email", "t@example.invalid")
+        _git(clone, "config", "user.name", "t")
+        return origin, clone
+
+    def _rev(self, repo, ref):
+        return _git(repo, "rev-parse", ref)
+
+    def test_origin_head_names_the_default_branch(self):
+        _origin, clone = self._clone_of("trunk")
+        name, ref = proc.default_branch(clone, True)
+        self.assertEqual(name, "trunk")
+        self.assertEqual(self._rev(clone, ref), self._rev(clone, "refs/remotes/origin/trunk"))
+
+    def test_without_origin_head_main_then_master_on_origin(self):
+        _origin, clone = self._clone_of("main")
+        _git(clone, "remote", "set-head", "origin", "-d")
+        name, ref = proc.default_branch(clone, True)
+        self.assertEqual(name, "main")
+        self.assertEqual(self._rev(clone, ref), self._rev(clone, "refs/remotes/origin/main"))
+
+    def test_without_origin_head_only_master_on_origin(self):
+        _origin, clone = self._clone_of("master")
+        _git(clone, "remote", "set-head", "origin", "-d")
+        name, ref = proc.default_branch(clone, True)
+        self.assertEqual(name, "master")
+        self.assertEqual(self._rev(clone, ref), self._rev(clone, "refs/remotes/origin/master"))
+
+    def test_remote_ref_wins_over_a_local_branch_that_is_behind(self):
+        origin, clone = self._clone_of("main")
+        _git(origin, "commit", "-q", "--allow-empty", "-m", "second")
+        _git(clone, "fetch", "-q", "origin")
+        remote_commit = self._rev(clone, "refs/remotes/origin/main")
+        self.assertNotEqual(remote_commit, self._rev(clone, "refs/heads/main"))
+        name, ref = proc.default_branch(clone, True)
+        self.assertEqual(name, "main")
+        self.assertEqual(self._rev(clone, ref), remote_commit)
+
+    def test_not_remote_checked_uses_the_local_branch(self):
+        origin, clone = self._clone_of("main")
+        _git(origin, "commit", "-q", "--allow-empty", "-m", "second")
+        _git(clone, "fetch", "-q", "origin")
+        name, ref = proc.default_branch(clone, False)
+        self.assertEqual(name, "main")
+        self.assertEqual(self._rev(clone, ref), self._rev(clone, "refs/heads/main"))
+        self.assertNotEqual(self._rev(clone, ref), self._rev(clone, "refs/remotes/origin/main"))
+
+    def test_no_remote_only_master(self):
+        repo = _make_repo(self.root, "solo", "master")
+        name, ref = proc.default_branch(repo, False)
+        self.assertEqual(name, "master")
+        self.assertEqual(self._rev(repo, ref), self._rev(repo, "refs/heads/master"))
+
+    def test_no_remote_neither_main_nor_master_falls_back_to_main(self):
+        repo = _make_repo(self.root, "solo", "work")
+        name, _ref = proc.default_branch(repo, False)
+        self.assertEqual(name, "main")
+
+
 if __name__ == "__main__":
     unittest.main()

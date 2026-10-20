@@ -19,10 +19,79 @@ SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 CFQ_BIN = PLUGIN_ROOT / "bin" / "cfq"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from cfq_lib import text as cfq_text  # noqa: E402
+from cfq_lib import phase_state, queue as cfq_queue, text as cfq_text  # noqa: E402
+
+
+def write_status(batch_dir, _overrides=None, **overrides):
+    """Builds a batch directory's status.json from the plan files lying in it: every file is
+    adopted as `open` (or by its done/ or skipped/ location), then each override moves a phase
+    through phase_state.transition(). Keys are slugs; with keyword arguments write the hyphen as
+    an underscore (`write_status(d, **{"01_a": "done"})`), or pass a plain dict as the second
+    argument. A value is a status, a list of statuses applied in order (`["error", "skipped"]`),
+    or a dict `{"status": ..., "reason": ...}`."""
+    batch_dir = pathlib.Path(batch_dir)
+    phase_state.init(batch_dir)
+    phase_state.sync_files(batch_dir)
+    known = phase_state.load(batch_dir)["phases"]
+    merged = dict(_overrides or {})
+    merged.update(overrides)
+    for key, value in merged.items():
+        slug = key if key in known else key.replace("_", "-")
+        steps = value if isinstance(value, list) else [value]
+        for step in steps:
+            spec = step if isinstance(step, dict) else {"status": step}
+            if phase_state.load(batch_dir)["phases"][slug]["status"] != spec["status"]:
+                phase_state.transition(batch_dir, slug, spec["status"], reason=spec.get("reason"))
+
+
+def write_status_under(root):
+    """write_status() for every batch directory under every `.claude/cfq/impl` below `root`:
+    plan files without an entry are adopted, an existing entry is never changed. A batch in
+    `impl/done/` (archived) ends with every phase `done`. Used by the test classes that set
+    `auto_status` to give their many ad-hoc batch fixtures a status.json in one place."""
+    root = pathlib.Path(root)
+    for impl in root.rglob(".claude/cfq/impl"):
+        for batch in cfq_queue.list_batch_dirs(impl):
+            write_status(batch)
+        for batch in cfq_queue.list_batch_dirs(impl / "done"):
+            write_status(batch)
+            for slug, entry in phase_state.load(batch)["phases"].items():
+                if entry["status"] in phase_state.PENDING:
+                    phase_state.transition(batch, slug, "done")
+
+
+def write_status_for_phase_dirs(root):
+    """write_status() for every directory under `root` that holds phase files (`NN-*.md`), the
+    batch directory itself or its `done/`/`skipped/` -- for the test classes whose ad-hoc batch
+    fixtures do not sit under a `.claude/cfq/impl` (brief, lint)."""
+    root = pathlib.Path(root)
+    batches = set()
+    for p in root.rglob("[0-9][0-9]-*.md"):
+        batches.add(p.parent.parent if p.parent.name in ("done", "skipped") else p.parent)
+    for batch in sorted(batches):
+        write_status(batch)
+
+
+class PhaseDirsStatus:
+    """Mixin (before CfqTestCase): gives every phase-file directory under the test repos dir its
+    status.json before each run_cfq()/run_clean() call; an existing entry is never changed."""
+    auto_status = True
+
+    def _prepare_status(self):
+        if self.auto_status:
+            write_status_for_phase_dirs(self._repos_dir)
 
 
 class CfqTestCase(unittest.TestCase):
+    # A test class sets this True to have every run_cfq()/run_clean() call first give each batch
+    # fixture under self._repos_dir its status.json; a test that needs a batch WITHOUT one sets
+    # `self.auto_status = False` for its own duration.
+    auto_status = False
+
+    def _prepare_status(self):
+        if self.auto_status:
+            write_status_under(self._repos_dir)
+
     def setUp(self):
         """Both roots are .resolve()d immediately: on macOS the system temp dir sits under
         /var, itself a symlink to /private/var, so the raw tempfile path and the canonical path
@@ -57,6 +126,7 @@ class CfqTestCase(unittest.TestCase):
         return env
 
     def run_cfq(self, *args, home=None, env=None, cwd=None, check=False):
+        self._prepare_status()
         run_env = self._base_env()
         run_env["HOME"] = str(home if home is not None else self.home)
         if env:
@@ -71,6 +141,7 @@ class CfqTestCase(unittest.TestCase):
         )
 
     def run_clean(self, *args, env=None, cwd=None, check=False):
+        self._prepare_status()
         run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", ""), "CFQ_PORTAL_SYNC": "0"}
         if env:
             run_env.update(env)

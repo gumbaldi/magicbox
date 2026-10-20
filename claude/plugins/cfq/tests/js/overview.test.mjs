@@ -270,3 +270,17 @@ test("rows follow their link on click except on inner links", () => {
     delete globalThis.location;
   }
 });
+
+test("phases cell: skipped and error phases are named, an ordinary row is unchanged", () => {
+  const custom = JSON.parse(JSON.stringify(queue));
+  const gamma = custom.batches.find((r) => r.name === "047-2026-10-01-gamma-progress");
+  const epsilon = custom.batches.find((r) => r.name === "049-2026-10-05-epsilon-planned");
+  gamma.phases = { done: 1, total: 4, skipped: 1, error: 0 };
+  epsilon.phases = { done: 0, total: 4, skipped: 0, error: 1 };
+  const { root } = draw({ queue: custom });
+  const cells = byClass(root, "phases").filter((n) => n.tagName === "td").map((td) => collectText(td).trim());
+  assert.ok(cells.includes("1/4 · 1 skipped"), cells.join("|"));
+  assert.ok(cells.includes("0/4 · 1 error"), cells.join("|"));
+  assert.ok(cells.includes("2/2"), cells.join("|"));
+  assert.ok(cells.includes("0/1"), cells.join("|"));
+});

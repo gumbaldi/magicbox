@@ -62,7 +62,9 @@
         worked: latest && latest.time ? latest.time.from || null : null,
         duration: duration,
         devCount: latest ? (latest.deviations || []).length : 0,
-        status: latest ? latest.status : "open",
+        // an error or skipped phase shows its own state, not the status of its latest attempt
+        status: phase.state === "error" || phase.state === "skipped" ? phase.state : (latest ? latest.status : "open"),
+        skipReason: phase.state === "skipped" ? phase.skipReason || "" : "",
         flags: phase.flags || [],
       };
     });
@@ -256,7 +258,8 @@
     facts.appendChild(fact(doc, "Started", factText(doc, f.started ? C.fmtDateTime(f.started) : null)));
     facts.appendChild(fact(doc, "Finished", factText(doc, f.finished ? C.fmtDateTime(f.finished) : null)));
     facts.appendChild(fact(doc, "Elapsed", factText(doc, f.elapsed === null ? null : C.fmtDuration(f.elapsed))));
-    facts.appendChild(fact(doc, "Phases", factText(doc, f.phases.done + "/" + f.phases.total)));
+    var skipped = (batch.phases || []).filter(function (p) { return p.state === "skipped"; }).length;
+    facts.appendChild(fact(doc, "Phases", factText(doc, f.phases.done + "/" + f.phases.total + (skipped ? " · " + skipped + " skipped" : ""))));
     facts.appendChild(fact(doc, "Turns", factText(doc, f.turns === null ? null : C.fmtInt(f.turns))));
     facts.appendChild(fact(doc, "In", factText(doc, f.in === null ? null : C.fmtTokens(f.in), f.in === null ? "" : C.fmtInt(f.in))));
     facts.appendChild(fact(doc, "Out", factText(doc, f.out === null ? null : C.fmtTokens(f.out), f.out === null ? "" : C.fmtInt(f.out))));
@@ -530,6 +533,7 @@
     var statusCell = C.el(doc, "td");
     statusCell.appendChild(C.statusPill(doc, row.status));
     if (row.failed) statusCell.appendChild(C.el(doc, "div", row.failed + " earlier red", "sub faint"));
+    if (row.skipReason) statusCell.appendChild(C.el(doc, "div", row.skipReason, "sub faint skip-reason"));
     tr.appendChild(statusCell);
 
     tr.appendChild(dateCell(doc, row.worked));

@@ -6,6 +6,16 @@ only when `policy.orchestratorMode` is `true` — on by default. Everything the 
 or returns is defined in `<plugin-root>/agents/cfq-phase-worker.md`; this file is the
 orchestrator's own loop around it.
 
+## Contents
+
+- 1. Per phase, before spawning
+- 2. Spawn
+- 3. On return
+- 4. Resuming after an answer
+- 5. Phase summary and batch end
+- 6. Fallback to classic
+- Sub-agent type
+
 ## 1. Per phase, before spawning
 
 Re-run `bin/cfq preflight-impl "<repo-root>" --select "<batch>"` to resolve the next open phase,
@@ -14,12 +24,16 @@ returned is fully accounted for in the orchestrator's own transcript and no work
 mid-run. `nextPhase: null` (every phase already moved to `done/`, `bin/cfq finish` never ran) →
 skip straight to step 5's batch end, never spawn a worker for a phase that doesn't exist.
 
+A skip request from the user ("skip phase 04") is carried out here, between phases, before the next
+spawn — `<plugin-root>/references/ifq-phase.md`'s **Skipping a Phase** — and the preflight above is
+re-run afterwards. The orchestrator never skips on its own.
+
 This one call carries both verdicts, and capacity always wins when both fire:
 
 - `STOP` (`REASON=capacity`) is about the **orchestrator's own** session, not the worker's — it
   ends the batch right here, without asking: the next worker is not spawned, `POSTCHECKS` runs
-  exactly as classic mode's `STOP` branch describes it, and the session prints the `HANDOFF ·
-  implement-for-queue` short format. The batch resumes in a fresh `/ifq` session with the
+  exactly as `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** describes its
+  `STOP` branch, and the session prints the `HANDOFF · implement-for-queue` short format. The batch resumes in a fresh `/ifq` session with the
   remaining phases untouched in `impl/`. A call that returns `STOP` never also asks the `WARN`
   question below.
 - `WARN` (a rate-limit reason) carries the same three-option question as classic mode's
@@ -38,21 +52,29 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase Announcement**), just carried
 in this JSON instead of printed by `bin/cfq brief` directly, since that call refuses while
 `orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent, the briefing JSON as its
-prompt verbatim, and `policy.orchestratorModels[0]` (`policy.implModels[0]` when
-`orchestratorModels` is empty) as its model.
+prompt verbatim, and the briefing's `model` as its model.
 
 ## 3. On return
 
 Pipe the worker's returned report — the JSON object `<plugin-root>/agents/cfq-phase-worker.md`'s
-**Report** section defines — into `bin/cfq worker verdict "<batch-dir>"` on stdin.
+**Report** section defines — into `bin/cfq worker verdict "<batch-dir>"` on stdin. The result also
+carries `statusLines` — the phase's `Cost` line, read from the ledger entry the worker's own
+closing call wrote, empty for a `question` report.
 
 - `CONTINUE` → render the phase summary (step 5 below), then back to step 1 for the next phase.
 - `ASK` → resolve what can be resolved from `.batch-context.md`, the phase file and settings;
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
   already tells them apart, the orchestrator doesn't re-classify.
-- `STOP` → the batch ends. `errors` prints unmodified, exactly as classic mode's red case does; run
-  `POSTCHECKS` as today.
+- `ESCALATE` → the worker judged the phase harder than planned. If the briefing's
+  `escalation.next` is `null`, or this phase was already escalated once in this session, handle
+  it exactly as `ASK`, with the worker's `handover.remaining` as the question. Otherwise write
+  the verdict's `handover` object to a temp file, re-run `bin/cfq worker brief "<batch-dir>"
+  --phase <NN> --model-override <escalation.next> --handover-file <file>`, print `⚠️ Escalation`
+  with the phase and `<from> → <to>` and `handover.remaining` on a `   └ ` sub-line, and spawn a
+  new worker with that briefing and model. No question — the user chose automatic escalation.
+- `STOP` → the batch ends. `errors` prints unmodified, exactly as `<plugin-root>/references/ifq-classic.md`'s **Implementation** red case does, and those `statusLines`
+  are printed right after `errors`; run `POSTCHECKS`.
 
 ## 4. Resuming after an answer
 
@@ -65,20 +87,21 @@ silent.
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations`/`observations` map onto
-`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`. Batch end — no open `NN-*.md` left —
-follows classic mode's **Batch Done** in full.
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`, then print the verdict's `statusLines` entries
+below the block, each `text` exactly as returned. Batch end — `nextPhase: null` —
+follows `implement-for-queue/SKILL.md`'s **Batch Done** in full.
 
 ## 6. Fallback to classic
 
 A spawn that fails outright, or a worker that returns nothing usable (malformed report, no report
 at all), does not end the batch: the orchestrator implements that phase itself, in-session, exactly
-as classic mode's **Implementation** step would, and prints one `⚠️` line naming what failed before
-falling back. Classic mode's own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
+as `<plugin-root>/references/ifq-classic.md`'s **Implementation** step would, and prints one `⚠️` line naming what failed before
+falling back. `<plugin-root>/references/ifq-classic.md`'s own phase announcement (`bin/cfq brief "<batch-dir>" --phase <NN>`)
 refuses while `orchestratorMode` is still on, so this in-session fallback calls it with
 `--classic-fallback` appended — the flag that is what makes this documented fallback pass the
 gate. Its printed block is the same text step 2 already rendered from `announcement` for the
 worker that failed to spawn, so it is not printed again here — the call is made only to satisfy
-classic mode's own Implementation step, never to show a second announcement for the same phase.
+`ifq-classic.md`'s own **Implementation** step, never to show a second announcement for the same phase.
 This fallback exists to keep a batch moving on an occasional spawn failure — a *repeated* fallback
 within the same batch is worth investigating, not silently absorbing.
 

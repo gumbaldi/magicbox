@@ -74,6 +74,8 @@ def phases_yaml(report_path):
 
     blocks = []
     for p in phases:
+        if isinstance(p, dict) and p.get("unskipped"):
+            continue  # a skip that was taken back is no longer a ledger fact
         # implemented (current worker schema) then summary (classic-mode / pre-orchestrator
         # records) -- same fallback order as cfq_report.phase_summary().
         summary = val(p, "implemented") or val(p, "summary")

@@ -38,6 +38,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cfq_report  # noqa: E402
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
@@ -145,6 +146,13 @@ def cmd_park(args):
     depends_file = d / ".dependsOn"
     if args.depends:
         depends_file.write_text("\n".join(args.depends) + "\n")
+
+    # Phase state follows the files pfq wrote: new ones are adopted as `open`, deleted ones drop.
+    try:
+        phase_state.init(d)
+        phase_state.sync_files(d)
+    except phase_state.PhaseStateError as e:
+        errors.fail(e.code, e.message)
 
     subprocess.run(cfq_argv("registry", "add", args.repo), stdout=subprocess.DEVNULL, check=True)
 

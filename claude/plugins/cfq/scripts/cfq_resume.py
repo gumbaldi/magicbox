@@ -12,21 +12,19 @@ output verbatim, including the nested `branch` object from its own internal `bra
 import argparse
 import json
 import pathlib
-import re
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_argv, git  # noqa: E402
 
 PROG = "cfq_resume.py"
 
-PHASE_NUM_RE = re.compile(r"^([0-9][0-9])-")
 DEFAULT_BRANCH_JSON = {
     "mode": None, "batch": None, "batchNumber": None, "branch": None, "base": None,
-    "candidates": [],
+    "options": [],
 }
 
 
@@ -57,18 +55,6 @@ def parse_size(text):
     return "M"
 
 
-def scan_phase_files(dirpath):
-    if not dirpath.is_dir():
-        return []
-    return sorted(dirpath.glob("[0-9][0-9]-*.md"))
-
-
-def phase_num_slug(path):
-    m = PHASE_NUM_RE.match(path.name)
-    num = m.group(1) if m else ""
-    return num, path.stem
-
-
 def load_report(report_path):
     if not report_path.is_file():
         return None
@@ -96,16 +82,23 @@ def cmd_resume(args):
     branch_json = resolve_branch(repo_root, batch_name)
     branch_name = branch_json.get("branch") or ""
 
-    phases_open = []
-    for f in scan_phase_files(batch_dir):
-        num, slug = phase_num_slug(f)
-        phases_open.append({"num": num, "slug": slug, "size": parse_size(f.read_text())})
+    try:
+        records = phase_state.phases(batch_dir)
+    except phase_state.PhaseStateError as e:
+        errors.die(f"{PROG}: {e.message}")
 
+    phases_open = []
     phases_done = []
-    for f in scan_phase_files(batch_dir / "done"):
-        num, slug = phase_num_slug(f)
-        commit = last_green_commit(report, slug)
-        phases_done.append({"num": num, "slug": slug, "commit": commit or None})
+    phases_skipped = []
+    for p in records:
+        if p["status"] in phase_state.PENDING:
+            size = parse_size(p["path"].read_text()) if p["path"] is not None else "M"
+            phases_open.append({"num": p["num"], "slug": p["slug"], "size": size, "status": p["status"]})
+        elif p["status"] == "done":
+            commit = last_green_commit(report, p["slug"])
+            phases_done.append({"num": p["num"], "slug": p["slug"], "commit": commit or None})
+        else:
+            phases_skipped.append({"num": p["num"], "slug": p["slug"], "reason": p["reason"]})
 
     deviations = []
     red_phases = []
@@ -137,7 +130,7 @@ def cmd_resume(args):
 
     print(render.dump_json({
         "batch": batch_name, "batchDir": str(batch_dir), "branch": branch_json,
-        "phasesOpen": phases_open, "phasesDone": phases_done,
+        "phasesOpen": phases_open, "phasesDone": phases_done, "phasesSkipped": phases_skipped,
         "lastCommit": last_commit or None, "lastCommitSource": last_commit_source,
         "deviations": deviations, "redPhases": red_phases,
         "batchContext": {"exists": ctx_exists, "path": str(ctx_path) if ctx_exists else None},

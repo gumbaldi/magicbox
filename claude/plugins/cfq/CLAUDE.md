@@ -21,13 +21,14 @@ added as batch `019` phase 03; `cfq_note.py` (new), `cfq_batch_id.py`'s `ready` 
 and `cfq_report.py`'s `skills` verb added as batch `019`
 phase 04; `cfq_guard.py` (new) added as batch `019` phase 06; `cfq_portal.py` (new, plus the
 CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `040` phase 01;
-the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`) —
+the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
+CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
-design, see Commands — eight TOML command aliases (`commands/`). No build step, no package
+design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
-Reference files hold what would otherwise blow the 200-line budget of a `SKILL.md` (see
+Reference files hold what would otherwise blow the size budget of a `SKILL.md` (see
 Conventions): all of them live flat under `references/` (e.g. `doc-style.md`,
 `ifq-phase.md`) — no per-skill `references/` directory, one path style everywhere
 (`${CLAUDE_PLUGIN_ROOT}/references/<file>.md` from a `SKILL.md`, `<plugin-root>/references/<file>.md`
@@ -44,6 +45,13 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
+
+```bash
+claude plugin eval claude/plugins/cfq --case <name> --runs 1 --ablation none --scaffold --trust-plugin --no-publish
+```
+
+Behavioural eval cases for the skill prose live in `evals/`; this runs them on demand, never in CI,
+and every run costs model usage — see `evals/README.md` for the full command and the sandbox facts.
 
 Scripts write to `$HOME/.claude/cfq/`. Always run them against a throwaway HOME so the
 user's real registry and settings stay untouched:
@@ -68,7 +76,8 @@ noticing, which is the point.
 Scripts call each other through `bin/cfq <noun>`, never by filename — the same rule that applies
 to skills and references. `scripts/cfq_lib/` is the one exception — shared Python with no CLI and
 no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` holds the canonical
-path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers; `cfq_lib/text.py`
+path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers and `default_branch()`, the
+one default-branch resolution every script uses; `cfq_lib/text.py`
 holds the shared terminal-rendering helpers — padding, wrapping, aligned columns, icon lookup).
 Two further
 exceptions stay direct filename calls, each commented at its call site:
@@ -92,6 +101,8 @@ plans and never edits code; `implement-for-queue` (cheap model) works exactly on
 hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
 on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
 `report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
+The `implement-for-queue` `SKILL.md` carries only what both modes share, and each mode's per-phase
+loop lives in its own reference file (`references/orchestrator.md`, `references/ifq-classic.md`).
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
 
 **The queue is the filesystem, split into three queues** under `<repo>/.claude/cfq/` (canonical
@@ -114,14 +125,20 @@ entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a fa
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
 phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
 move nothing); `cfq phase reopen <batch-dir> <phase-slug>` is `record`'s inverse, moving a phase back
-out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; the
-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed as its own
-`report append` CLI verb). `done/` stays the
-one authority for phase state — `cfq batch verify [--batch <name>] [--json]` (read-only) and `cfq
-batch recover --batch <name> [--dry-run]` (applies the repairs `verify` can name automatically)
-exist only to keep the other three sources that also record it — `report.json`, the `CFQ-Batch`/
-`CFQ-Phase`/`CFQ-Phase-Status` Git commit trailers, and the changelog (`changelogFile`) — honest about what
-`done/` already says; neither verb ever synthesizes plan **text** back from a changelog summary,
+out of `done/` and marking the ledger entry `reopened` without touching `status`/`commit`; `cfq
+phase skip <batch-dir> <NN|slug> [--reason <text>]` and `phase unskip` move a phase into and out of
+`skipped/` and append the skip's own ledger entry; the append primitive itself lives on as
+`cfq_report.append_phase()`, no longer exposed as its own `report append` CLI verb). `status.json`
+(`{"schema": 1, "phases": {<slug>: {"status": "open"|"done"|"error"|"skipped", …}}}`) is the one
+authority for phase state, read and written only through `cfq_lib/phase_state.py`, and no other
+module globs phase files to decide a state; `done/` and `skipped/` mirror it (`open` and `error`
+phases stay in the batch root), and when the two disagree `status.json` wins. A skipped entry also
+carries `reason`, `previous` (the status `unskip` restores) and, once written, `inbox`. `cfq batch
+verify [--batch <name>] [--json]` (read-only) and `cfq batch recover --batch <name> [--dry-run]`
+(applies the repairs `verify` can name automatically) exist only to keep the mirror and the other
+three sources that also record it — `report.json`, the `CFQ-Batch`/`CFQ-Phase`/`CFQ-Phase-Status`
+Git commit trailers, and the changelog (`changelogFile`) — honest about what `status.json` says;
+neither verb ever synthesizes plan **text** back from a changelog summary,
 only a ledger entry (JSON) or a file `cfq trash` still holds (`cfq_lib/consistency.py`). `.planning`
 (written by `cfq batch allocate` when the batch directory is created; `park` refreshes it on every
 re-park during the same `plan-for-queue` session but only while it still exists, and never
@@ -138,16 +155,19 @@ follow-up work out of scope for the current phase, and `plan-for-queue` reads an
 (an entry whose fix landed incidentally, rather than through `park --from-plan`, is closed instead
 via `cfq note close`, which appends a `## Closed` section and moves it into `plan/done/`);
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
-that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (Step C,
+that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
 current repo only), and `report-for-queue` only lists; the merge card is generated by `cfq note merge-todo`, which always
 supplies the `check:` line, so it never needs a hand-composed one. `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
 `plan-for-queue` reads `plan/`, writes `impl/`. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
 inside any of the three subdirectories — `.lock` is held by the currently running
-`implement-for-queue` session, liveness derived from the holder's transcript mtime. There is no
-index or bookkeeping file: `cfq_scan.py` counts live from disk every time, and "phase finished" *is*
-the `mv` into `impl/done/`. Anything that changes the layout must change `cfq_scan.py` and
-`tests/test_scan.py` together — and, for `report.json`, `tests/test_report.py` as well.
+`implement-for-queue` session, liveness derived from the holder's transcript mtime. Apart from phase
+state there is no index or bookkeeping file: `cfq_scan.py` counts batches, notes and the rest live
+from disk every time, and phase counts from `status.json`; a batch whose `status.json` is missing or
+unreadable is reported with all counts `0` and `consistency: "unknown"` and never offered. "Phase
+finished" is the `status.json` write, with the `mv` into the batch's `done/` as its mirror.
+Anything that changes the layout must change `cfq_scan.py` and `tests/test_scan.py` together — and,
+for `report.json`, `tests/test_report.py` as well, for `status.json` `tests/test_phase_state.py`.
 It also changes an external contract: `PreToolUse` hooks on `Write`/`Edit` outside this repository
 key on these paths — see **Hook contract** in `README.md` before renaming anything here.
 
@@ -209,7 +229,8 @@ directly into `hooks/hooks.json`'s `PreToolUse` entries and runs on every `Bash`
 call in the session, whether or not a cfq skill is active. It denies a raw shell mutation
 (`rm`/`mv`/`cp`/`truncate`/`shred`/`dd`/`ln`/`install`/`sed -i`, a `>`/`>>` redirect, or
 `find … -delete`) whose argument resolves — against the tool call's own `cwd`, not a literal-string
-match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`. Its
+match — into `.claude/cfq`, and a `Write`/`Edit` landing directly in `impl/<batch>/done/**`,
+`impl/<batch>/skipped/**` or on a batch's `status.json`. Its
 fail-open behaviour (an internal exception allows the call and logs to stderr instead of denying)
 is intentional, not an oversight: a guard that crashes closed would fail every `Bash` call in every
 session, which is worse than the incident it exists to prevent now that phases 01-05 give every
@@ -270,8 +291,8 @@ transcript settles the record with its numbers unchanged. `cfq_lib/portal_hook.p
 id goes through `cfq_runtime.py transcript-path|subagent-dir --session <id>`.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
-afterward.** Two shapes qualify. The first is delegation: `plan-for-queue` Step 5 and
-`implement-for-queue` Step 8 both delegate multi-file or unclear-scope research to Explore agents
+afterward.** Two shapes qualify. The first is delegation: `plan-for-queue`'s **Understand** and
+`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) both delegate multi-file or unclear-scope research to Explore agents
 (`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
 verification command through the same subagent to keep raw test/build log noise out of the
 expensive model's context. Research fits, since the parent gets a distilled summary and stops
@@ -380,11 +401,12 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
 - Rationale and history for skill/reference/agent rules lives in `claude/plugins/cfq/docs/design-notes.md`,
   not in the skill text itself — new rationale goes there, never back into a `SKILL.md`, reference
   file, or agent definition.
-- Every command exists twice — short (`pfq.toml`) and long (`plan-for-queue.toml`) — with byte-identical
-  `description`/`prompt`. Change one, change both.
+- Commands are Markdown only (Claude Code loads no other format), one short alias per skill. No
+  command may share a skill's name: the session's listing then shows the command's description
+  instead of the skill's.
 - Skill prose is English; every `SKILL.md` opens with "Always answer in the user's language" — the
   interview is the only part that runs in the user's language. Everything written into a repo (plan
-  files, queue cards, batch directory names, commit messages, the changelog) follows `codeLanguage`,
+  files, queue entries, batch directory names, commit messages, the changelog) follows `codeLanguage`,
   documentation additionally `docLanguages` — except structural markers, which are always English
   regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
   `(new)` marker, `.priority` values. Only the prose content inside those files follows
@@ -393,18 +415,16 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   (section header in caps, per step `<icon> <label padded to 16 chars> <detail>`, icons
   `✅ ⚠️ ❌ ➖`, printed live as each step completes) lives in
   `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
-  `plan-for-queue`, and `code-for-queue`. `report-for-queue` keeps a full inline copy instead,
-  needed to stay inside the 200-line budget below without adding a reference-file read to a skill
-  that otherwise wouldn't need one. Change the block → change `references/output-format.md`, and
-  keep `report-for-queue`'s inline copy in sync with it (same content, its own bullet style — not
-  necessarily word-for-word). A new skill points at the reference file rather than copying the
-  block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
-- **200-line budget per `SKILL.md`, counted `wc -l` over the whole file, frontmatter included.**
-  Every session pays for a skill's size before anything happens. Content that would push a file
-  past that moves to `references/` and is loaded only on the path that needs it — pattern:
-  `claude/plugins/cfq/references/grilling.md`. `tests/test_reference_paths.py`'s
-  `check_skill_line_budget` enforces it — a `SKILL.md` over budget fails the suite. The working
-  target is ~180 lines, so a small addition does not immediately break the build.
+  `plan-for-queue`, `code-for-queue` and `report-for-queue`. A new skill points at the reference
+  file rather than copying the block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
+- **16,000-character budget per `SKILL.md`, counted on the text as loaded** (each
+  `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length). Every session pays for a
+  skill's size before anything happens, and Claude Code re-attaches only the first 5,000 tokens of
+  a skill after a context compaction; a line count rewards long lines, so size is what is
+  measured. Content needed only on some paths moves to `references/` and is loaded on that path
+  only — pattern: `claude/plugins/cfq/references/grilling.md`. `tests/test_reference_paths.py`'s
+  `check_skill_size_budget` enforces it — a `SKILL.md` over budget fails the suite. The working
+  target is about 14,500 characters, so a small addition does not immediately break the build.
 - **Deterministic work belongs in a script, not in prose.** Reading a marker, counting commits,
   diffing file lists: a script call costs about 20 tokens; the same instruction spelled out in
   prose costs that every session, even on the runs where the path never executes.
@@ -413,6 +433,13 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   `park --from-plan`, `batch ready`, …) is a `bin/cfq` subcommand, never a
   raw `rm`/`mv`/`mkdir`/`jq` written into the text. `tests/test_reference_paths.py` greps for this
   structurally.
+- **Four prose rules for skill, reference and agent text.** (1) Every `references/*.md` is named
+  directly, with its `${CLAUDE_PLUGIN_ROOT}/` or `<plugin-root>/` path, in at least one `SKILL.md`
+  or agent definition. (2) A reference file over 100 lines opens with a `## Contents` section
+  listing its other `## ` headings as bullets. (3) Text states what applies now, in the present
+  tense — no "no longer", "as before", "since v0.2" and the like; history goes to `docs/design-notes.md`.
+  (4) An item in `plan/` or `todo/` is an "entry", never a "card" or "queue note". A `description`
+  in frontmatter holds neither `<` nor `>`. `tests/test_reference_paths.py` enforces all of them.
 - The plugin must stay fully usable without `mattpocock-skills` and `ponytail`. Any path touching them
   needs a silent fallback, guarded by `useMattpocockGrilling` / `usePonytailAudit`.
 - Python scripts are stdlib only; JSON is written via `cfq_lib.render.write_json` (tmp file +
@@ -457,7 +484,9 @@ of:
 Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never folded into
 `status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
 documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
-not replaces, the list above. Don't invent parallel status strings elsewhere; reuse this list.
+not replaces, the list above. The same goes for the phase states `open`/`done`/`error`/`skipped`
+in `status.json`: a separate, additive vocabulary for phases, never an aggregator `status`, and no
+new aggregator status was added for them. Don't invent parallel status strings elsewhere; reuse this list.
 `MODE_MISMATCH` is the one token in this vocabulary that is never a JSON `status` value — it's
 `cfq_brief.py`'s stderr/exit-2 refusal when `--phase` is called while `orchestratorMode` is on,
 reported by exit code rather than by a field a caller parses.

@@ -5,12 +5,24 @@ text is written — not only for a phase that moves, extracts, or reuses existin
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
 simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6 and 7 apply
-to every phase without exception. This file governs what a phase's text must contain once it
+to every phase without exception; rule 8 is optional. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The seven rules below are a standing checkpoint against runaway debugging tokens and untested
+The eight rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
+
+## Contents
+
+- 1. Test-first, not shell exploration
+- 2. Verbatim reuse is not automatically correct
+- 3. Debugging stays out of the main context
+- 4. Smoke tests are bundled, not serialized
+- 5. Size reflects verify-the-reuse work, not just new lines
+- 6. `## Affected Files` is the complete list
+- 7. `## Changes` is a numbered step list
+- 8. `## Model` names the smallest model that fits
+- Phase File Structure
 
 ## 1. Test-first, not shell exploration
 
@@ -24,7 +36,7 @@ it must do.
 
 ## 2. Verbatim reuse is not automatically correct
 
-Code a phase carries over unchanged from an existing file — "reuse as-is", "move as-is", "lift
+Code a phase copies without modification from an existing file — "reuse as-is", "move as-is", "lift
 verbatim" — gets flagged, not waved through. In that phase's `Affected Files` or `Reuse` entry,
 mark the carried-over block with a trailing `(verbatim)` marker — the same structural,
 English-regardless-of-`codeLanguage` convention as the existing `(new)` marker. The phase's
@@ -87,6 +99,12 @@ look for; a phase that legitimately has none of a category simply has nothing to
 - generated or derived files that have to be regenerated
 - cross-references elsewhere that point at what is being renamed, renumbered, or moved
 
+`(new)` marks a file on the phase that creates it, and only there. A later phase of the same batch
+that extends the file, and a phase of a batch whose `.dependsOn` names the creating batch, list the
+path bare. `bin/cfq lint` accepts a bare path that is not on disk while the creating phase is
+pending, and reports `duplicate-new` when a second phase marks the same path. A bullet is never
+reworded to keep a path out of lint: `bin/cfq overlap` reads the same bullets.
+
 Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
 decide whether a file is in scope, that uncertainty is a research task for the planning session,
 not a hedge in the plan — resolve it before parking: `bin/cfq overlap` intersects
@@ -108,14 +126,34 @@ opening sentences, so they are what the user approves.
 `bin/cfq lint` reports a missing numbered step as `warn: … changes-steps`, never as a finding, so an
 older batch still starts.
 
+## 8. `## Model` names the smallest model that fits
+
+Optional. Without the heading a phase runs on the default implementation model. Write the heading
+— `## Model`, then the model name alone on the next non-empty line, placed after `## Size` — only
+to move a phase off that default, and only with a name from `planningPolicy.implModels`
+(**Start Block**'s preflight result); `bin/cfq lint` rejects any other.
+
+A smaller model than the default fits when all of these hold:
+
+- Size is `S`.
+- `## Changes` spells out every edit; no step asks the implementer to decide, design or choose.
+- `## Verification` is one deterministic command with a stated expected result.
+- No `(verbatim)` block, and no rework of skill, reference or agent prose.
+- Apart from tests, the phase touches at most two files.
+
+One condition failing means no heading. A larger model than the default is planned the same way,
+for a phase whose `## Changes` cannot avoid a design decision. The first entry of `implModels` is
+the default; when the list has one entry, never write the heading.
+
 ---
 
-None of this adds a new required heading. All seven rules live inside a phase's existing `Changes`,
-`Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected.
+None of this adds a new required heading. Rules 1-7 live inside a phase's existing `Changes`,
+`Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected;
+rule 8's heading is optional.
 
 ## Phase File Structure
 
-Unchanged from the template: Size (`S`/`M`/`L`, own heading) · Context · Affected Files (always
+Template: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading) · Context · Affected Files (always
 absolute paths) · Changes (copy-ready) · Reuse · Dependencies · Verification (with output
 filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.
