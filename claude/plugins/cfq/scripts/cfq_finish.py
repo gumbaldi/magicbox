@@ -4,6 +4,11 @@
 diff, changelog, telemetry sync) in a fixed order and prints one JSON object. The lock release is
 guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked.
 
+The language checks compare against the batch's own base branch (the changelog block's `base:`,
+`origin` first, then local), so a batch cut from an unmerged predecessor is checked only for its
+own changes; the default branch is the fallback when no base is recorded or the base branch no
+longer exists.
+
 Ported from cfq-finish.sh -- a port, not a redesign: the nine-call order, the per-call failure
 handling (each recorded in `errors`, none aborts the sequence) and every output field are the
 invariant this file preserves. The `try/finally` below replaces the shell version's `trap ... EXIT`
@@ -19,12 +24,38 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import cfq_changelog  # noqa: E402
 from cfq_lib import paths, phase_state, portal_hook, render, text as cfq_text  # noqa: E402
 from cfq_lib.proc import (  # noqa: E402
     capture, cfq_argv, cfq_run, cfq_run_merged, default_branch, git, settings_get,
 )
 
 PROG = "cfq_finish.py"
+
+
+def batch_base(repo_root, batch_name):
+    """The `base:` value of the batch's changelog block, or `""` when `changelogFile` is empty,
+    the file is missing, no block matches or the block has no `base:`."""
+    changelog_file = cfq_changelog.changelog_file(repo_root)
+    if not changelog_file or not pathlib.Path(changelog_file).is_file():
+        return ""
+    start = cfq_changelog.find_block_start(changelog_file, "  batch:", batch_name)
+    if start is None:
+        return ""
+    lines = cfq_changelog.read_lines(changelog_file)
+    return cfq_changelog.block_field(cfq_changelog.block_text(lines, start), "  base:") or ""
+
+
+def lang_base_ref(repo_root, base, default_ref):
+    """The reference the language checks compare against: `origin/<base>` when that branch exists
+    on `origin`, else `<base>` when it exists locally, else `default_ref` (also for an empty
+    `base`). The default branch itself keeps `default_ref`. No fetch -- the refs on disk decide."""
+    if base and default_ref not in (f"refs/remotes/origin/{base}", f"refs/heads/{base}"):
+        for ref, name in ((f"refs/remotes/origin/{base}", f"origin/{base}"),
+                          (f"refs/heads/{base}", base)):
+            if git(repo_root, "rev-parse", "--verify", "--quiet", ref).returncode == 0:
+                return name
+    return default_ref
 
 
 def load_json_or(text, default):
@@ -256,7 +287,9 @@ def cmd_finish(args):
 
         lang_json = {"issues": 0, "findings": []}
         # True: the `origin` refs on disk are used when present; this call does not fetch.
-        _, base_ref = default_branch(repo_root, True)
+        _, default_ref = default_branch(repo_root, True)
+        batch_base_name = batch_base(repo_root, batch_dir.name)
+        base_ref = lang_base_ref(repo_root, batch_base_name, default_ref)
         proc = cfq_run_merged("lang", str(repo_root), "--changed", base_ref)
         out = capture(proc)
         if proc.returncode == 0:

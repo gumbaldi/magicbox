@@ -10,9 +10,11 @@ import shutil
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
+import cfq_changelog  # noqa: E402
 import cfq_finish  # noqa: E402
 from cfq_lib import proc as proc_lib  # noqa: E402
 
@@ -626,12 +628,17 @@ class FinishTest(CfqTestCase):
         status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
         self.assertNotIn("inbox", status["phases"]["03-c"])
 
-    def _lang_refs(self, repo, tag):
+    def _lang_refs(self, repo, tag, changelog=None):
         """Runs finish on `repo` with a logging shim in front of cfq_lang.py and returns the
-        reference each of the two language checks received (changed-files check, prose check)."""
+        reference each of the two language checks received (changed-files check, prose check).
+        `changelog` is the text of a changelog file in the repo; None leaves `changelogFile` empty."""
         home = self._repos_dir / f"home-{tag}"
         (home / ".claude/cfq").mkdir(parents=True)
-        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        settings = {"changelogFile": ""}
+        if changelog is not None:
+            (repo / "CHANGELOG.yml").write_text(changelog)
+            settings = {"changelogFile": "CHANGELOG.yml"}
+        (home / ".claude/cfq/settings.json").write_text(json.dumps(settings))
         batch = self._new_batch(repo, "2026-01-01-" + tag)
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-" + tag, home=home, check=True)
 
@@ -705,6 +712,100 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         _changed, _prose, out = self._lang_refs(repo, "work")
         self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
 
+    # ---- the language checks compare against the batch's own base branch --------------------
+
+    def _git(self, repo, *args):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+    def _chain_repo(self, name):
+        """A repository on `cfq/002-b`, cut from the unmerged predecessor `cfq/001-a`, which
+        carries one commit `main` lacks."""
+        repo = self._new_repo(name)
+        self._git(repo, "checkout", "-q", "-b", "cfq/001-a")
+        (repo / "a.txt").write_text("a\n")
+        self._git(repo, "add", "a.txt")
+        self._git(repo, "commit", "-q", "-m", "predecessor")
+        self._git(repo, "checkout", "-q", "-b", "cfq/002-b")
+        return repo
+
+    def _clone_chain_repo(self, name):
+        """A clone of a repository with `main` and `cfq/001-a`: `origin/cfq/001-a` exists, a local
+        `cfq/001-a` is cut from `main` (a different commit), and `cfq/002-b` is checked out."""
+        source = self._new_repo(name + "-source")
+        self._git(source, "checkout", "-q", "-b", "cfq/001-a")
+        (source / "a.txt").write_text("a\n")
+        self._git(source, "add", "a.txt")
+        self._git(source, "commit", "-q", "-m", "predecessor")
+        self._git(source, "checkout", "-q", "main")
+        clone = self._repos_dir / name
+        subprocess.run(["git", "clone", "-q", str(source), str(clone)], check=True)
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            self._git(clone, "config", key, value)
+        self._git(clone, "branch", "cfq/001-a", "main")
+        self._git(clone, "checkout", "-q", "-b", "cfq/002-b", "origin/cfq/001-a")
+        return clone
+
+    @staticmethod
+    def _changelog(tag, base):
+        lines = ["- batchNumber: 2", f"  batch: 2026-01-01-{tag}", "  branch: cfq/002-b"]
+        if base is not None:
+            lines.append(f"  base: {base}")
+        return "\n".join(lines + ["  status: running", ""])
+
+    def _assert_lang_ref(self, repo, tag, base, expected, changelog="block"):
+        """Both `lang` calls receive the same reference, equal to `expected`, and `finish` completes with a `Language` status line."""
+        text = self._changelog(tag, base) if changelog == "block" else changelog
+        changed_ref, prose_ref, out = self._lang_refs(repo, tag, changelog=text)
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(self._rev(repo, changed_ref), self._rev(repo, expected))
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+        return changed_ref
+
+    def test_language_checks_use_the_recorded_base_branch(self):
+        repo = self._chain_repo("repo-base")
+        self.assertNotEqual(self._rev(repo, "cfq/001-a"), self._rev(repo, "main"))
+        self._assert_lang_ref(repo, "base", "cfq/001-a", "cfq/001-a")
+
+    def test_language_checks_prefer_the_base_branch_on_origin(self):
+        clone = self._clone_chain_repo("repo-base-origin")
+        self.assertNotEqual(self._rev(clone, "cfq/001-a"), self._rev(clone, "origin/cfq/001-a"))
+        ref = self._assert_lang_ref(clone, "baseorigin", "cfq/001-a", "origin/cfq/001-a")
+        self.assertEqual(ref, "origin/cfq/001-a")
+
+    def test_language_checks_with_the_default_branch_as_base(self):
+        repo = self._chain_repo("repo-base-default")
+        ref = self._assert_lang_ref(repo, "basedefault", "main", "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_for_a_legacy_block(self):
+        repo = self._chain_repo("repo-base-legacy")
+        ref = self._assert_lang_ref(repo, "baselegacy", None, "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_when_the_base_branch_is_gone(self):
+        repo = self._chain_repo("repo-base-gone")
+        self._git(repo, "branch", "-D", "cfq/001-a")
+        ref = self._assert_lang_ref(repo, "basegone", "cfq/001-a", "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_without_a_changelog(self):
+        repo = self._chain_repo("repo-base-nolog")
+        changed_ref, prose_ref, out = self._lang_refs(repo, "basenolog")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(changed_ref, proc_lib.default_branch(str(repo), True)[1])
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+
+    def test_batch_base_reads_the_blocks_base(self):
+        repo = self._chain_repo("repo-batch-base")
+        (repo / "CHANGELOG.yml").write_text(
+            self._changelog("other", "cfq/009-z") + self._changelog("mine", "cfq/001-a")
+        )
+        with mock.patch.object(cfq_changelog, "settings_get", return_value="CHANGELOG.yml"):
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-mine"), "cfq/001-a")
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-none"), "")
+        with mock.patch.object(cfq_changelog, "settings_get", return_value=""):
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-mine"), "")
+
     def test_nine_subcalls_run_in_expected_order(self):
         # Order: cfq-finish.sh runs its nine sub-nouns as a sequence where later steps depend on
         # earlier state -- wrap each with a logging shim and assert their first-occurrence order.
@@ -736,13 +837,18 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             orig = scripts_copy / script_name
             real = scripts_copy / script_name.replace(".py", "_real.py")
             orig.rename(real)
+            # Imported (cfq_finish reads the changelog through cfq_changelog), the shim hands the
+            # real module's names through instead of running the command.
             orig.write_text(f"""#!/usr/bin/env python3
 import subprocess
 import sys
 
-with open({str(log_file)!r}, "a") as f:
-    f.write({noun!r} + " " + " ".join(sys.argv[1:]) + "\\n")
-sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
+if __name__ != "__main__":
+    from {real.stem} import *  # noqa: F401,F403
+else:
+    with open({str(log_file)!r}, "a") as f:
+        f.write({noun!r} + " " + " ".join(sys.argv[1:]) + "\\n")
+    sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
 """)
             orig.chmod(0o755)
 
@@ -756,7 +862,8 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         # `settings` is used internally by nearly every other script (to read its own config),
         # so its first log line is not necessarily cfq-finish.sh's own direct call -- only its
-        # two direct calls (changelogFile, htmlReport) carry those exact argument tails.
+        # two direct calls (changelogFile, htmlReport) carry those exact argument tails; the
+        # changelogFile read comes first, as the language checks look up the batch's base branch.
         calls = [line for line in log_file.read_text().splitlines() if line]
         first_index = {}
         for i, line in enumerate(calls):
@@ -766,7 +873,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
                 continue
             first_index.setdefault(noun, i)
         expected = [
-            "registry", "lang", "maintenance", "security", "report", "settings", "changelog",
+            "registry", "settings", "lang", "maintenance", "security", "report", "changelog",
             "telemetry", "lock",
         ]
         for noun in expected:
