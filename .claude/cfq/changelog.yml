@@ -12,7 +12,45 @@
   branch: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
   base: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
   started: 2026-10-19
-  status: in-progress
+  status: done
+  finished: 2026-10-20
+  phases:
+    - phase: "01-eval-harness-and-sandbox-spike"
+      status: "green"
+      summary: "Eval layout test, pfq-start-block smoke case with four graders, evals/README.md with harness facts from the spike, results ignore rule, eval command in plugin CLAUDE.md"
+    - phase: "02-eval-cases-from-incidents"
+      status: "green"
+      summary: "four eval cases (pfq-never-implements, ifq-no-batch-ends-cleanly, ifq-model-gate-stops, ifq-start-gate-before-lock) with fixtures and graders, plus README notes"
+    - phase: "03-reference-structure-and-wording-rules"
+      status: "green"
+      summary: "Five structural checks (entry-point links, Contents above 100 lines, present-tense wording, single term entry, no angle brackets in descriptions) with fixture tests, plus the prose fixes across skills, references and the worker agent, a Conventions bullet and design-notes rationale"
+    - phase: "04-command-layer-markdown-aliases"
+      status: "green"
+      summary: "Markdown pfq.md and ifq.md commands replace the four TOML files, the two skill-named command files are deleted, TestCommandFiles replaces TestCommandPairs, plugin CLAUDE.md updated"
+    - phase: "05-script-rendered-status-lines"
+      status: "green"
+      summary: "cfq dash returns plugins.statusLine shared with dash render; Plugin Status Line prose section and report-for-queue's inline output format removed; Model Check renamed to Model Gate"
+    - phase: "06-skill-size-budget"
+      status: "green"
+      summary: "SKILL.md budget measured as 16,000 characters as loaded (check_skill_size_budget) instead of 200 lines; plugin CLAUDE.md rewritten to match"
+    - phase: "07-ifq-skill-restructure-by-mode"
+      status: "green"
+      summary: "implement-for-queue SKILL.md split by mode and condition: classic loop moved to ifq-classic.md, branch section to ifq-branch.md, briefing/start gate/lock/resume inlined, condition-named pointers, two new structural checks"
+    - phase: "08-pfq-skill-restructure-and-step-order"
+      status: "green"
+      summary: "plan-for-queue SKILL.md reordered into one step sequence with Plan-Mode trigger, model gate, start-block questions and Security rules inlined (interview-depth.md and plan-security.md deleted); uniform '## Step <n> — <Name>' headings in code-for-queue and report-for-queue with letter references replaced by bold step names; three new structural checks"
+    - phase: "09-phase-model-heading-and-lint"
+      status: "green"
+      summary: "Optional ## Model heading: parsed and rendered by cfq_brief, validated against implModels by cfq_lint, implModels handed to the planner via pfq preflight, documented as phase-quality rule 8 and referenced from plan-for-queue"
+    - phase: "10-phase-model-orchestrator-and-escalation"
+      status: "green"
+      summary: "worker brief resolves the spawn model (phase heading, failed attempt, implModels) with escalation target, --model-override/--handover-file, an ESCALATE verdict; worker, orchestrator, output-format and setup-wizard texts updated; ifq-haiku-worker-phase eval case added"
+    - phase: "11-batch-end-review"
+      status: "green"
+      summary: "batchReview and batchReviewFindings settings, both in the ifq preflight policy, plus the ifq-batch-review.md reference wired into Batch Done, the closing report fields and output-format"
+    - phase: "12-docs-design-notes-version"
+      status: "green"
+      summary: "Documented the short commands, the per-phase model with escalation, and the batch review in README and docs, added nine design-notes sections, noted evals/ in the plugin CLAUDE.md, bumped version to 0.34.0"
 - batchNumber: 52
   batch: 052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
   branch: cfq/052-2026-10-04-ifq-base-branch-menu-and-phase-cost-line
