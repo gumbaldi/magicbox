@@ -64,6 +64,15 @@ class StatusLineRenderingTest(unittest.TestCase):
         self.assertEqual(cfq_finish.changelog_line("error")["icon"], "fail")
         self.assertEqual(cfq_finish.changelog_line("2026-01-01-x done · 3 phases")["icon"], "done")
 
+    def test_branch_line_variants(self):
+        line = cfq_finish.branch_line("cfq/002-b", "cfq/001-a")
+        self.assertEqual((line["label"], line["icon"], line["detail"]), ("Branch", "done", "cfq/002-b · from cfq/001-a"))
+        line = cfq_finish.branch_line("cfq/002-b", "")
+        self.assertEqual((line["icon"], line["detail"]), ("done", "cfq/002-b"))
+        for branch in ("", "HEAD"):
+            line = cfq_finish.branch_line(branch, "cfq/001-a")
+            self.assertEqual((line["icon"], line["detail"]), ("skip", "no branch"))
+
     def test_attach_errors_creates_a_line_when_none_existed(self):
         lines = [cfq_finish.language_line({"issues": 0, "findings": []}), None]
         cfq_finish.attach_errors(lines, ["security: cfq_security.py failed"])
@@ -472,7 +481,9 @@ class FinishTest(CfqTestCase):
         # comes back `{}` on both sides of the diff, so `Security Diff` is the one line correctly
         # omitted here (no planning snapshot, nothing to compare) -- see security_diff_line.
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Skipped", "Telemetry", "Report", "Lock"],
+            labels, [
+                "Language", "Maintenance", "Changelog", "Branch", "Skipped", "Telemetry", "Report", "Lock",
+            ],
             msg=f"labels = {labels}",
         )
         lock = next(e for e in out["statusLines"] if e["label"] == "Lock")
@@ -505,7 +516,9 @@ class FinishTest(CfqTestCase):
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Skipped", "Telemetry", "Report", "Lock"],
+            labels, [
+                "Language", "Maintenance", "Changelog", "Branch", "Skipped", "Telemetry", "Report", "Lock",
+            ],
             msg=f"a changelog error must not add a new statusLines entry: {labels}",
         )
         changelog_line = next(e for e in out["statusLines"] if e["label"] == "Changelog")
@@ -561,7 +574,7 @@ class FinishTest(CfqTestCase):
         line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
         self.assertEqual((line["icon"], line["detail"]), ("done", "1 phases · 1 inbox entries"), line)
         labels = [e["label"] for e in out["statusLines"]]
-        self.assertEqual(labels.index("Skipped"), labels.index("Changelog") + 1)
+        self.assertEqual(labels.index("Skipped"), labels.index("Branch") + 1)
 
         entries = self._inbox(repo)
         self.assertEqual(len(entries), 1, entries)
@@ -628,7 +641,7 @@ class FinishTest(CfqTestCase):
         status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
         self.assertNotIn("inbox", status["phases"]["03-c"])
 
-    def _lang_refs(self, repo, tag, changelog=None):
+    def _lang_refs(self, repo, tag, changelog=None, branch=None):
         """Runs finish on `repo` with a logging shim in front of cfq_lang.py and returns the
         reference each of the two language checks received (changed-files check, prose check).
         `changelog` is the text of a changelog file in the repo; None leaves `changelogFile` empty."""
@@ -666,7 +679,8 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         run_env = self._base_env()
         run_env["HOME"] = str(home)
         proc = subprocess.run(
-            [str(bin_copy / "cfq"), "finish", str(repo), str(batch), "v0.1-" + tag],
+            [str(bin_copy / "cfq"), "finish", str(repo), str(batch),
+             "v0.1-" + tag if branch is None else branch],
             capture_output=True, text=True, env=run_env,
         )
         self.assertEqual(proc.returncode, 0, f"finish via copy failed: {proc.stderr}")
@@ -794,6 +808,36 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(changed_ref, prose_ref)
         self.assertEqual(changed_ref, proc_lib.default_branch(str(repo), True)[1])
         self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+
+    # ---- the Branch line --------------------------------------------------------------------
+
+    def _branch_entry(self, repo, tag, base, branch="cfq/002-b"):
+        text = self._changelog(tag, base)
+        _c, _p, out = self._lang_refs(repo, tag, changelog=text, branch=branch)
+        entries = [e for e in out["statusLines"] if e["label"] == "Branch"]
+        self.assertEqual(len(entries), 1, out["statusLines"])
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Branch"), labels.index("Changelog") + 1)
+        return entries[0], out
+
+    def test_branch_line_names_the_branch_and_its_base(self):
+        repo = self._chain_repo("repo-branch-routine")
+        entry, out = self._branch_entry(repo, "branchroutine", "cfq/001-a")
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b · from cfq/001-a"))
+        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": "cfq/001-a"})
+
+    def test_branch_line_without_a_recorded_base_names_the_branch_alone(self):
+        repo = self._chain_repo("repo-branch-nobase")
+        entry, out = self._branch_entry(repo, "branchnobase", None)
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b"))
+        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": ""})
+
+    def test_branch_line_for_a_detached_head_is_skipped(self):
+        repo = self._chain_repo("repo-branch-detached")
+        entry, out = self._branch_entry(repo, "branchdetached", "cfq/001-a", branch="HEAD")
+        self.assertEqual((entry["icon"], entry["detail"]), ("skip", "no branch"))
+        self.assertEqual(out["branch"], {"name": "", "base": "cfq/001-a"})
 
     def test_batch_base_reads_the_blocks_base(self):
         repo = self._chain_repo("repo-batch-base")

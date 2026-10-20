@@ -29,7 +29,7 @@ order — no re-padding, no re-wording, no re-ordering, and never merging two en
 
 Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_preflight.py`),
 `Model Gate`/`Inbox`/`Review`/`Plugin Boundaries` (`cfq_pfq_preflight.py`), `Language`/`Maintenance`/
-`Security Diff`/`Changelog`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit`/`Cost` (`cfq_phase.py commit`), `Cost` (`cfq_worker.py verdict`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
+`Security Diff`/`Changelog`/`Branch`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit`/`Cost` (`cfq_phase.py commit`), `Cost` (`cfq_worker.py verdict`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
 `Model Gate` renders only the deterministic half — which list applies, or that
 `allowAnyModel` skips the check entirely; the actual substring match against the running model
 (only known to the session itself, from its own system prompt) stays skill-composed, unchanged.

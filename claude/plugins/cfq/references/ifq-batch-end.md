@@ -6,7 +6,7 @@
 language/maintenance/security/changelog/telemetry sequence, syncs the portal, and releases the lock
 unconditionally (a `trap`, so a mid-sequence failure can never leave the repo locked), and prints
 one JSON object whose `statusLines` array already carries `Language`/`Maintenance`/`Security Diff`/
-`Changelog`/`Telemetry`/`Report`/`Lock` rendered from that same object's fields — print each entry
+`Changelog`/`Branch`/`Telemetry`/`Report`/`Lock` rendered from that same object's fields — print each entry
 as returned, in order; `Security Diff` is entirely absent from the array on an older batch with no
 planning snapshot to diff against, rather than printed empty. `Skipped` (phases skipped and the inbox
 entries written for them, `➖ none` when nothing was skipped) is printed as returned like the rest.
@@ -62,17 +62,13 @@ instead, with no `file://` line in **Closing Reports**.
 - `Security` — the difference only, one line.
 - `Review` — the `Review` status line's detail, and the parked entry's path when there is one;
   omitted when `batchReview` is `off`.
-- `Merge` — current branch, commits ahead of `main`, a ready-to-run command as an indented
-  `   └ ` line, printed not run; also a `todo/` entry, written without asking by
-  `"<plugin-root>/bin/cfq" note merge-todo "<repo-root>" "<branch>"` (per **Follow-Up** in
-  `queue-entries.md`), so a forgotten merge is never lost and the entry's `check:` line lets `/cfq`
-  close it on its own once the merge lands. Parked review findings are named on a further `   └ `
-  sub-line, so the branch is not merged without seeing them.
+- `Branch` — the Batch-Done step's own `Branch` line, verbatim: the branch this batch's commits are
+  on and the branch it was cut from.
 - `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
   this batch, or omitted when `htmlReport` turned the sync off.
 
 **Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases
-open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no merge hint. **Red case:** still the
+open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no `Branch` line. **Red case:** still the
 full format, naming the red phase; its `❌` line already appeared in **Implementation**, so this
 step only repeats the `5 green, 1 red` split in `Batch`, not the error text.
 

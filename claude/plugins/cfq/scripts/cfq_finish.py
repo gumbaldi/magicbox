@@ -2,7 +2,9 @@
 # Usage: cfq_finish.py <repo-root> <batch-dir> <branch>
 """Runs the batch-done sequence (move, register, language check, maintenance check, security
 diff, changelog, telemetry sync) in a fixed order and prints one JSON object. The lock release is
-guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked.
+guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked. The
+`statusLines` array also carries a `Branch` line (the batch branch and the branch it was cut from)
+and the object a `branch` field with the same two values.
 
 The language checks compare against the batch's own base branch (the changelog block's `base:`,
 `origin` first, then local), so a batch cut from an unmerged predecessor is checked only for its
@@ -114,6 +116,14 @@ def changelog_line(changelog):
     return cfq_text.status_entry("Changelog", "done", changelog)
 
 
+def branch_line(branch, base):
+    """The `Branch` line: the batch's branch and, when the changelog records one, the branch it
+    was cut from. An empty or detached (`HEAD`) branch argument renders `➖ no branch`."""
+    if not branch or branch == "HEAD":
+        return cfq_text.status_entry("Branch", "skip", "no branch")
+    return cfq_text.status_entry("Branch", "done", f"{branch} · from {base}" if base else branch)
+
+
 def skipped_line(skipped, written, failed):
     """The `Skipped` line: what became of the batch's skipped phases. `skipped` is the number of
     skipped phases, `written` the number of inbox entries that exist for them, `failed` whether
@@ -146,7 +156,7 @@ def lock_line(lock):
 
 STEP_LABEL = {
     "lang": "Language", "maintenance": "Maintenance", "security": "Security Diff",
-    "changelog": "Changelog", "telemetry": "Telemetry", "skipped": "Skipped",
+    "changelog": "Changelog", "branch": "Branch", "telemetry": "Telemetry", "skipped": "Skipped",
 }
 
 
@@ -419,6 +429,7 @@ def cmd_finish(args):
             maintenance_line(maintenance),
             security_diff_line({"planning": planning_json, "now": now_json, "new": new_json}),
             changelog_line(changelog),
+            branch_line(branch, batch_base_name),
             skipped_line(len(skipped_slugs), skipped_written, skipped_failed),
             telemetry_line(telemetry, tel_proc.returncode == 0),
             report_line(html_report, str(repo_root), batch_dir.name),
@@ -430,6 +441,9 @@ def cmd_finish(args):
             "moved": str(batch_dir), "lang": lang_json, "maintenance": maintenance,
             "security": {"planning": planning_json, "now": now_json, "new": new_json},
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
+            "branch": {
+                "name": "" if not branch or branch == "HEAD" else branch, "base": batch_base_name,
+            },
             "statusLines": [line for line in status_lines if line is not None],
         }))
     finally:
