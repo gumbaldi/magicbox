@@ -9,7 +9,27 @@
   branch: cfq/054-2026-10-05-lint-pending-creators-default-branch-single-briefing
   base: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
   started: 2026-10-20
-  status: in-progress
+  status: done
+  finished: 2026-10-20
+  phases:
+    - phase: "01-lint-pending-creators"
+      status: "green"
+      summary: "lint accepts a bare path that a pending phase (same batch or .dependsOn batch) creates, reports duplicate-new, and downgrades stale-new to a warn for the next pending phase of a non-planning batch"
+    - phase: "02-lint-warnings-in-status-line"
+      status: "green"
+      summary: "lint_line() renders a warn-icon 'clean · N warning(s)' Lint line with each warning as a sub-line; Lint Gate prose updated"
+    - phase: "03-default-branch-shared-helper"
+      status: "green"
+      summary: "Moved default_branch into cfq_lib/proc.py with DefaultBranchTest fixture tests; cfq_branch.py imports it"
+    - phase: "04-finish-and-merge-entry-default-branch"
+      status: "green"
+      summary: "cmd_finish and note merge-todo use proc.default_branch instead of the literal main; queue-entries.md describes the detected default branch"
+    - phase: "05-drop-flat-briefing-from-ifq-start"
+      status: "green"
+      summary: "Removed batch.briefText and the --with-done call from the ifq preflight; SKILL.md Batch Briefing, configuration.md and two docstrings updated"
+    - phase: "06-docs-design-notes-version"
+      status: "green"
+      summary: "Three design-notes sections (lint pending-phase resolution, default-branch detection, overview-only start), default_branch() noted in the plugin CLAUDE.md, cfq version bumped 0.34.0 to 0.35.0"
 - batchNumber: 53
   batch: 053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
   branch: cfq/053-2026-10-05-skill-best-practices-evals-phase-model-batch-review
