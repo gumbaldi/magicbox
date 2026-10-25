@@ -8,6 +8,11 @@ setup` continues into **Repo Part** once the global part finishes; outside a rep
 is the whole wizard. `/pfq` triggers **Repo Part** on its own too, independently of `setupDone` —
 see that section's own opening paragraph for when.
 
+## Contents
+
+- Global Part
+- Repo Part
+
 ## Global Part
 
 ### Data
@@ -54,7 +59,10 @@ One `AskUserQuestion` call, up to 4 questions. Every question's first option is 
 One plain sentence per question before asking: `planModels`/`implModels` gate which model `/pfq`/
 `/ifq` are allowed to run under — a mismatch only warns for planning, but aborts implementation;
 `orchestratorMode` decides whether `/ifq` hands each phase to a fresh sub-agent (no `/clear` needed
-between phases) or keeps implementing in the same session.
+between phases) or keeps implementing in the same session. Every entry of `implModels` may be
+planned and spawned as a phase worker, and while `orchestratorModels` is empty, an `/ifq` session
+itself may also run on any of them; set `orchestratorModels` to keep the session on the stronger
+model.
 
 ### Language Defaults
 
@@ -88,7 +96,7 @@ One plain sentence per question: `scanRoots` is where the dashboard looks for ev
 queue; `frameworkRepo` is where a finding about cfq itself gets parked instead of the repo under
 work; `grillMode` picks `/pfq`'s thorough-interview round format.
 
-Then, unchanged from what first-time setup always asked before this wizard existed, in order:
+Then, in order:
 
 1. **Optional third-party plugins** — for each plugin `.plugins` reports not installed, offer it:
    what it does, what cfq uses it for, install command and docs. Agreement → hand the user the
@@ -133,7 +141,7 @@ wizard:
 "<plugin-root>/bin/cfq" settings set <key> <value>
 ```
 
-Print one status line per change, same wording as `code-for-queue`'s **Step D**: `✅ Setting  <key>:
+Print one status line per change, same wording as `code-for-queue`'s **Settings**: `✅ Setting  <key>:
 <old> → <new> (global)`. Then mark the wizard done:
 
 ```bash
@@ -237,8 +245,8 @@ repo wizard:
 "<plugin-root>/bin/cfq" settings set --repo <repo-root> <key> <value>
 ```
 
-Print one status line per change, same wording as `code-for-queue`'s **Step D**: `✅ Setting  <key>:
-<old> → <new> (repo)`. Then print the `Config` status line, reused unchanged from what `pfq`'s start
-block always printed for a new repo before this wizard existed: `⚠️ new repo · reviewed` (the user
+Print one status line per change, same wording as `code-for-queue`'s **Settings**: `✅ Setting  <key>:
+<old> → <new> (repo)`. Then print the `Config` status line, the one `pfq`'s start
+block prints for a new repo: `⚠️ new repo · reviewed` (the user
 kept every value, including the keep-all fast path) or `⚠️ new repo · adjusted <n>` (`<n>` = number
 of keys actually written).

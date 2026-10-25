@@ -43,9 +43,11 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 ## The four commands
 
+Every skill is reachable by its short command and by its skill name; both start the same skill.
+
 | Command | Long form | Purpose |
 |---|---|---|
-| `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. |
+| `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. It shows the finished plan in detail and releases the batch only after your go-ahead. |
 | `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
 | `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
 | `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or in the report portal. |
@@ -56,23 +58,32 @@ once: `/plugin uninstall code-for-queue`, then install as above.
 
 Asks for interview depth first (quick / thorough grilling / grilling with docs), reads the code,
 clarifies open points, proposes a phase split, and parks numbered plan files. Never edits code.
+It then shows the finished plan in detail (batch context, and per phase the context, files, change
+steps and verification) and releases the batch only after your go-ahead; the plan files are plain
+Markdown under `.claude/cfq/impl/<batch>/` and may be edited by hand. Each phase file follows the
+skeleton in `<plugin-root>/references/phase-template.md`.
 
 ### `/ifq`
 
 Gates on the model, picks the next batch in order (or the one named) and briefs it, then shows the
 batch overview and the full queue and asks — Start or cancel, plus pick a different batch when
-another one is selectable — before touching anything. Once confirmed, it takes a repo lock, creates the batch branch, works one
+another one is selectable — before touching anything. Phase announcements list the planned change steps. Once confirmed, it takes a repo lock, creates the batch branch, works one
 phase at a time, commits and pushes every
 green phase immediately, and hands the session off when the capacity threshold (`stopUsed`) fires —
 a full context window genuinely can't continue. Crossing a rate-limit threshold (`stopFiveHourPct` /
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
 is offered with the warning attached, and the user decides whether to continue or hand off.
 
+At the end of a batch the closing report names the batch branch and the branch it was cut from.
+Merging is the user's own step; cfq writes no entry for it.
+
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything
 /ifq resume           # continue the in-progress batch; skips the start gate
 /ifq start             # take the in-progress batch, or the next one in order; skips the start gate
 /ifq start <batch>    # same as `start`, naming which batch
+/ifq skip <NN> [reason]  # skip phase <NN> of the batch, then carry on
+/ifq unskip <NN>      # bring a skipped phase back
 ```
 
 Never two batches in the same session, even if the first finishes early — different plans belong
@@ -104,7 +115,9 @@ On by default (`orchestratorMode`). Instead of implementing every phase in the s
 `/ifq` spawns one worker sub-agent per phase — each with a fresh context window and a
 deterministic briefing — and decides between phases whether the next one starts. The worker
 implements, verifies and commits its own phase; the orchestrator only reads its returned report,
-never its code. In practice this means no `/clear`-and-`/model sonnet` cycle between phases: the
+never its code. The worker reads its briefing from a file in the batch directory
+(`.worker-brief.json`, written by `bin/cfq worker brief`); the orchestrator passes only the path.
+In practice this means no `/clear`-and-`/model sonnet` cycle between phases: the
 same session keeps going, and each phase's worker runs visibly in the terminal. The session still
 hands off when a rate-limit window is crossed, same as before — the capacity-based context gate
 that stopped a classic session doesn't apply to a worker that starts fresh every phase.
@@ -112,6 +125,19 @@ that stopped a classic session doesn't apply to a worker that starts fresh every
 Turn it off per repo (`bin/cfq settings set --repo <path> orchestratorMode false`), globally
 (`bin/cfq settings set orchestratorMode false`), or for one shell (`CFQ_ORCHESTRATOR_MODE=0`) to
 go back to implementing every phase in the session itself.
+
+#### Model per phase
+
+The planner can name a model for a single phase (an optional `## Model` heading, chosen from
+`implModels`), so a small phase runs on a cheaper model than the rest. A worker that finds its phase
+harder than planned can hand it to the next stronger model, which continues on the working tree;
+a phase that failed on a smaller model runs on the default model the next time.
+
+#### Batch review
+
+Optionally (`batchReview`, off by default), a `/code-review` runs over the finished batch once its
+last phase is green. Small findings are fixed and the rest is parked as a `plan/` entry,
+as `batchReviewFindings` decides.
 
 ### `/cfq`
 
@@ -135,7 +161,9 @@ batch.
       .priority          # optional, contains "high"
       .dependsOn         # optional: one batch directory name per line
       report.json        # written by ifq, includes telemetry
-      done/              # finished phases
+      status.json        # the state of every phase: open, done, error or skipped
+      done/              # finished phases (mirror of status.json)
+      skipped/           # skipped phases (mirror of status.json)
     done/                # finished batches
   plan/                  # planning-request inbox — ifq writes, pfq reads
     <YYYY-MM-DD>-<slug>.md
@@ -143,10 +171,11 @@ batch.
   todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
     <YYYY-MM-DD>-<slug>.md
     done/
-  reports/               # rendered HTML reports, default reportDir — rfq renders on request
-    <batch>.html
-    index.html           # regenerated on every render, this repo's batches only
-  telemetry.jsonl        # one record per planning session and per phase
+  reports/               # the report portal, kept current by `portal sync`
+    index.html           # fixed viewer shell
+    assets/              # viewer scripts and stylesheet
+    data/                # site.js, queue.js, batch/<name>.js, entry/<id>.js
+  telemetry.jsonl        # one record per planning session and per phase, one more per settle
   .lock                  # held by the running ifq session
   .maintenance           # marker for the periodic maintenance run
 ```
@@ -162,7 +191,10 @@ Upgrading from a pre-`.claude/cfq/` install: a repo still on the old repo-local
 upgrade utility for that was removed once every known repo had moved to the new layout. A repo
 still on the old layout needs an older plugin version to run the migration first.
 
-- `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads.
+- `impl/` — the phase-plan batches. `pfq` writes, `ifq` reads. Inside a batch, `status.json` is
+  the one authority for each phase's state (`open`, `done`, `error`, `skipped`); `done/` and
+  `skipped/` hold the phase files of those states as a mirror, while `open` and `error` phases
+  stay in the batch directory itself. Only cfq's own scripts write it.
 - `plan/` — the planning-request inbox. `ifq` drops follow-up work here that was out of scope for
   the phase it was working; `pfq` offers those as topics at the start of its next session. Both
   `/pfq` and `/ifq` print the inbox overview (`note list --overview` — date and title, one line
@@ -175,12 +207,10 @@ still on the old layout needs an older plugin version to run the migration first
   `pfq` inside the `frameworkRepo` setting's repo, moves those entries into that repo's own `plan/`
   — so a framework finding only ever shows up in that repo's own overview, never any other repo's.
 - `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
-  look later: an unmerged branch, a language-drift finding, a check that could not be automated.
+  look later: a language-drift finding, a check that could not be automated.
   `ifq` writes them, `/cfq` works them off for the current repo via `note sweep` (runs the `check:`
   lines and moves the green cards into `todo/done/`), `/rfq` lists them. An entry may
-  carry a `check: <shell-command>` line — exit 0 means it is done. The merge card is generated by
-  `note merge-todo` and always carries its `check:` line, so `/cfq` closes it by itself once the
-  branch is merged.
+  carry a `check: <shell-command>` line — exit 0 means it is done.
 
 ```mermaid
 flowchart TB
@@ -220,33 +250,34 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 
 | Noun | Purpose |
 |---|---|
-| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning`. |
+| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `review` to hold a batch for plan review, `ready` to clear `.planning`/`.review`. |
 | `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
-| `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
-| `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, status lookups). |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk; `--review` prints the plan digest, `--review --changed` only the phases edited since. |
+| `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
 | `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
 | `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
-| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …). |
+| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …), plus the warn-only `changes-steps` check. |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
 | `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
 | `overlap` | Cross-batch `## Affected Files` overlap, for `/pfq`'s queue check. |
 | `park` | Writes `.priority`/`.dependsOn`, the git-exclude entry; registers the repo; `--from-plan` (repeatable) consumes the chosen `plan/` inbox entry or entries. |
-| `phase` | Records (or reopens) a phase — ledger entry and `done/` move as one transaction. |
+| `phase` | Records, reopens, skips (`skip`) or unskips (`unskip`) a phase — ledger entry, `status.json` and the directory move as one transaction. |
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
-| `report` | The per-phase telemetry ledger (`report.json`) — `append`, `set-commit`, `skills`, `summary`. |
+| `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild [--migrate]` rewrites everything. |
+| `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`, plus `index`, `detail` and `html` for `/rfq`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
 | `scan` | Every registered/discovered repo's queues, counted live from disk. |
 | `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
 | `settings` | The global/repo/env settings tiers. |
-| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase. |
+| `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase — `record`, `sync`, `show`, and `settle`, which recomputes provisional records once their session has ended. |
 | `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
 
 ## Hook contract
@@ -267,8 +298,8 @@ half-written batch in the queue:
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
 
-Everything else `cfq` writes — the changelog, the registry, `report.json`, `.priority`,
-`.dependsOn`, the global state store under `$HOME/.claude/cfq/` — goes through cfq's own
+Everything else `cfq` writes — the changelog, the registry, `report.json`, `status.json`,
+`.priority`, `.dependsOn`, the global state store under `$HOME/.claude/cfq/` — goes through cfq's own
 scripts over `Bash` and is never seen by a `Write`/`Edit` hook.
 
 Renaming the queue layout means updating every external guard hook too. That coupling is invisible
@@ -279,7 +310,8 @@ from inside this repository, which is how it broke once: a hook still allowed th
 `hooks/hooks.json`), separate from the external-hook concern above. It denies `Bash` commands
 (`rm`, `mv`, `cp`, `truncate`, `shred`, `dd`, `ln`, `install`, `sed -i`, a `>`/`>>` redirect, or
 `find … -delete`/`-exec rm`) whose resolved target has `.claude/cfq` as a path component, and
-denies `Write`/`Edit` calls that target `impl/<batch>/done/**` or `impl/done/<batch>/**` directly.
+denies `Write`/`Edit` calls that target `impl/<batch>/done/**`, `impl/<batch>/skipped/**`,
+`impl/done/<batch>/**` or a batch's `status.json` directly.
 It allows every read (`cat`, `ls`, `grep`, …) and every `bin/cfq` call, since those are exactly the
 sanctioned commands the guard's own deny messages point to. Paths are resolved against the
 payload's `cwd`, not matched as a literal string, so `cd <batch> && rm -rf done/` is caught the
@@ -308,8 +340,23 @@ stateDiagram-v2
   Done --> [*]
 ```
 
-A green phase means the plan file moved into the batch's `done/` and the commit is pushed; a
-finished batch means the whole batch directory moved into `impl/done/`.
+A green phase means `status.json` records the phase as `done`, its plan file lies in the batch's
+`done/` (the directory mirrors the file) and the commit is pushed; a finished batch means the whole
+batch directory moved into `impl/done/`. A phase that is skipped counts as settled for finishing a
+batch, see [Usage](docs/usage.md#skipping-a-phase).
+
+## Upgrading to phase states (`status.json`)
+
+Batches parked before this version have no `status.json`, and `/ifq` does not offer them until they
+get one. Run the one-time script once in every repo that has a queue, on every machine:
+
+```bash
+python3 <plugin-root>/tools/once_migrate_status.py <repo-root>
+```
+
+It adopts each phase by where its file lies and marks a phase whose latest report entry is red as
+`error`; a batch that already has the file is left alone. The script is temporary and will be
+removed together with this note.
 
 ## Output
 
@@ -326,48 +373,85 @@ IMPLEMENTATION
 PHASE 06 DONE
 ✅ Implemented     <one clause: what was built>
 ✅ Verification    <command, and its result>
+✅ Commit          cfq/<batch> · pushed
+✅ Cost            70 turns · 12k out · 173k in · 4.6M cached · 9:12
+   └ session 10 turns · 7k out · worker 60 turns · 6k out
+   └ models <model>
+   └ diff 5 files · +212 -40
 ```
 
 `✅` done · `⚠️` warning or unavailable · `❌` failed · `➖` skipped, with the reason in the
-detail column.
+detail column. Every finished phase ends in a `Cost` line taken from the phase's telemetry at
+commit time — "in" is new input including cache writes, "cached" is cache reads, and the report
+portal shows the settled numbers later.
 
 ## Reports
 
-Every phase `ifq` finishes — green or red — is recorded to `<batch-dir>/report.json`: which
-phases went green, which failed, where the implementation departed from the plan, what broke,
-which verification ran, and the commit SHA. It lives in the batch directory, so it travels with
-the batch into `done/` and is covered by the same `.git/info/exclude` entry as the rest of the
-queue.
+Every phase `ifq` finishes — green or red — is recorded to `<batch-dir>/report.json`. A phase
+entry holds the summary, the verification that ran, the deviations from the plan, optional
+observations (the one model-written addition: anything else that stood out), the diffstat of its
+commit (files, insertions, deletions, per path), the errors of a red run, the commit SHA, and the
+telemetry per model and per layer (session, worker, sub-agents). The batch itself records the
+planning cost, the ledger of `plan/` and `todo/` notes written during the work, the `plan/`
+entries the batch was parked from (`fromPlan`), and a `finish` snapshot taken when the batch
+closed (language findings, maintenance, security, changelog, errors). Everything except the
+summary, deviations and observations is written by scripts, at zero model-token cost. The file
+lives in the batch directory, so it travels with the batch into `done/` and is covered by the same
+`.git/info/exclude` entry as the rest of the queue.
 
 Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
 by default (`--limit 0` for the full history) with a marker column showing which batches already
-have their data in the report portal — or drill into a single batch for the portal's own detail
-view.
+have their data in the report portal — or drill into a single batch for the portal's own batch
+page.
 
 ## Report portal
 
-`<repo>/.claude/cfq/reports/index.html` is a single-page viewer over every batch this repo's queue
-has ever planned or implemented, plus its open `todo`/`plan` entries — a queue overview, a
-per-batch plan and implementation detail page, and a cost-by-agent-layer breakdown, all rendered
-client-side from plain data files `bin/cfq portal sync` writes alongside the fixed viewer shell.
-It's kept current as a side effect of the mutating verbs that already run during `pfq`/`ifq`
-(park, phase commit, `finish`, …) — at zero model-token cost, since nothing is rendered by the
-model itself, and a resync that changes nothing writes nothing. Set `reportDir` to an absolute
-path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a cross-repo index
-across every repo that mirrors into it (`## Report collection layout` in `docs/configuration.md`).
-`htmlReport: false` turns every automatic sync off — `/rfq`'s `report html` verb still syncs a
-single batch on request even then, so the portal always stays reachable, just not kept current in
-the background.
+`<repo>/.claude/cfq/reports/index.html` is the one place to inspect a repo's whole queue: a
+single-page viewer over every batch the queue has planned or implemented, plus its todo cards and
+plan-inbox entries, open and closed. It is rendered client-side from plain data files
+`bin/cfq portal sync` writes alongside the fixed viewer shell. Every number is turns and tokens
+(input, output, cache read, cache creation) split by model — never a currency, there is no price
+table. Dates and numbers follow the browser's locale.
+
+- **Overview** — a KPI strip (batches in progress, planned and done, open todos, plan inbox,
+  flags, deviations, tokens), tabs for batches, todos, plan inbox and archive, a sortable batch table with status,
+  progress, dates, cost, deviations and flags, and two charts: cost per batch and a size
+  calibration (turns and output per phase against its planned `S`/`M`/`L`).
+- **Batch page** — a header with status, branch, merge state (read from Git: whether the batch's
+  branch, or its last recorded commit, is reachable from the default branch) and flags, then the tabs Phases,
+  Cost, Plan context, Notes and Closing. Phases holds a timeline and the phase table; opening a
+  phase shows its result (summary, verification, deviations, observations, errors), its plan, its
+  cost per model and layer, and its files with the diffstat. Cost splits a batch into planning and
+  phases, by model, and by agent. Notes lists the `plan/` and `todo/` entries written during the
+  work; Closing shows the `finish` snapshot.
+- **Entry page** — the full text of one todo card or plan entry, with the batch and phase it
+  came from and, for a plan entry, the batch it was parked into.
+
+The portal is kept current as a side effect of the mutating verbs that already run during
+`pfq`/`ifq` (park, phase commit, `finish`, …) — at zero model-token cost, since nothing is
+rendered by the model itself, and a resync that changes nothing writes nothing. Set `reportDir` to
+an absolute path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a
+cross-repo index across every repo that mirrors into it (`## Report collection layout` in
+`docs/configuration.md`). `htmlReport: false` turns every automatic sync off — `/rfq`'s
+`report html` verb still syncs a single batch on request even then, so the portal always stays
+reachable, just not kept current in the background.
 
 ## Telemetry
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
-by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the subagent share
-— plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or `classic`,
-empty for a planning record) derived from what actually ran, not from the `orchestratorMode`
-setting. `subagent` counts the sub-agents' own turns — read from each phase worker's own
-`subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own; the two are not to
-be added blindly.
+by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the sub-agent
+share — plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or
+`classic`, empty for a planning record) derived from what actually ran, not from the
+`orchestratorMode` setting. Usage is counted once per API response, not once per transcript line.
+Every sub-agent is its own node, attributed to the session that spawned it through the spawning
+tool call, and every node and layer (session, session's Explore agents, worker, worker's Explore
+agents) carries its split by model. `subagent` counts the sub-agents' own turns — read from each
+phase worker's own `subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own;
+the two are not to be added blindly.
+
+A record is written when the phase commits and is `provisional` then, because the session goes on
+after the commit. The next cfq mutation in the repo settles it once its session has ended,
+recomputing it from the finished transcripts (`telemetry settle`); there is no hook of its own.
 
 What's deliberately **not** recorded: no prompt text, no responses, no tool arguments, no file
 contents. Numbers, timestamps and names only.
@@ -378,11 +462,11 @@ Optionally, point `telemetrySyncRepo` at a dedicated telemetry git repo: cfq the
 lines to `<repo-name>.jsonl` there, commits and pushes, at the end of every planning or
 implementation session. Failures there are never fatal.
 
-cfq only collects this data — it doesn't analyze it.
+cfq only collects this data — it doesn't analyze it beyond the portal's own flags and baselines.
 
 ## Security
 
-`pfq` checks in Step 12, `ifq` checks again at the end of the batch. The forge
+`pfq` checks in its **Security Check** step, `ifq` checks again at the end of the batch. The forge
 is detected from the origin remote; both common CLIs are supported:
 
 | Forge | CLI | Source |
@@ -466,6 +550,11 @@ Git Bash, which is the supported setup above.
 
 Everything except classic grill mode and the ponytail maintenance audit works fully without either plugin —
 "Grilling with docs" falls back to the same techniques in prose when `mattpocock-skills` is missing.
+
+## Maintainers
+
+Behavioural eval cases for the skill prose live in `evals/`; see [`evals/README.md`](evals/README.md)
+for how to run them.
 
 ## Credits
 

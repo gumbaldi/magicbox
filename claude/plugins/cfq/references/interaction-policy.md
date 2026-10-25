@@ -6,10 +6,10 @@ Shared rules for `pfq` and `ifq` sessions on gating against harness state and on
 ## Plan-Mode Gate
 
 If a "Plan mode is active" system-reminder is present in context, call `ExitPlanMode`
-immediately — before `pfq`'s **Start Block** / before `ifq`'s **Preflight** call — naming what this
+immediately — before `pfq`'s and `ifq`'s **Preflight** call — naming what this
 session is about to write (`pfq`: "interview and park plan files for `<repo>`"; `ifq`: "implement
 the next open phase of `<batch>`"). Neither skill can function under Plan Mode (`pfq` writes
-batch/phase files in **Park**, `ifq` writes code in **Implementation**) — resolve this before the
+batch/phase files in **Park**, `ifq` writes code in `<plugin-root>/references/ifq-classic.md`'s **Implementation**) — resolve this before the
 first write attempt, not as a discovered tool failure.
 
 ## No Waiting Questions
@@ -23,11 +23,15 @@ that, only exceptional cases still ask; everything routine gets decided and repo
 a `plan/` entry. Current sites — `pfq`: start block (interview depth, priority, one call; on an
 unknown repo, the repo setup wizard's own area/value questions run first, before that call),
 grilling rounds, closing question, self-critique's
-drop-a-phase/remove-a-named-capability question; `ifq`: start gate (start/cancel, plus pick a
+drop-a-phase/remove-a-named-capability question, the review gate (release / request changes / edit
+myself / discard, repeated after each revision) and the resume question for a waiting review (both
+in `<plugin-root>/references/plan-review.md`) — "I'll edit the files myself" ends the turn and is
+not a waiting question; `ifq`: start gate (start/cancel, plus skip this phase when the next phase failed, plus pick a
 different batch when another one is selectable, per
-`<plugin-root>/references/ifq-batch-start.md`'s **Start Gate**, skipped only by the `resume`/`start`
-keywords), scope-creep parking, branch base (every new batch branch, plus
-ahead/diverged remote on `continue`) — this section adds a rule, not new question sites.
+`implement-for-queue/SKILL.md`'s **Start Gate**, skipped only by the `resume`/`start`
+keywords), scope-creep parking, branch base (every new batch branch, with one
+confirmation when the chosen base leaves unmerged batch branches behind, plus ahead/diverged
+remote on `continue`) — this section adds a rule, not new question sites.
 
 ## Active Interview Duty
 

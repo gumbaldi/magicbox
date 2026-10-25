@@ -17,46 +17,18 @@ Always answer in the user's language.
 Plugin root: `${CLAUDE_PLUGIN_ROOT}` — every `<plugin-root>/…` path in a reference file below
 resolves against it.
 
-Progress is reported as status lines, not prose. One line per step, printed **as soon as that
-step is done** — never collected and dumped at the end. Section headers are printed once, on
-entering the section.
-
-```
-SECTION HEADER IN CAPS
-<icon> <label padded to 16 chars><detail, one short clause>
-```
-
-Icons: `✅` done · `⚠️` warning, unavailable, degraded · `❌` failed · `➖` skipped, not
-applicable, nothing to do.
-
-Rules:
-
-- The detail says what the check found, not what you are about to do next. `sonnet · implModels:
-  sonnet`, not "the model gate is satisfied, I will now look at the batch".
-- A step that did not run still gets its line, with `➖` or `⚠️` and the reason — "no security
-  data for this repo" is exactly the information the user is after.
-- Sub-information belongs on an indented `   └ ` continuation line, never in the detail column.
-- Section headers, labels, and status-line content are always English — regardless of the
-  language the rest of the conversation is in. Only interactive prose (see below) follows the
-  user's language.
-- Padding to the label column uses plain space characters, never HTML entities such as `&nbsp;`
-  — those render as visible text rather than whitespace in a terminal.
-- No commentary around the block: no "I will now …", no "done!", no summary sentence that repeats
-  what the lines already say.
-- The result section is a label/value list under the same padding, not a table.
-- Interactive parts are exempt: `AskUserQuestion`, the batch briefing, and any question to the
-  user stay in the user's language.
+Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format.md` and follow it.
 
 ## Section Map
 
 | Section | Step | Label | Example detail |
 |---|---|---|---|
-| PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report (only exists since v0.2)` |
+| PRECHECKS | 1 | `Scan` | `2 batches with a report` / `➖ no batch has a report` |
 | PRECHECKS | 1 | `Filter` | `➖ no argument · all repos` / `1 match: magicbox → detail view` / `2 repos, --limit 20` |
 | PRECHECKS | 2 | `Listing` | `2 repos · 20 of 80 rows` |
 | POSTCHECKS | 3 | `HTML` | `rendered · file:///…` |
 
-## 1. Collect
+## Step 1 — Collect
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>]
@@ -69,11 +41,11 @@ no separate scan, no per-batch `summary` loop, no filtering after the fact. Prin
 line. `--any` is for a single argument that could name either a repo or a batch — see `## Arguments`
 below.
 
-No batch has a report (`index` returns `[]`) → say so plainly, and mention that reports have
-existed only since v0.2, so older batches never got one. Exactly one match → skip **Terminal Table** entirely
+No batch has a report (`index` returns `[]`) → say so plainly, and mention that batches finished before
+reports existed never got one. Exactly one match → skip **Terminal Table** entirely
 and go straight to **Detail**'s detail view.
 
-## 2. Terminal Table
+## Step 2 — Terminal Table
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] --text
@@ -86,7 +58,7 @@ call), then print `index --text`'s output exactly as returned: one section per r
 full history. A row's `📄` column says whether that batch's own data is already in the portal;
 nothing here prints a path. No rebuilding the table from **Collect**'s JSON by hand.
 
-## 3. Detail
+## Step 3 — Detail
 
 On request for a single batch, print the `POSTCHECKS` header, then call:
 
@@ -96,7 +68,9 @@ On request for a single batch, print the `POSTCHECKS` header, then call:
 
 and render its `phases` in prose — status, summary, deviations, errors, turns, tokens, and, if
 present, the phase's model, effort, and the skills actually used (`.phases[].telemetry`);
-verification excerpts are already bounded, render as-is. `found: false` → say plainly there is no
+verification excerpts are already bounded, render as-is. A `skipped` entry is its own row (`skipped`,
+the reason) and the batch line names the skipped count; the outcome vocabulary stays
+`GREEN`/`RED`/`MIXED`. `found: false` → say plainly there is no
 report for this batch.
 
 For the HTML view:

@@ -166,6 +166,12 @@ class BatchIdTest(CfqTestCase):
         # a parseable ISO timestamp, same shape as render.now_iso() produces elsewhere
         datetime.fromisoformat(lines[0])
 
+    def test_allocate_writes_empty_status_file(self):
+        repo = self._plain_repo("repo-st1")
+        out = self.json_out(self._allocate(repo, "2026-08-19", "status-test"))
+        status = json.loads((repo / ".claude/cfq/impl" / out["batch"] / "status.json").read_text())
+        self.assertEqual(status, {"schema": 1, "phases": {}})
+
     def test_failed_allocate_does_not_leak_number(self):
         # simulated failure after changelog reservation never allows the number to be reused: make
         # the impl directory unwritable so allocate's own mkdir fails after the changelog reserve
@@ -511,6 +517,113 @@ class BatchIdTest(CfqTestCase):
         (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
 
         self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertIn("already ready", proc.stdout)
+
+    # ---- ready syncs status.json with the phase files (batch 051 phase 02) ----------------------
+
+    def _phase_status(self, batch_dir):
+        return {
+            k: v["status"]
+            for k, v in json.loads((batch_dir / "status.json").read_text())["phases"].items()
+        }
+
+    def test_ready_after_a_rename_lists_the_new_slug_only(self):
+        repo = self._plain_repo("repo-st2")
+        batch = self.json_out(self._allocate(repo, "2026-08-19", "rename-test"))["batch"]
+        batch_dir = repo / ".claude/cfq/impl" / batch
+        (batch_dir / "01-old.md").write_text("# Old\n")
+        self.run_cfq("park", str(repo), batch, "normal", check=True)
+        self.assertEqual(self._phase_status(batch_dir), {"01-old": "open"})
+        (batch_dir / "01-old.md").rename(batch_dir / "01-new.md")
+        self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertEqual(self._phase_status(batch_dir), {"01-new": "open"})
+
+    def test_ready_on_an_already_ready_batch_still_syncs(self):
+        repo = self._plain_repo("repo-st3")
+        batch_dir = repo / ".claude/cfq/impl/example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "01-a.md").write_text("# A\n")
+        self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        (batch_dir / "02-b.md").write_text("# B\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertIn("already ready", proc.stdout)
+        self.assertEqual(self._phase_status(batch_dir), {"01-a": "open", "02-b": "open"})
+
+    def test_ready_refuses_an_unreadable_status_file_and_keeps_the_markers(self):
+        repo = self._plain_repo("repo-st4")
+        batch_dir = repo / ".claude/cfq/impl/example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+        (batch_dir / "status.json").write_text("{not json")
+        proc = self.run_cfq("batch", "ready", str(batch_dir))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("STATUS_FILE_INVALID", proc.stderr)
+        self.assertTrue((batch_dir / ".planning").exists())
+        self.assertEqual((batch_dir / "status.json").read_text(), "{not json")
+
+    # ---- review (phase 03 of batch 049: `.review` replaces `.planning` at the review gate) ----
+
+    def _review_batch(self, name):
+        repo = self._plain_repo(name)
+        batch_dir = repo / ".claude" / "cfq" / "impl" / "example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+        (batch_dir / "01-a.md").write_text("# A\n")
+        (batch_dir / ".batch-context.md").write_text("## Goal\n\nG\n")
+        return batch_dir
+
+    def test_review_writes_snapshot_and_removes_planning(self):
+        batch_dir = self._review_batch("repo-rv1")
+        proc = self.run_cfq("batch", "review", str(batch_dir), check=True)
+        self.assertIn("review ", proc.stdout)
+        self.assertFalse((batch_dir / ".planning").exists())
+        marker = json.loads((batch_dir / ".review").read_text())
+        self.assertIn("since", marker)
+        self.assertIn("shown", marker)
+        self.assertEqual(sorted(marker["files"]), [".batch-context.md", "01-a.md"])
+        for digest in marker["files"].values():
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+    def test_review_second_call_keeps_since_and_updates_changed_hash_only(self):
+        batch_dir = self._review_batch("repo-rv2")
+        self.run_cfq("batch", "review", str(batch_dir), check=True)
+        first = json.loads((batch_dir / ".review").read_text())
+        (batch_dir / "01-a.md").write_text("# A changed\n")
+        self.run_cfq("batch", "review", str(batch_dir), check=True)
+        second = json.loads((batch_dir / ".review").read_text())
+        self.assertEqual(second["since"], first["since"])
+        self.assertNotEqual(second["files"]["01-a.md"], first["files"]["01-a.md"])
+        self.assertEqual(second["files"][".batch-context.md"], first["files"][".batch-context.md"])
+
+    def test_review_refuses_a_started_batch(self):
+        batch_dir = self._review_batch("repo-rv3")
+        (batch_dir / "done").mkdir()
+        (batch_dir / "done" / "00-x.md").write_text("# X\n")
+        proc = self.run_cfq("batch", "review", str(batch_dir))
+        self.assertEqual(proc.returncode, 1)
+        self.assertFalse((batch_dir / ".review").exists())
+
+    def test_ready_removes_review_marker(self):
+        batch_dir = self._review_batch("repo-rv4")
+        (batch_dir / ".planning").unlink()
+        (batch_dir / ".review").write_text("{}\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertFalse((batch_dir / ".review").exists())
+        self.assertIn("removed", proc.stdout)
+        self.assertNotIn("already ready", proc.stdout)
+
+    def test_ready_removes_both_markers(self):
+        batch_dir = self._review_batch("repo-rv5")
+        (batch_dir / ".review").write_text("{}\n")
+        proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
+        self.assertFalse((batch_dir / ".review").exists())
+        self.assertFalse((batch_dir / ".planning").exists())
+        self.assertEqual(proc.stdout.count("removed"), 2, proc.stdout)
+
+    def test_ready_with_neither_marker_says_already_ready(self):
+        batch_dir = self._review_batch("repo-rv6")
+        (batch_dir / ".planning").unlink()
         proc = self.run_cfq("batch", "ready", str(batch_dir), check=True)
         self.assertIn("already ready", proc.stdout)
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_ifq_preflight.py <repo-root> [--select <batch>] [--intent {resume,start}]
 """Single read-only preflight aggregator for implement-for-queue's Steps 1-2 (model/plugin policy),
-3a (batch selection), 3b's read-only half (briefing) and 4a/4b (failed-attempt lookup, context
-gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_brief.py/cfq_resume.py/cfq_report.py
+3a (batch selection), 3b's read-only half (resume and lint state) and 4a/4b (failed-attempt lookup, context
+gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_resume.py/cfq_report.py
 last-failure/ctx_usage.py gate call the skill used to issue separately into one JSON object.
 Mutations (cfq_lock.py acquire, git checkout, cfq_changelog.py init, and cfq_branch.py plan's
 post-checkout re-confirm on new-mode) stay explicit skill-level steps, never hidden in here -- the
@@ -61,16 +61,18 @@ def project(batch, keys):
     return {k: batch[k] for k in keys}
 
 
-def render_queue_text(selectable, blocked, planning, in_progress, chosen):
+def render_queue_text(selectable, blocked, planning, in_progress, chosen, review=()):
     """The `QUEUE · <n> open` block the ifq start gate (a later phase) prints: one row per open
     batch across `selectable` (already sorted flagged-first-then-name, per its own caller),
-    `blocked` and `planning`, the latter two appended after in name order. Status resolution is
-    first-match-wins: in progress, then planning, then blocked (with its wait list and any
+    `blocked` and `planning`, the latter two appended after in name order. `review` is the subset
+    of `planning` held at the plan review gate. Status resolution is first-match-wins: in
+    progress, then awaiting review (a name in `review`), then planning, then blocked (with its wait list and any
     unknown dependency folded into the same cell), then selected, then plain ready -- a `high`
     priority entry gets that whole cell prefixed with `high · `. Empty input -> "" (never a bare
     header) -- see references/ifq-batch-start.md for the field this rides on."""
     blocked_by_name = {b["name"]: b for b in blocked}
     planning_set = set(planning)
+    review_set = set(review)
     combined = (
         list(selectable)
         + sorted(blocked, key=lambda b: b["name"])
@@ -84,6 +86,8 @@ def render_queue_text(selectable, blocked, planning, in_progress, chosen):
         name = entry["name"]
         if name == in_progress:
             status = "in progress"
+        elif name in review_set:
+            status = "awaiting review"
         elif name in planning_set:
             status = "planning"
         elif name in blocked_by_name:
@@ -146,27 +150,42 @@ def lint_result(batch_dir):
 
 
 def lint_line(lint_json):
-    """The `Lint` status line -- `done` when clean, `fail` with every finding as a `   └ ` sub-line
-    otherwise. `lint_json['warnings']` never affects this, matching lint's own exit-code rule."""
+    """The `Lint` status line -- `fail` with every finding as a `   └ ` sub-line when lint is not
+    clean; `warn` with every warning (its `warn: ` prefix removed) as a sub-line when lint is clean
+    but printed warnings; `done` otherwise. Warnings never affect `clean`, matching lint's own
+    exit-code rule, and they are shown rather than dropped."""
     if lint_json["clean"]:
-        return text.status_entry("Lint", "done", "clean")
+        warnings = lint_json["warnings"]
+        if not warnings:
+            return text.status_entry("Lint", "done", "clean")
+        n = len(warnings)
+        return text.status_entry(
+            "Lint", "warn", f"clean · {n} warning{'s' if n != 1 else ''}",
+            sub=[w.removeprefix("warn: ") for w in warnings],
+        )
     n = len(lint_json["findings"])
     return text.status_entry("Lint", "fail", f"{n} findings", sub=lint_json["findings"])
 
 
-def start_gate_result(intent, inprogress_name):
+def start_gate_result(intent, inprogress_name, next_status=None):
     """`startGate` for the resolved-batch (`OK`) path only -- every early-return status
     (`NO_BATCH`, `BLOCKED`, `MULTIPLE_IN_PROGRESS`, `SELECT_UNAVAILABLE`) carries `startGate: null`
     instead, since those paths end before a gate could fire. No `--intent` always fires (today's
     unconditional stop); `resume` fires unless a batch is already in progress; `start` never
-    fires, since a batch was always resolved to reach this function at all."""
+    fires, since a batch was always resolved to reach this function at all. `offerSkip` is true
+    only when the gate fires and the next phase is `error` -- the one place the start gate may
+    offer to skip a phase (a skip is only ever user-initiated)."""
     if not intent:
-        return {"fire": True, "reason": "default"}
-    if intent == "resume":
+        gate = {"fire": True, "reason": "default"}
+    elif intent == "resume":
         if inprogress_name:
-            return {"fire": False, "reason": "resume"}
-        return {"fire": True, "reason": "resume-nothing-in-progress"}
-    return {"fire": False, "reason": "start"}
+            gate = {"fire": False, "reason": "resume"}
+        else:
+            gate = {"fire": True, "reason": "resume-nothing-in-progress"}
+    else:
+        gate = {"fire": False, "reason": "start"}
+    gate["offerSkip"] = gate["fire"] and next_status == "error"
+    return gate
 
 
 def start_gate_line(start_gate, chosen):
@@ -187,6 +206,7 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
     suffix = " ⚠️ divergent" if divergent else ""
     mode = "orchestrator" if orchestrator_mode else "classic"
     n_open = cand["open"]
+    n_skipped = cand.get("skipped", 0)
     if select_batch and chosen == select_batch:
         detail = f"{prefix}{cand['name']} · selected by argument · {n_open} phases · mode={mode}{suffix}"
     elif inprogress_name and chosen == inprogress_name:
@@ -200,6 +220,8 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
         detail = f"{prefix}{cand['name']} · only open batch · {n_open} phases · mode={mode}{suffix}"
     else:
         detail = f"{prefix}{cand['name']} · next in order · {n_open} phases · mode={mode}{suffix}"
+    if n_skipped:
+        detail += f" · {n_skipped} skipped"
     return text.status_entry("Batch", "done", detail)
 
 
@@ -226,6 +248,7 @@ def cmd_preflight(args):
     policy = project(settings, [
         "implModels", "allowAnyModel", "implBlockedPlugins", "onePhasePerSession",
         "implExploreModel", "implExploreModelComplex", "orchestratorMode", "orchestratorModels",
+        "batchReview", "batchReviewFindings",
     ])
     if not policy["orchestratorModels"]:
         policy["orchestratorModels"] = policy["implModels"]
@@ -240,18 +263,19 @@ def cmd_preflight(args):
         if r.get("path") == repo:
             candidates = [
                 b for b in r.get("batches", [])
-                if not b["archived"] and (b["open"] > 0 or b["done"] > 0)
+                if not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b.get("skipped", 0) > 0)
             ]
             break
 
     next_scan = json.loads(cfq_run("scan", "--format=next").stdout)
-    next_entry = {"next": None, "reason": None, "blocked": [], "planning": []}
+    next_entry = {"next": None, "reason": None, "blocked": [], "planning": [], "review": []}
     for r in next_scan.get("repos", []):
         if r.get("path") == repo:
             next_entry = r
             break
 
     planning_names = next_entry["planning"]
+    review_names = next_entry.get("review", [])
     blocked_names = next_entry["blocked"]
     blocked_json = [
         project(b, ["name", "dependsOn", "unknownDeps"])
@@ -285,8 +309,11 @@ def cmd_preflight(args):
             "inbox": inbox,
             "selection": {
                 "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
+                "review": review_names,
                 "inProgress": inprog, "multipleInProgress": multi,
-                "queueText": render_queue_text(queue_rows, blocked_json, planning_names, inprog or "", "") or None,
+                "queueText": render_queue_text(
+                    queue_rows, blocked_json, planning_names, inprog or "", "", review=review_names,
+                ) or None,
             },
             "statusLines": [model_gate_line(policy), plugin_boundaries_line(policy)],
             **EMPTY_SELECTION_TEMPLATE,
@@ -324,7 +351,6 @@ def cmd_preflight(args):
 
     batch_dir = qdir / chosen
     lint_json = lint_result(batch_dir)
-    brief_text = cfq_run("brief", str(batch_dir), "--with-done").stdout.rstrip("\n")
     cand = next(b for b in candidates if b["name"] == chosen)
 
     resume_json = json.loads(cfq_run("resume", repo, str(batch_dir)).stdout)
@@ -362,7 +388,9 @@ def cmd_preflight(args):
         next_phase_json = None
         gate_json = None
 
-    start_gate = start_gate_result(intent, inprogress_name)
+    start_gate = start_gate_result(
+        intent, inprogress_name, next_phase["status"] if next_phase is not None else None,
+    )
     status_lines = [
         model_gate_line(policy), plugin_boundaries_line(policy),
         batch_line(
@@ -383,12 +411,15 @@ def cmd_preflight(args):
         "inbox": inbox,
         "selection": {
             "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
+            "review": review_names,
             "inProgress": inprogress_name or None, "multipleInProgress": [],
-            "queueText": render_queue_text(queue_rows, blocked_json, planning_names, inprogress_name, chosen) or None,
+            "queueText": render_queue_text(
+                queue_rows, blocked_json, planning_names, inprogress_name, chosen, review=review_names,
+            ) or None,
         },
         "batch": {
             "name": cand["name"], "priority": cand["priority"], "phaseCount": cand["open"],
-            "dependsOn": cand["dependsOn"], "briefText": brief_text,
+            "skipped": cand.get("skipped", 0), "dependsOn": cand["dependsOn"],
             "consistency": cand.get("consistency"),
         },
         "lint": lint_json,

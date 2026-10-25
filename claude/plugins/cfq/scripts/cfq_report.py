@@ -25,7 +25,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render, text  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
@@ -75,11 +75,26 @@ def ensure_report(dir_):
     render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
 
+def is_skip_entry(p):
+    """A `skipped` ledger entry (written by `phase skip`); it is no attempt at the phase."""
+    return isinstance(p, dict) and p.get("status") == "skipped"
+
+
+def skipped_count(batch_dir):
+    """Phases currently skipped, read from the batch's status.json; 0 without a readable one."""
+    try:
+        return phase_state.counts(pathlib.Path(batch_dir))["skipped"]
+    except phase_state.PhaseStateError:
+        return 0
+
+
 def outcome(phases):
     """GREEN if no phase ever went red; RED if any phase's most recent attempt is still red;
-    MIXED if every phase that ever went red now shows green as its latest attempt."""
+    MIXED if every phase that ever went red now shows green as its latest attempt. Skip entries
+    are no attempt and are ignored."""
     if not isinstance(phases, list):
         phases = []
+    phases = [p for p in phases if not is_skip_entry(p)]
     if not any(isinstance(p, dict) and p.get("status") == "red" for p in phases):
         return "GREEN"
     latest = {}
@@ -127,10 +142,19 @@ def append_phase(dir_, phase_json, record_telemetry=True):
             phase_id = v
     if not PHASE_ID_RE.match(phase_id):
         errors.die(f"{PROG} append: phase must be the full phase slug (NN-slug), got '{phase_id}'")
+    obs = phase_obj.get("observations")
+    if "observations" in phase_obj and not (
+            isinstance(obs, list) and all(isinstance(o, str) for o in obs)):
+        errors.die(f"{PROG} append: observations must be a list of strings, got {obs!r}")
 
     f = os.path.join(dir_, "report.json")
     ensure_report(dir_)
     data = json.loads(pathlib.Path(f).read_text())
+    # The close time is stamped here, by the script: the telemetry record's own wallclock ends
+    # when the session's transcript does, which in orchestrator mode is when the worker spawns.
+    # `phase_cost_entry()` measures the phase's duration up to this stamp.
+    if "finished" not in phase_obj:
+        phase_obj["finished"] = render.now_iso()
     data.setdefault("phases", []).append(phase_obj)
     render.write_json(f, data)
     # Telemetry attaches to the entry just written. Never fatal: a missing transcript must not
@@ -160,10 +184,10 @@ def cmd_security(args):
     render.write_json(f, data)
 
 
-def set_commit(dir_, phase_slug, sha):
+def set_commit(dir_, phase_slug, sha, diffstat=None):
     """Backfills the `commit` field of `phase_slug`'s most recent report.json entry -- factored
     out so `cfq_phase.py commit` can call it directly as part of its own transaction instead of
-    shelling back out to this script."""
+    shelling back out to this script. A non-None `diffstat` lands in the same write."""
     if not os.path.isdir(dir_):
         errors.die(f"{PROG}: no such batch directory: {dir_}")
     f = os.path.join(dir_, "report.json")
@@ -178,6 +202,8 @@ def set_commit(dir_, phase_slug, sha):
             "the full phase slug (NN-slug), not the bare number"
         )
     phases[matches[-1]]["commit"] = sha
+    if diffstat is not None:
+        phases[matches[-1]]["diffstat"] = diffstat
     render.write_json(f, data)
 
 
@@ -267,6 +293,86 @@ def phase_layer_sums(tel):
     }
 
 
+_LAYER_LABELS = (
+    ("main", "session"), ("main_explore", "explore"),
+    ("worker", "worker"), ("worker_explore", "worker explore"),
+)
+
+
+def _cost_tokens(n):
+    """The plain integer below 1000, otherwise `fmt_tokens()` (`12k`, `4.6M`)."""
+    if isinstance(n, (int, float)) and not isinstance(n, bool) and 0 < n < 1000:
+        return str(int(n))
+    return fmt_tokens(n)
+
+
+def _cost_num(layer, key):
+    v = layer.get(key)
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+
+
+def _cost_duration(entry, tel):
+    start, end = parse_ts(tel.get("from")), parse_ts(entry.get("finished"))
+    if start and end:
+        seconds = int((end - start).total_seconds())
+        if seconds > 0:
+            return fmt_duration(seconds)
+    wall = tel.get("wallclock_s")
+    if isinstance(wall, (int, float)) and not isinstance(wall, bool) and wall > 0:
+        return fmt_duration(wall)
+    return ""
+
+
+def phase_cost_entry(dir_, phase_slug):
+    """The `Cost` status line for `phase_slug`'s most recent ledger entry in `dir_`'s report.json:
+    turns, tokens, duration (the record's `from` up to the entry's script-stamped `finished`),
+    the layer split, the models and the commit's diffstat. Renders what the record holds right
+    now -- the commit-time state, never corrected later. Returns None when there is no usable
+    telemetry; never raises."""
+    try:
+        data = json.loads(pathlib.Path(dir_, "report.json").read_text())
+        entries = [p for p in data.get("phases", []) if isinstance(p, dict) and p.get("phase") == phase_slug]
+        if not entries:
+            return None
+        entry = entries[-1]
+        tel = entry.get("telemetry")
+        if not isinstance(tel, dict):
+            return None
+        layers = phase_layer_sums(tel)
+        total = {k: sum(_cost_num(layers[n], k) for n in LAYER_NAMES)
+                 for k in ("turns", "output", "billable_in", "cache_read")}
+        if not any(total.values()):
+            return None
+        parts = [
+            f"{int(total['turns'])} turns", f"{_cost_tokens(total['output'])} out",
+            f"{_cost_tokens(total['billable_in'])} in", f"{_cost_tokens(total['cache_read'])} cached",
+        ]
+        duration = _cost_duration(entry, tel)
+        if duration:
+            parts.append(duration)
+        sub = []
+        with_turns = [(label, layers[n]) for n, label in _LAYER_LABELS if _cost_num(layers[n], "turns") > 0]
+        if len(with_turns) >= 2:
+            sub.append(" · ".join(
+                f"{label} {int(_cost_num(l, 'turns'))} turns · {_cost_tokens(_cost_num(l, 'output'))} out"
+                for label, l in with_turns))
+        if isinstance(tel.get("layers"), dict):
+            models = {m for n in LAYER_NAMES for m in (layers[n].get("models") or []) if isinstance(m, str)}
+        else:
+            by_model = tel.get("by_model")
+            models = {m for m in by_model if isinstance(m, str)} if isinstance(by_model, dict) else set()
+        if models:
+            sub.append("models " + " · ".join(sorted(models)))
+        stat = entry.get("diffstat")
+        files = stat.get("files") if isinstance(stat, dict) else None
+        if isinstance(files, int) and not isinstance(files, bool):
+            noun = "file" if files == 1 else "files"
+            sub.append(f"diff {files} {noun} · +{stat.get('insertions') or 0} -{stat.get('deletions') or 0}")
+        return text.status_entry("Cost", "done", " · ".join(parts), sub=sub)
+    except Exception:  # noqa: BLE001 -- a cost line must never cost the phase its close
+        return None
+
+
 def cmd_summary(args):
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
@@ -275,7 +381,7 @@ def cmd_summary(args):
     data = json.loads(pathlib.Path(f).read_text())
     phases = data.get("phases", [])
     batch = data.get("batch")
-    total = len(phases)
+    total = sum(1 for p in phases if not is_skip_entry(p))
     green = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
     red = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
     deviations = 0
@@ -361,6 +467,8 @@ def cmd_summary(args):
         total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
         worker_explore_turns, worker_explore_output,
     ]
+    # Always the last field: phases currently skipped (status.json), 0 without a status.json.
+    row.append(skipped_count(dir_))
     print("\t".join(_tsv_field(v) for v in row))
 
 
@@ -592,12 +700,11 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             phase_turns.append(_totals_field(totals, "turns"))
             phase_billable_in.append(_totals_field(totals, "billable_in"))
 
-        # Batch 040 phase 05: `rendered` means "the portal has this batch's data" -- checked
-        # directly against the one file `portal sync` writes for a batch with a report.json
-        # (`build_impl_payload`) -- rather than "an HTML file was rendered", which no longer
-        # exists as a concept. `href` is the batch's portal route when rendered, "" otherwise, same
+        # `rendered` means "the portal has this batch's data" -- checked directly against the one
+        # file `portal sync` writes for a batch (`data/batch/<name>.js`, also for a batch without a
+        # report.json). `href` is the batch's portal route when rendered, "" otherwise, same
         # empty-string contract `row_html`/`_index_group_lines` already relied on.
-        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.impl.js")
+        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.js")
         rendered = impl_data.is_file()
         href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
 
@@ -606,6 +713,7 @@ def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
             "repo": m["repo"],
             "date": date,
             "status": status,
+            "skipped": skipped_count(os.path.dirname(m["path"])),
             "glyph": status_glyph(status),
             "deviations": deviations,
             "rendered": rendered,
@@ -729,6 +837,7 @@ def cmd_detail(args):
             "status": p.get("status"),
             "summary": phase_summary(p),
             "deviations": render.jq_alt(p.get("deviations"), []),
+            "observations": render.jq_alt(p.get("observations"), []),
             "errors": render.jq_alt(p.get("errors"), []),
             "verification": bound_lines(p.get("verification"), 5),
             "commit": render.jq_alt(p.get("commit"), ""),
@@ -741,6 +850,7 @@ def cmd_detail(args):
         "repo": data.get("repo"),
         "started": data.get("started"),
         "status": outcome(phases),
+        "skipped": skipped_count(dir_),
         "deviationsTotal": deviations_total,
         "cost": {
             "outputTokens": planning_output + sum(phase_outputs),

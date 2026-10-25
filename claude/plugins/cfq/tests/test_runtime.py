@@ -392,6 +392,46 @@ class TestRuntime(CfqTestCase):
         proc = self._run("subagent-dir", home=h)
         self.assertEqual(proc.stdout.strip(), "", "no transcript resolved must not raise")
 
+    # -- --session <id>: an ended session, not the running one ---------------------------------
+
+    def test_transcript_path_with_session_resolves_that_session(self):
+        h = self._new_home()
+        proj = h / ".claude" / "projects" / SLUG
+        (proj / "other.jsonl").write_text("{}\n")
+        proc = self._run("transcript-path", "--session", "other", home=h)
+        self.assertEqual(proc.stdout.strip(), str(proj / "other.jsonl"))
+
+    def test_transcript_path_with_missing_session_is_empty_not_a_fallback(self):
+        h = self._new_home()
+        (h / ".claude" / "projects" / SLUG / f"{SID}.jsonl").write_text("{}\n")
+        proc = self._run("transcript-path", "--session", "gone", home=h)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "\n", "an empty line, never the newest other transcript")
+
+    def test_subagent_dir_with_session(self):
+        h = self._new_home()
+        proj = h / ".claude" / "projects" / SLUG
+        (proj / "other.jsonl").write_text("{}\n")
+        (proj / "other" / "subagents").mkdir(parents=True)
+        proc = self._run("subagent-dir", "--session", "other", home=h)
+        self.assertEqual(proc.stdout.strip(), str(proj / "other" / "subagents"))
+        (proj / "bare.jsonl").write_text("{}\n")
+        self.assertEqual(self._run("subagent-dir", "--session", "bare", home=h).stdout, "\n")
+        self.assertEqual(self._run("subagent-dir", "--session", "gone", home=h).stdout, "\n")
+
+    def test_session_flag_honours_repo_slug(self):
+        h = self._new_home()
+        otherslug = slug_for("/some/other/repo")
+        (h / ".claude" / "projects" / otherslug).mkdir(parents=True)
+        (h / ".claude" / "projects" / otherslug / "s9.jsonl").write_text("{}\n")
+        proc = self._run("transcript-path", "--repo", "/some/other/repo", "--session", "s9", home=h)
+        self.assertEqual(proc.stdout.strip(), str(h / ".claude" / "projects" / otherslug / "s9.jsonl"))
+
+    def test_session_flag_without_value_is_an_argument_error(self):
+        proc = self._run("transcript-path", "--session", home=self._new_home())
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("INVALID_ARGUMENT", proc.stderr)
+
     # -- model field on the context result --------------------------------------------------
 
     def test_payload_carries_a_model_context_reports_it(self):

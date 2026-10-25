@@ -9,7 +9,8 @@ Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today'
 reserves it in the local changelog (`status: parked`) and the queue directory, returning the final
 `batch` name. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing parked. Number
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
-leaves no gap in the numbering.
+leaves no gap in the numbering. Each `NN-<slug>.md` starts as a copy of
+`<plugin-root>/references/phase-template.md`.
 
 A phase-file `Write` denied by a `PreToolUse` hook ends the session. Print `❌ Park`, then
 quote the hook's `stopReason` verbatim on a `   └ ` sub-line (paraphrasing it loses the path
@@ -18,6 +19,9 @@ the denial: no `Bash` fallback for phase files, no unlock marker of any kind. Bo
 defeat the guard the user configured. What a guard hook has to allow: **Hook contract** in
 the plugin's `README.md`.
 
+`bin/cfq park` writes `status.json` (every phase `open`); after renaming, adding or removing a phase
+file, re-run `bin/cfq park` so a `status:` lint finding clears.
+
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
 repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
@@ -25,35 +29,29 @@ several entries (**Inbox**) passes every one of them in the same `park` call.
 
 `.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
 batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
-during this session). Once **Plan Lint** has run `batch ready` and the marker is gone, a later
-`park` call — a correction after that point — leaves it absent and prints an `already ready`
-warning on stderr instead of resurrecting it: re-run `bin/cfq lint` until clean and `batch ready`
-(idempotent) again before **Final Report**.
+during this session). `batch ready` runs at **Review Gate**
+(`<plugin-root>/references/plan-review.md`), not at **Plan Lint**: **Review Gate** replaces
+`.planning` with `.review`, and a `park` call while `.review` exists refreshes nothing and warns
+about nothing. Once `batch ready` has removed the marker, a later `park` call — a correction after
+that point — leaves it absent and prints an `already ready` warning on stderr instead of
+resurrecting it: re-run `bin/cfq lint` until clean and `batch ready` (idempotent) again before
+**Final Report**.
 
 Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
 snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
 ## Final Report Fields
 
-The `RESULT · plan-for-queue` header is preceded by the batch overview block — `bin/cfq brief
-"<batch-dir>" --overview`, printed exactly as returned, no rewording, one blank line between it
-and the header. Above the header, not below: the overview is what the user reads to check the plan
-just written, the `RESULT` list that follows is only the handoff metadata. The block now also
-carries `.batch-context.md`'s `## Decisions` (when present), each phase's own `## Context` excerpt
-under its table row, and a closing `Plans` line naming the batch directory — the same block, still
-printed verbatim; nothing here composes any of that text itself. This is printed at
-**Final Report**, after **Plan Lint** has gone clean — a batch whose lint still has findings is not
-yet the plan the user gets, and the `.planning` marker is only removed once lint passes; the block
-is never printed earlier, at **Park**.
-
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
-`Batch` (absolute path) · `Phases` (in order, each with its size) · `Priority` (only when **Start
+`Batch` (absolute path) · `Phases` (in order, each with its size) · `Review` (`released`, with the revision count when above
+zero) · `Edit` (plain Markdown in `Batch`; editable by hand until `/ifq` starts the phase, `/ifq`
+lints again at its start) · `Portal` (the route from the digest's own `Portal` footer line, omit
+when the digest printed none) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
 implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
-`Inbox` line, not a second `RESULT` block. Phase file structure is unchanged from the template —
-see `<plugin-root>/references/phase-quality.md`'s closing section.
+`Inbox` line, not a second `RESULT` block.
 
 `Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
 and render its own top-level fields, field by field: `turns`, `billable_in` as "in", `output` as

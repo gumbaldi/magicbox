@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Usage: cfq_runtime.py session-id
-#        cfq_runtime.py transcript-path [--repo <path>] [--exact]
-#        cfq_runtime.py subagent-dir [--repo <path>] [--exact]
+#        cfq_runtime.py transcript-path [--repo <path>] [--exact | --session <id>]
+#        cfq_runtime.py subagent-dir [--repo <path>] [--exact | --session <id>]
 #        cfq_runtime.py context
 #        cfq_runtime.py model
 #        cfq_runtime.py version
@@ -56,9 +56,14 @@ def slug_for(repo_path):
     return re.sub(r"[^A-Za-z0-9]", "-", repo_path or os.getcwd())
 
 
-def resolve_transcript_path(repo_path, exact):
+def resolve_transcript_path(repo_path, exact, session=""):
+    """With `session`, the transcript of that (typically ended) session: `<id>.jsonl` when it
+    exists, empty otherwise -- never a fallback to some other session's file."""
     slug = slug_for(repo_path)
     d = home_dir() / ".claude" / "projects" / slug
+    if session:
+        p = d / f"{session}.jsonl"
+        return str(p) if p.is_file() else ""
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if exact == "1":
         return str(d / f"{sid}.jsonl") if sid else ""
@@ -74,13 +79,13 @@ def resolve_transcript_path(repo_path, exact):
     return str(files[0])
 
 
-def resolve_subagent_dir(repo_path, exact):
+def resolve_subagent_dir(repo_path, exact, session=""):
     """The sub-agent transcript directory sits next to the main transcript file: the transcript
     path with its .jsonl suffix dropped, plus "/subagents" -- e.g.
     <project-slug-dir>/<session-id>/subagents/agent-<agentId>.jsonl. Empty when the transcript
     path itself cannot be resolved or the directory does not exist, matching how the other verbs
     degrade rather than raising."""
-    tp = resolve_transcript_path(repo_path, exact)
+    tp = resolve_transcript_path(repo_path, exact, session)
     if not tp or not tp.endswith(".jsonl"):
         return ""
     d = pathlib.Path(tp[: -len(".jsonl")]) / "subagents"
@@ -390,8 +395,8 @@ def result_json(state):
 
 
 USAGE = (
-    "usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] | "
-    "subagent-dir [--repo <path>] | context | model | "
+    "usage: cfq-runtime.sh session-id | transcript-path [--repo <path>] [--session <id>] | "
+    "subagent-dir [--repo <path>] [--session <id>] | context | model | "
     "version | capabilities | plugins | plugin-installed <name> | diagnose [--repo <path>]"
 )
 
@@ -407,6 +412,7 @@ def main(argv):
 
     repo_path = ""
     exact = "0"
+    session = ""
     i = 0
     while i < len(rest):
         a = rest[i]
@@ -418,15 +424,20 @@ def main(argv):
         elif a == "--exact":
             exact = "1"
             i += 1
+        elif a == "--session":
+            if i + 1 >= len(rest):
+                arg_error("--session requires an id")
+            session = rest[i + 1]
+            i += 2
         else:
             arg_error("unrecognized argument")
 
     if cmd == "session-id":
         print(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     elif cmd == "transcript-path":
-        print(resolve_transcript_path(repo_path, exact))
+        print(resolve_transcript_path(repo_path, exact, session))
     elif cmd == "subagent-dir":
-        print(resolve_subagent_dir(repo_path, exact))
+        print(resolve_subagent_dir(repo_path, exact, session))
     elif cmd == "context":
         print(render.dump_json(result_json(do_resolve(""))))
     elif cmd == "model":

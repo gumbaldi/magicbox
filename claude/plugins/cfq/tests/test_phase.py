@@ -3,11 +3,17 @@ replace the improvised "move the file, then remember to call report append" sequ
 additionally folds in the phase's own Git commit, push, SHA backfill and registry add.
 """
 
+import argparse
+import contextlib
+import io
 import json
+import os
 import pathlib
+import re
 import unittest
+from unittest import mock
 
-from cfq_testlib import CfqTestCase
+from cfq_testlib import CfqTestCase, write_status
 
 import cfq_phase  # noqa: E402
 
@@ -86,9 +92,12 @@ class TestPhase(CfqTestCase):
         (batch / f"{slug}.md").write_text(f"# Phase {slug}\n")
 
     def _write_report(self, batch, phases):
+        """Writes the ledger and, last, the batch's status.json from the plan files lying there
+        -- every fixture builds its phase files first, so one call covers them all."""
         (batch / "report.json").write_text(json.dumps(
             {"repo": "", "batch": batch.name, "started": "2026-01-01T10:00:00+01:00", "phases": phases},
         ) + "\n")
+        write_status(batch)
 
     def _phase_file(self, batch, obj):
         f = batch / "_phase.json"
@@ -239,6 +248,7 @@ class TestPhase(CfqTestCase):
     def test_record_rejects_bare_phase_number(self):
         batch = self._batch("2026-02-06-demo")
         self._write_phase_md(batch, "08-slug")
+        write_status(batch)
         pf = self._phase_file(batch, {"phase": "08", "status": "green", "summary": "x"})
 
         proc = self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry")
@@ -308,6 +318,168 @@ class TestPhase(CfqTestCase):
 
         registered = self.run_cfq("registry", "list").stdout
         self.assertIn(str(repo), registered, "repo should be registered by phase commit")
+
+    def _commit_phase_01(self, repo, batch, env=None):
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        msg = self._message_file(batch)
+        return self.run_cfq("phase", "commit", str(batch), str(pf), str(msg), cwd=repo, env=env)
+
+    def test_commit_without_transcript_carries_only_the_commit_line(self):
+        repo, batch = self._git_batch("nocost-repo", "042-2026-03-01-nocost")
+        proc = self._commit_phase_01(repo, batch)
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "OK")
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit"])
+
+    def test_commit_with_transcript_appends_the_cost_line(self):
+        repo, batch = self._git_batch("cost-repo", "042-2026-03-01-cost")
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(repo))
+        tdir = self.home / ".claude" / "projects" / slug
+        tdir.mkdir(parents=True)
+        lines = []
+        for i in range(3):
+            lines.append(json.dumps({
+                "type": "assistant", "timestamp": f"2026-08-13T10:0{i}:00.000Z",
+                "sessionId": "costsid", "isSidechain": False, "effort": "high",
+                "attributionSkill": "cfq:implement-for-queue", "attributionPlugin": "cfq",
+                "message": {"model": "model-a", "usage": {
+                    "input_tokens": 100, "output_tokens": 50,
+                    "cache_read_input_tokens": 10, "cache_creation_input_tokens": 5},
+                    "content": [{"type": "text", "text": "x"}]},
+            }))
+        (tdir / "costsid.jsonl").write_text("\n".join(lines) + "\n")
+        proc = self._commit_phase_01(repo, batch, env={"CLAUDE_CODE_SESSION_ID": "costsid"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # `telemetry record` prints its own one-line summary to the shared stdout first; the JSON
+        # result is the last line.
+        body = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit", "Cost"])
+        self.assertIn("3 turns", body["statusLines"][1]["detail"])
+
+    def test_failure_results_never_carry_a_cost_line(self):
+        repo, batch = self._git_batch("nostage-repo", "042-2026-03-01-nostage")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "ok"})
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "NOTHING_STAGED")
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit"])
+
+    def _commit_phase_diffstat(self, repo, batch, stage):
+        """Runs `stage()` to stage a change, commits phase 01-a through `phase commit` and returns
+        the recorded entry."""
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        stage()
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.json_out(proc)["status"], "OK")
+        return self._report_json(batch)["phases"][0]
+
+    def test_commit_records_diffstat_for_modified_and_added_files(self):
+        repo, batch = self._git_batch("ds-repo", "043-2026-03-01-diffstat")
+        (repo / "old.txt").write_text("a\nb\nc\nd\n")
+        self.run_clean("git", "add", "old.txt", cwd=repo)
+        self.run_clean("git", "commit", "-q", "-m", "base", cwd=repo)
+
+        def stage():
+            (repo / "old.txt").write_text("a\nX\nY\nZ\nc\nd\n")  # +3 / -1 (b replaced by X,Y,Z)
+            (repo / "new.txt").write_text("1\n2\n3\n4\n5\n")
+            self.run_clean("git", "add", "old.txt", "new.txt", cwd=repo)
+
+        entry = self._commit_phase_diffstat(repo, batch, stage)
+        self.assertEqual(entry["diffstat"], {
+            "files": 2, "insertions": 8, "deletions": 1,
+            "paths": [
+                {"path": "new.txt", "added": 5, "deleted": 0},
+                {"path": "old.txt", "added": 3, "deleted": 1},
+            ],
+        })
+
+    def test_commit_diffstat_binary_file_has_null_counts(self):
+        repo, batch = self._git_batch("ds-bin-repo", "044-2026-03-01-diffstat")
+
+        def stage():
+            (repo / "blob.bin").write_bytes(b"\x00\x01\x02\xff\x00")
+            (repo / "t.txt").write_text("x\n")
+            self.run_clean("git", "add", "blob.bin", "t.txt", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat["files"], 2)
+        self.assertEqual((stat["insertions"], stat["deletions"]), (1, 0))
+        self.assertIn({"path": "blob.bin", "added": None, "deleted": None}, stat["paths"])
+
+    def test_commit_diffstat_leaves_out_queue_paths(self):
+        repo, batch = self._git_batch("ds-queue-repo", "045-2026-03-01-diffstat")
+
+        def stage():
+            (repo / "keep.txt").write_text("k\n")
+            queue_file = repo / ".claude" / "cfq" / "todo" / "x.md"
+            queue_file.parent.mkdir(parents=True)
+            queue_file.write_text("q\nq\nq\n")
+            self.run_clean("git", "add", "keep.txt", cwd=repo)
+            self.run_clean("git", "add", "-f", ".claude/cfq/todo/x.md", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat, {
+            "files": 1, "insertions": 1, "deletions": 0,
+            "paths": [{"path": "keep.txt", "added": 1, "deleted": 0}],
+        })
+
+    def test_commit_diffstat_rename_is_deletion_plus_addition(self):
+        repo, batch = self._git_batch("ds-rename-repo", "046-2026-03-01-diffstat")
+        (repo / "before.txt").write_text("one\ntwo\nthree\n")
+        self.run_clean("git", "add", "before.txt", cwd=repo)
+        self.run_clean("git", "commit", "-q", "-m", "base", cwd=repo)
+
+        def stage():
+            self.run_clean("git", "mv", "before.txt", "after.txt", cwd=repo)
+
+        stat = self._commit_phase_diffstat(repo, batch, stage)["diffstat"]
+        self.assertEqual(stat["paths"], [
+            {"path": "after.txt", "added": 3, "deleted": 0},
+            {"path": "before.txt", "added": 0, "deleted": 3},
+        ])
+        self.assertEqual((stat["files"], stat["insertions"], stat["deletions"]), (2, 3, 3))
+
+    def test_commit_diffstat_helper_returns_none_on_git_failure(self):
+        repo = self._init_repo("ds-fail-repo")
+        self.assertIsNone(cfq_phase.commit_diffstat(str(repo), "0" * 40))
+
+    def test_commit_survives_diffstat_failure(self):
+        repo, batch = self._git_batch("ds-nofail-repo", "047-2026-03-01-diffstat")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "summary": "ok",
+            "deviations": [], "errors": [], "verification": "tests -> PASS", "commit": "",
+        })
+        args = argparse.Namespace(
+            dir=str(batch), phase_file=str(pf), message_file=str(self._message_file(batch)),
+        )
+        out = io.StringIO()
+        env = {"HOME": str(self.home), "CFQ_PORTAL_SYNC": "0"}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(cfq_phase, "commit_diffstat", return_value=None), \
+                contextlib.redirect_stdout(out):
+            cfq_phase.cmd_commit(args)
+        self.assertEqual(json.loads(out.getvalue())["status"], "OK")
+        entry = self._report_json(batch)["phases"][0]
+        self.assertTrue(entry["commit"])
+        self.assertNotIn("diffstat", entry)
 
     def _checkout_off_base(self, repo, branch, base="origin/main"):
         self.run_clean("git", "checkout", "-q", "-b", branch, base, cwd=repo)
@@ -464,6 +636,243 @@ class TestPhase(CfqTestCase):
         self.assertTrue((batch / "01-a.md").is_file(), "phase file must stay in the batch dir")
         self.assertFalse((batch / "done").exists(), "done/ must not be created")
         self.assertEqual(self._report_json(batch)["phases"], [], "no ledger entry should be written")
+
+    # ---- status.json: every verb moves the phase's status and file together --------------------
+
+    def _phases_status(self, batch):
+        return json.loads((batch / "status.json").read_text())["phases"]
+
+    def _record(self, batch, slug, status):
+        pf = self._phase_file(batch, {
+            "phase": slug, "status": status, "summary": "s", "errors": ["x"] if status == "red" else [],
+        })
+        return self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry")
+
+    def test_record_sets_status_done_or_error_and_retry_ends_done(self):
+        batch = self._batch("2026-04-01-status")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+
+        self.assertEqual(self._record(batch, "01-a", "red").returncode, 0)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "error")
+        self.assertTrue((batch / "01-a.md").is_file())
+        self.assertFalse((batch / "done").exists())
+
+        proc = self._record(batch, "01-a", "red")
+        self.assertEqual(proc.returncode, 0, "a retried phase may go red again: " + proc.stderr)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "error")
+
+        self.assertEqual(self._record(batch, "01-a", "green").returncode, 0)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "done")
+        self.assertTrue((batch / "done" / "01-a.md").is_file())
+        self.assertFalse((batch / "01-a.md").exists())
+
+    def test_record_rolls_status_back_when_the_ledger_append_fails(self):
+        batch = self._batch("2026-04-02-status")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        (batch / "report.json").unlink()
+        (batch / "report.json").mkdir()
+
+        proc = self._record(batch, "01-a", "green")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "open")
+        self.assertTrue((batch / "01-a.md").is_file(), "the file must be back in the batch root")
+        self.assertFalse((batch / "done" / "01-a.md").exists())
+
+    def test_commit_sets_status_done(self):
+        repo, batch = self._git_batch("commit-status", "2026-04-03-statustopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "ok"})
+
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "done")
+
+    def test_reopen_sets_status_open(self):
+        batch = self._batch("2026-04-04-status")
+        (batch / "done").mkdir()
+        (batch / "done" / "01-a.md").write_text("# Phase 01\n")
+        self._write_report(batch, [{"phase": "01-a", "status": "green", "commit": "aaa"}])
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "done")
+
+        proc = self.run_cfq("phase", "reopen", str(batch), "01-a")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "open")
+        self.assertTrue((batch / "01-a.md").is_file())
+        self.assertIn("reopened", self._report_json(batch)["phases"][0])
+
+    def test_reopen_rolls_status_back_when_the_ledger_write_fails(self):
+        batch = self._batch("2026-04-05-status")
+        (batch / "done").mkdir()
+        (batch / "done" / "01-a.md").write_text("# Phase 01\n")
+        self._write_report(batch, [{"phase": "01-a", "status": "green", "commit": "aaa"}])
+        # a directory in the way of the tmp file makes render.write_json fail after the move
+        (batch / "report.json.tmp").mkdir()
+
+        proc = self.run_cfq("phase", "reopen", str(batch), "01-a")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "done")
+        self.assertTrue((batch / "done" / "01-a.md").is_file())
+        self.assertFalse((batch / "01-a.md").exists())
+
+    # ---- skip / unskip -------------------------------------------------------------------------
+
+    def _skip_batch(self, name, **status):
+        batch = self._batch(name)
+        for slug in ("01-a", "02-b", "03-c"):
+            self._write_phase_md(batch, slug)
+        self._write_report(batch, [])
+        write_status(batch, **status)
+        return batch
+
+    def test_skip_open_phase_records_state_file_and_ledger(self):
+        batch = self._skip_batch("2026-04-10-skip")
+
+        proc = self.run_cfq("phase", "skip", str(batch), "02", "--reason", "obsolete")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "OK")
+        self.assertEqual(body["phase"], "02-b")
+        self.assertEqual(body["previous"], "open")
+        self.assertEqual(body["reason"], "obsolete")
+        self.assertEqual(body["path"], str(batch / "skipped" / "02-b.md"))
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(body["statusLines"][0]["label"], "Skip")
+        self.assertEqual(body["statusLines"][0]["detail"], "02-b · was open · obsolete")
+
+        self.assertTrue((batch / "skipped" / "02-b.md").is_file())
+        self.assertFalse((batch / "02-b.md").exists())
+        entry = self._phases_status(batch)["02-b"]
+        self.assertEqual(
+            (entry["status"], entry["reason"], entry["previous"]), ("skipped", "obsolete", "open"))
+
+        ledger = self._report_json(batch)["phases"]
+        self.assertEqual(len(ledger), 1)
+        self.assertEqual(
+            {k: ledger[0][k] for k in ("phase", "status", "summary", "previous")},
+            {"phase": "02-b", "status": "skipped", "summary": "obsolete", "previous": "open"},
+        )
+        self.assertTrue(ledger[0]["finished"])
+
+    def test_skip_error_phase_then_unskip_returns_it_to_error(self):
+        batch = self._skip_batch("2026-04-11-skip", **{"01_a": "error"})
+
+        proc = self.run_cfq("phase", "skip", str(batch), "01-a", "--reason", "later")
+        self.assertEqual(self.json_out(proc)["previous"], "error")
+        self.assertEqual(self._report_json(batch)["phases"][0]["previous"], "error")
+
+        proc = self.run_cfq("phase", "unskip", str(batch), "1")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual((body["status"], body["phase"], body["restored"]), ("OK", "01-a", "error"))
+        self.assertEqual(body["statusLines"][0]["label"], "Unskip")
+        self.assertEqual(body["statusLines"][0]["detail"], "01-a · back to error")
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "error")
+        self.assertTrue((batch / "01-a.md").is_file())
+        self.assertFalse((batch / "skipped" / "01-a.md").exists())
+        self.assertIn("unskipped", self._report_json(batch)["phases"][0])
+
+    def test_unskip_marks_the_last_open_skip_entry_only(self):
+        batch = self._skip_batch("2026-04-12-skip")
+        for _ in range(2):
+            self.run_cfq("phase", "skip", str(batch), "01-a", check=True)
+            self.run_cfq("phase", "unskip", str(batch), "01-a", check=True)
+        self.run_cfq("phase", "skip", str(batch), "01-a", check=True)
+        self.run_cfq("phase", "unskip", str(batch), "01-a", check=True)
+
+        ledger = self._report_json(batch)["phases"]
+        self.assertEqual(len(ledger), 3)
+        self.assertTrue(all("unskipped" in e for e in ledger))
+
+    def test_skip_accepts_slug_and_stores_empty_reason_without_flag(self):
+        batch = self._skip_batch("2026-04-13-skip")
+        proc = self.run_cfq("phase", "skip", str(batch), "03-c")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual((body["phase"], body["reason"]), ("03-c", ""))
+        self.assertEqual(body["statusLines"][0]["detail"], "03-c · was open")
+        self.assertEqual(self._report_json(batch)["phases"][0]["summary"], "")
+        self.assertNotIn("reason", self._phases_status(batch)["03-c"])
+
+    def test_skip_refuses_done_and_already_skipped_and_changes_nothing(self):
+        batch = self._skip_batch("2026-04-14-skip", **{"01_a": "done"})
+        self.run_cfq("phase", "skip", str(batch), "02", check=True)
+        before = ((batch / "status.json").read_text(), (batch / "report.json").read_text())
+
+        for ref in ("01", "02"):
+            with self.subTest(ref=ref):
+                proc = self.run_cfq("phase", "skip", str(batch), ref)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(json.loads(proc.stderr)["status"], "INVALID_TRANSITION")
+        after = ((batch / "status.json").read_text(), (batch / "report.json").read_text())
+        self.assertEqual(before, after)
+        self.assertTrue((batch / "done" / "01-a.md").is_file())
+        self.assertTrue((batch / "skipped" / "02-b.md").is_file())
+
+    def test_unskip_refuses_a_phase_that_is_not_skipped(self):
+        batch = self._skip_batch("2026-04-15-skip")
+        proc = self.run_cfq("phase", "unskip", str(batch), "01")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(json.loads(proc.stderr)["status"], "NOT_SKIPPED")
+        self.assertTrue((batch / "01-a.md").is_file())
+
+    def test_skip_and_unskip_unknown_phase(self):
+        batch = self._skip_batch("2026-04-16-skip")
+        for verb in ("skip", "unskip"):
+            with self.subTest(verb=verb):
+                proc = self.run_cfq("phase", verb, str(batch), "09")
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(json.loads(proc.stderr)["status"], "UNKNOWN_PHASE")
+
+    def test_every_verb_refuses_a_batch_without_status_json(self):
+        batch = self._batch("2026-04-17-nostatus")
+        self._write_phase_md(batch, "01-a")
+        (batch / "done").mkdir()
+        (batch / "done" / "02-b.md").write_text("# Phase 02\n")
+        pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "summary": "x"})
+        msg = self._message_file(batch)
+
+        calls = [
+            ("record", str(batch), str(pf), "--no-telemetry"),
+            ("commit", str(batch), str(pf), str(msg)),
+            ("reopen", str(batch), "02-b"),
+            ("skip", str(batch), "01-a"),
+            ("unskip", str(batch), "01-a"),
+        ]
+        for call in calls:
+            with self.subTest(verb=call[0]):
+                proc = self.run_cfq("phase", *call)
+                self.assertNotEqual(proc.returncode, 0)
+                err = json.loads(proc.stderr)
+                self.assertEqual(err["status"], "STATUS_FILE_MISSING")
+                self.assertEqual(err["detail"], str(batch))
+        self.assertTrue((batch / "01-a.md").is_file())
+        self.assertTrue((batch / "done" / "02-b.md").is_file())
+        self.assertFalse((batch / "skipped").exists())
+
+    def test_every_verb_refuses_an_unreadable_status_json(self):
+        batch = self._skip_batch("2026-04-18-badstatus")
+        (batch / "status.json").write_text("{not json")
+        proc = self.run_cfq("phase", "skip", str(batch), "01")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(json.loads(proc.stderr)["status"], "STATUS_FILE_INVALID")
+        self.assertTrue((batch / "01-a.md").is_file())
+
+    def test_skip_falls_back_when_the_ledger_append_fails(self):
+        batch = self._skip_batch("2026-04-19-skip", **{"01_a": "error"})
+        (batch / "report.json").unlink()
+        (batch / "report.json").mkdir()
+
+        proc = self.run_cfq("phase", "skip", str(batch), "01-a")
+        self.assertNotEqual(proc.returncode, 0)
+        entry = self._phases_status(batch)["01-a"]
+        self.assertEqual(entry["status"], "error")
+        self.assertNotIn("previous", entry)
+        self.assertTrue((batch / "01-a.md").is_file())
+        self.assertFalse((batch / "skipped" / "01-a.md").exists())
 
 
 if __name__ == "__main__":

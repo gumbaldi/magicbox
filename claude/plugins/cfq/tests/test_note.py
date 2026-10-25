@@ -6,6 +6,7 @@ itself -- date, slug normalisation and target directory are convention (see phas
 """
 
 import datetime
+import json
 import pathlib
 import subprocess
 import time
@@ -190,15 +191,6 @@ class NoteTest(CfqTestCase):
         )
         self.assertEqual(proc.stderr, "")
 
-    # Should-not-fire: note merge-todo always composes its own check: line, so cmd_merge_todo's
-    # direct _write_entry call must never trip the cmd_note warning.
-    def test_merge_todo_never_warns(self):
-        proc = self.run_cfq(
-            "note", "merge-todo", str(self.repo), "cfq/030-2026-09-20-some-slug", check=True,
-        )
-        self.assertEqual(proc.stderr, "")
-
-    # Should-not-fire: plan/ entries have no check: convention at all -- the warning is todo-only.
     def test_plan_with_no_check_line_has_no_warning(self):
         body = self._body_file("# Finding\n\nsomething noticed, no check line.\n")
         proc = self.run_cfq("note", "plan", str(self.repo), "a finding", str(body), check=True)
@@ -345,70 +337,13 @@ class NoteTest(CfqTestCase):
         self.assertEqual(len(remaining), 1, "the colliding entry must stay in the inbox")
         self.assertEqual(remaining[0].name, f"{self.today}-finding.md")
 
-    # note merge-todo composes the whole card itself -- title, ready-to-run merge command and a
-    # `check:` line -- so the line can never be forgotten the way a model-composed card leaves it
-    # out (see .batch-context.md for phase 01's rationale).
-    def test_merge_todo_writes_card_with_check_line(self):
-        branch = "cfq/030-2026-09-20-some-slug"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        expected = (
-            self.repo / ".claude" / "cfq" / "todo"
-            / f"{self.today}-merge-cfq-030-2026-09-20-some-slug.md"
-        )
-        self.assertEqual(out, str(expected))
-
-        content = expected.read_text()
-        lines = content.splitlines()
-        self.assertTrue(lines[0].startswith("# "), "card must open with an H1 title")
-        self.assertIn(f"git checkout main && git merge --ff-only {branch}", content)
-        check_lines = [line for line in lines if line.startswith("check: ")]
-        self.assertEqual(len(check_lines), 1, "card must carry exactly one check: line")
-
-    # Edge case that actually bites: normalise_slug() maps anything outside [a-z0-9-] to nothing,
-    # so a raw branch slug with a "/" would collapse the segment boundary (cfq030-x) unless the
-    # subcommand translates "/" to "-" itself before normalising.
-    def test_merge_todo_branch_slash_keeps_segment_boundary(self):
-        branch = "cfq/030-x"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        expected = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
-        self.assertEqual(out, str(expected))
-
-    # The check: line must try origin/main first and fall back to local main -- a repo without a
-    # remote still closes its cards, and a stale/missing origin ref leaves the card open rather
-    # than reporting a merge that hasn't happened (never a false positive). Same resolution order
-    # as cfq_branch.py:331/341.
-    def test_merge_todo_check_line_tries_origin_then_local_main(self):
-        branch = "cfq/030-x"
-        out = self.run_cfq(
-            "note", "merge-todo", str(self.repo), branch, check=True,
-        ).stdout.strip()
-
-        content = pathlib.Path(out).read_text()
-        expected_check = (
-            "check: git merge-base --is-ancestor cfq/030-x origin/main 2>/dev/null "
-            "|| git merge-base --is-ancestor cfq/030-x main"
-        )
-        self.assertIn(expected_check, content)
-
-    # Same day, same branch, twice: the second call must fail with the existing EXISTS error and
-    # must not overwrite the first card -- merge-todo inherits cmd_note's write path rather than
-    # inventing its own overwrite behaviour.
-    def test_merge_todo_twice_same_day_fails_and_leaves_first_card_unchanged(self):
-        branch = "cfq/030-x"
-        self.run_cfq("note", "merge-todo", str(self.repo), branch, check=True)
-        target = self.repo / ".claude" / "cfq" / "todo" / f"{self.today}-merge-cfq-030-x.md"
-        before = target.read_text()
-
-        proc = self.run_cfq("note", "merge-todo", str(self.repo), branch)
-        self.assertNotEqual(proc.returncode, 0, "writing onto an existing card must fail")
-        self.assertIn("EXISTS", proc.stderr)
-        self.assertEqual(target.read_text(), before, "existing card's bytes must be unchanged")
+    # The merge entry is gone: merging a batch branch is the user's own step, so the verb is
+    # not part of `note` and writes nothing.
+    def test_merge_todo_verb_is_rejected_and_writes_nothing(self):
+        proc = self.run_cfq("note", "merge-todo", str(self.repo), "cfq/030-x")
+        self.assertNotEqual(proc.returncode, 0)
+        todo = self.repo / ".claude" / "cfq" / "todo"
+        self.assertEqual(list(todo.rglob("*")) if todo.exists() else [], [])
 
     # Empty/missing inbox directory: exit 0, imported: [], no directory created as a side effect.
     def test_import_with_missing_inbox_directory(self):
@@ -422,6 +357,122 @@ class NoteTest(CfqTestCase):
         self.assertEqual(out["status"], "OK")
         self.assertEqual(out["imported"], [])
         self.assertFalse(inbox.exists(), "importing must not create the inbox directory")
+
+
+class NoteLedgerTest(CfqTestCase):
+    """`note plan|todo` record the entry in the origin batch's report.json `notes`
+    list (batch 050 phase 07): zero model tokens, entries written before it get no link."""
+
+    BATCH = "050-2026-10-04-ledger"
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.impl = self.repo / ".claude" / "cfq" / "impl"
+        self.batch_dir = self.impl / self.BATCH
+        self.batch_dir.mkdir(parents=True)
+        (self.batch_dir / "02-b.md").write_text("# B\n")
+        (self.batch_dir / "03-c.md").write_text("# C\n")
+        (self.batch_dir / "report.json").write_text(
+            json.dumps({"repo": str(self.repo), "batch": self.BATCH, "phases": []})
+        )
+
+    def _lock(self, session="s1", batch=None):
+        (self.repo / ".claude" / "cfq" / ".lock").write_text(
+            json.dumps({"session_id": session, "batch": batch or self.BATCH, "at": "x"})
+        )
+
+    def _notes(self, batch_dir=None):
+        data = json.loads(((batch_dir or self.batch_dir) / "report.json").read_text())
+        return data.get("notes")
+
+    def _note(self, kind, slug, body, *extra, session="s1", batch_flag=None):
+        args = ["note", kind, str(self.repo), slug, "-", *extra]
+        if batch_flag:
+            args += ["--batch", batch_flag]
+        env = {"CLAUDE_CODE_SESSION_ID": session} if session else {}
+        run_env = self._base_env()
+        run_env["HOME"] = str(self.home)
+        run_env.pop("CLAUDE_CODE_SESSION_ID", None)
+        run_env.update(env)
+        return subprocess.run(
+            [str(CFQ_BIN), *args], input=body, capture_output=True, text=True, env=run_env,
+        )
+
+    def test_plan_recorded_for_lock_holder(self):
+        self._lock()
+        proc = self._note("plan", "a finding", "# Found it\n\nbody\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        written = pathlib.Path(proc.stdout.strip())
+        notes = self._notes()
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(
+            {k: v for k, v in notes[0].items() if k != "at"},
+            {"kind": "plan", "file": written.name, "title": "Found it", "phase": "02-b",
+             "framework": False},
+        )
+        self.assertTrue(notes[0]["at"])
+
+    def test_todo_recorded_for_lock_holder(self):
+        self._lock()
+        proc = self._note("todo", "do it", "# Do it\n\ncheck: true\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        notes = self._notes()
+        self.assertEqual(notes[0]["kind"], "todo")
+        self.assertEqual(notes[0]["phase"], "02-b")
+        self.assertEqual(notes[0]["title"], "Do it")
+
+    def test_second_note_appends(self):
+        self._lock()
+        self._note("plan", "one", "# One\n")
+        self._note("plan", "two", "# Two\n")
+        self.assertEqual([n["title"] for n in self._notes()], ["One", "Two"])
+
+    def test_other_session_or_no_lock_records_nothing(self):
+        self._lock(session="other")
+        proc = self._note("plan", "a finding", "# F\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(self._notes())
+        (self.repo / ".claude" / "cfq" / ".lock").unlink()
+        proc = self._note("plan", "another", "# F2\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(self._notes())
+        self.assertTrue(any((self.repo / ".claude" / "cfq" / "plan").glob("*-another.md")))
+
+    def test_explicit_batch_without_open_phase_has_null_phase(self):
+        (self.batch_dir / "02-b.md").unlink()
+        (self.batch_dir / "03-c.md").unlink()
+        proc = self._note("todo", "late", "# Late\n", session=None, batch_flag=self.BATCH)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(self._notes()[0]["phase"])
+
+    def test_explicit_batch_found_in_impl_done(self):
+        done = self.impl / "done"
+        done.mkdir()
+        self.batch_dir.rename(done / self.BATCH)
+        proc = self._note("todo", "late", "# Late\n", session=None, batch_flag=self.BATCH)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len(self._notes(done / self.BATCH)), 1)
+
+    def test_framework_inbox_entry_recorded_with_framework_true(self):
+        self._lock()
+        proc = self._note("plan", "cfq thing", "# Cfq thing\n", "--framework")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(self._notes()[0]["framework"])
+
+    def test_missing_report_json_creates_nothing(self):
+        (self.batch_dir / "report.json").unlink()
+        self._lock()
+        proc = self._note("plan", "a finding", "# F\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.batch_dir / "report.json").exists())
+
+    def test_unknown_explicit_batch_warns_but_writes_entry(self):
+        proc = self._note("plan", "a finding", "# F\n", session=None, batch_flag="nope")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("nope", proc.stderr)
+        self.assertEqual(len(proc.stderr.strip().splitlines()), 1)
+        self.assertTrue(any((self.repo / ".claude" / "cfq" / "plan").glob("*-a-finding.md")))
 
 
 class NoteCloseTest(CfqTestCase):

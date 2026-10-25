@@ -18,6 +18,8 @@ from cfq_lib import render  # noqa: E402
 
 
 class TestRender(CfqTestCase):
+    auto_status = True
+
     def _plain_repo(self, path):
         path.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", "-q"], cwd=path, check=True)

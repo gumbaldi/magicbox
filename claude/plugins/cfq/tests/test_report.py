@@ -14,12 +14,11 @@ import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cfq_report  # noqa: E402
-from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
 
 
 class TestReport(CfqTestCase):
@@ -40,6 +39,56 @@ class TestReport(CfqTestCase):
             cfq_report.append_phase(dir_, phase_json, record_telemetry=False)
         self.assertNotEqual(ctx.exception.code, 0)
         return buf.getvalue()
+
+    def test_set_commit_diffstat_stored_only_when_given(self):
+        batch = self._batch("2026-01-02-diffstat")
+        for slug in ("01-a", "02-b"):
+            cfq_report.append_phase(
+                str(batch),
+                json.dumps({"phase": slug, "status": "green", "summary": "ok", "commit": ""}),
+                record_telemetry=False,
+            )
+        stat = {"files": 1, "insertions": 2, "deletions": 0,
+                "paths": [{"path": "a.txt", "added": 2, "deleted": 0}]}
+
+        cfq_report.set_commit(str(batch), "01-a", "abc1234", diffstat=stat)
+        cfq_report.set_commit(str(batch), "02-b", "def5678")
+
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["commit"], "abc1234")
+        self.assertEqual(phases[0]["diffstat"], stat)
+        self.assertEqual(phases[1]["commit"], "def5678")
+        self.assertNotIn("diffstat", phases[1])
+
+        self.run_cfq("report", "set-commit", str(batch), "02-b", "9999999")
+        self.assertNotIn("diffstat", self._report_json(batch)["phases"][1])
+
+    def test_observations_stored_validated_and_in_detail(self):
+        batch = self._batch("2026-01-03-observations")
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "01-a", "status": "green", "summary": "ok",
+                        "observations": ["a", "b"]}),
+            record_telemetry=False,
+        )
+        cfq_report.append_phase(
+            str(batch),
+            json.dumps({"phase": "02-b", "status": "green", "summary": "ok"}),
+            record_telemetry=False,
+        )
+        phases = self._report_json(batch)["phases"]
+        self.assertEqual(phases[0]["observations"], ["a", "b"])
+        self.assertNotIn("observations", phases[1])
+
+        before = (batch / "report.json").read_text()
+        for bad in ('"text"', '["ok", 3]'):
+            stderr = self._append_raises(
+                str(batch), '{"phase":"03-c","status":"green","observations":%s}' % bad)
+            self.assertIn("observations", stderr)
+        self.assertEqual(before, (batch / "report.json").read_text())
+
+        det = self.json_out(self.run_cfq("report", "detail", str(batch)))
+        self.assertEqual([p["observations"] for p in det["phases"]], [["a", "b"], []])
 
     def test_append_and_set_commit(self):
         batch = self._batch("2026-01-01-demo")
@@ -113,7 +162,7 @@ class TestReport(CfqTestCase):
         # since neither phase has any telemetry at all, let alone worker activity):
         # total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
         # worker_explore_turns, worker_explore_output, all zero.
-        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0"
+        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s, expected, f"summary = {s}")
 
         lf = self.json_out(self.run_cfq("report", "last-failure", str(batch), "02-b"))
@@ -288,6 +337,76 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         vlines = det_long["phases"][0]["verification"].count("\n")
         self.assertLess(vlines, 200, f"detail should bound verification output, got {vlines} lines")
 
+    # ---- batch 051 phase 07: skip entries in the ledger ----------------------------------------
+
+    def _skip_fixture(self, name, ledger, statuses):
+        """A batch directory under a throwaway repo: plan files + status.json from `statuses`
+        ({slug: status}), the given ledger written first, then phase 03-c skipped through a real
+        `phase skip` call (which appends the skip entry)."""
+        d = self._repos_dir / "repo-skip" / ".claude" / "cfq" / "impl" / name
+        (d / "done").mkdir(parents=True)
+        for slug in statuses:
+            target = d / "done" if statuses[slug] == "done" else d
+            (target / f"{slug}.md").write_text(f"# {slug}\n")
+        (d / "03-c.md").write_text("# 03-c\n")
+        write_status(d, statuses)
+        (d / "report.json").write_text(json.dumps({
+            "repo": "", "batch": name, "started": "2026-03-01T08:00:00+00:00", "phases": ledger,
+        }))
+        self.run_cfq("phase", "skip", str(d), "03", "--reason", "obsolete", check=True)
+        return d
+
+    def test_skip_entries_are_ignored_by_outcome_and_counted_separately(self):
+        green = {"phase": "01-a", "status": "green", "finished": "2026-03-01T09:00:00+00:00"}
+        d = self._skip_fixture("2026-03-01-skipgreen", [green], {"01-a": "done"})
+        ledger = self._report_json(d)["phases"]
+        self.assertEqual([p["status"] for p in ledger], ["green", "skipped"])
+        self.assertEqual(cfq_report.outcome(ledger), "GREEN")
+        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[1:4], ["1", "1", "0"], fields)  # total, green, red: no skip entry
+        self.assertEqual(fields[-1], "1", fields)  # skipped, always the last field
+
+        red = {"phase": "02-b", "status": "red", "finished": "2026-03-01T09:30:00+00:00"}
+        d2 = self._skip_fixture(
+            "2026-03-02-skipred", [green, red], {"01-a": "done", "02-b": "error"},
+        )
+        self.assertEqual(cfq_report.outcome(self._report_json(d2)["phases"]), "RED")
+        fields2 = self.run_cfq("report", "summary", str(d2)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields2[1:4], ["2", "1", "1"], fields2)
+
+    def test_unskipped_entry_counts_nowhere(self):
+        d = self._skip_fixture("2026-03-03-unskip", [], {"01-a": "done"})
+        self.run_cfq("phase", "unskip", str(d), "03", check=True)
+        ledger = self._report_json(d)["phases"]
+        self.assertIn("unskipped", ledger[-1])
+        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[1:4], ["0", "0", "0"], fields)
+        self.assertEqual(fields[-1], "0", fields)
+        self.assertEqual(cfq_report.outcome(ledger), "GREEN")
+
+    def test_summary_without_status_file_reports_zero_skipped(self):
+        batch = self._batch("2026-03-04-nostatus")
+        (batch / "report.json").write_text(json.dumps({
+            "repo": "", "batch": "2026-03-04-nostatus", "started": "2026-03-04T08:00:00+00:00",
+            "phases": [{"phase": "01-a", "status": "green", "finished": "2026-03-04T09:00:00+00:00"}],
+        }))
+        fields = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(fields[-1], "0", fields)
+
+    def test_index_and_detail_expose_skipped(self):
+        green = {"phase": "01-a", "status": "green", "finished": "2026-03-01T09:00:00+00:00"}
+        d = self._skip_fixture("2026-03-05-skipidx", [green], {"01-a": "done"})
+        idx = self.json_out(self.run_cfq(
+            "report", "index", "--batch", "skipidx", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ))
+        self.assertEqual(len(idx), 1, idx)
+        self.assertEqual((idx[0]["status"], idx[0]["skipped"]), ("GREEN", 1), idx[0])
+        det = self.json_out(self.run_cfq("report", "detail", str(d)))
+        self.assertEqual(det["status"], "GREEN")
+        self.assertEqual(det["skipped"], 1)
+        skip_entry = next(p for p in det["phases"] if p["status"] == "skipped")
+        self.assertEqual((skip_entry["phase"], skip_entry["summary"]), ("03-c", "obsolete"))
+
     # ---- html: batch 040 phase 05 -- a thin `portal sync` alias, no file of its own -----------
 
     def test_html_is_a_thin_portal_alias(self):
@@ -313,7 +432,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             "html alias must not write a flat <batch>.html file",
         )
         self.assertTrue(
-            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.impl.js").is_file(),
+            (repo / ".claude" / "cfq" / "reports" / "data" / "batch" / f"{batch_name}.js").is_file(),
             "html alias did not sync this batch's own data into the portal",
         )
         self.assertTrue(
@@ -420,7 +539,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output), all zero
         # since this old-style fixture carries none of billable_in/planning/subagent_explore.
         self.assertEqual(
-            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0"],
+            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0", "0"],
         )
         self.assertEqual(
             int(fields[11]) + int(fields[13]), int(total_turns),
@@ -466,7 +585,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertEqual(fields[11:15], ["14", "1400", "6", "700"])
         # tail: total_billable_in (150 planning + 600 phase), planning_turns, planning_billable_in,
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0"])
+        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0", "0"])
 
     def test_summary_explore_only_phase_is_not_counted_as_worker(self):
         # The regression from Context, reproduced directly: a phase whose only sub-agent activity
@@ -492,9 +611,9 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
         fields = s.split("\t")
         # fields 1-11 as normal, no 12-15 worker block, then the always-appended (now 7-field) tail
-        self.assertEqual(len(fields), 18, f"expected no fields 12-15, got row {fields}")
+        self.assertEqual(len(fields), 19, f"expected no fields 12-15, got row {fields}")
         self.assertEqual(fields[6:11], ["700", "0", "8", "", ""])
-        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0"])
+        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0", "0"])
 
     def test_summary_orchestrator_worker_invariant_never_negative(self):
         # The regression case from Context, asserted directly: a fixture reproducing batch 034's
@@ -542,7 +661,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
             fields = s.split("\t")
             total_turns = int(fields[8])
-            if len(fields) == 18:
+            if len(fields) == 19:
                 # No phase worker ever ran (subagent_worker is zero on every phase) -- the
                 # heavy-Explore batch-034 shape. Fields 12-15 must be absent entirely, which is
                 # itself the fix: a negative number can never be printed for a split that isn't
@@ -627,7 +746,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         self.assertEqual(fields[11:15], ["3", "300", "6", "700"])
         # tail: total_billable_in (100+0+200+0), planning_turns, planning_billable_in,
         # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150"])
+        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150", "0"])
 
     def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
         batch = self._batch("2026-01-09-classic")
@@ -651,7 +770,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
         # billable_in/planning/subagent_explore/subagent_worker.
         expected = (
             f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
-            "\t0\t0\t0\t0\t0\t0\t0"
+            "\t0\t0\t0\t0\t0\t0\t0\t0"
         )
         self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
 
@@ -667,7 +786,7 @@ sys.exit(subprocess.run(["python3", {str(scripts_dir / 'cfq_scan.py')!r}, *sys.a
             ],
         }))
         s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
-        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0"
+        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
         self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
 
 
@@ -814,7 +933,7 @@ class TestIndexText(CfqTestCase):
         # dropping the one data file `portal sync` would have written, rather than a `.html` file.
         data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
         data_dir.mkdir(parents=True)
-        (data_dir / "2026-05-01-rendered.impl.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-01-rendered.js").write_text("window.CFQ_DATA = {};")
 
         text = self._run_text()
         self.assertNotIn("file://", text, f"a file:// line leaked into the listing:\n{text}")
@@ -825,6 +944,29 @@ class TestIndexText(CfqTestCase):
         unrendered_cells = [c.strip() for c in unrendered_row.strip("|").split("|")]
         self.assertEqual(rendered_cells[-1], "✓", f"rendered row missing its marker: {rendered_row!r}")
         self.assertEqual(unrendered_cells[-1], "", f"unrendered row should have an empty marker: {unrendered_row!r}")
+
+    def test_rendered_and_href_follow_the_batch_data_file(self):
+        self._batch(
+            "repo-a", "2026-05-01-with-data", [self._phase("01-a", "green", "2026-05-01T09:00:00+00:00")],
+        )
+        self._batch(
+            "repo-a", "2026-05-02-without-data", [self._phase("01-a", "green", "2026-05-02T09:00:00+00:00")],
+        )
+        data_dir = self._repos_dir / "repo-a" / ".claude" / "cfq" / "reports" / "data" / "batch"
+        data_dir.mkdir(parents=True)
+        # only the one file the portal's loader fetches for a batch counts -- the legacy
+        # `<name>.impl.js` name must not make the other batch look rendered
+        (data_dir / "2026-05-01-with-data.js").write_text("window.CFQ_DATA = {};")
+        (data_dir / "2026-05-02-without-data.impl.js").write_text("window.CFQ_DATA = {};")
+
+        rows = {r["batch"]: r for r in self.json_out(self.run_cfq(
+            "report", "index", env={"CFQ_SCAN_ROOTS": str(self._repos_dir)},
+        ))}
+        with_data, without_data = rows["2026-05-01-with-data"], rows["2026-05-02-without-data"]
+        self.assertTrue(with_data["rendered"])
+        self.assertTrue(with_data["href"].endswith("/index.html#/batch/2026-05-01-with-data"), with_data["href"])
+        self.assertFalse(without_data["rendered"])
+        self.assertEqual(without_data["href"], "")
 
     def test_date_is_the_phase_finish_not_the_batch_start(self):
         self._batch(
@@ -1008,73 +1150,140 @@ class TestDerivations(unittest.TestCase):
         self.assertEqual(cfq_report.fmt_int("not-a-number"), "–")
 
 
-# ---- cfq_lib.markdown's base subset (the renderer batch 040 phase 01 split out of this module)
-# -- still live, used by cfq_portal.py's pre-rendered phase-file/queue-entry bodies. Pure
-# functions over literal strings, no files, no project-specific nouns. `MarkdownExtensionTest` in
-# tests/test_portal.py covers the extensions cfq_portal.py added on top (keep_h1, ordered lists);
-# this class covers the base subset this module used to render itself.
+_ZERO_LAYER = {"turns": 0, "output": 0, "billable_in": 0, "cache_read": 0, "models": []}
 
-class TestMarkdownSubset(unittest.TestCase):
-    # -- md_min: routine / structural cases --------------------------------------------------
 
-    def test_routine_heading_paragraph_and_list(self):
-        out = cfq_lib_markdown.md_min(
-            "## Heading\n\nA paragraph.\n\n- one\n- two\n- three\n"
+def _layer(turns, output, billable_in=0, cache_read=0, models=("model-a",)):
+    return {"turns": turns, "output": output, "billable_in": billable_in,
+            "cache_read": cache_read, "models": list(models)}
+
+
+class PhaseCostEntryTest(CfqTestCase):
+    """`cfq_report.phase_cost_entry()` -- the `Cost` status line `phase commit` and `worker
+    verdict` print when a phase closes."""
+
+    def _dir(self, name="cost-batch"):
+        d = self._repos_dir / name
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _entry(self, layers=None, finished="2026-01-01T10:09:12+00:00", diffstat=True,
+               slug="02-x", **tel_extra):
+        tel = {"schema": 3, "kind": "phase", "from": "2026-01-01T10:00:00.000Z", "wallclock_s": 35}
+        tel["layers"] = layers if layers is not None else {
+            "main": _layer(10, 6692, 14561, 985297),
+            "main_explore": dict(_ZERO_LAYER),
+            "worker": _layer(60, 5615, 158631, 3636035),
+            "worker_explore": dict(_ZERO_LAYER),
+        }
+        tel.update(tel_extra)
+        entry = {"phase": slug, "status": "green", "telemetry": tel}
+        if finished is not None:
+            entry["finished"] = finished
+        if diffstat:
+            entry["diffstat"] = {"files": 5, "insertions": 212, "deletions": 40}
+        return entry
+
+    def _cost(self, *entries, slug="02-x"):
+        d = self._dir()
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": list(entries)}))
+        return cfq_report.phase_cost_entry(str(d), slug)
+
+    def test_routine_orchestrator_record(self):
+        entry = self._cost(self._entry())
+        self.assertEqual(entry["label"], "Cost")
+        self.assertEqual(entry["icon"], "done")
+        self.assertEqual(entry["detail"], "70 turns · 12k out · 173k in · 4.6M cached · 9:12")
+        self.assertEqual(entry["sub"], [
+            "session 10 turns · 7k out · worker 60 turns · 6k out",
+            "models model-a",
+            "diff 5 files · +212 -40",
+        ])
+        self.assert_status_lines_shape([entry])
+
+    def test_classic_record_has_no_layer_sub_line(self):
+        layers = {"main": _layer(8, 3000, 1000, 2000), "main_explore": dict(_ZERO_LAYER),
+                  "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertEqual(entry["sub"], ["models model-a", "diff 5 files · +212 -40"])
+
+    def test_explore_layers_are_ordered(self):
+        layers = {"main": _layer(10, 1000), "main_explore": _layer(4, 2000),
+                  "worker": _layer(60, 3000), "worker_explore": _layer(3, 4000)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertEqual(
+            entry["sub"][0],
+            "session 10 turns · 1k out · explore 4 turns · 2k out · "
+            "worker 60 turns · 3k out · worker explore 3 turns · 4k out",
         )
-        self.assertIn("<h3>Heading</h3>", out)
-        self.assertIn("<p>A paragraph.</p>", out)
-        self.assertEqual(out.count("<li>"), 3)
-        self.assertIn("<li>one</li>", out)
-        self.assertIn("<li>two</li>", out)
-        self.assertIn("<li>three</li>", out)
 
-    def test_wrapped_bullet_continuation_stays_one_li_not_a_paragraph(self):
-        out = cfq_lib_markdown.md_min("- first line of the item\n  wraps onto this line\n")
-        self.assertEqual(out.count("<li>"), 1)
-        self.assertNotIn("<p>", out)
-        self.assertIn("<li>first line of the item wraps onto this line</li>", out)
+    def test_models_are_sorted_union(self):
+        layers = {"main": _layer(2, 10, models=("model-b", "model-a")),
+                  "main_explore": dict(_ZERO_LAYER),
+                  "worker": _layer(3, 10, models=("model-b",)), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertIn("models model-a · model-b", entry["sub"])
 
-    # -- md_inline -----------------------------------------------------------------------------
+    def test_value_below_1000_is_plain(self):
+        layers = {"main": _layer(2, 412, 5, 7), "main_explore": dict(_ZERO_LAYER),
+                  "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)}
+        entry = self._cost(self._entry(layers=layers))
+        self.assertIn("412 out · 5 in · 7 cached", entry["detail"])
+        self.assertNotIn("0k", entry["detail"])
 
-    def test_inline_bold_and_code(self):
-        self.assertEqual(cfq_lib_markdown.md_inline("**bold**"), "<strong>bold</strong>")
-        self.assertEqual(cfq_lib_markdown.md_inline("`code`"), "<code>code</code>")
+    def test_diffstat_singular_and_missing(self):
+        e = self._entry()
+        e["diffstat"] = {"files": 1, "insertions": 3, "deletions": 0}
+        self.assertIn("diff 1 file · +3 -0", self._cost(e)["sub"])
+        entry = self._cost(self._entry(diffstat=False))
+        self.assertFalse([s for s in entry["sub"] if s.startswith("diff")])
 
-    def test_inline_backtick_span_wins_over_bold_inside_it(self):
-        out = cfq_lib_markdown.md_inline("`a **b** c`")
-        self.assertNotIn("<strong>", out)
-        self.assertEqual(out, "<code>a **b** c</code>")
+    def test_duration_falls_back_and_is_left_out(self):
+        entry = self._cost(self._entry(finished=None))
+        self.assertTrue(entry["detail"].endswith("cached · 0:35"), entry["detail"])
+        entry = self._cost(self._entry(finished=None, wallclock_s=0))
+        self.assertTrue(entry["detail"].endswith("cached"), entry["detail"])
+        self.assertFalse(entry["detail"].endswith(" · "))
 
-    # -- escaping --------------------------------------------------------------------------------
+    def test_record_without_layers_uses_totals_and_by_model(self):
+        tel = {"schema": 1, "kind": "phase", "from": "2026-01-01T10:00:00.000Z",
+               "totals": {"turns": 5, "output": 2000, "billable_in": 3000, "cache_read": 4000},
+               "subagent_worker": {"turns": 7, "output": 1000, "billable_in": 1000, "cache_read": 1000},
+               "by_model": {"model-b": {}, "model-a": {}}}
+        entry = self._cost({"phase": "02-x", "status": "green", "telemetry": tel,
+                            "finished": "2026-01-01T10:01:00+00:00"})
+        self.assertEqual(entry["detail"], "12 turns · 3k out · 4k in · 5k cached · 1:00")
+        self.assertEqual(entry["sub"][0], "session 5 turns · 2k out · worker 7 turns · 1k out")
+        self.assertIn("models model-a · model-b", entry["sub"])
 
-    def test_escaping_happens_before_this_function_is_reached(self):
-        # md_min escapes each emitted value itself (via esc()) -- feeding it raw HTML must come
-        # out neutralised, never as a literal live tag.
-        out = cfq_lib_markdown.md_min("A line with <script>alert(1)</script> in it.")
-        self.assertIn("&lt;script&gt;", out)
-        self.assertNotIn("<script", out)
+    def test_last_entry_for_the_slug_wins(self):
+        first = self._entry()
+        first["status"] = "red"
+        second = self._entry(layers={"main": _layer(3, 100), "main_explore": dict(_ZERO_LAYER),
+                                     "worker": dict(_ZERO_LAYER), "worker_explore": dict(_ZERO_LAYER)})
+        self.assertTrue(self._cost(first, second)["detail"].startswith("3 turns"))
 
-    # -- edge cases ------------------------------------------------------------------------------
+    def test_returns_none_without_usable_telemetry(self):
+        d = self._dir("none-batch")
+        self.assertIsNone(cfq_report.phase_cost_entry(str(d), "02-x"))
+        (d / "report.json").write_text("{not json")
+        self.assertIsNone(cfq_report.phase_cost_entry(str(d), "02-x"))
+        self.assertIsNone(self._cost({"phase": "02-x", "status": "green"}))
+        self.assertIsNone(self._cost(self._entry(), slug="09-other"))
+        zero = {n: dict(_ZERO_LAYER) for n in cfq_report.LAYER_NAMES}
+        self.assertIsNone(self._cost(self._entry(layers=zero)))
+        self.assertIsNone(self._cost("not a dict"))
 
-    def test_empty_string_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min(""), "")
-
-    def test_only_blank_lines_returns_empty(self):
-        self.assertEqual(cfq_lib_markdown.md_min("\n\n\n"), "")
-
-    def test_single_hash_title_alone_is_skipped_entirely(self):
-        out = cfq_lib_markdown.md_min("# Batch Context\n")
-        self.assertEqual(out, "")
-
-    # -- fall-through: outside the documented subset ------------------------------------------
-
-    def test_blockquote_and_table_line_fall_back_to_paragraph_text(self):
-        out = cfq_lib_markdown.md_min("> a quote\n\n| a | table |\n")
-        self.assertNotIn("<blockquote", out)
-        self.assertNotIn("<table", out)
-        self.assertIn("<p>", out)
-        self.assertIn("&gt; a quote", out)
-        self.assertIn("| a | table |", out)
+    def test_append_phase_stamps_finished(self):
+        d = self._dir("stamp-batch")
+        cfq_report.append_phase(str(d), json.dumps({"phase": "01-a", "status": "green"}),
+                                record_telemetry=False)
+        cfq_report.append_phase(
+            str(d), json.dumps({"phase": "02-b", "status": "green", "finished": "2026-02-02T01:02:03+00:00"}),
+            record_telemetry=False)
+        phases = json.loads((d / "report.json").read_text())["phases"]
+        self.assertIsNotNone(cfq_report.parse_ts(phases[0]["finished"]))
+        self.assertEqual(phases[1]["finished"], "2026-02-02T01:02:03+00:00")
 
 
 if __name__ == "__main__":

@@ -10,10 +10,13 @@ import shutil
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
 
+import cfq_changelog  # noqa: E402
 import cfq_finish  # noqa: E402
+from cfq_lib import proc as proc_lib  # noqa: E402
 
 # The suite's own default (`tests/cfq_testlib.py`'s `_base_env()`) sets `CFQ_PORTAL_SYNC=0` so
 # every other test's directory-content assertions stay unaffected by the portal sync `finish`
@@ -61,6 +64,15 @@ class StatusLineRenderingTest(unittest.TestCase):
         self.assertEqual(cfq_finish.changelog_line("error")["icon"], "fail")
         self.assertEqual(cfq_finish.changelog_line("2026-01-01-x done · 3 phases")["icon"], "done")
 
+    def test_branch_line_variants(self):
+        line = cfq_finish.branch_line("cfq/002-b", "cfq/001-a")
+        self.assertEqual((line["label"], line["icon"], line["detail"]), ("Branch", "done", "cfq/002-b · from cfq/001-a"))
+        line = cfq_finish.branch_line("cfq/002-b", "")
+        self.assertEqual((line["icon"], line["detail"]), ("done", "cfq/002-b"))
+        for branch in ("", "HEAD"):
+            line = cfq_finish.branch_line(branch, "cfq/001-a")
+            self.assertEqual((line["icon"], line["detail"]), ("skip", "no branch"))
+
     def test_attach_errors_creates_a_line_when_none_existed(self):
         lines = [cfq_finish.language_line({"issues": 0, "findings": []}), None]
         cfq_finish.attach_errors(lines, ["security: cfq_security.py failed"])
@@ -77,10 +89,11 @@ class StatusLineRenderingTest(unittest.TestCase):
 
 
 class FinishTest(CfqTestCase):
+    auto_status = True
+
     def _new_repo(self, name):
-        # cfq-finish.sh diffs the changed-files check against a branch literally named "main"
-        # (cfq_lang.py --changed main), so the fixture needs that branch regardless of this host's
-        # git init.defaultBranch.
+        # The fixture pins the branch name so the tests do not depend on the host's
+        # init.defaultBranch.
         repo = self.make_repo(name)
         subprocess.run(["git", "-C", str(repo), "branch", "-M", "main"], check=True)
         return repo
@@ -94,7 +107,9 @@ class FinishTest(CfqTestCase):
 
     def test_happy_path(self):
         home = self._repos_dir / "home1"
-        home.mkdir()
+        (home / ".claude/cfq").mkdir(parents=True)
+        # No remote in the fixture: an enabled changelog would fail its push and add an error.
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
         repo = self._new_repo("repo1")
         batch = self._new_batch(repo, "2026-01-01-happy")
         self.run_cfq("lock", "acquire", str(repo), "2026-01-01-happy", home=home, check=True)
@@ -112,6 +127,41 @@ class FinishTest(CfqTestCase):
         self.assertEqual(out["lock"], "released", f"lock field: {out}")
         lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
         self.assertEqual(lockstatus, "FREE", f"lock not actually released: {lockstatus}")
+
+        report = json.loads(
+            (repo / ".claude/cfq/impl/done/2026-01-01-happy/report.json").read_text()
+        )
+        fin = report["finish"]
+        self.assertEqual(
+            sorted(fin), ["at", "changelog", "errors", "lang", "maintenance", "security", "skipped"],
+        )
+        self.assertEqual(fin["skipped"], [])
+        self.assertEqual(sorted(fin["lang"]), ["findings", "issues"])
+        self.assertIsInstance(fin["lang"]["issues"], int)
+        self.assertIsInstance(fin["lang"]["findings"], list)
+        self.assertEqual(sorted(fin["security"]), ["new", "now", "planning"])
+        self.assertEqual(fin["errors"], [])
+        self.assertEqual(fin["errors"], out["errors"])
+        self.assertNotIn("prose", fin["lang"])
+
+    def test_second_finish_replaces_the_finish_object(self):
+        home = self._repos_dir / "home-twice"
+        home.mkdir()
+        repo = self._new_repo("repo-twice")
+        name = "2026-01-01-twice"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        self.run_cfq("finish", str(repo), str(batch), "v0.1-twice", home=home, check=True)
+        moved = repo / ".claude/cfq/impl/done" / name
+        first = json.loads((moved / "report.json").read_text())["finish"]
+
+        self.run_cfq("finish", str(repo), str(moved), "v0.1-twice", home=home, check=True)
+        data = json.loads((moved / "report.json").read_text())
+        self.assertIsInstance(data["finish"], dict)
+        self.assertEqual(sorted(data["finish"]), sorted(first))
+        self.assertEqual(
+            sum(1 for k in data if k == "finish"), 1, "finish must exist exactly once",
+        )
 
     def test_lock_held_by_different_session_for_same_batch_still_releases(self):
         # /clear mid-batch mints a new session id; finish's own `finally` release (phase 04) must
@@ -179,6 +229,46 @@ class FinishTest(CfqTestCase):
             any(e.startswith("changelog:") for e in out["errors"]),
             f"no changelog error recorded: {out}",
         )
+        report = json.loads(
+            (repo / ".claude/cfq/impl/done/2026-01-01-brokenchangelog/report.json").read_text()
+        )
+        self.assertEqual(report["finish"]["errors"], out["errors"])
+        self.assertTrue(any(e.startswith("changelog:") for e in report["finish"]["errors"]))
+
+    def test_ignored_changelog_is_force_added_and_pushed_with_upstream(self):
+        # The repo's own .gitignore covers the changelog and the batch branch has no upstream yet:
+        # finish force-adds the file, commits it and the -u fallback push succeeds.
+        home = self._repos_dir / "home-forced"
+        home.mkdir()
+        repo = self._new_repo("repo-forced")
+        bare = self._repos_dir / "origin-forced.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(bare)], check=True)
+        (repo / ".gitignore").write_text(".claude/cfq/changelog.yml\n")
+        subprocess.run(["git", "-C", str(repo), "add", ".gitignore"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "ignore"], check=True)
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "cfq/forced"], check=True)
+        name = "2026-01-01-forced"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "cfq/forced", home=home, check=True)
+        )
+        self.assertIn("force-added", out["changelog"], f"changelog field: {out}")
+        self.assertIn("committed", out["changelog"], f"changelog field: {out}")
+        self.assertFalse(
+            any(e.startswith("changelog:") for e in out["errors"]), f"unexpected errors: {out}",
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(repo), "ls-files"], capture_output=True, text=True, check=True,
+        ).stdout.split()
+        self.assertIn(".claude/cfq/changelog.yml", tracked)
+        upstream = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "@{u}"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(upstream.returncode, 0, f"no upstream after finish: {upstream.stderr}")
 
     def test_changelog_file_empty_is_not_an_error(self):
         home = self._repos_dir / "home3"
@@ -227,6 +317,25 @@ class FinishTest(CfqTestCase):
             f"missing planning snapshot must not be an error: {out}",
         )
 
+    def test_unwritable_report_json_is_left_alone(self):
+        # The security step normally creates report.json; a directory in its place keeps the file
+        # from existing, so finish has nothing to persist into and must create nothing.
+        home = self._repos_dir / "home-noreport"
+        (home / ".claude/cfq").mkdir(parents=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        repo = self._new_repo("repo-noreport")
+        name = "2026-01-01-noreport"
+        batch = self._new_batch(repo, name)
+        (batch / "report.json").mkdir()
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "v0.1-noreport", home=home, check=True)
+        )
+        moved = repo / ".claude/cfq/impl/done" / name
+        self.assertTrue((moved / "report.json").is_dir(), "report.json must stay untouched")
+        self.assertIn("lang", out)
+        self.assertEqual(out["lock"], "released")
+
     def test_html_report_auto_renders_when_enabled(self):
         # `finish` no longer writes a `.html` file itself -- `htmlReport: true` lets the portal
         # sync it already triggers (`cfq_lib/portal_hook.py`) actually run, and this batch's own
@@ -250,7 +359,7 @@ class FinishTest(CfqTestCase):
             f"report line: {report_line}",
         )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmlon.impl.js").is_file(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmlon.js").is_file(),
             "htmlReport=true should auto-sync this batch's own data into the portal",
         )
         self.assertFalse(
@@ -282,7 +391,7 @@ class FinishTest(CfqTestCase):
             "explicit htmlReport=false must not auto-render report.html",
         )
         self.assertFalse(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmloff.impl.js").exists(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmloff.js").exists(),
             "explicit htmlReport=false must not sync the portal either",
         )
 
@@ -299,7 +408,7 @@ class FinishTest(CfqTestCase):
             "finish", str(repo), str(batch), "v0.1-htmldefault", home=home, env=ON, check=True,
         )
         self.assertTrue(
-            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmldefault.impl.js").is_file(),
+            (repo / ".claude/cfq/reports/data/batch/2026-01-01-htmldefault.js").is_file(),
             "default htmlReport=true should auto-sync this batch's own data into the portal",
         )
 
@@ -372,7 +481,9 @@ class FinishTest(CfqTestCase):
         # comes back `{}` on both sides of the diff, so `Security Diff` is the one line correctly
         # omitted here (no planning snapshot, nothing to compare) -- see security_diff_line.
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
+            labels, [
+                "Language", "Maintenance", "Changelog", "Branch", "Skipped", "Telemetry", "Report", "Lock",
+            ],
             msg=f"labels = {labels}",
         )
         lock = next(e for e in out["statusLines"] if e["label"] == "Lock")
@@ -405,7 +516,9 @@ class FinishTest(CfqTestCase):
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Language", "Maintenance", "Changelog", "Telemetry", "Report", "Lock"],
+            labels, [
+                "Language", "Maintenance", "Changelog", "Branch", "Skipped", "Telemetry", "Report", "Lock",
+            ],
             msg=f"a changelog error must not add a new statusLines entry: {labels}",
         )
         changelog_line = next(e for e in out["statusLines"] if e["label"] == "Changelog")
@@ -416,6 +529,326 @@ class FinishTest(CfqTestCase):
         self.assertNotEqual(
             changelog_line["icon"], "done", msg=f"an errored step must not stay 'done': {changelog_line}",
         )
+
+    # ---- batch 051 phase 07: skipped phases leave an inbox entry --------------------------------
+
+    PLAN_TEXT = (
+        "# Third phase\n\n## Size\n\nS\n\n## Changes\n\n```bash\n# not a heading\n"
+        "echo hi\n```\n\n### Detail\n\nText.\n"
+    )
+
+    def _skipped_batch(self, repo, name, reason="obsolete"):
+        """Two done phases and phase 03 skipped through a real `phase skip` call."""
+        d = repo / ".claude/cfq/impl" / name
+        (d / "done").mkdir(parents=True)
+        (d / ".priority").write_text("medium\n")
+        (d / "done" / "01-a.md").write_text("# A phase\n")
+        (d / "done" / "02-b.md").write_text("# B phase\n")
+        (d / "03-c.md").write_text(self.PLAN_TEXT)
+        args = ["phase", "skip", str(d), "03"]
+        if reason:
+            args += ["--reason", reason]
+        self.run_cfq(*args, check=True)
+        return d
+
+    def _finish_skipped(self, tag, reason="obsolete", changelog=False, prepare=None):
+        home = self._repos_dir / f"home-{tag}"
+        (home / ".claude/cfq").mkdir(parents=True)
+        # No remote in the fixture: an enabled changelog would fail its push and add an error.
+        settings = {} if changelog else {"changelogFile": ""}
+        (home / ".claude/cfq/settings.json").write_text(json.dumps(settings))
+        repo = self._new_repo(f"repo-{tag}")
+        name = f"2026-01-01-{tag}"
+        batch = self._skipped_batch(repo, name, reason)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+        if prepare:
+            prepare(repo)
+        proc = self.run_cfq("finish", str(repo), str(batch), f"v0.1-{tag}", home=home, check=True)
+        return repo, home, name, self.json_out(proc)
+
+    def _inbox(self, repo):
+        return sorted((repo / ".claude/cfq/plan").glob("*.md"))
+
+    def test_skipped_phase_leaves_one_inbox_entry(self):
+        repo, _home, name, out = self._finish_skipped("skipinbox", changelog=True)
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual((line["icon"], line["detail"]), ("done", "1 phases · 1 inbox entries"), line)
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Skipped"), labels.index("Branch") + 1)
+
+        entries = self._inbox(repo)
+        self.assertEqual(len(entries), 1, entries)
+        text = entries[0].read_text()
+        self.assertTrue(text.startswith("# "), text)
+        archived = repo / ".claude/cfq/impl/done" / name / "skipped/03-c.md"
+        self.assertTrue(archived.is_file())
+        origin = text.split("## Origin", 1)[1].split("## Skipped plan", 1)[0]
+        for needle in (name, "03-c", "obsolete", str(archived)):
+            self.assertIn(needle, origin)
+        self.assertIn("## Skipped plan", text)
+        self.assertIn("Third phase", text.split("## Skipped plan", 1)[1])
+
+        self.assertIn(f"{name} done · 2 phases · 1 skipped", out["changelog"])
+        status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
+        self.assertEqual(status["phases"]["03-c"]["inbox"], entries[0].name)
+        fin = json.loads((repo / ".claude/cfq/impl/done" / name / "report.json").read_text())["finish"]
+        self.assertEqual(fin["skipped"], ["03-c"])
+
+    def test_skipped_plan_headings_are_demoted_outside_code_fences(self):
+        repo, _home, _name, _out = self._finish_skipped("skipdemote")
+        plan = self._inbox(repo)[0].read_text().split("## Skipped plan", 1)[1]
+        self.assertIn("\n### Third phase\n", plan)
+        self.assertIn("\n#### Size\n", plan)
+        self.assertIn("\n#### Changes\n", plan)
+        self.assertIn("\n##### Detail\n", plan)
+        self.assertIn("\n# not a heading\n", plan)
+
+    def test_skipped_second_finish_writes_no_second_entry(self):
+        repo, home, name, _out = self._finish_skipped("skiptwice")
+        moved = repo / ".claude/cfq/impl/done" / name
+        self.run_cfq("finish", str(repo), str(moved), "v0.1-skiptwice", home=home, check=True)
+        self.assertEqual(len(self._inbox(repo)), 1)
+
+    def test_skip_without_reason_says_none_given(self):
+        repo, _home, _name, _out = self._finish_skipped("skipnoreason", reason=None)
+        text = self._inbox(repo)[0].read_text()
+        self.assertIn("none given", text.split("## Origin", 1)[1])
+
+    def test_no_skipped_phase_gets_a_none_line_and_no_entry(self):
+        home = self._repos_dir / "home-noskip"
+        home.mkdir()
+        repo = self._new_repo("repo-noskip")
+        batch = self._new_batch(repo, "2026-01-01-noskip")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-noskip", home=home, check=True)
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "v0.1-noskip", home=home, check=True)
+        )
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual((line["icon"], line["detail"]), ("skip", "none"), line)
+        self.assertEqual(self._inbox(repo), [])
+
+    def test_skipped_inbox_failure_still_completes_with_a_warning(self):
+        def block_plan_dir(repo):
+            shutil.rmtree(repo / ".claude/cfq/plan", ignore_errors=True)
+            (repo / ".claude/cfq/plan").write_text("not a directory\n")
+
+        repo, _home, name, out = self._finish_skipped("skipfail", prepare=block_plan_dir)
+        self.assertTrue((repo / ".claude/cfq/impl/done" / name).is_dir())
+        self.assertEqual(out["lock"], "released")
+        self.assertTrue(any(e.startswith("skipped:") for e in out["errors"]), out["errors"])
+        line = next(e for e in out["statusLines"] if e["label"] == "Skipped")
+        self.assertEqual(line["icon"], "warn", line)
+        status = json.loads((repo / ".claude/cfq/impl/done" / name / "status.json").read_text())
+        self.assertNotIn("inbox", status["phases"]["03-c"])
+
+    def _lang_refs(self, repo, tag, changelog=None, branch=None):
+        """Runs finish on `repo` with a logging shim in front of cfq_lang.py and returns the
+        reference each of the two language checks received (changed-files check, prose check).
+        `changelog` is the text of a changelog file in the repo; None leaves `changelogFile` empty."""
+        home = self._repos_dir / f"home-{tag}"
+        (home / ".claude/cfq").mkdir(parents=True)
+        settings = {"changelogFile": ""}
+        if changelog is not None:
+            (repo / "CHANGELOG.yml").write_text(changelog)
+            settings = {"changelogFile": "CHANGELOG.yml"}
+        (home / ".claude/cfq/settings.json").write_text(json.dumps(settings))
+        batch = self._new_batch(repo, "2026-01-01-" + tag)
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-" + tag, home=home, check=True)
+
+        shim_root = self._repos_dir / f"shim-{tag}"
+        shim_root.mkdir()
+        scripts_copy = shim_root / "scripts"
+        shutil.copytree(SCRIPTS_DIR, scripts_copy)
+        bin_copy = shim_root / "bin"
+        shutil.copytree(PLUGIN_ROOT / "bin", bin_copy)
+        log_file = shim_root / "lang.log"
+        log_file.write_text("")
+        orig = scripts_copy / "cfq_lang.py"
+        real = scripts_copy / "cfq_lang_real.py"
+        orig.rename(real)
+        orig.write_text(f"""#!/usr/bin/env python3
+import subprocess
+import sys
+
+with open({str(log_file)!r}, "a") as f:
+    f.write(" ".join(sys.argv[1:]) + "\\n")
+sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
+""")
+        orig.chmod(0o755)
+
+        run_env = self._base_env()
+        run_env["HOME"] = str(home)
+        proc = subprocess.run(
+            [str(bin_copy / "cfq"), "finish", str(repo), str(batch),
+             "v0.1-" + tag if branch is None else branch],
+            capture_output=True, text=True, env=run_env,
+        )
+        self.assertEqual(proc.returncode, 0, f"finish via copy failed: {proc.stderr}")
+        calls = [line.split() for line in log_file.read_text().splitlines() if line]
+        changed = [c for c in calls if "--changed" in c]
+        prose = [c for c in calls if c and c[0] == "prose"]
+        self.assertEqual(len(changed), 1, calls)
+        self.assertEqual(len(prose), 1, calls)
+        return changed[0][-1], prose[0][-1], json.loads(proc.stdout)
+
+    def _rev(self, repo, ref):
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", ref], capture_output=True, text=True, check=True,
+        ).stdout.strip()
+
+    def test_language_checks_use_the_detected_default_branch(self):
+        repo = self._new_repo("repo-master")
+        subprocess.run(["git", "-C", str(repo), "branch", "-M", "master"], check=True)
+        changed_ref, prose_ref, _out = self._lang_refs(repo, "master")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(changed_ref, proc_lib.default_branch(str(repo), True)[1])
+        self.assertEqual(self._rev(repo, changed_ref), self._rev(repo, "master"))
+
+    def test_language_checks_compare_against_origin_first(self):
+        source = self._new_repo("repo-source")
+        clone = self._repos_dir / "repo-clone"
+        subprocess.run(["git", "clone", "-q", str(source), str(clone)], check=True)
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(clone), "config", key, value], check=True)
+        (source / "more.txt").write_text("more\n")
+        subprocess.run(["git", "-C", str(source), "add", "more.txt"], check=True)
+        subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "more"], check=True)
+        subprocess.run(["git", "-C", str(clone), "fetch", "-q", "origin"], check=True)
+        self.assertNotEqual(self._rev(clone, "main"), self._rev(clone, "origin/main"))
+
+        changed_ref, prose_ref, _out = self._lang_refs(clone, "clone")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(self._rev(clone, changed_ref), self._rev(clone, "origin/main"))
+
+    def test_language_check_survives_a_repo_without_a_default_branch(self):
+        repo = self._new_repo("repo-work")
+        subprocess.run(["git", "-C", str(repo), "branch", "-M", "work"], check=True)
+        _changed, _prose, out = self._lang_refs(repo, "work")
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+
+    # ---- the language checks compare against the batch's own base branch --------------------
+
+    def _git(self, repo, *args):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+    def _chain_repo(self, name):
+        """A repository on `cfq/002-b`, cut from the unmerged predecessor `cfq/001-a`, which
+        carries one commit `main` lacks."""
+        repo = self._new_repo(name)
+        self._git(repo, "checkout", "-q", "-b", "cfq/001-a")
+        (repo / "a.txt").write_text("a\n")
+        self._git(repo, "add", "a.txt")
+        self._git(repo, "commit", "-q", "-m", "predecessor")
+        self._git(repo, "checkout", "-q", "-b", "cfq/002-b")
+        return repo
+
+    def _clone_chain_repo(self, name):
+        """A clone of a repository with `main` and `cfq/001-a`: `origin/cfq/001-a` exists, a local
+        `cfq/001-a` is cut from `main` (a different commit), and `cfq/002-b` is checked out."""
+        source = self._new_repo(name + "-source")
+        self._git(source, "checkout", "-q", "-b", "cfq/001-a")
+        (source / "a.txt").write_text("a\n")
+        self._git(source, "add", "a.txt")
+        self._git(source, "commit", "-q", "-m", "predecessor")
+        self._git(source, "checkout", "-q", "main")
+        clone = self._repos_dir / name
+        subprocess.run(["git", "clone", "-q", str(source), str(clone)], check=True)
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            self._git(clone, "config", key, value)
+        self._git(clone, "branch", "cfq/001-a", "main")
+        self._git(clone, "checkout", "-q", "-b", "cfq/002-b", "origin/cfq/001-a")
+        return clone
+
+    @staticmethod
+    def _changelog(tag, base):
+        lines = ["- batchNumber: 2", f"  batch: 2026-01-01-{tag}", "  branch: cfq/002-b"]
+        if base is not None:
+            lines.append(f"  base: {base}")
+        return "\n".join(lines + ["  status: running", ""])
+
+    def _assert_lang_ref(self, repo, tag, base, expected, changelog="block"):
+        """Both `lang` calls receive the same reference, equal to `expected`, and `finish` completes with a `Language` status line."""
+        text = self._changelog(tag, base) if changelog == "block" else changelog
+        changed_ref, prose_ref, out = self._lang_refs(repo, tag, changelog=text)
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(self._rev(repo, changed_ref), self._rev(repo, expected))
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+        return changed_ref
+
+    def test_language_checks_use_the_recorded_base_branch(self):
+        repo = self._chain_repo("repo-base")
+        self.assertNotEqual(self._rev(repo, "cfq/001-a"), self._rev(repo, "main"))
+        self._assert_lang_ref(repo, "base", "cfq/001-a", "cfq/001-a")
+
+    def test_language_checks_prefer_the_base_branch_on_origin(self):
+        clone = self._clone_chain_repo("repo-base-origin")
+        self.assertNotEqual(self._rev(clone, "cfq/001-a"), self._rev(clone, "origin/cfq/001-a"))
+        ref = self._assert_lang_ref(clone, "baseorigin", "cfq/001-a", "origin/cfq/001-a")
+        self.assertEqual(ref, "origin/cfq/001-a")
+
+    def test_language_checks_with_the_default_branch_as_base(self):
+        repo = self._chain_repo("repo-base-default")
+        ref = self._assert_lang_ref(repo, "basedefault", "main", "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_for_a_legacy_block(self):
+        repo = self._chain_repo("repo-base-legacy")
+        ref = self._assert_lang_ref(repo, "baselegacy", None, "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_when_the_base_branch_is_gone(self):
+        repo = self._chain_repo("repo-base-gone")
+        self._git(repo, "branch", "-D", "cfq/001-a")
+        ref = self._assert_lang_ref(repo, "basegone", "cfq/001-a", "main")
+        self.assertEqual(ref, proc_lib.default_branch(str(repo), True)[1])
+
+    def test_language_checks_fall_back_without_a_changelog(self):
+        repo = self._chain_repo("repo-base-nolog")
+        changed_ref, prose_ref, out = self._lang_refs(repo, "basenolog")
+        self.assertEqual(changed_ref, prose_ref)
+        self.assertEqual(changed_ref, proc_lib.default_branch(str(repo), True)[1])
+        self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
+
+    # ---- the Branch line --------------------------------------------------------------------
+
+    def _branch_entry(self, repo, tag, base, branch="cfq/002-b"):
+        text = self._changelog(tag, base)
+        _c, _p, out = self._lang_refs(repo, tag, changelog=text, branch=branch)
+        entries = [e for e in out["statusLines"] if e["label"] == "Branch"]
+        self.assertEqual(len(entries), 1, out["statusLines"])
+        self.assert_status_lines_shape(out["statusLines"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Branch"), labels.index("Changelog") + 1)
+        return entries[0], out
+
+    def test_branch_line_names_the_branch_and_its_base(self):
+        repo = self._chain_repo("repo-branch-routine")
+        entry, out = self._branch_entry(repo, "branchroutine", "cfq/001-a")
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b · from cfq/001-a"))
+        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": "cfq/001-a"})
+
+    def test_branch_line_without_a_recorded_base_names_the_branch_alone(self):
+        repo = self._chain_repo("repo-branch-nobase")
+        entry, out = self._branch_entry(repo, "branchnobase", None)
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b"))
+        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": ""})
+
+    def test_branch_line_for_a_detached_head_is_skipped(self):
+        repo = self._chain_repo("repo-branch-detached")
+        entry, out = self._branch_entry(repo, "branchdetached", "cfq/001-a", branch="HEAD")
+        self.assertEqual((entry["icon"], entry["detail"]), ("skip", "no branch"))
+        self.assertEqual(out["branch"], {"name": "", "base": "cfq/001-a"})
+
+    def test_batch_base_reads_the_blocks_base(self):
+        repo = self._chain_repo("repo-batch-base")
+        (repo / "CHANGELOG.yml").write_text(
+            self._changelog("other", "cfq/009-z") + self._changelog("mine", "cfq/001-a")
+        )
+        with mock.patch.object(cfq_changelog, "settings_get", return_value="CHANGELOG.yml"):
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-mine"), "cfq/001-a")
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-none"), "")
+        with mock.patch.object(cfq_changelog, "settings_get", return_value=""):
+            self.assertEqual(cfq_finish.batch_base(str(repo), "2026-01-01-mine"), "")
 
     def test_nine_subcalls_run_in_expected_order(self):
         # Order: cfq-finish.sh runs its nine sub-nouns as a sequence where later steps depend on
@@ -448,13 +881,18 @@ class FinishTest(CfqTestCase):
             orig = scripts_copy / script_name
             real = scripts_copy / script_name.replace(".py", "_real.py")
             orig.rename(real)
+            # Imported (cfq_finish reads the changelog through cfq_changelog), the shim hands the
+            # real module's names through instead of running the command.
             orig.write_text(f"""#!/usr/bin/env python3
 import subprocess
 import sys
 
-with open({str(log_file)!r}, "a") as f:
-    f.write({noun!r} + " " + " ".join(sys.argv[1:]) + "\\n")
-sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
+if __name__ != "__main__":
+    from {real.stem} import *  # noqa: F401,F403
+else:
+    with open({str(log_file)!r}, "a") as f:
+        f.write({noun!r} + " " + " ".join(sys.argv[1:]) + "\\n")
+    sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returncode)
 """)
             orig.chmod(0o755)
 
@@ -468,7 +906,8 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         # `settings` is used internally by nearly every other script (to read its own config),
         # so its first log line is not necessarily cfq-finish.sh's own direct call -- only its
-        # two direct calls (changelogFile, htmlReport) carry those exact argument tails.
+        # two direct calls (changelogFile, htmlReport) carry those exact argument tails; the
+        # changelogFile read comes first, as the language checks look up the batch's base branch.
         calls = [line for line in log_file.read_text().splitlines() if line]
         first_index = {}
         for i, line in enumerate(calls):
@@ -478,7 +917,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
                 continue
             first_index.setdefault(noun, i)
         expected = [
-            "registry", "lang", "maintenance", "security", "report", "settings", "changelog",
+            "registry", "settings", "lang", "maintenance", "security", "report", "changelog",
             "telemetry", "lock",
         ]
         for noun in expected:

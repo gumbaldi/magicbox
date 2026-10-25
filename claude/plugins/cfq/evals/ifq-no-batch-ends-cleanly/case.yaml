@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: ifq-no-batch-ends-cleanly
+context:
+  scaffold_script: fixture.sh

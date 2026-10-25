@@ -183,6 +183,41 @@ class GuardTest(CfqTestCase):
         self.assertAllowed(self._write("/repo/.claude/cfq/impl/019-x/.batch-context.md"))
         self.assertAllowed(self._write("/repo/.claude/cfq/plan/2026-09-14-foo.md"))
 
+    # -- Write/Edit into skipped/ and onto status.json ----------------------------------------------
+
+    def test_deny_write_into_skipped_and_status_file(self):
+        for tool in ("Write", "Edit"):
+            for path in (
+                "/repo/.claude/cfq/impl/051-x/status.json",
+                "/repo/.claude/cfq/impl/done/051-x/status.json",
+                "/repo/.claude/cfq/impl/051-x/skipped/01-a.md",
+            ):
+                with self.subTest(tool=tool, path=path):
+                    self.assertDenied(self._write(path, tool_name=tool), contains="bin/cfq phase")
+
+    def test_allow_write_open_phase_file_and_foreign_status_json(self):
+        self.assertAllowed(self._write("/repo/.claude/cfq/impl/051-x/01-a.md"))
+        self.assertAllowed(self._write("/repo/src/status.json"))
+        self.assertAllowed(self._write("/repo/.claude/cfq/impl/051-x/notes/status.json"))
+
+    def test_deny_mv_into_and_out_of_skipped_names_phase_skip_and_unskip(self):
+        into = self._bash(
+            "mv /repo/.claude/cfq/impl/051-x/01-a.md /repo/.claude/cfq/impl/051-x/skipped/",
+            cwd="/repo",
+        )
+        self.assertDenied(into, contains="bin/cfq phase skip")
+        out = self._bash(
+            "mv /repo/.claude/cfq/impl/051-x/skipped/01-a.md /repo/.claude/cfq/impl/051-x/",
+            cwd="/repo",
+        )
+        self.assertDenied(out, contains="bin/cfq phase unskip")
+
+    def test_deny_redirect_onto_status_file(self):
+        self.assertDenied(
+            self._bash("echo {} > .claude/cfq/impl/051-x/status.json", cwd="/repo"),
+            contains="bin/cfq phase",
+        )
+
     # -- quote/heredoc parsing (batch 038 phase 01) ---------------------------------------------
 
     def test_allow_backslash_escaped_double_quote_in_pipeline(self):

@@ -13,6 +13,17 @@ autonomously; this file covers decisions the *user* made from the planner's own 
 This file governs whether a phase should **exist**. `phase-quality.md` governs what a phase's
 **text** must contain once it does. Keep the two separate.
 
+## Contents
+
+- Scope
+- The Three Categories
+- The Citation Requirement
+- The Batch Line
+- On a Fail
+- Recording
+- Rendered Example
+- The Post-Write Audit
+
 ## Scope
 
 Read unconditionally at **Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A
@@ -126,6 +137,8 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   corrects the phase files and names each correction in the status line. Only a correction that
   would drop a phase or remove a capability the user named in the interview goes to one
   `AskUserQuestion`.
+- **After a review revision.** Whether the audit runs again after a change at the review gate is
+  decided by `<plugin-root>/references/plan-review.md`'s **Re-check**.
 - **Renumbering after a correction.** A correction that reorders phases renames the files so the
   numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
   phase. This happens before **Plan Lint**.

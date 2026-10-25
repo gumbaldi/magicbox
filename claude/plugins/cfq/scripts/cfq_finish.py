@@ -2,7 +2,14 @@
 # Usage: cfq_finish.py <repo-root> <batch-dir> <branch>
 """Runs the batch-done sequence (move, register, language check, maintenance check, security
 diff, changelog, telemetry sync) in a fixed order and prints one JSON object. The lock release is
-guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked.
+guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked. The
+`statusLines` array also carries a `Branch` line (the batch branch and the branch it was cut from)
+and the object a `branch` field with the same two values.
+
+The language checks compare against the batch's own base branch (the changelog block's `base:`,
+`origin` first, then local), so a batch cut from an unmerged predecessor is checked only for its
+own changes; the default branch is the fallback when no base is recorded or the base branch no
+longer exists.
 
 Ported from cfq-finish.sh -- a port, not a redesign: the nine-call order, the per-call failure
 handling (each recorded in `errors`, none aborts the sequence) and every output field are the
@@ -19,10 +26,38 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, portal_hook, render, text as cfq_text  # noqa: E402
-from cfq_lib.proc import capture, cfq_argv, cfq_run, cfq_run_merged, git, settings_get  # noqa: E402
+import cfq_changelog  # noqa: E402
+from cfq_lib import paths, phase_state, portal_hook, render, text as cfq_text  # noqa: E402
+from cfq_lib.proc import (  # noqa: E402
+    capture, cfq_argv, cfq_run, cfq_run_merged, default_branch, git, settings_get,
+)
 
 PROG = "cfq_finish.py"
+
+
+def batch_base(repo_root, batch_name):
+    """The `base:` value of the batch's changelog block, or `""` when `changelogFile` is empty,
+    the file is missing, no block matches or the block has no `base:`."""
+    changelog_file = cfq_changelog.changelog_file(repo_root)
+    if not changelog_file or not pathlib.Path(changelog_file).is_file():
+        return ""
+    start = cfq_changelog.find_block_start(changelog_file, "  batch:", batch_name)
+    if start is None:
+        return ""
+    lines = cfq_changelog.read_lines(changelog_file)
+    return cfq_changelog.block_field(cfq_changelog.block_text(lines, start), "  base:") or ""
+
+
+def lang_base_ref(repo_root, base, default_ref):
+    """The reference the language checks compare against: `origin/<base>` when that branch exists
+    on `origin`, else `<base>` when it exists locally, else `default_ref` (also for an empty
+    `base`). The default branch itself keeps `default_ref`. No fetch -- the refs on disk decide."""
+    if base and default_ref not in (f"refs/remotes/origin/{base}", f"refs/heads/{base}"):
+        for ref, name in ((f"refs/remotes/origin/{base}", f"origin/{base}"),
+                          (f"refs/heads/{base}", base)):
+            if git(repo_root, "rev-parse", "--verify", "--quiet", ref).returncode == 0:
+                return name
+    return default_ref
 
 
 def load_json_or(text, default):
@@ -81,6 +116,26 @@ def changelog_line(changelog):
     return cfq_text.status_entry("Changelog", "done", changelog)
 
 
+def branch_line(branch, base):
+    """The `Branch` line: the batch's branch and, when the changelog records one, the branch it
+    was cut from. An empty or detached (`HEAD`) branch argument renders `➖ no branch`."""
+    if not branch or branch == "HEAD":
+        return cfq_text.status_entry("Branch", "skip", "no branch")
+    return cfq_text.status_entry("Branch", "done", f"{branch} · from {base}" if base else branch)
+
+
+def skipped_line(skipped, written, failed):
+    """The `Skipped` line: what became of the batch's skipped phases. `skipped` is the number of
+    skipped phases, `written` the number of inbox entries that exist for them, `failed` whether
+    anything went wrong writing them (the error text itself attaches as a sub line)."""
+    detail = f"{skipped} phases · {written} inbox entries"
+    if failed:
+        return cfq_text.status_entry("Skipped", "warn", detail)
+    if not skipped:
+        return cfq_text.status_entry("Skipped", "skip", "none")
+    return cfq_text.status_entry("Skipped", "done", detail)
+
+
 def telemetry_line(telemetry, ok):
     return cfq_text.status_entry("Telemetry", "done" if ok else "warn", telemetry)
 
@@ -101,7 +156,7 @@ def lock_line(lock):
 
 STEP_LABEL = {
     "lang": "Language", "maintenance": "Maintenance", "security": "Security Diff",
-    "changelog": "Changelog", "telemetry": "Telemetry",
+    "changelog": "Changelog", "branch": "Branch", "telemetry": "Telemetry", "skipped": "Skipped",
 }
 
 
@@ -134,6 +189,87 @@ def attach_errors(status_lines, errs):
         )
 
 
+# ---- inbox entries for skipped phases (batch 051 phase 07) ---------------------------------
+
+def demote_headings(text, by=2):
+    """Pushes every Markdown heading outside a fenced code block down `by` levels (capped at 6),
+    so a plan's own `# Title` can sit inside the inbox entry's `## Skipped plan` section."""
+    out, fenced = [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            rest = line[level:]
+            if level <= 6 and (not rest or rest[0] in " \t"):
+                line = "#" * min(level + by, 6) + rest
+        out.append(line)
+    return "\n".join(out)
+
+
+def skipped_entry_body(batch_name, rec, plan_path):
+    """The `plan/` inbox entry for one skipped phase: H1 title, `## Finding`, `## Origin` (batch,
+    phase, reason, the archived plan file) and `## Skipped plan` (the plan text, headings demoted)."""
+    try:
+        plan_text = pathlib.Path(plan_path).read_text()
+    except OSError:
+        plan_text = "(the archived plan file could not be read)\n"
+    title = rec["slug"]
+    for line in plan_text.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip() or title
+            break
+    return (
+        f"# Skipped phase {rec['slug']}: {title}\n\n"
+        "## Finding\n\n"
+        f"Phase {rec['slug']} was skipped and never implemented when batch {batch_name} finished. "
+        "Whether to plan it again is still an open decision.\n\n"
+        "## Origin\n\n"
+        f"- Batch: {batch_name}\n"
+        f"- Phase: {rec['slug']}\n"
+        f"- Reason: {rec.get('reason') or 'none given'}\n"
+        f"- Plan file: {plan_path}\n\n"
+        "## Skipped plan\n\n"
+        f"{demote_headings(plan_text)}\n"
+    )
+
+
+def write_skipped_entries(repo_root, batch_dir, add_error):
+    """One `plan/` inbox entry per skipped phase that has no `inbox` annotation yet, written
+    through `note plan --batch` (so batch 050's notes ledger records it) and annotated back into
+    status.json. Returns (skipped slugs, number of phases with an inbox entry); a failure is added
+    through `add_error` and never raises."""
+    try:
+        skipped = [r for r in phase_state.phases(batch_dir) if r["status"] == "skipped"]
+    except phase_state.PhaseStateError as exc:
+        add_error("skipped", f"{exc.code}: {exc.message}")
+        return [], 0
+    written = 0
+    for rec in skipped:
+        if rec.get("inbox"):
+            written += 1
+            continue
+        slug = rec["slug"]
+        plan_path = rec["path"] or batch_dir / phase_state.SUBDIR["skipped"] / f"{slug}.md"
+        try:
+            proc = subprocess.run(
+                cfq_argv("note", "plan", str(repo_root), f"skipped-{batch_dir.name}-{slug}", "-",
+                         "--batch", batch_dir.name),
+                input=skipped_entry_body(batch_dir.name, rec, plan_path),
+                capture_output=True, text=True,
+            )
+            if proc.returncode != 0:
+                add_error("skipped", f"{slug}: could not write the inbox entry: "
+                          f"{(proc.stderr or proc.stdout).strip()}")
+                continue
+            lines = proc.stdout.strip().splitlines()
+            phase_state.annotate(batch_dir, slug, inbox=pathlib.Path(lines[-1]).name)
+            written += 1
+        except (OSError, IndexError, phase_state.PhaseStateError) as exc:
+            add_error("skipped", f"{slug}: could not write the inbox entry: {exc}")
+    return [r["slug"] for r in skipped], written
+
+
 def cmd_finish(args):
     repo_root = args.repo_root
     batch_dir = pathlib.Path(str(args.batch_dir).rstrip("/"))
@@ -155,8 +291,16 @@ def cmd_finish(args):
         if cfq_run("registry", "add", str(repo_root)).returncode != 0:
             add_error("registry", "cfq_registry.py add failed")
 
+        errs_before = len(errs)
+        skipped_slugs, skipped_written = write_skipped_entries(repo_root, batch_dir, add_error)
+        skipped_failed = len(errs) > errs_before
+
         lang_json = {"issues": 0, "findings": []}
-        proc = cfq_run_merged("lang", str(repo_root), "--changed", "main")
+        # True: the `origin` refs on disk are used when present; this call does not fetch.
+        _, default_ref = default_branch(repo_root, True)
+        batch_base_name = batch_base(repo_root, batch_dir.name)
+        base_ref = lang_base_ref(repo_root, batch_base_name, default_ref)
+        proc = cfq_run_merged("lang", str(repo_root), "--changed", base_ref)
         out = capture(proc)
         if proc.returncode == 0:
             data = load_json_or(out, None)
@@ -173,7 +317,7 @@ def cmd_finish(args):
         else:
             add_error("lang", out)
 
-        prose_proc = cfq_run_merged("lang", "prose", str(repo_root), "main")
+        prose_proc = cfq_run_merged("lang", "prose", str(repo_root), base_ref)
         prose_out = capture(prose_proc)
         if prose_proc.returncode == 0:
             prose_val = load_json_or(prose_out, None)
@@ -221,27 +365,38 @@ def cmd_finish(args):
         changelog = "changelogFile empty"
         changelog_file = settings_get(repo_root, "changelogFile")
         if changelog_file:
-            done_phase_dir = batch_dir / "done"
-            phases = len(list(done_phase_dir.glob("[0-9][0-9]-*.md"))) if done_phase_dir.is_dir() else 0
+            try:
+                phase_counts = phase_state.counts(batch_dir)
+            except phase_state.PhaseStateError as exc:
+                phase_counts = {"done": 0, "skipped": 0}
+                if not skipped_failed:
+                    add_error("skipped", f"{exc.code}: {exc.message}")
+                    skipped_failed = True
+            phases = phase_counts["done"]
             fin_proc = cfq_run_merged("changelog", "finish", str(repo_root), branch, str(batch_dir))
             fin_out = capture(fin_proc)
             if fin_proc.returncode == 0:
                 changelog = f"{batch_dir.name} done · {phases} phases"
-                status_out = git(repo_root, "status", "--porcelain", "--", changelog_file).stdout
-                if status_out.strip():
-                    ok = (
-                        git(repo_root, "add", changelog_file).returncode == 0
-                        and git(
-                            repo_root, "commit", "-q",
-                            "-m", f"Mark {branch} batch done in the changelog",
-                            "-m", "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>",
-                        ).returncode == 0
-                        and git(repo_root, "push", "-q").returncode == 0
+                if phase_counts["skipped"]:
+                    changelog += f" · {phase_counts['skipped']} skipped"
+                msg = (
+                    f"Mark {branch} batch done in the changelog\n\n"
+                    "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+                )
+                commit_proc = cfq_run("changelog", "commit", str(repo_root), msg)
+                result = capture(commit_proc)
+                if commit_proc.returncode != 0:
+                    add_error("changelog", f"git commit of {changelog_file} failed: {commit_proc.stderr.strip() or result}")
+                elif result in ("committed", "forced"):
+                    pushed = (
+                        git(repo_root, "push", "-q").returncode == 0
+                        or git(repo_root, "push", "-q", "-u", "origin", branch).returncode == 0
                     )
-                    if ok:
-                        changelog = f"{changelog} · committed"
+                    if pushed:
+                        suffix = "force-added (ignored by repo) · committed" if result == "forced" else "committed"
+                        changelog = f"{changelog} · {suffix}"
                     else:
-                        add_error("changelog", f"git commit/push of {changelog_file} failed")
+                        add_error("changelog", f"git push of {changelog_file} failed")
             else:
                 add_error("changelog", fin_out)
                 changelog = "error"
@@ -252,6 +407,21 @@ def cmd_finish(args):
             add_error("telemetry", telemetry)
 
         html_report = capture(cfq_run("settings", "get", "--repo", str(repo_root), "htmlReport"))
+        if report_path.is_file():
+            try:
+                data = json.loads(report_path.read_text())
+                data["finish"] = {
+                    "at": render.now_iso(),
+                    "lang": {"issues": lang_json["issues"], "findings": lang_json["findings"]},
+                    "maintenance": maintenance,
+                    "security": {"planning": planning_json, "now": now_json, "new": new_json},
+                    "changelog": changelog,
+                    "skipped": skipped_slugs,
+                    "errors": list(errs),
+                }
+                render.write_json(str(report_path), data)
+            except (OSError, ValueError, TypeError, AttributeError) as exc:
+                add_error("report", f"could not persist the finish result: {exc}")
         portal_hook.sync(str(repo_root), batches=[batch_dir.name])
 
         status_lines = [
@@ -259,6 +429,8 @@ def cmd_finish(args):
             maintenance_line(maintenance),
             security_diff_line({"planning": planning_json, "now": now_json, "new": new_json}),
             changelog_line(changelog),
+            branch_line(branch, batch_base_name),
+            skipped_line(len(skipped_slugs), skipped_written, skipped_failed),
             telemetry_line(telemetry, tel_proc.returncode == 0),
             report_line(html_report, str(repo_root), batch_dir.name),
             lock_line("released"),
@@ -269,6 +441,9 @@ def cmd_finish(args):
             "moved": str(batch_dir), "lang": lang_json, "maintenance": maintenance,
             "security": {"planning": planning_json, "now": now_json, "new": new_json},
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
+            "branch": {
+                "name": "" if not branch or branch == "HEAD" else branch, "base": batch_base_name,
+            },
             "statusLines": [line for line in status_lines if line is not None],
         }))
     finally:

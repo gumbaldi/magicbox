@@ -1,4 +1,12 @@
-# ifq: Batch Selection, Briefing, Branch and Resume
+# ifq: Arguments, Model Gate, Batch Selection and Gates
+
+## Contents
+
+- Arguments
+- Model Gate Stop
+- Batch Selection Rules
+- Briefing Warnings
+- Lint Gate
 
 ## Arguments
 
@@ -10,6 +18,8 @@ for the same `preflight-impl` call **Batch Selection** already makes — never a
 | `resume` | `--intent resume` | Continue the in-progress batch, skipping the start gate. Falls back to the normal gate (`startGate.reason: "resume-nothing-in-progress"`) when nothing is in progress — it never starts something new silently. |
 | `start` | `--intent start` | Take the in-progress batch, or the ordered next selectable one, skipping the start gate. |
 | `start <batch>` | `--intent start --select <batch>` | Same as `start`, naming which batch. |
+| `skip <NN> [reason…]` | none | Skip phase `<NN>` of the selected batch, then continue as a normal session — see below. |
+| `unskip <NN>` | none | Bring a skipped phase back, then continue as a normal session. |
 | anything else | `--select <text>` (today's meaning, unchanged) | A hint that narrows batch selection, per **Batch Selection Rules** — not a keyword. |
 
 `--intent resume` combined with `--select` is rejected by the preflight itself (`INVALID_ARGS`) —
@@ -17,6 +27,15 @@ for the same `preflight-impl` call **Batch Selection** already makes — never a
 never produces that combination, so it should never actually fire. `MULTIPLE_IN_PROGRESS`,
 `BLOCKED`, `NO_BATCH` and `SELECT_UNAVAILABLE` stop exactly as they do without a keyword —
 `startGate` comes back `null` on every one of those, so neither keyword has anything to skip.
+
+**`skip` and `unskip`** pass no `--intent`. Run the preflight as usual; on `status: "OK"` call
+`bin/cfq phase skip "<batch-dir>" <NN> --reason "<reason>"` (`phase unskip "<batch-dir>" <NN>` for
+`unskip`; `--reason` only when text was given) for the batch the preflight resolved, print the
+returned `statusLines` entry verbatim, re-run the preflight with `--select <batch>` and continue from
+**Batch Briefing** as a normal session — briefing, start gate and the next phase follow. A non-`OK`
+result of the verb is printed as `❌ Skip` with the returned detail and ends the session, nothing
+else touched. Only the user skips, see `<plugin-root>/references/ifq-phase.md`'s **Skipping a
+Phase**.
 
 ## Model Gate Stop
 
@@ -50,11 +69,14 @@ back to a blocked one. `unknownDeps` (an unresolvable `.dependsOn` name) is show
 with `⚠️` and the unresolvable name but doesn't block (`/cfq` fixes it) — one sentence, no more.
 
 **Planning** — a batch `/pfq` is still writing (`.planning` marker not yet cleared by its lint
-step) — is never offered either, separately from the `dependsOn` wait list: for every name in
-`selection.planning`, "Batch `<name>` is still being planned — try again once `/pfq` finishes. If no
-`/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"` clears the marker;
-otherwise it becomes selectable on its own once the marker is older than `sessionStaleSeconds`."
-One line per such batch, no more.
+step) — is never offered either, separately from the `dependsOn` wait list. For every name in
+`selection.review` (a batch held at its plan review gate, always also in `selection.planning`):
+"Batch `<name>` is waiting for its plan review — run `/pfq` to continue the review, or release it
+unreviewed with `bin/cfq batch ready "<batch-dir>"`." It never becomes selectable on its own. For
+every other name in `selection.planning`: "Batch `<name>` is still being planned — try again once
+`/pfq` finishes. If no `/pfq` session is still running for it, `bin/cfq batch ready "<batch-dir>"`
+clears the marker; otherwise it becomes selectable on its own once the marker is older than
+`sessionStaleSeconds`." One line per such batch, no more.
 
 **In-progress invariant.** `status: "MULTIPLE_IN_PROGRESS"` (`selection.multipleInProgress`
 non-empty) means more than one batch violates the one-in-progress-batch-per-repo invariant: **stop
@@ -72,7 +94,7 @@ has more than one entry, the preflight already picked `selection.selectable[0]` 
 flagged-first-then-name) — `batch`/`nextPhase`/`branch`/`resume`/`contextGate` come back resolved
 for it, no question. Arguments naming a specific batch re-run the preflight with `--select <batch>`
 instead of taking the ordered default. `status: "SELECT_UNAVAILABLE"` means the named batch isn't
-selectable (blocked, still planning, or unknown) — report why, from `selection`, and end; never
+selectable (blocked, still planning, awaiting review, or unknown) — report why, from `selection`, and end; never
 falls back to the ordered default. **Never two batches in the same session**, not even once the
 first finishes and context is still free — different plans belong in separate context windows.
 
@@ -81,7 +103,7 @@ first finishes and context is still free — different plans belong in separate 
 `nextPhase: null` here means every phase already moved to `done/` but `bin/cfq finish` never ran —
 **Batch Briefing** still acquires the lock and resolves the branch as usual, then skips ahead
 straight to **Batch Done**. `status: "SELECT_UNAVAILABLE"` (arguments named a batch that isn't
-selectable) → report why, from `selection` (blocked / still planning / not found), end — never
+selectable) → report why, from `selection` (blocked / still planning / awaiting review / not found), end — never
 falls back to the ordered default. `selection.selectable` has **zero** entries and `status` isn't
 `NO_BATCH`/`BLOCKED` → treat as `NO_BATCH`.
 
@@ -89,26 +111,6 @@ Print `Batch` in every outcome above that reaches **Batch Briefing** — the pre
 `statusLines` entry, already the right one of its four wordings (`--select` given, in-progress
 resumed, the lone selectable batch, or the ordered pick among several), printed exactly as
 returned — the distinguishing condition lives in the script, not here.
-
-## Batch Briefing
-
-`batch.briefText` in the preflight result already holds `bin/cfq brief`'s output for the resolved
-batch — batch name, priority, phase count, then a `goal:` line from `.batch-context.md`'s
-`## Goal` (cut at about 300 characters, on a word boundary) when the batch has one, `.dependsOn` if
-present, then one line per phase (number and title, size in brackets, context excerpt). Present it
-as-is, compactly: no prose around it, no repetition of the plan, no commentary on the phases. A
-phase file without `## Size` counts as `M`; one without `## Context` shows its title alone — an
-incomplete plan is worth showing, not worth aborting over. The `goal:` line is the batch summary,
-shown as-is; a batch without `.batch-context.md` or without a `## Goal` renders exactly as before,
-with no `goal:` line.
-
-`bin/cfq brief <batch-dir> --overview` is the mode the start gate itself renders (wired in by a
-later phase, not this reference) — the aligned-monospace batch-overview block: header, phase
-count with done/red breakdown, the wrapped `## Goal` paragraph, an optional wrapped
-`.batch-context.md` `## Decisions` excerpt, then the phase table with a `done`/`open`/`red` status
-column, each row followed by that phase's own `## Context` excerpt, and a closing `Plans` line
-naming the batch directory so a hand edit knows exactly where to reach in. `--with-done` stays
-exactly as described above for any caller that still wants the old flat listing.
 
 ## Briefing Warnings
 
@@ -127,213 +129,10 @@ handoff — run again here since a plan file is plain Markdown the user may edit
 later deterministic script misparses it mid-implementation. `lint.clean: false` → print `Lint` (its
 `lint.findings` already rendered as `   └ ` sub-lines) and **end the session immediately** — before
 the lock, the branch, or any file is touched — the user fixes the phase files by hand or re-plans
-the batch with `/pfq`. `lint.warnings` (an unresolvable `.dependsOn`, the same kind of `warn:` line
-`selection.blocked`'s `unknownDeps` already surfaces) never blocks, matching lint's own exit-code
-rule — `lint.clean` stays `true` even when `lint.warnings` is non-empty. `lint.clean: true` → print
-`Lint` and continue straight to lock acquisition.
-
-## Start Gate
-
-Fires before the lock — a declined batch must leave nothing to release, not even a lock. What is
-printed, in order: the briefing warnings **Briefing Warnings** already defines, then `bin/cfq
-brief "<batch-dir>" --overview` (the aligned-monospace batch-overview block from **Batch
-Briefing**), then `selection.queueText` (already resolved by the preflight, no new call), each
-rendered exactly as returned — no rewording, nothing between them but a blank line.
-
-**The question** may take a second call, because `AskUserQuestion` caps at four options and a repo
-may hold more than two other open batches — but only when another batch is actually selectable:
-
-- Other selectable batches = entries of `selection.selectable` other than the batch just briefed
-  (the same set the second call below offers).
-- At least one other selectable batch → first call, three options: **Start** (recommended, listed
-  first) — proceed to **Lock Acquisition** for the batch just briefed; **Pick a different batch** —
-  opens the second call below; **Cancel** — end the session, nothing touched, no lock taken, no
-  branch checked out. Print `Start Gate` as `➖ cancelled by user` and stop.
-- None → first call has only two options: **Start** (recommended, listed first), same effect as
-  above, and **Cancel**, same effect as above. No middle option, no second call possible; the
-  question text says the batch is ready and asks whether to start it — it does not mention picking
-  another batch.
-- Second call, only when the user picked the middle option (so only reachable in the
-  at-least-one-other case): one option per entry in
-  `selection.selectable` other than the batch already briefed, each labelled with its number and
-  slug and described with its `open` (phase count) and `goal`. Blocked and planning batches are
-  **not** offered — they are already visible in `queueText` with their own reason and stay
-  non-selectable. More than four such entries → offer the first three, in the same
-  flagged-first-then-name order `selectable` already carries, and say in the question text that
-  the rest are in the listing above and reachable by typing the number as free text. A free-text
-  answer naming a batch that is not in `selection.selectable` is reported against `queueText`'s
-  own reason for that batch and the question is asked once more; a second miss ends the session
-  without touching anything, mirroring **Branch and Changelog on Go-Ahead**'s free-text
-  resolution for the base-branch question — point at that paragraph, don't repeat it.
-- On a different batch being chosen, re-run `bin/cfq preflight-impl "<repo-root>" --select
-  <batch>` and continue from **Batch Briefing** with the new result — the gate does not fire a
-  second time for the freshly chosen batch, because choosing it *was* the confirmation.
-
-**When it fires**: `startGate.fire` is `true` — already resolved by the preflight from `--intent`
-and whether a batch is in progress (**Arguments** above). Without either keyword this is always
-`true`, the same "no exception" behaviour as before — a resumed in-progress batch, a batch named
-explicitly as an argument, and orchestrator mode are all still included. `--intent resume` also
-comes back `true` (reason `resume-nothing-in-progress`) when nothing is in progress — `resume`
-never starts something new silently, it falls back to the normal gate instead.
-
-**When it does not fire**: `startGate.fire` is `false` — `--intent start` always, or `--intent
-resume` with a batch already in progress. Print the preflight's own `Start Gate` status line (in
-`statusLines`, already worded `skipped · resume · <batch>` / `skipped · start · <batch>`) and go
-straight to **Lock Acquisition** — the briefing warnings and the batch overview above are still
-printed either way, so the user sees what is starting even without being asked.
-
-**The one case it does not fire regardless of `--intent`**: `selection.selectable` is empty and
-there is no in-progress batch, i.e. the session is already ending via
-`NO_BATCH`/`BLOCKED`/`MULTIPLE_IN_PROGRESS`. Those paths end before a batch is ever resolved
-(`startGate: null`), so there is nothing left to confirm.
-
-Print `Start Gate` either way: `✅ confirmed · <batch>` (Start chosen), `✅ switched to <batch>`
-(a different batch chosen on the second call), `➖ cancelled by user` (Cancel, or a second
-free-text miss on the second call) — or, when `startGate.fire` was `false`, the preflight's own
-line from `statusLines`, printed exactly as returned rather than composed here.
-
-## Lock Acquisition
-
-Exit ≠ 0 (`LOCKED`) → **end immediately**, touch nothing, name holder/batch/time, note the
-30-minute stale takeover; `TAKEOVER` → proceed, `Lock` carries that warning; else `Lock` is just
-acquired.
-
-## Branch and Changelog on Go-Ahead
-
-The preflight's `branch` field (already computed pre-mutation — see **Resume Snapshot** below) is
-the same JSON `bin/cfq branch plan "<repo-root>" "<batch>"` itself returns: `batch`/`batchNumber`
-echo the batch's own stable identity (`batchNumber` is `null` for a legacy unnumbered batch);
-`mode` says what to do. Always use the `branch` field directly for checkout — never reconstruct a
-branch string from a number/slug:
-
-`bin/cfq branch plan` is remote-aware: it fetches `origin` once (best-effort — no `origin`, or the
-fetch fails offline/sandboxed, and everything falls back to local-only behavior unchanged) before
-deciding, so a stale local `main`/branch never gets silently proposed as a base. On the `new` path,
-`origin/*` is the source of truth for `candidates` — each is an object (`name`, `ref`,
-`aheadOfMain`, `behindRemote`, `aheadRemote`, `localOnly`, `highestBatch`, `mergedIntoOriginMain`,
-`lastCommit`), ranked by `lastCommit` descending, kept for the base question below (recommended
-first, then up to two more, then `main`) and for the free-text answer's resolution. `base`/
-`baseRef` are always the chain decision — the batch's own `.dependsOn` only gates *when* a batch is
-selectable (a blocked batch never reaches `/ifq` at all) and never picks the base — in a
-`baseSource` field:
-
-- `"highestBatch"` — the new batch chains onto the highest-numbered unmerged `cfq/<NNN>-…` branch
-  (non-`cfq/` branches are never chosen here);
-- `"newerCandidate"` — same base as `highestBatch`, but another unmerged `cfq/` branch that is
-  not contained in it has a newer commit;
-- `"main"` — bootstrap only: no unmerged numbered `cfq/` branch exists (`base: "main"`, `baseRef`
-  pointing at `origin/main`).
-
-Every response additionally carries `uncontained` — array of `{"name", "lastCommit", "newer",
-"dependency"}`, every unmerged numbered `cfq/` branch not contained in the chosen base, plus any
-unmerged `.dependsOn` branch not contained in it either (`dependency: true` — the safety net for
-the rare case where a dependency branch never became a chain candidate on its own, e.g. a
-non-numbered branch, or one abandoned in favor of a parallel branch), always `[]` on
-`continue`/`off` — plus `remoteChecked` (bool),
-`remoteWarning` (string or `null`, set only when the chosen base — local `main` on `new`, the
-persisted branch on `continue` — has commits `origin` doesn't and the gap can't be auto-resolved),
-`remoteState` (`"synced"`/`"ahead"`/`"behind"`/`"diverged"`/`"unknown"` — the chosen base's own
-relationship to its `origin` counterpart, `"unknown"` whenever `remoteChecked` is `false` or no
-comparison was possible), `pushable` (bool, true only for `remoteState: "ahead"`), and `unpushed`
-(array of `"<hash> <subject>"` lines, empty unless `pushable`) — so the caller never has to branch
-on `mode` to read any of the three.
-
-- **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
-- **`continue`** (a branch for this batch already exists) → before resolving `remoteState`, its
-  `dirty`/`changelogDirty` fields decide what happens to the changelog: `dirty: true` → the same
-  error as `new`: report and end, nothing touched. `changelogDirty` alone (pfq's parked
-  reservations, or a stray leftover from a previous session) → `git stash push -q --
-  "<changelogFile>"` first, then resolve `remoteState` and run the checkout exactly as described
-  below, `git stash pop -q` immediately after the checkout; a failing pop → report the conflict and
-  name the kept stash, end without further action; a clean pop → `"<plugin-root>/bin/cfq" changelog
-  commit "<repo-root>" "Record parked batch reservations in the changelog"`. On **Cancel** below
-  (the `ahead`/`diverged` question), pop the stash back before ending so nothing is left changed.
-  Neither flag set → resolve `remoteState` and checkout directly, no stash, no commit call.
-  **`behind`**: not checked out → `update-ref` fast-forwards the local ref as before, then `git
-  checkout "<branch>"`. Checked out with a clean tree → `git merge --ff-only
-  "refs/remotes/origin/<branch>"` instead (the ref of the currently-checked-out branch can't move
-  under `update-ref`). Checked out and dirty → nothing moves; `remoteWarning` names the dirty tree,
-  and the `Branch` status line surfaces it as a `⚠️` note — `git checkout "<branch>"` still runs,
-  a dirty tree here is otherwise the same error the **`new`** path already treats it as. **`ahead`**
-  (`pushable: true`) → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision
-  Question Context**, before the checkout: **Push and continue**
-  (recommended) runs `git push origin "<branch>"`, then proceeds; **Continue without pushing**
-  proceeds and names the commits from `unpushed` that won't be in this batch's base; **Cancel**
-  releases the lock and ends the session, nothing touched. **`diverged`** → the same three-option
-  question minus the push option — `remoteWarning` explains why a push would be rejected.
-  **`synced`**/**`unknown`** → plain `git checkout "<branch>"`, no question. Either way, don't write
-  a new changelog entry — the batch is already recorded; only the stash/commit sequence above may
-  touch the file's contents. The commit result (`committed`/`clean`/`ignored`/`off`, or `➖ no
-  changelogDirty` when the sequence never ran) renders the same `   └ ` sub-line under `Branch` as
-  the `new` path.
-- **`new`** → one `AskUserQuestion`, framed per `interaction-policy.md`'s **Decision Question
-  Context**, fires for every `baseSource` — none of the three resolves silently. What it
-  is about: a new branch `<branch>` is created for batch `<batch>`. The problem: which existing
-  branch it builds on decides which earlier, unmerged work it contains. Options, `base`
-  recommended first, always:
-  - First, labelled `(Recommended)`: `base`, described by `baseSource` in plain words —
-    `"highestBatch"`/`"newerCandidate"` → "the highest unmerged batch"; `"main"` → "main — no
-    unmerged batch".
-  - Then up to two further entries from `candidates` (already ranked, skipping `base`), each
-    described by `aheadOfMain`, `lastCommit`, and `local only` / `already contained in
-    origin/main` / `behind origin by <behindRemote>` where applicable.
-  - `main`, when it is neither `base` nor among those two.
-
-  A non-empty `uncontained` and `baseSource: "newerCandidate"` fold their warnings into the
-  question text instead of surfacing as a separate special case. An `uncontained` entry with
-  `dependency: true` is named first, worded as a missing dependency rather than a generic
-  warning: "`<name>` is a dependency of this batch and is not in `<base>`". Every other
-  `uncontained` entry names its `lastCommit` ("`<name>` has commits not in `<base>`"), and, on
-  `newerCandidate`, the question text also says that a newer unmerged `cfq/` branch exists than
-  the highest batch number. The `   └ ⚠️` sub-line under `Branch` per `uncontained` entry prints
-  after the checkout regardless of which option was picked, using the same wording split: "`<name>`
-  is a dependency of this batch and is not in `<base>`" when `dependency: true`, else "`<name>` has
-  commits not in `<base>` (last commit `<lastCommit>`)"; name `baseSource` in the `Branch` status
-  line itself either way.
-
-  The free-text answer (`AskUserQuestion`'s built-in "Other") is resolved with `bin/cfq branch
-  check "<repo-root>" "<name>"`: `UNRESOLVED` → ask once more naming the unresolvable input; a
-  second miss ends the session without touching anything, exactly like the dirty-tree rule below.
-  On `OK`, surface both its warnings separately when they apply — "`<name>` is `<behind>`
-  commit(s) behind `origin/<name>`" and "`<newerCandidate.name>` has a newer commit
-  (`<newerCandidate.lastCommit>`)" — before the checkout runs, and use its `ref` as `<baseRef>` and
-  `<name>` as `<base>` below. Then:
-
-```bash
-git checkout --no-track -b "<branch>" "<baseRef>"
-"<plugin-root>/bin/cfq" changelog init "<repo-root>" "<branch>" "<base>" "<batch>"
-"<plugin-root>/bin/cfq" changelog commit "<repo-root>" "Start <branch> batch in the changelog"
-"<plugin-root>/bin/cfq" branch plan "<repo-root>" "<batch>"
-```
-
-`--no-track` matters: `<baseRef>` is a remote-tracking ref, and without it git's own
-`branch.autoSetupMerge` default would set `<branch>`'s upstream to the *base* branch instead of
-itself — the first `cfq phase commit` on this batch is what sets the upstream to
-`origin/<branch>`, via its own `push -u` fallback.
-
-`changelog init` keeps receiving `<base>` (the plain branch name), not `<baseRef>` — the changelog
-records which branch the work builds on, not which ref was used to cut it. `changelog commit` is a
-script verb, never model discretion — it stages and commits only the changelog file (never a bare
-`git commit`), so a pfq reservation left dirty on the base branch rides along with the `checkout -b`
-and lands in this one immediate commit together with the `init` block; no push here, the first
-phase's Commit & Push step carries it.
-
-The `new`-mode `bin/cfq branch plan` re-run above is the one and only place this batch's mutation
-step calls it directly — solely to reconfirm the branch now exists post-checkout; `continue`/`off`
-never call it again, the preflight's answer already stands. Its `dirty`/`changelogDirty` fields gate
-this whole path: `dirty: true` (uncommitted changes other than the changelog file) → error, report
-and end without touching anything; `changelogDirty` alone is expected here — it is exactly the pfq
-reservation this section's `changelog commit` call above just cleared, so a second re-run reports
-`changelogDirty: false` too. The commit result (`committed`/`clean`/`ignored`/`off`) is rendered as
-an indented `   └ ` sub-line under the `Branch` status line, per **Output Format**'s sub-information
-rule.
-
-## Resume Snapshot
-
-`bin/cfq preflight-impl`'s `resume` field carries what `bin/cfq resume` itself returns for the
-resolved batch, minus its own `branch` sub-object (redundant with the preflight's top-level
-`branch`, computed by that same underlying call — see the `resume` noun's own script header
-comment for the full, still-current field-by-field contract: `phasesOpen`/`phasesDone`, `lastCommit`/
-`lastCommitSource`, `deviations`, `redPhases`, `batchContext.exists`/`.path`). One JSON object,
-deterministic — no summarization, only facts read from disk, `report.json`, and git. The script
-itself is unchanged; only who calls it and what's kept from its output moved.
+the batch with `/pfq`. Warnings never block and `lint.clean` stays `true` when `lint.warnings` is
+non-empty; the preflight's `Lint` line lists every one of them as a sub-line and is printed as
+returned. Typical warnings are an unresolvable `.dependsOn`, a `## Changes` section without
+numbered steps, an unchecked `## Model` heading when `implModels` cannot be read, and `stale-new`
+on the next pending phase's own `(new)` files, which means that phase was started before and
+created them. The list is a set of examples, not a complete one. `lint.clean: true` → print `Lint`
+and continue straight to lock acquisition.

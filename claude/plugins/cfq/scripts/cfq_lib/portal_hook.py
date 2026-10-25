@@ -1,4 +1,5 @@
-"""Fires `bin/cfq portal sync` as a side effect of a queue mutation, at zero model-token cost --
+"""Fires two side effects after a queue mutation, at zero model-token cost: `bin/cfq telemetry
+settle` (recomputes telemetry records whose session has ended) and `bin/cfq portal sync` --
 see `.batch-context.md`'s Decisions: "Triggers live inside existing mutating verbs; the model
 never calls `portal sync` itself." `sync(repo_root, batches=())` is the one call every mutating
 verb makes, once, after its own mutation has already succeeded: `cfq_park.py` (park), `cfq_batch_id.py`
@@ -6,11 +7,14 @@ verb makes, once, after its own mutation has already succeeded: `cfq_park.py` (p
 `cfq_note.py`'s mutating verbs, `cfq_trash.py` (`put`/`restore`), and `cfq_dash.py` (`render`, to
 catch a change made outside cfq, e.g. a merge).
 
-Two off switches, both checked before any subprocess runs: `CFQ_PORTAL_SYNC=0` in the environment
-(the test suite's own isolation -- see `tests/cfq_testlib.py`), and `htmlReport` resolving to
-anything other than `"true"`, read through the same `settings get --repo` chain `cfq_finish.py`
-already uses for this same setting. Never raises and never touches the calling verb's own exit
-code or stdout -- a `portal sync` subprocess failure is swallowed to one stderr line instead.
+`settle` runs first, so the portal sync that follows already shows settled numbers. Two off
+switches, both checked before any subprocess runs: `CFQ_PORTAL_SYNC=0` in the environment (the
+test suite's own isolation -- see `tests/cfq_testlib.py`; it suppresses both side effects), and
+`htmlReport` resolving to anything other than `"true"`, read through the same `settings get
+--repo` chain `cfq_finish.py` already uses for this same setting; that one only suppresses the
+portal sync, never the telemetry settle. Never raises and never touches the calling verb's own
+exit code or stdout -- a `settle` or `portal sync` subprocess failure is swallowed to one stderr
+line instead.
 
 `repo_root_from_batch_dir()` is the one thing this module exports besides `sync()` itself: a
 handful of call sites (`cfq_batch_id.py ready`, `cfq_phase.py record`/`reopen`) only ever see a
@@ -36,6 +40,11 @@ def sync(repo_root, batches=()):
         return
     if os.environ.get("CFQ_PORTAL_SYNC") == "0":
         return
+    settled = cfq_run("telemetry", "settle", str(repo_root))
+    if settled.returncode != 0:
+        lines = [line for line in settled.stderr.splitlines() if line.strip()]
+        last = lines[-1] if lines else settled.stderr.strip()
+        print(f"telemetry settle failed (non-fatal): {last}", file=sys.stderr)
     if settings_get(repo_root, "htmlReport") != "true":
         return
 

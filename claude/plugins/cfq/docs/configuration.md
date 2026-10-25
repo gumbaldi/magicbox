@@ -97,7 +97,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq` |
+| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. With a smaller model added, set `orchestratorModels` to keep the `/ifq` session itself on the stronger one |
 | `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
@@ -120,7 +120,20 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
+| `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
+
+Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
+runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit
+and parks the rest as one `plan/` entry. A finding is small when its fix is at one location, the
+file is one a phase of the batch already changed, and the fix needs no new file, dependency or
+setting; the rule is fixed, never a judgment call.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReview low
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set batchReviewFindings auto
+```
 
 ### Limits & handoff
 
@@ -157,7 +170,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `htmlReport` | — | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
+| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 
 ### Repo & git
 
@@ -171,7 +184,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq` Step 13) |
+| `setupDone` | — | `false` | state, not a setting | internal marker: first-time setup (`/cfq`) has run. Lives outside the settings schema — `bin/cfq settings state get/set setupDone` — since it's runtime state, not policy; a repo new to the registry separately gets a one-time config overview at park time (`pfq`'s **Park** step) |
 
 The prohibition keys (`planBlockedPlugins`/`implBlockedPlugins`) are worth being conservative with
 even though they're repo-overridable like most others — they also block indirect calls, so set
@@ -195,14 +208,18 @@ still runs on the cheap default.
 ## Report collection layout
 
 Every repo keeps its own report portal at `<repo>/.claude/cfq/reports/index.html` — a fixed viewer
-shell (`index.html`, `assets/`) plus plain data files under `data/`, one per batch's plan and
-implementation report and one per open `todo`/`plan` entry (`bin/cfq portal sync`/`rebuild`). It's
-stable across archiving, since the batch name — not the batch's `impl/`-vs-`impl/done/` location —
-is the only thing a batch's own data-file path depends on. With `reportDir` set to an absolute
-path, every repo's sync additionally mirrors its own data into
+shell (`index.html`, `assets/`) plus plain data files under `data/` (`bin/cfq portal
+sync`/`rebuild`): `site.js` (repo name, commit URL, plugin version), `queue.js` (the overview of
+every batch and entry), `batch/<name>.js` (one per batch: plan, results, cost, notes, closing) and
+`entry/<id>.js` (one per todo card or plan entry, open and closed). A data file's path below
+`data/` is always its key plus `.js`, and `<id>` is the kind and file stem (`todo-2026-10-04-x`).
+It's stable across archiving, since the batch name — not the batch's `impl/`-vs-`impl/done/`
+location — is the only thing a batch's own data-file path depends on. With `reportDir` set to an
+absolute path, every repo's sync additionally mirrors its own data into
 `<reportDir>/<repo-basename>[-<hash>]/data/…` (a short hash suffix only on a name collision between
-two different repos) and installs one global viewer shell at `<reportDir>/` itself, whose
-`index.html` renders a cross-repo index over every mirrored repo instead of one repo's own overview
+two different repos) and installs one global viewer shell at `<reportDir>/` itself, plus a
+`data/repos.js` listing the mirrored repos; its `index.html` renders a cross-repo index over every
+mirrored repo instead of one repo's own overview
 — a location reachable outside any one queue's own git-excluded directory and shared across repos,
 a WSL user opening reports from Windows Explorer, for example. Either way, `bin/cfq report html
 <batch-dir>` (`/rfq`'s own drill-down call) always syncs that one batch fresh and prints its
@@ -224,22 +241,24 @@ restate a field list inline — read the field here, then read it back from the 
   `repo.root`/`.known` set then).
 - **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
-  implExploreModelComplex}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
+  implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
+  batchReviewFindings}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
-  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn, briefText} |
+  inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
 - **`bin/cfq scan [--format=json|md|tsv|overview|next]`** — `json` (default): `{repos: [{path, plan,
   todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
-  inProgress, planning}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
+  inProgress, planning, review}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
   Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`. `overview`: one row per repo
   (Repo, Plan, Todo, Batches, Status) — `Batches` is the open/done batch counts, `Status` the most
   severe status among the repo's own batches. `next`: one object per repo — `{path, next, reason,
-  blocked, planning}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
+  blocked, planning, review}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
   `reason` one of `inProgress`/`priority`/`order`/`multipleInProgress`/`null`; the one place the
   `ifq` selection ranking is decided, consumed rather than recomputed by `cfq_ifq_preflight.py`.
+  `review` lists the batches held for plan review, a subset of `planning`, never stale.
 - **`bin/cfq phase commit <batch-dir> <phase-json-file> <message-file>`** — the green-phase path:
   commits whatever is already staged (never runs `git add` itself), moves the phase's `.md` file
   into `done/` and appends its `report.json` entry, backfills the commit SHA, pushes (`-u origin

@@ -5,6 +5,7 @@
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
 #        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
+#        cfq_batch_id.py review        <batch-dir>
 #        cfq_batch_id.py ready         <batch-dir>
 #
 # `.planning` is written here, by `allocate`, the moment the batch directory is created --
@@ -12,6 +13,10 @@
 # removes it. `ready` removes the `.planning` heartbeat marker a batch directory carries while
 # `plan-for-queue` is still writing it -- hard delete, no trash, since the marker carries no
 # content. Idempotent.
+# `review` is the plan-for-queue review gate: it replaces `.planning` with `.review`, a marker with
+# no staleness window (a batch whose review was never answered stays held until `ready`) that
+# doubles as a snapshot -- `since`, `shown` and a sha256 per plan file -- so `brief --review
+# --changed` can show only what changed since. `ready` removes whichever of the two markers exist.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -43,7 +48,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import consistency  # noqa: E402
-from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import queue as cfq_queue  # noqa: E402
@@ -523,6 +528,8 @@ def cmd_allocate(args):
         # `park` only refreshes it from this point on; `ready` removes it once pfq's lint goes
         # clean.
         pathlib.Path(target_dir, ".planning").write_text(render.now_iso() + "\n")
+        # status.json is born with the directory too, so every phase starts out tracked.
+        phase_state.init(pathlib.Path(target_dir))
 
         print(render.dump_json(result))
     finally:
@@ -552,17 +559,47 @@ def cmd_reconcile(args):
     sys.exit(0 if ok else 1)
 
 
-# ---- ready ----------------------------------------------------------------------------------
+# ---- review / ready ----------------------------------------------------------------------------------
+
+def cmd_review(args):
+    batch_dir = pathlib.Path(args.batch_dir)
+    if any(p.is_file() for p in (batch_dir / "done").glob("[0-9][0-9]-*.md")):
+        errors.die(f"{PROG} review: {batch_dir.name} already has finished phases -- "
+                   "a started batch never goes back into review")
+    marker = batch_dir / ".review"
+    previous = cfq_queue.read_review(batch_dir)
+    since = previous.get("since") if previous and previous.get("since") else render.now_iso()
+    render.write_json(str(marker), {
+        "since": since,
+        "shown": render.now_iso(),
+        "files": cfq_queue.review_snapshot(batch_dir),
+    })
+    (batch_dir / ".planning").unlink(missing_ok=True)
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
+    print(f"review {marker}")
+
 
 def cmd_ready(args):
-    marker = pathlib.Path(args.batch_dir) / ".planning"
-    if not marker.exists():
+    batch_dir = pathlib.Path(args.batch_dir)
+    # Sync first, so it also runs on the `already ready` path; a status.json that cannot be
+    # read stops the verb before any marker is touched.
+    try:
+        phase_state.init(batch_dir)
+        phase_state.sync_files(batch_dir)
+    except phase_state.PhaseStateError as e:
+        errors.fail(e.code, e.message)
+    removed = []
+    for name in (".planning", ".review"):
+        marker = batch_dir / name
+        if marker.exists():
+            marker.unlink()
+            removed.append(marker)
+    if not removed:
         print("already ready")
         return
-    marker.unlink()
-    batch_dir = pathlib.Path(args.batch_dir)
     portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
-    print(f"removed {marker}")
+    for marker in removed:
+        print(f"removed {marker}")
 
 
 # ---- verify / recover -----------------------------------------------------------------------
@@ -647,6 +684,10 @@ def build_parser():
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
     p.set_defaults(func=cmd_recover)
 
+    p = sub.add_parser("review")
+    p.add_argument("batch_dir")
+    p.set_defaults(func=cmd_review)
+
     p = sub.add_parser("ready")
     p.add_argument("batch_dir")
     p.set_defaults(func=cmd_ready)
@@ -665,7 +706,7 @@ def main(argv):
             "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
             "verify <repo-root> [--batch <name>] [--json] | "
             "recover <repo-root> --batch <name> [--dry-run] | "
-            "ready <batch-dir>"
+            "review <batch-dir> | ready <batch-dir>"
         )
     func(args)
 

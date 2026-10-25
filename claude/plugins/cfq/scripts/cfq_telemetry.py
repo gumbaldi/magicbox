@@ -3,11 +3,21 @@
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
 #        cfq_telemetry.py show <repo-root> [--session]
+#        cfq_telemetry.py settle <repo-root>
 """Telemetry for cfq. Aggregates the running session's transcript into the batch report and a
 repo-local JSONL. Numbers, timestamps and names only -- never prompt text, never tool arguments.
 
 Ported from cfq-telemetry.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
 JSON shapes, text output, exit codes) is the invariant this file preserves.
+
+A "turn" is one API response, not one transcript line: Claude Code writes one line per content
+block of a response, each repeating that response's `message.id` and usage, so lines are collapsed
+to one entry per `message.id` (the last one) before anything is summed. A line without a
+`message.id` counts as its own response.
+
+A record is written provisional (`settled: false`, `rev: 1`): its session goes on after the commit
+(the worker's closing message, the orchestrator's summary, the handoff). `settle` recomputes such a
+record once, after its session has ended, and writes it back as `settled: true`, `rev: 2`.
 """
 
 import json
@@ -16,11 +26,13 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
@@ -29,8 +41,12 @@ PROG = "cfq_telemetry.py"
 
 USAGE = (
     f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>] | "
-    "show <repo-root> [--session]"
+    "show <repo-root> [--session] | settle <repo-root>"
 )
+
+# A session whose transcript (or any sub-agent transcript) changed within this many seconds may
+# still be running; `settle` leaves its records alone until it has been quiet for that long.
+SETTLE_QUIET_SECONDS = 120
 
 # The phase worker's plugin-namespaced agent name -- the one place it is defined is
 # agents/cfq-phase-worker.md, which resolves to this form (references/orchestrator.md,
@@ -58,9 +74,19 @@ def jqor(value, default):
     return default if value is None or value is False else value
 
 
-def transcript_path():
-    # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter.
-    return cfq_run("runtime", "transcript-path").stdout.strip()
+def _runtime_args(verb, repo, session):
+    args = ["runtime", verb]
+    if repo:
+        args += ["--repo", repo]
+    if session:
+        args += ["--session", session]
+    return args
+
+
+def transcript_path(repo="", session=""):
+    # pwd-based resolution (matches ctx_usage.py), shared via the runtime adapter. `repo`/`session`
+    # address a specific (typically ended) session instead of the running one.
+    return cfq_run(*_runtime_args("transcript-path", repo, session)).stdout.strip()
 
 
 def session_identity():
@@ -71,20 +97,23 @@ def session_identity():
     return transcript_path(), os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
 
-def subagent_dir():
-    # Same pwd-based resolution as transcript_path(), shared via the runtime adapter -- the
-    # directory is derived, never guessed here (cfq_runtime.py owns every assumption about
-    # Claude Code's on-disk layout).
-    return cfq_run("runtime", "subagent-dir").stdout.strip()
+def subagent_dir(repo="", session=""):
+    # Same resolution as transcript_path(), shared via the runtime adapter -- the directory is
+    # derived, never guessed here (cfq_runtime.py owns every assumption about Claude Code's
+    # on-disk layout).
+    return cfq_run(*_runtime_args("subagent-dir", repo, session)).stdout.strip()
 
 
 def extract_recommended_skills(dir_, phase):
     if not phase:
         return []
-    pf = pathlib.Path(dir_) / f"{phase}.md"
-    if not pf.is_file():
-        pf = pathlib.Path(dir_) / "done" / f"{phase}.md"
-    if not pf.is_file():
+    batch_dir = pathlib.Path(dir_)
+    try:
+        slug = phase_state.resolve_slug(batch_dir, phase)
+    except phase_state.PhaseStateError:
+        slug = phase
+    pf = phase_state.locate(batch_dir, slug)
+    if pf is None:
         return []
     lines = pf.read_text().splitlines()
     start = None
@@ -152,6 +181,29 @@ def sums(items):
     }
 
 
+def model_key(item):
+    return jqor((item.get("message") or {}).get("model"), "?")
+
+
+def collapse_responses(entries):
+    """One entry per API response: group by `message.id`, keep the last entry of each group, in
+    order of first occurrence. An entry without a `message.id` stays its own response. Claude Code
+    writes one transcript line per content block, each repeating the response's usage, so summing
+    uncollapsed lines inflates every number."""
+    out = []
+    index = {}
+    for e in entries:
+        mid = (e.get("message") or {}).get("id")
+        if mid is None or mid == "":
+            out.append(e)
+        elif mid in index:
+            out[index[mid]] = e
+        else:
+            index[mid] = len(out)
+            out.append(e)
+    return out
+
+
 def bucket(items, keyfn):
     groups = {}
     order = []
@@ -166,7 +218,9 @@ def bucket(items, keyfn):
 
 def assistant_turns(entries, since, until):
     """type==assistant, timestamped entries whose timestamp falls inside (since, until] -- an
-    empty bound on either side leaves that side unbounded, matching jqor's `//` convention."""
+    empty bound on either side leaves that side unbounded, matching jqor's `//` convention.
+    These are transcript lines, not yet responses -- callers pass them through
+    collapse_responses() before summing."""
     return [
         e for e in entries
         if e.get("type") == "assistant"
@@ -174,24 +228,6 @@ def assistant_turns(entries, since, until):
         and (since == "" or e.get("timestamp") > since)
         and (until == "" or e.get("timestamp") <= until)
     ]
-
-
-def subagent_turns(since, until):
-    """Every agent-*.jsonl in the resolved subagents/ directory, parsed with the same
-    parse_transcript() the main transcript uses (sub-agent entries share its shape), filtered to
-    the same (since, until] window the main-transcript turns were filtered to -- this is what
-    keeps a per-phase record holding only that phase's own worker, not every sub-agent the
-    session ever spawned."""
-    d = subagent_dir()
-    if not d or not os.path.isdir(d):
-        return []
-    entries = []
-    for p in sorted(pathlib.Path(d).glob("agent-*.jsonl")):
-        try:
-            entries.extend(parse_transcript(str(p)))
-        except (OSError, ValueError):
-            continue
-    return assistant_turns(entries, since, until)
 
 
 def agent_id_from_path(p):
@@ -216,16 +252,12 @@ def read_agent_meta(subdir, agent_id):
     return data if isinstance(data, dict) else None
 
 
-def _resolve_layer(agent_type, depth, parent, meta_by_id):
-    """worker = type WORKER_AGENT. worker_explore = any agent whose parent chain reaches a
-    worker -- walked by id through meta_by_id, which is built from every meta file in the
-    directory (not just the ones with turns in this record's own window), so a depth->=3 agent
-    still resolves through an intermediate parent that has no turns of its own here. Everything
-    else -- a depth-1 non-worker, or a chain that runs out (missing/malformed meta) before
-    reaching a worker -- is main_explore. `seen` guards a cyclical parentAgentId from looping
-    forever; real sessions never produce one, but a malformed meta file must not hang this."""
-    if agent_type == WORKER_AGENT:
-        return "worker"
+def _parent_chain(parent, meta_by_id):
+    """Yields (id, meta) for each ancestor, nearest first, walking `parentAgentId` through
+    meta_by_id -- which is built from every meta file in the directory (not just the attributed
+    agents), so a depth->=3 agent still resolves through an intermediate parent that has no turns
+    of its own here. Stops at a missing/malformed meta. `seen` guards a cyclical parentAgentId from
+    looping forever; real sessions never produce one, but a malformed meta file must not hang this."""
     seen = set()
     cur = parent
     while cur and cur not in seen:
@@ -233,21 +265,58 @@ def _resolve_layer(agent_type, depth, parent, meta_by_id):
         pmeta = meta_by_id.get(cur)
         if not isinstance(pmeta, dict):
             break
+        yield cur, pmeta
+        cur = pmeta.get("parentAgentId") or None
+
+
+def _resolve_layer(agent_type, depth, parent, meta_by_id):
+    """worker = type WORKER_AGENT. worker_explore = any agent whose parent chain reaches a
+    worker. Everything else -- a depth-1 non-worker, or a chain that runs out (missing/malformed
+    meta) before reaching a worker -- is main_explore."""
+    if agent_type == WORKER_AGENT:
+        return "worker"
+    for _, pmeta in _parent_chain(parent, meta_by_id):
         if jqor(pmeta.get("agentType"), "") == WORKER_AGENT:
             return "worker_explore"
-        cur = pmeta.get("parentAgentId") or None
     return "main_explore"
 
 
-def collect_agent_nodes(since, until):
-    """One node per agent-<id>.jsonl with at least one turn inside (since, until] -- an agent with
-    no turns in the window is not listed. Each node's `layer` comes from _resolve_layer() against
-    its sibling meta file; a missing or unreadable meta counts as depth 1, type taken from the
-    turn's own attributionAgent (the same fallback attribution subagent_turns()'s callers already
-    read via by_agent), no parent. Returns (nodes, turns_by_id): build_record() needs the raw
-    per-agent turn lists again to sum each layer via sums(), rather than re-deriving a sum from
-    nodes[*]["totals"] by hand."""
-    d = subagent_dir()
+def _root_meta(meta, parent, meta_by_id):
+    """The meta of the depth-1 agent at the top of an agent's parent chain (the agent's own meta
+    when it has no parent); the last reachable one when the chain runs out."""
+    root = meta
+    for _, pmeta in _parent_chain(parent, meta_by_id):
+        root = pmeta
+    return root
+
+
+def tool_use_timestamps(entries):
+    """{tool_use.id: timestamp of the transcript line carrying it} over every assistant line of
+    the main transcript -- the spawn time of the Agent call an agent's meta `toolUseId` names."""
+    out = {}
+    for e in entries:
+        if e.get("type") != "assistant" or not e.get("timestamp"):
+            continue
+        content = (e.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "tool_use":
+                tid = c.get("id")
+                if tid and tid not in out:
+                    out[tid] = e["timestamp"]
+    return out
+
+
+def collect_agent_nodes(since, upper, tool_ts, subagents_dir):
+    """One node per agent-<id>.jsonl attributed to the record window (since, upper]. An agent
+    belongs to the record when its root's `toolUseId` maps (via `tool_ts`) to a main-transcript
+    timestamp inside the window; with no usable link, when the agent's own first response is
+    inside it. An attributed agent contributes all of its responses, unclipped. Each node's
+    `layer` comes from _resolve_layer(); a missing or unreadable meta counts as depth 1, type
+    taken from the turn's own attributionAgent, no parent. Returns (nodes, turns_by_id):
+    build_record() needs the raw per-agent turn lists again to sum each layer via sums()."""
+    d = subagents_dir
     if not d or not os.path.isdir(d):
         return [], {}
 
@@ -262,7 +331,7 @@ def collect_agent_nodes(since, until):
             entries = parse_transcript(str(p))
         except (OSError, ValueError):
             continue
-        turns = assistant_turns(entries, since, until)
+        turns = collapse_responses(assistant_turns(entries, "", ""))
         if not turns:
             continue
 
@@ -279,6 +348,14 @@ def collect_agent_nodes(since, until):
             depth = 1
             parent = None
 
+        root = _root_meta(meta, parent, meta_by_id)
+        link = root.get("toolUseId") if isinstance(root, dict) else None
+        stamp = tool_ts.get(link) if link else None
+        if not stamp:
+            stamp = turns[0].get("timestamp")
+        if not (since == "" or stamp > since) or not (upper == "" or stamp <= upper):
+            continue
+
         turns_by_id[aid] = turns
         nodes.append({
             "id": aid,
@@ -288,7 +365,8 @@ def collect_agent_nodes(since, until):
             "parent": parent,
             "layer": _resolve_layer(agent_type, depth, parent, meta_by_id),
             "totals": sums(turns),
-            "models": sorted({jqor((it.get("message") or {}).get("model"), "?") for it in turns}),
+            "models": sorted({model_key(it) for it in turns}),
+            "by_model": bucket(turns, model_key),
             "efforts": sorted({jqor(it.get("effort"), "?") for it in turns}),
         })
     return nodes, turns_by_id
@@ -297,7 +375,10 @@ def collect_agent_nodes(since, until):
 def _layer_summary(turns, agents):
     models = sorted({m for a in agents for m in a["models"]})
     efforts = sorted({e for a in agents for e in a["efforts"]})
-    return {**sums(turns), "models": models, "efforts": efforts, "count": len(agents)}
+    return {
+        **sums(turns), "models": models, "efforts": efforts, "count": len(agents),
+        "by_model": bucket(turns, model_key),
+    }
 
 
 def build_layers(t, nodes, turns_by_id):
@@ -306,10 +387,13 @@ def build_layers(t, nodes, turns_by_id):
     `nodes` by their resolved `layer`. Invariant (asserted in tests, not just here): main +
     main_explore + worker + worker_explore == totals + subagent, field by field -- main equals
     totals by construction, and every node's turns land in exactly one of the other three layers,
-    so their union reproduces `sub` (subagent_turns()'s own sum) exactly."""
-    main_models = sorted({jqor((it.get("message") or {}).get("model"), "?") for it in t})
+    so their union reproduces `sub` (the attributed agents' own responses) exactly."""
+    main_models = sorted({model_key(it) for it in t})
     main_efforts = sorted({jqor(it.get("effort"), "?") for it in t})
-    layers = {"main": {**sums(t), "models": main_models, "efforts": main_efforts, "count": 1}}
+    layers = {"main": {
+        **sums(t), "models": main_models, "efforts": main_efforts, "count": 1,
+        "by_model": bucket(t, model_key),
+    }}
     for layer_name in ("main_explore", "worker", "worker_explore"):
         agents = [n for n in nodes if n["layer"] == layer_name]
         turns = [it for n in agents for it in turns_by_id[n["id"]]]
@@ -317,26 +401,43 @@ def build_layers(t, nodes, turns_by_id):
     return layers
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended):
+def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", subagents_dir=""):
+    """`upper` bounds the main-transcript window like `since` bounds it from below (default
+    unbounded); the same (since, upper] window decides which sub-agents belong to the record.
+    `subagents_dir` is the `subagents/` directory of the session `tf` belongs to -- the caller
+    resolves it, because settling a record from another session needs that session's directory,
+    not the running one's. The record is provisional: `settled: False`, `rev: 1`."""
     entries = parse_transcript(tf)
-    t = assistant_turns(entries, since, "")
+    raw = assistant_turns(entries, since, upper)
+    t = collapse_responses(raw)
 
+    # Tools are counted over the uncollapsed lines (a response's blocks are spread across its
+    # lines), each distinct tool_use.id once; a block without an id counts once per occurrence.
     tools = {}
-    for it in t:
+    seen_tool_ids = set()
+    for it in raw:
         content = (it.get("message") or {}).get("content")
         if not isinstance(content, list):
             continue
         for c in content:
             if isinstance(c, dict) and c.get("type") == "tool_use":
+                tid = c.get("id")
+                if tid is not None and tid != "":
+                    if tid in seen_tool_ids:
+                        continue
+                    seen_tool_ids.add(tid)
                 name = c.get("name")
                 tools[name] = tools.get(name, 0) + 1
 
-    first_ts = t[0].get("timestamp") if t else None
-    last_ts = t[-1].get("timestamp") if t else None
-    last = t[-1] if t else {}
+    first_ts = raw[0].get("timestamp") if raw else None
+    last_ts = raw[-1].get("timestamp") if raw else None
+    last = raw[-1] if raw else {}
 
     until = jqor(last_ts, "")
-    sub = subagent_turns(since, until)
+    agent_nodes, agent_turns_by_id = collect_agent_nodes(
+        since, upper, tool_use_timestamps(entries), subagents_dir,
+    )
+    sub = [it for n in agent_nodes for it in agent_turns_by_id[n["id"]]]
     by_agent = bucket(sub, lambda it: jqor(it.get("attributionAgent"), "-"))
     mode = "" if kind == "planning" else ("orchestrator" if WORKER_AGENT in by_agent else "classic")
 
@@ -347,13 +448,12 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
     worker_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") == WORKER_AGENT]
     explore_sub = [it for it in sub if jqor(it.get("attributionAgent"), "-") != WORKER_AGENT]
 
-    # Per-agent nodes and the four cost layers they group into (`agents`/`layers`, schema 2) --
-    # additive, on top of the unchanged `by_agent`/`subagent*` fields above.
-    agent_nodes, agent_turns_by_id = collect_agent_nodes(since, until)
+    # The four cost layers the per-agent nodes group into (`agents`/`layers`, schema 2; `by_model`
+    # on both, schema 3) -- additive, on top of the unchanged `by_agent`/`subagent*` fields above.
     layers = build_layers(t, agent_nodes, agent_turns_by_id)
 
     return {
-        "schema": 2,
+        "schema": 3,
         "kind": kind,
         "repo": repo,
         "batch": batch,
@@ -362,11 +462,14 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
         "session_id": jqor(last.get("sessionId"), ""),
         "branch": jqor(last.get("gitBranch"), ""),
         "cc_version": jqor(last.get("version"), ""),
+        "since": since,
+        "settled": False,
+        "rev": 1,
         "from": jqor(first_ts, ""),
         "until": jqor(last_ts, ""),
-        "wallclock_s": (ts(last_ts) - ts(first_ts)) if t else 0,
+        "wallclock_s": (ts(last_ts) - ts(first_ts)) if raw else 0,
         "totals": sums(t),
-        "by_model": bucket(t, lambda it: jqor((it.get("message") or {}).get("model"), "?")),
+        "by_model": bucket(t, model_key),
         "by_effort": bucket(t, lambda it: jqor(it.get("effort"), "?")),
         "by_skill": bucket(t, lambda it: jqor(it.get("attributionSkill"), "-")),
         "by_plugin": bucket(t, lambda it: jqor(it.get("attributionPlugin"), "-")),
@@ -382,7 +485,10 @@ def build_record(tf, since, kind, phase, batch, repo, recommended):
 
 
 def last_until_for_session(jsonl_path, sid):
-    matches = []
+    """The greatest `until` among the session's lines -- not the last line's: a settled record is
+    appended after later ones and carries an `until` that may be older or newer than its
+    neighbours'. ISO timestamps compare lexicographically."""
+    untils = []
     with open(jsonl_path) as f:
         for line in f:
             line = line.strip()
@@ -392,11 +498,11 @@ def last_until_for_session(jsonl_path, sid):
                 obj = json.loads(line)
             except ValueError:
                 continue
-            if obj.get("session_id") == sid:
+            if isinstance(obj, dict) and obj.get("session_id") == sid:
                 until = obj.get("until")
-                matches.append("null" if until is None else until)
-    since = matches[-1] if matches else ""
-    return "" if since == "null" else since
+                if isinstance(until, str) and until:
+                    untils.append(until)
+    return max(untils) if untils else ""
 
 
 def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
@@ -438,7 +544,7 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     recommended = extract_recommended_skills(dir_, phase)
     batch = pathlib.Path(dir_).name
-    rec = build_record(tf, since, kind, phase, batch, repo, recommended)
+    rec = build_record(tf, since, kind, phase, batch, repo, recommended, subagents_dir=subagent_dir())
 
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -492,6 +598,121 @@ def cmd_record(rest):
 
     phase = rest[2] if len(rest) > 2 else ""
     cmd_record_phase_or_planning(dir_, kind, phase)
+
+
+def _record_objects(data):
+    """Every telemetry record embedded in one parsed report.json: the top-level `planning` object
+    and each phase entry's `telemetry` object, as the live dicts so a caller can rewrite them in
+    place."""
+    out = []
+    planning = data.get("planning")
+    if isinstance(planning, dict):
+        out.append(planning)
+    for entry in data.get("phases") or []:
+        tele = entry.get("telemetry") if isinstance(entry, dict) else None
+        if isinstance(tele, dict):
+            out.append(tele)
+    return out
+
+
+def _newest_mtime(tf, subdir):
+    paths = [tf]
+    if subdir and os.path.isdir(subdir):
+        paths += [os.path.join(subdir, n) for n in os.listdir(subdir)]
+    newest = 0.0
+    for p in paths:
+        try:
+            newest = max(newest, os.stat(p).st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
+def _recompute(old, tf, subdir, upper):
+    """The settled replacement of `old`: same window start, bounded above by the next record of
+    the same session. None when the transcript cannot be read (treated like a vanished one)."""
+    try:
+        new = build_record(
+            tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
+            old.get("batch"), old.get("repo"), old.get("skills_recommended") or [],
+            upper=upper, subagents_dir=subdir,
+        )
+    except (OSError, ValueError):
+        return None
+    if not new["session_id"]:
+        new["session_id"] = old.get("session_id", "")
+    return new
+
+
+def cmd_settle(rest):
+    """Recompute every provisional record whose session has ended, exactly once -- see the module
+    docstring. Runs as a side effect of the next cfq mutation in the repo (`portal_hook.sync()`),
+    never from a hook of its own."""
+    if not rest:
+        errors.die(f"usage: {PROG} settle <repo-root>")
+    repo = rest[0]
+    impl = cfq_lib_paths.impl_dir(repo)
+    if not os.path.isdir(impl):
+        print(render.dump_json({"status": "NO_REPO", "settled": 0, "pending": 0}))
+        return
+
+    reports = {}
+    for pattern in ("*/report.json", "done/*/report.json"):
+        for p in sorted(pathlib.Path(impl).glob(pattern)):
+            try:
+                data = json.loads(p.read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                reports[str(p)] = data
+
+    # Window upper bound per record: the smallest `since` of a later record of the same session.
+    sinces = {}
+    for data in reports.values():
+        for r in _record_objects(data):
+            if r.get("session_id") and isinstance(r.get("since"), str):
+                sinces.setdefault(r["session_id"], set()).add(r["since"])
+
+    running = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    now = time.time()
+    settled, pending, appended, dirty = 0, 0, [], set()
+    for path, data in reports.items():
+        for rec in _record_objects(data):
+            if rec.get("settled") is not False:
+                continue
+            sid = rec.get("session_id") or ""
+            if sid and sid == running:
+                pending += 1
+                continue
+            tf = transcript_path(repo, sid) if sid else ""
+            subdir = subagent_dir(repo, sid) if tf else ""
+            if tf and now - _newest_mtime(tf, subdir) < SETTLE_QUIET_SECONDS:
+                pending += 1
+                continue
+
+            since = rec.get("since") or ""
+            later = [s for s in sinces.get(sid, ()) if s > since]
+            new = _recompute(rec, tf, subdir, min(later) if later else "") if tf else None
+            rev = rec.get("rev") if isinstance(rec.get("rev"), int) else 1
+            if new is None:
+                new = dict(rec)
+            new["settled"] = True
+            new["rev"] = rev + 1
+            rec.clear()
+            rec.update(new)
+            appended.append(new)
+            dirty.add(path)
+            settled += 1
+
+    for path in sorted(dirty):
+        render.write_json(path, reports[path])
+    if appended:
+        jsonl = cfq_lib_paths.telemetry_log(repo)
+        os.makedirs(os.path.dirname(jsonl), exist_ok=True)
+        with open(jsonl, "a") as f:
+            for rec in appended:
+                f.write(render.dump_json(rec) + "\n")
+    print(render.dump_json({"status": "OK", "settled": settled, "pending": pending}))
 
 
 def cmd_sync(rest):
@@ -627,6 +848,26 @@ def _totals_field(totals, key):
     return jqor(totals.get(key) if isinstance(totals, dict) else None, 0)
 
 
+def latest_revs(records):
+    """Keep only the highest `rev` per (session_id, kind, batch, phase, since): a settled record is
+    appended next to its provisional one, never replacing it on disk. A record without `rev`
+    counts as rev 0, so it loses against any revision of the same key and is otherwise kept as
+    it is."""
+    def key_of(r):
+        return tuple(r.get(k) for k in ("session_id", "kind", "batch", "phase", "since"))
+
+    best = {}
+    for i, r in enumerate(records):
+        if isinstance(r, dict) and isinstance(r.get("rev"), int):
+            key = key_of(r)
+            if key not in best or r["rev"] > records[best[key]]["rev"]:
+                best[key] = i
+    return [
+        r for i, r in enumerate(records)
+        if not isinstance(r, dict) or best.get(key_of(r), i) == i
+    ]
+
+
 def cmd_show(rest):
     if not rest:
         errors.die(f"usage: {PROG} show <repo-root> [--session]")
@@ -645,6 +886,7 @@ def cmd_show(rest):
                 except ValueError:
                     continue
 
+    records = latest_revs(records)
     if session_only:
         _, sid = session_identity()
         records = [r for r in records if isinstance(r, dict) and r.get("session_id") == sid]
@@ -661,6 +903,8 @@ def main(argv):
         cmd_sync(rest)
     elif cmd == "show":
         cmd_show(rest)
+    elif cmd == "settle":
+        cmd_settle(rest)
     else:
         errors.die(USAGE)
 

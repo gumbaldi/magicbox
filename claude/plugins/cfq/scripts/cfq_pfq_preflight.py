@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # Usage: cfq_pfq_preflight.py <repo-root>
-"""Single read-only preflight aggregator for plan-for-queue's Step 1: batches every
+"""Single read-only preflight aggregator for plan-for-queue's **Preflight**: batches every
 cfq_settings.py/cfq_scan.py/cfq_registry.py/cfq_maintenance.py call the skill used to issue
-separately (Steps 1, 3, 5, 7, 9a, 11) into one JSON object, one process invocation of
-cfq_settings.py covering every policy/language key at once. Security (Step 8) stays a separate
+separately into one JSON object, one process invocation of
+cfq_settings.py covering every policy/language key at once. Security (**Security Check**) stays a separate
 call on purpose -- this only reports capability (a security backend reachable at all), never live
 finding counts, which need a network round-trip.
 
 Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
 addition (batch 037 phase 03's `inbox` object, batch 044 phase 07's `inbox.detail` field -- the
 per-entry excerpt block from `note list --detail`, alongside the existing `.count`/`.imported`/
-`.overview`) is not a break of that rule, only a removal or rename would be.
+`.overview`; batch 049 phase 04's `queue.awaitingReview` list and `Review` status line) is not a
+break of that rule, only a removal or rename would be.
 """
 
 import argparse
@@ -43,13 +44,13 @@ def inbox_count_from_overview(overview_text):
 
 
 def model_check_line(allow_any_model):
-    """The `Model Check` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
+    """The `Model Gate` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
     `model_gate_line`. The actual substring match against the running model's name stays with the
-    skill (`references/interview-depth.md`'s **Model Gate**), since only the session itself knows
+    skill (`plan-for-queue/SKILL.md`'s **Start Block**), since only the session itself knows
     its own model, from its own system prompt."""
     if allow_any_model:
-        return text.status_entry("Model Check", "skip", "skipped · allowAnyModel")
-    return text.status_entry("Model Check", "done", "checked against planModels")
+        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
+    return text.status_entry("Model Gate", "done", "checked against planModels")
 
 
 def plugin_boundaries_line(blocked):
@@ -66,6 +67,18 @@ def inbox_line(count, imported):
     if imported:
         detail += f" · {imported} imported"
     return text.status_entry("Inbox", icon, detail)
+
+
+def review_line(awaiting):
+    """The `Review` status line -- a batch held at the plan review gate (`.review` marker) is
+    reported by every `/pfq` session so a forgotten review cannot go unnoticed."""
+    if not awaiting:
+        return text.status_entry("Review", "skip", "none waiting")
+    n = len(awaiting)
+    noun = "batch" if n == 1 else "batches"
+    return text.status_entry(
+        "Review", "warn", f"{n} {noun} awaiting review", sub=[b["name"] for b in awaiting],
+    )
 
 
 def cmd_preflight(args):
@@ -87,6 +100,7 @@ def cmd_preflight(args):
 
     scan_data = json.loads(cfq_run("scan").stdout)
     batches = []
+    awaiting = []
     for r in scan_data.get("repos", []):
         if r.get("path") != repo:
             continue
@@ -96,6 +110,8 @@ def cmd_preflight(args):
                     "name": b["name"], "priority": b["priority"], "open": b["open"],
                     "dependsOn": b["dependsOn"],
                 })
+            if not b.get("archived") and b.get("review"):
+                awaiting.append({"name": b["name"], "open": b["open"]})
 
     maint_raw = cfq_run("maintenance", "due", repo).stdout.split()
     maint_status = maint_raw[0] if maint_raw else ""
@@ -115,6 +131,7 @@ def cmd_preflight(args):
         "setup": {"globalDone": setup_done},
         "planningPolicy": {
             "planModels": settings["planModels"],
+            "implModels": settings["implModels"],
             "allowAnyModel": settings["allowAnyModel"],
             "planExploreModel": settings["planExploreModel"],
             "planExploreModelComplex": settings["planExploreModelComplex"],
@@ -128,7 +145,7 @@ def cmd_preflight(args):
             "docLanguages": settings["docLanguages"],
             "docLevel": settings["docLevel"],
         },
-        "queue": {"openBatches": batches},
+        "queue": {"openBatches": batches, "awaitingReview": awaiting},
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
@@ -139,6 +156,7 @@ def cmd_preflight(args):
         "statusLines": [
             model_check_line(settings["allowAnyModel"]),
             inbox_line(inbox_n, imported_n),
+            review_line(awaiting),
             plugin_boundaries_line(settings["planBlockedPlugins"]),
         ],
     }))

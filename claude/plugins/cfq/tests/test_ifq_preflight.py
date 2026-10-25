@@ -11,7 +11,7 @@ import sys
 import time
 import unittest
 
-from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR
+from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -19,6 +19,8 @@ from cfq_lib import text  # noqa: E402
 
 
 class IfqPreflightTest(CfqTestCase):
+    auto_status = True
+
     def setUp(self):
         super().setUp()
         # Copies the whole scripts/ dir so cfq_ifq_preflight.py's own script_dir resolution
@@ -145,6 +147,26 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(empty_repo)))
         self.assertEqual(out["status"], "NO_BATCH", msg=f"empty repo status = {out}")
         self.assertNotIn("usePonytailAudit", out["policy"], msg=f"NO_BATCH policy: {out}")
+
+    def test_batch_review_policy_defaults_and_overrides(self):
+        repo = self._setup_repo("batch-review-policy")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["policy"]["batchReview"], "off", msg=f"policy = {out['policy']}")
+        self.assertEqual(
+            out["policy"]["batchReviewFindings"], "auto", msg=f"policy = {out['policy']}"
+        )
+
+        out = self.json_out(self._run_pf(
+            str(repo), env={"CFQ_BATCH_REVIEW": "medium", "CFQ_BATCH_REVIEW_FINDINGS": "park"},
+        ))
+        self.assertEqual(out["policy"]["batchReview"], "medium", msg=f"policy = {out['policy']}")
+        self.assertEqual(
+            out["policy"]["batchReviewFindings"], "park", msg=f"policy = {out['policy']}"
+        )
 
     def test_orchestrator_policy_present_and_true_by_default(self):
         repo = self._setup_repo("orch-default")
@@ -343,7 +365,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertTrue(alpha_goal.endswith("…"), msg=f"goal not ellipsized: {alpha_goal!r}")
         self.assertIsNone(by_name["2026-01-02-beta"]["goal"], msg=f"no context -> goal should be null: {out}")
 
-    def test_resolved_batch_brief_text_contains_goal(self):
+    def test_resolved_batch_has_no_brief_text(self):
         repo = self._setup_repo("goal-resolved")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
@@ -351,10 +373,32 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\n\nSolo batch goal.\n")
 
         out = self.json_out(self._run_pf(str(repo)))
-        self.assertIn(
-            "goal: Solo batch goal.", out["batch"]["briefText"].splitlines(),
-            msg=f"resolved batch briefText missing goal line: {out['batch']['briefText']!r}",
-        )
+        self.assertNotIn("briefText", out["batch"], msg=f"batch carries briefText: {out['batch']!r}")
+        for key in ("name", "priority", "phaseCount", "dependsOn"):
+            self.assertIn(key, out["batch"], msg=f"batch missing {key}: {out['batch']!r}")
+
+    def test_selected_batch_has_no_brief_text(self):
+        repo = self._setup_repo("select-no-brief")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        for name in ("2026-01-01-alpha", "2026-01-02-beta"):
+            (qdir / name).mkdir(parents=True)
+            (qdir / name / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", "2026-01-02-beta"))
+        self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"--select batch = {out}")
+        self.assertNotIn("briefText", out["batch"], msg=f"batch carries briefText: {out['batch']!r}")
+        for key in ("name", "priority", "phaseCount", "dependsOn"):
+            self.assertIn(key, out["batch"], msg=f"batch missing {key}: {out['batch']!r}")
+
+    def test_high_priority_batch_queue_text_row_shows_high(self):
+        repo = self._setup_repo("high-row")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / ".priority").write_text("high\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertIn("high · ", out["selection"]["queueText"], msg=f"queueText = {out['selection']['queueText']!r}")
 
     def test_all_done_not_finished_batch_resumes_with_null_next_phase(self):
         repo = self._setup_repo("all-done-not-finished")
@@ -371,6 +415,99 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["batch"]["name"], "2026-01-01-unfinished", msg=f"batch = {out}")
         self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
         self.assertIsNone(out["contextGate"], msg=f"contextGate should be null: {out}")
+
+    def test_batch_with_every_remaining_phase_skipped_is_still_selected(self):
+        repo = self._setup_repo("all-skipped")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-skipped"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (batch / "02-b.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(batch, **{"01_a": "done", "02_b": "skipped"})
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"all-remaining-skipped status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-01-skipped", msg=f"batch = {out}")
+        self.assertIsNone(out["nextPhase"], msg=f"nextPhase should be null: {out}")
+        self.assertEqual(out["batch"]["skipped"], 1, msg=f"batch = {out}")
+        self.assertFalse(out["startGate"]["offerSkip"], msg=f"startGate = {out}")
+
+    def _phase_batch(self, repo, name, slugs):
+        batch = repo / ".claude" / "cfq" / "impl" / name
+        batch.mkdir(parents=True)
+        for slug in slugs:
+            (batch / f"{slug}.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(batch)
+        return batch
+
+    def _record_red(self, batch, slug):
+        pf = self._repos_dir / f"{slug}-red.json"
+        pf.write_text(json.dumps({
+            "phase": slug, "status": "red", "summary": "boom", "errors": ["x"],
+        }))
+        self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry", check=True)
+
+    def test_skipped_phase_is_passed_over_and_offers_no_skip(self):
+        repo = self._setup_repo("skip-passed-over")
+        batch = self._phase_batch(repo, "2026-01-01-skip", ["01-a", "02-b"])
+        self.run_cfq("phase", "skip", str(batch), "01", "--reason", "obsolete", check=True)
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["nextPhase"]["slug"], "02-b", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertEqual(out["nextPhase"]["status"], "open", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertFalse(out["startGate"]["offerSkip"], msg=f"startGate = {out['startGate']}")
+        self.assertEqual(out["batch"]["skipped"], 1, msg=f"batch = {out['batch']}")
+        batch_line = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertTrue(batch_line["detail"].endswith(" · 1 skipped"), msg=f"line = {batch_line}")
+
+    def test_no_skipped_phase_leaves_batch_line_without_skipped_clause(self):
+        repo = self._setup_repo("skip-none")
+        self._phase_batch(repo, "2026-01-01-noskip", ["01-a"])
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["batch"]["skipped"], 0, msg=f"batch = {out['batch']}")
+        batch_line = next(e for e in out["statusLines"] if e["label"] == "Batch")
+        self.assertNotIn("skipped", batch_line["detail"], msg=f"line = {batch_line}")
+
+    def test_error_phase_stays_next_and_offers_skip_when_gate_fires(self):
+        repo = self._setup_repo("skip-error")
+        batch = self._phase_batch(repo, "2026-01-01-err", ["01-a", "02-b"])
+        self._record_red(batch, "01-a")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["nextPhase"]["slug"], "01-a", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertEqual(out["nextPhase"]["status"], "error", msg=f"nextPhase = {out['nextPhase']}")
+        self.assertTrue(out["nextPhase"]["failedAttempt"]["found"], msg=f"nextPhase = {out['nextPhase']}")
+        self.assertTrue(out["startGate"]["fire"], msg=f"startGate = {out['startGate']}")
+        self.assertTrue(out["startGate"]["offerSkip"], msg=f"startGate = {out['startGate']}")
+
+        resumed = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
+        self.assertEqual(resumed["nextPhase"]["slug"], "01-a", msg=f"nextPhase = {resumed}")
+        self.assertFalse(resumed["startGate"]["fire"], msg=f"startGate = {resumed['startGate']}")
+        self.assertFalse(resumed["startGate"]["offerSkip"], msg=f"startGate = {resumed['startGate']}")
+
+    def test_batch_without_readable_status_file_is_not_offered(self):
+        self.auto_status = False
+        repo = self._setup_repo("no-status-file")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        broken = qdir / "2026-01-01-broken"
+        broken.mkdir(parents=True)
+        (broken / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        bad = qdir / "2026-01-02-badjson"
+        bad.mkdir(parents=True)
+        (bad / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (bad / "status.json").write_text("{not json")
+        good = qdir / "2026-01-03-good"
+        good.mkdir(parents=True)
+        (good / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(good)
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        self.assertEqual(out["batch"]["name"], "2026-01-03-good", msg=f"batch = {out}")
+        offered = [x["name"] for x in out["selection"]["selectable"]]
+        self.assertNotIn("2026-01-01-broken", offered, msg=f"selectable = {offered}")
+        self.assertNotIn("2026-01-02-badjson", offered, msg=f"selectable = {offered}")
 
     def test_all_done_not_finished_batch_still_blocks_a_dependent(self):
         repo = self._setup_repo("unfinished-blocks-dependent")
@@ -457,6 +594,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo8)))
         self.assertFalse(out["nextPhase"]["failedAttempt"]["found"], msg=f"no red entry yet: {out}")
 
+        write_status(batch)
         pf = batch / "_phase.json"
         pf.write_text(
             '{"phase":"01-a","status":"red","finished":"2026-01-01T00:00:00+00:00","summary":"boom",'
@@ -558,6 +696,52 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["selection"]["queueText"], expected,
             msg=f"queueText = {out['selection']['queueText']!r}",
         )
+
+    def test_queue_text_awaiting_review_row(self):
+        repo = self._setup_repo("queue-review")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "035-2026-09-22-ifq-batch-gate").mkdir(parents=True)
+        (qdir / "035-2026-09-22-ifq-batch-gate" / "01-a.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass").mkdir(parents=True)
+        (qdir / "037-2026-09-23-cleanup-pass" / "01-c.md").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".planning").touch()
+        (qdir / "037-2026-09-23-cleanup-pass" / ".review").write_text("{}")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        rows = [
+            ["035", "2026-09-22", "ifq-batch-gate", "ready · selected"],
+            ["037", "2026-09-23", "cleanup-pass", "awaiting review"],
+        ]
+        expected = "QUEUE · 2 open\n" + "\n".join(
+            text.table(rows, headers=["#", "Date", "Topic", "Status"])
+        )
+        self.assertEqual(out["selection"]["queueText"], expected, msg=f"queueText = {out['selection']}")
+        self.assertEqual(
+            out["selection"]["review"], ["037-2026-09-23-cleanup-pass"], msg=f"review = {out['selection']}"
+        )
+        self.assertIn(
+            "037-2026-09-23-cleanup-pass", out["selection"]["planning"],
+            msg=f"planning = {out['selection']}",
+        )
+
+    def test_only_review_batch_is_unselectable(self):
+        repo = self._setup_repo("queue-review-only")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        name = "037-2026-09-23-cleanup-pass"
+        (qdir / name).mkdir(parents=True)
+        (qdir / name / "01-c.md").touch()
+        (qdir / name / ".planning").touch()
+        (qdir / name / ".review").write_text("{}")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "NO_BATCH", msg=f"status = {out}")
+        self.assertEqual(out["selection"]["review"], [name], msg=f"review = {out['selection']}")
+        self.assertIn("awaiting review", out["selection"]["queueText"], msg=f"selection = {out['selection']}")
+
+        out = self.json_out(self._run_pf(str(repo), "--select", name))
+        self.assertEqual(out["status"], "SELECT_UNAVAILABLE", msg=f"--select review = {out}")
+        self.assertEqual(out["selection"]["review"], [name], msg=f"review = {out['selection']}")
 
     def test_queue_text_unknown_dependency_shown_in_same_cell(self):
         repo = self._setup_repo("queue-unknown-dep")
@@ -759,7 +943,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": True, "reason": "default"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": True, "reason": "default", "offerSkip": False}, msg=f"startGate = {out}"
         )
         self.assertNotIn(
             "Start Gate", [e["label"] for e in out["statusLines"]],
@@ -776,7 +960,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "resume"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "resume", "offerSkip": False}, msg=f"startGate = {out}"
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
         self.assertEqual(
@@ -795,7 +979,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(out["batch"]["name"], "2026-01-01-alpha", msg=f"batch = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "start", "offerSkip": False}, msg=f"startGate = {out}"
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Start Gate")
         self.assertEqual(
@@ -811,7 +995,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo), "--intent", "resume"))
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": True, "reason": "resume-nothing-in-progress"},
+            out["startGate"], {"fire": True, "reason": "resume-nothing-in-progress", "offerSkip": False},
             msg=f"startGate = {out}",
         )
         self.assertNotIn(
@@ -833,7 +1017,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "OK", msg=f"status = {out}")
         self.assertEqual(out["batch"]["name"], "2026-01-02-beta", msg=f"batch = {out}")
         self.assertEqual(
-            out["startGate"], {"fire": False, "reason": "start"}, msg=f"startGate = {out}"
+            out["startGate"], {"fire": False, "reason": "start", "offerSkip": False}, msg=f"startGate = {out}"
         )
 
     def test_intent_resume_with_select_is_invalid_args(self):
@@ -916,7 +1100,7 @@ x
 ## Affected Files
 - `{target}` (ändern)
 ## Changes
-x
+1. x
 ## Verification
 `bash tests/foo.sh` must exit 0
 """
@@ -952,7 +1136,7 @@ x
 ## Affected Files
 - `{target}` (ändern)
 ## Changes
-x
+1. x
 """)
         (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
 
@@ -989,7 +1173,60 @@ x
             msg=f"lint = {out['lint']}",
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
-        self.assertEqual(entry["icon"], "done", msg=f"entry = {entry}")
+        self.assertEqual(entry["icon"], "warn", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "clean · 1 warning", msg=f"entry = {entry}")
+        self.assertEqual(
+            entry["sub"], [out["lint"]["warnings"][0].removeprefix("warn: ")], msg=f"entry = {entry}"
+        )
+        self.assertTrue(out["lint"]["warnings"][0].startswith("warn: "), msg=f"lint = {out['lint']}")
+
+    def test_lint_two_warnings_listed_in_order(self):
+        repo = self._setup_repo("lint-two-warns")
+        target = self._repos_dir / "lint-two-warns-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(self._clean_phase_body(target))
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / ".dependsOn").write_text("does-not-exist\nalso-missing\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertTrue(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(len(out["lint"]["warnings"]), 2, msg=f"lint = {out['lint']}")
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "warn", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "clean · 2 warnings", msg=f"entry = {entry}")
+        self.assertEqual(
+            entry["sub"], [w.removeprefix("warn: ") for w in out["lint"]["warnings"]],
+            msg=f"entry = {entry}",
+        )
+
+    def test_lint_finding_and_warning_stays_fail(self):
+        repo = self._setup_repo("lint-find-warn")
+        target = self._repos_dir / "lint-find-warn-target"
+        target.touch()
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text(f"""# Phase A
+## Size
+M
+## Context
+x
+## Affected Files
+- `{target}` (ändern)
+## Changes
+1. x
+""")
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        (batch / ".dependsOn").write_text("does-not-exist\n")
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertFalse(out["lint"]["clean"], msg=f"lint = {out['lint']}")
+        self.assertEqual(len(out["lint"]["warnings"]), 1, msg=f"lint = {out['lint']}")
+        entry = next(e for e in out["statusLines"] if e["label"] == "Lint")
+        self.assertEqual(entry["icon"], "fail", msg=f"entry = {entry}")
+        self.assertEqual(entry["detail"], "1 findings", msg=f"entry = {entry}")
+        self.assertEqual(entry["sub"], out["lint"]["findings"], msg=f"entry = {entry}")
 
     def test_lint_absent_when_no_batch_resolved(self):
         # NO_BATCH

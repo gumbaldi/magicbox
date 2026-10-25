@@ -1,8 +1,22 @@
 # ifq: Per-Phase Mechanics
 
+## Contents
+
+- Phase Announcement
+- Context Gate Reason Semantics
+- Phase Summary
+- Phase Object Fields
+- File-Scope Deviation
+- Stop Rule
+- Skipping a Phase
+- Commit Result Rendering
+- Phase Commit Trailers
+- Research and Verification Delegation
+- Reusing a Warm Explore Agent
+
 ## Phase Announcement
 
-Runs after the Size Gate, before any code is written, every phase. The announcement is
+Runs after `<plugin-root>/references/ifq-classic.md`'s **Size Gate**, before any code is written, every phase. The announcement is
 `bin/cfq brief "<batch-dir>" --phase <NN>`'s output, rendered as returned, no rewording —
 deterministic, extracted from the phase file, so it cannot drift in wording between phases. This
 is the classic-mode announcement specifically: the call refuses (`MODE_MISMATCH`, exit 2) while
@@ -15,8 +29,14 @@ PHASE 02 · ifq-per-phase-go-gate · Size L
   Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
+  Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
+           2. <next step, aligned under the first>
   Check    <first command line from ## Verification>
 ```
+
+The steps are the opening sentence of each numbered `## Changes` step, at most 10, each at most
+two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
+`Steps` label.
 
 A `## Context` that wraps past 4 lines ends the block in `…` rather than being cut mid-word; a
 short one stays a single `Goal` line, and no `## Context` at all omits the `Goal` line entirely
@@ -39,13 +59,19 @@ PHASE 02 · ifq-per-phase-go-gate · Size L
   Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
+  Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
+           2. <next step, aligned under the first>
   Check    <first command line from ## Verification>
 ```
+
+The steps are the opening sentence of each numbered `## Changes` step, at most 10, each at most
+two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
+`Steps` label.
 
 Then one `AskUserQuestion`, three options: **Go** — "proceed, implement this phase now", its
 description naming the budget state so the user sees what they are accepting — and **must not**
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
-reusing the Context Check's `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
+reusing `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
 implement-for-queue` short report). **Cancel** — "release the lock and end the session, nothing
 touched", runs `bin/cfq lock release "<repo-root>" --batch "<batch>"`, reports "cancelled before implementation,
 nothing touched", and ends; it never leaves the lock held. No option may be phrased as futile —
@@ -79,10 +105,10 @@ LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGa
 fired structurally, the report repeats that token rather than a paraphrase of the note.
 
 `WARN` (at **Context Check After Every Phase**) → **do not end, do not advance silently.** Go to
-**Earlier Failed Attempt** for the next phase (re-running the preflight with `--select <batch>` as
+**Earlier Failed Attempt** (`<plugin-root>/references/ifq-classic.md`) for the next phase (re-running the preflight with `--select <batch>` as
 that step already requires for any phase past the first), so the Size Gate resolves `WARN` again
 and the Phase Announcement carries the warning and its three options. If there is no next open
-phase, **Batch Done** runs normally — a finished batch is not held back by a budget warning. An
+phase, `implement-for-queue/SKILL.md`'s **Batch Done** runs normally — a finished batch is not held back by a budget warning. An
 unresolvable context reading arrives as `WARN REASON=unknown` and follows this same path — the user
 decides, rather than the session ending on a missing measurement.
 
@@ -96,12 +122,18 @@ PHASE 02 DONE
 ✅ Implemented     <one clause: what was built>
 ✅ Verification    <command, and its result>
 ⚠️ Deviation       <one line per deviation>
+⚠️ Observation     <one line per observation>
 ```
 
 `Implemented` and `Verification` are the model's own prose — no script can know what actually
 happened. `Deviation` repeats, verbatim, whatever goes into that phase's `report.json`
 `deviations` entry: one source, two renderings, never worded differently for the two audiences. No
-deviations → the `Deviation` line is omitted entirely, not printed empty.
+deviations → the `Deviation` line is omitted entirely, not printed empty. `Observation` repeats the
+phase object's `observations` verbatim and is omitted entirely when the list is empty.
+
+What the phase cost is not part of this model-written block — it follows as the script-rendered
+`Cost` status line, after `Commit` in classic mode and from `bin/cfq worker verdict` in
+orchestrator mode; classic mode's red path prints none.
 
 ## Phase Object Fields
 
@@ -112,7 +144,10 @@ that ends up in the `report.json` entry and the commit's `CFQ-Phase` trailer ali
 what the plan said, what was built, and why; the file-scope comparison in the **File-Scope
 Deviation** section below runs before every green phase closes and its result feeds this array —
 an empty array is fine only when that comparison came back empty, a glossed-over deviation is not;
-`errors` carries the actual failure output, trimmed to what identifies it.
+`errors` carries the actual failure output, trimmed to what identifies it. `observations`
+(optional): zero to three one-clause entries for what a reader should know that is neither a
+deviation nor an error — a flaky test, a pre-existing defect left untouched, a plan assumption that
+proved false without changing the work. Nothing stood out → leave the field out; never pad it.
 
 ## File-Scope Deviation
 
@@ -151,22 +186,42 @@ open phase in the same session. Exactly three triggers, nothing else:
 - (c) a new dependency or a new script was introduced that the plan does not name
 
 Any of the three firing → do not auto-advance; state which trigger fired and ask once
-(`AskUserQuestion`) whether to continue anyway. None firing → continue as today, no question.
+(`AskUserQuestion`) whether to continue anyway. None firing → continue, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
 
+## Skipping a Phase
+
+Only the user skips. A skip is never the session's own answer to a failed, large or seemingly
+obsolete phase, and a worker never skips.
+
+An explicit request in the middle of a session ("skip phase 04") is carried out between phases with
+`bin/cfq phase skip "<batch-dir>" <NN> [--reason "<reason>"]`, for a phase that is `open` or `error`
+and not the one currently being implemented; `bin/cfq phase unskip "<batch-dir>" <NN>` the same way.
+`/ifq skip <NN>` and the start gate's **Skip this phase** option are the other entry points, see
+`<plugin-root>/references/ifq-batch-start.md`.
+
+A skip moves the plan file into `skipped/`, passes the phase over (the next phase is the lowest
+`open` or `error` one that remains), lets the batch finish once nothing is left, and writes one
+inbox entry per skipped phase at batch end.
+
 ## Commit Result Rendering
 
-`bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the same way
-`changelog commit-message` used to — Claude never hand-writes or hand-formats one), commits, moves
+`bin/cfq phase commit` composes the commit message (adding the `CFQ-*` trailers the way
+`changelog commit-message` composes them — Claude never hand-writes or hand-formats one), commits, moves
 the plan file into `done/` and appends the ledger entry in one transaction, backfills the commit
 SHA, pushes (`-u origin <branch>` on this session's first push, a plain `git push` after), and
 registers the repo (`bin/cfq registry add`) — all from its own JSON result, so `bin/cfq resume`'s
 commit fields are never left empty by a forgotten follow-up call.
 
-Print `Commit` — the JSON's own `statusLines` entry, printed as returned; the branch/push state
-(`status: "OK"`, `⚠️` with `pushError` when `pushed: false` — the phase still closed, just not
-pushed, a later `git push` catches it up) is already resolved in its `text`. Two statuses still
+Print every `statusLines` entry of the JSON in array order, each `text` exactly as returned:
+`Commit` first — the branch/push state (`status: "OK"`, `⚠️` with `pushError` when `pushed:
+false` — the phase still closed, just not pushed, a later `git push` catches it up) is
+already resolved in its `text` — then `Cost`, present whenever the phase's telemetry was
+recorded: turns and tokens summed over the session and every sub-agent, the duration, and as
+sub-lines the split by layer, the models and the commit's diffstat. It is the state at commit
+time and is never re-worded, re-computed or estimated; no `Cost` entry in the array → print
+nothing in its place. Two statuses still
 drive what happens next, beyond just printing the line: `status: "NOTHING_STAGED"` → `git add` the
 phase's changes and retry the same call once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` →
 treat as a red phase, don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
@@ -174,7 +229,7 @@ treat as a red phase, don't move on — a `RECORD_FAILED` result still carries t
 
 ## Phase Commit Trailers
 
-Write the human-written subject/body (plus `Co-Authored-By`, as before) to a temp message file and
+Write the human-written subject/body (plus `Co-Authored-By`) to a temp message file and
 hand it, unmodified, to `bin/cfq phase commit "<batch-dir>" "<phase-json-file>" "<message-file>"` —
 the trailers are added internally, the model never calls `changelog commit-message` itself and
 never hand-writes or hand-formats a `CFQ-*` trailer. For a numbered batch (`batchNumber` from the
