@@ -204,4 +204,4 @@ padding rule — `RESULT · implement-for-queue` (full) or `HANDOFF · implement
 **Short format** — `HANDOFF · implement-for-queue` header, three to four lines: phases done, phases
 open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no merge hint. The batch has no open
 phase left → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-end.md`'s **Closing Report Fields** for
-the full format.
+the full format. The closing report names no push or merge state beyond the `Branch` line.

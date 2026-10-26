@@ -27,6 +27,8 @@ working tree holds its uncommitted edits in the files `handover.filesTouched` li
 edits against the phase file before building on them, keep what is right, redo what is not, and add
 one `deviations` entry naming the escalation (`escalated from <model>`).
 
+`priorDeviations` lists what earlier phases of this batch recorded; a cause listed there, such as a tool that is not installed here, is not rediscovered by running the failing command again, and only a new cause becomes a new deviation.
+
 ## Determinism
 
 Every mutation of `.claude/cfq/` goes through the exact `bin/cfq` invocation named in the

@@ -74,7 +74,7 @@ is offered with the warning attached, and the user decides whether to continue o
 
 At the end of a batch the closing report names the batch branch and the branch it was cut from, and states whether the
 branch is pushed, read from `origin/<branch>` as of the last push or fetch of this clone.
-Merging is the user's own step; cfq writes no entry for it.
+Merging is the user's own step; cfq writes no entry for it. Its cost line shows the planning session apart from the orchestrator, worker and explorer layers, which add up to the total, and lists each distinct deviation once with a count; it carries no skills line.
 
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything
