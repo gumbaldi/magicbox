@@ -34,7 +34,9 @@ entry whose fix landed incidentally rather than through `park --from-plan`: `<en
 one call closes several with the same reason) is a filename or path inside
 `<repo-root>/.claude/cfq/plan/` -- anything outside `plan/` fails `INVALID_PATH`, a missing entry
 fails `NOT_FOUND`. It appends a `## Closed` section (date + reason) to the entry and moves it into
-`plan/done/`, creating that directory if absent. Never touches `todo/` -- `note sweep --close`
+`plan/done/`, creating that directory if absent; when `plan/done/` already holds a file of that
+name the entry is archived as `<name>-2.md` (then `-3`, ...) via `free_archive_path()`, never
+overwriting. Never touches `todo/` -- `note sweep --close`
 stays the only todo closer.
 
 `plan --framework` is for findings about cfq itself rather than the repo under work: it always
@@ -343,6 +345,20 @@ def _plan_entry_path(repo, entry):
     return candidate
 
 
+def free_archive_path(done_dir, name):
+    """`done_dir / name` when that path is free, else the first free `<stem>-<n><suffix>` for
+    n = 2, 3, ... -- an archived file is never overwritten."""
+    done_dir = pathlib.Path(done_dir)
+    dest = done_dir / name
+    if not dest.exists():
+        return dest
+    stem, suffix = pathlib.Path(name).stem, pathlib.Path(name).suffix
+    n = 2
+    while (done_dir / f"{stem}-{n}{suffix}").exists():
+        n += 1
+    return done_dir / f"{stem}-{n}{suffix}"
+
+
 def cmd_close(args):
     plan_root = pathlib.Path(cfq_lib_paths.plan_dir(args.repo)).resolve(strict=False)
     done_dir = plan_root / "done"
@@ -364,10 +380,7 @@ def cmd_close(args):
         target.write_text(body)
 
         done_dir.mkdir(parents=True, exist_ok=True)
-        dest = done_dir / target.name
-        if dest.exists():
-            errors.fail("EXISTS", detail=f"{target} -> {dest}")
-            return
+        dest = free_archive_path(done_dir, target.name)
         os.replace(str(target), str(dest))
         closed.append(str(dest))
 
