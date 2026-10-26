@@ -1,6 +1,12 @@
+- batchNumber: 58
+  batch: 058-2026-10-26-prune-features-plain-summary-explore-first
+  status: parked
 - batchNumber: 57
   batch: 057-2026-10-26-security-host-detection-and-model-defaults
-  status: parked
+  branch: cfq/057-2026-10-26-security-host-detection-and-model-defaults
+  base: dev
+  started: 2026-10-26
+  status: in-progress
 - batchNumber: 56
   batch: 056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
   branch: cfq/056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
