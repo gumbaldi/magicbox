@@ -168,8 +168,10 @@ Read the call's JSON fields directly (no `jq`, no `/tmp` file). `available == fa
 `hint` once; findings present → state the count per severity. `fixable.critical`/`fixable.high` > 0
 and no `"<repo-root>/.claude/cfq/plan"/*-security-findings.md` exists yet → write the `plan/` entry
 via `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
-(body on stdin, never a temp file: counts per severity, the fixable advisories, a note that a
-decision is still open); one already exists → write nothing, say so in the status line. Never a
+(body on stdin, never a temp file; counts per severity and the fixable advisories, plus either of
+two closings: when a phase of this batch names every fixable critical and high advisory, the body
+names that phase and says the entry can be closed once it lands, with no sentence saying a decision
+is open; otherwise the body says a decision is still open); one already exists → write nothing, say so in the status line. Never a
 question, never a phase in this batch. Store the snapshot:
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
