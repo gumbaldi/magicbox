@@ -293,8 +293,10 @@ id goes through `cfq_runtime.py transcript-path|subagent-dir --session <id>`.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue`'s **Understand** and
-`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) both delegate multi-file or unclear-scope research to Explore agents
-(`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
+`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) delegate research to Explore agents: `plan-for-queue` delegates
+multi-file or unclear-scope research (`planExploreModel`), while `implement-for-queue` always
+delegates code search to an `implExploreModel` agent before the first edit and reads only the
+returned line ranges (classic and orchestrator mode alike). `implement-for-queue` may additionally run a phase's
 verification command through the same subagent to keep raw test/build log noise out of the
 expensive model's context. Research fits, since the parent gets a distilled summary and stops
 there; a **green** verification run fits the same way — pass/fail plus which command ran is
@@ -408,7 +410,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   interview is the only part that runs in the user's language. Everything written into a repo (plan
   files, queue entries, batch directory names, commit messages, the changelog) follows `codeLanguage`,
   documentation additionally `docLanguages` — except structural markers, which are always English
-  regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
+  regardless of `codeLanguage`: headings in plan and queue files (`## Summary`, `## Size`, `## Context`, …), the
   `(new)` marker, `.priority` values. Only the prose content inside those files follows
   `codeLanguage`.
 - **Progress is reported as status lines, not prose.** The canonical `## Output Format` block

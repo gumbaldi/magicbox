@@ -54,7 +54,7 @@ green phase. Gates hard on the running model — `implModels`, or `orchestratorM
 orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
 rather than warns. Shows the batch overview and the full queue and asks — start or cancel, plus
 pick a different batch when another one is selectable — before touching anything. The overview
-shows the full batch context, and each phase announcement lists the phase's change steps. By default
+shows the full batch context, and each phase announcement and the review digest open with the phase's plain-words Summary, followed by its change steps. By default
 (`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes

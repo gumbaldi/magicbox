@@ -580,3 +580,46 @@ who wants that on purpose.
 
 The rejected alternative was to leave `orchestratorModels` empty and document the risk. That would
 have made a safe session model depend on every user reading the note before the first run.
+
+## pfq: why phase plans no longer recommend skills
+
+Recommended skills were named in 2 of 971 finished phases (magicbox and atlas), and
+`skills_recommended` was empty in all 299 telemetry records. The two halves of the feature also
+never met: the telemetry side searched for a German heading (`## Empfohlene Skills`) while the
+worker searched for `## Recommended skills`, so nothing could ever have been counted. The planning
+rule, the worker briefing, the telemetry field, the report field and the portal column are
+removed. The "skills used" half stays, because it is recorded from what actually ran.
+
+## pfq: why every phase opens with a plain-words Summary
+
+The review digest and the `/ifq` announcement used the first lines of Context, and those lines open
+with code identifiers. The user's requirement is that a junior sysadmin can follow a plan and
+approve it. Every phase therefore opens with a `## Summary` of two to four sentences without code
+identifiers, and that section replaces the Context excerpt in both places. A phase without one
+falls back to Context, and lint only warns when it is missing, so batches parked earlier keep
+working.
+
+## ifq: why the implementer never searches code itself
+
+Across 237 orchestrator phases there were 0 worker Explore runs, so every file a worker read stayed
+in its context and was paid again on each later turn. Haiku cache reads cost a tenth of Sonnet's,
+so the search belongs on the cheaper model. `implement-for-queue` now always delegates code search
+to one `implExploreModel` agent before the first edit and reads only the returned line ranges, in
+classic and orchestrator mode alike. The only self-search left is one `grep -n` for an anchor the
+phase names, in a one-file phase. There is deliberately no setting to switch back, which was the
+user's choice. The effect is measured by the existing `worker` and `worker_explore` telemetry
+layers, and rollback means reverting the wording.
+
+## ifq: why a verification run with zero tests is red
+
+Batch 056's ten phases each carried `unittest -k "a or b"`, where unittest's `-k` takes
+substring patterns, not boolean expressions: it runs 0 tests and prints `OK`, so every phase looked green without verifying
+anything. A `-k` filter with an `or`, `and` or `not` expression is now a `verification-filter` lint
+finding, and a run that reports zero tests counts as red in orchestrator and classic mode alike.
+
+## cfq: why the Claude Code advisor is not used
+
+The Claude Code advisor (`advisorModel`) was evaluated and not adopted. It can only be enabled
+globally or per session, not per skill or agent, and the model alone decides when to consult it.
+Whether its usage appears in session transcripts is undocumented, so cfq could not measure it.
+cfq's worker escalation is deterministic and measured, which is the property the advisor lacks.
