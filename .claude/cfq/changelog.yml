@@ -1,6 +1,12 @@
+- batchNumber: 57
+  batch: 057-2026-10-26-security-host-detection-and-model-defaults
+  status: parked
 - batchNumber: 56
   batch: 056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
-  status: parked
+  branch: cfq/056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
+  base: main
+  started: 2026-10-26
+  status: in-progress
 - batchNumber: 55
   batch: 055-2026-10-06-drop-merge-entry-phase-template-briefing-file
   branch: cfq/055-2026-10-06-drop-merge-entry-phase-template-briefing-file
