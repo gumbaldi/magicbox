@@ -6,7 +6,21 @@
   branch: cfq/057-2026-10-26-security-host-detection-and-model-defaults
   base: dev
   started: 2026-10-26
-  status: in-progress
+  status: done
+  finished: 2026-10-26
+  phases:
+    - phase: "01-security-check-host-detection"
+      status: "green"
+      summary: "detect_forge classifies non-github.com hosts by gh/glab/tea login (new CFQ_GH_LOGIN_HOSTS/CFQ_GLAB_LOGIN_HOSTS overrides); cmd_security queries gh with --hostname, adds a GitLab vulnerability branch (fix: false) and the new unknown-host hint; tests added"
+    - phase: "02-doctor-glab-optional"
+      status: "green"
+      summary: "glab added as an optional row in config/dependencies.txt next to gh (gh row now names GitHub Enterprise too), and the doctor tests expect glab in every minimal PATH and in the missingOptional and inventory checks"
+    - phase: "03-model-defaults"
+      status: "green"
+      summary: "implModels default is now [sonnet, haiku] and orchestratorModels default is [sonnet]; tests and configuration docs updated"
+    - phase: "04-docs-design-notes-version"
+      status: "green"
+      summary: "Updated README security section and mentions, setup and configuration docs, two design-notes sections, and bumped cfq to 0.38.0"
 - batchNumber: 56
   batch: 056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
   branch: cfq/056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
