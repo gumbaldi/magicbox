@@ -494,3 +494,13 @@ to batch, and the drift cost tool calls in lint and in the phase announcement.
 
 Rejected: spelling the structure out in `phase-quality.md`. Every planning session reads that file
 in full, and the skeleton is only needed at the moment a phase file is written.
+
+## settings: why a read defaults to the current repo and a write does not
+
+Readers that forgot `--repo` ignored repository values (found 2026-10-07, stop thresholds in the
+atlas repository). A read that follows the working directory removes that class of mistake. A
+write keeps an explicit target, because a command that changes where it writes depending on the
+working directory would silently break existing instructions; `set` only prints a note when the
+current repository's file shadows the new global value. The test suite switches the lookup off
+(`CFQ_SETTINGS_AUTO_REPO=0`) because it runs from inside a checkout that has its own settings
+file.

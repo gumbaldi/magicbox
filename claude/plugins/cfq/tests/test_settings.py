@@ -1167,6 +1167,99 @@ class SettingsTest(CfqTestCase):
         err = self.json_out_stderr(proc)
         self.assertEqual(err["status"], "UNKNOWN_GROUP", msg=f"got {err}")
 
+    # 24. A read without a tier flag answers for the repository of the working directory.
+    def _tier_fixture(self):
+        r = self.make_repo("r")
+        self.run_cfq("settings", "set", "stopUsed", "90000", check=True)
+        self.run_cfq("settings", "set", "--repo", str(r), "stopUsed", "50000", check=True)
+        return r
+
+    def _get(self, *args, cwd, lookup=True, env=None):
+        run_env = {"CFQ_SETTINGS_AUTO_REPO": "1"} if lookup else {}
+        run_env.update(env or {})
+        return self.run_cfq("settings", *args, cwd=str(cwd), env=run_env)
+
+    def test_24_effective_value_by_default(self):
+        r = self._tier_fixture()
+        r2 = self.make_repo("r2")
+        sub = r / "a" / "b"
+        sub.mkdir(parents=True)
+        cases = [
+            ("routine", ("get", "stopUsed"), r, True, None, "50000"),
+            ("sub-directory", ("get", "stopUsed"), sub, True, None, "50000"),
+            ("global flag", ("get", "--global", "stopUsed"), r, True, None, "90000"),
+            ("default flag", ("get", "--default", "stopUsed"), r, True, None, "125000"),
+            ("explicit repo wins over cwd", ("get", "--repo", str(r2), "stopUsed"), r, True, None, "90000"),
+            ("outside a repo", ("get", "stopUsed"), self.home, True, None, "90000"),
+            ("suite default", ("get", "stopUsed"), r, False, None, "90000"),
+            ("env beats repo", ("get", "stopUsed"), r, True, {"CFQ_STOP_USED": "70000"}, "70000"),
+            ("default ignores env", ("get", "--default", "stopUsed"), r, True, {"CFQ_STOP_USED": "70000"}, "125000"),
+        ]
+        for name, args, cwd, lookup, env, want in cases:
+            with self.subTest(name):
+                proc = self._get(*args, cwd=cwd, lookup=lookup, env=env)
+                self.assertEqual(proc.stdout.strip(), want, msg=proc.stderr)
+
+    def test_24b_list_scopes(self):
+        r = self._tier_fixture()
+        for args, want in ((("list",), 50000), (("list", "--global"), 90000), (("list", "--default"), 125000)):
+            with self.subTest(args):
+                out = self.json_out(self._get(*args, cwd=r))
+                self.assertEqual(out["stopUsed"], want)
+
+    def test_24c_source_follows_scope(self):
+        r = self._tier_fixture()
+        for flag, want in ((None, "repo"), ("--global", "global"), ("--default", "default")):
+            with self.subTest(flag):
+                args = ["get", "--source"] + ([flag] if flag else []) + ["stopUsed"]
+                out = self.json_out(self._get(*args, cwd=r))
+                self.assertEqual(out["source"], want)
+
+    def test_24d_conflicting_flags_fail(self):
+        r = self._tier_fixture()
+        for a, b in (("--repo", "--global"), ("--global", "--default"), ("--repo", "--default")):
+            with self.subTest((a, b)):
+                args = ["get"]
+                for flag in (a, b):
+                    args.append(flag)
+                    if flag == "--repo":
+                        args.append(str(r))
+                args.append("stopUsed")
+                proc = self._get(*args, cwd=r)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(a, proc.stderr)
+                self.assertIn(b, proc.stderr)
+
+    def test_24e_set_shadow_note(self):
+        r = self._tier_fixture()
+        repo_file = r / ".claude" / "cfq" / "settings.json"
+        proc = self._get("set", "stopUsed", "80000", cwd=r)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        glob = json.loads((self.home / ".claude" / "cfq" / "settings.json").read_text())
+        self.assertEqual(glob["stopUsed"], 80000)
+        self.assertEqual(json.loads(repo_file.read_text())["stopUsed"], 50000)
+        self.assertIn("stopUsed", proc.stderr)
+        self.assertIn(str(repo_file), proc.stderr)
+        # explicit --repo write: no note
+        proc = self._get("set", "--repo", str(r), "stopUsed", "60000", cwd=r)
+        self.assertEqual(proc.stderr, "")
+        # lookup off: no note
+        proc = self._get("set", "stopUsed", "81000", cwd=r, lookup=False)
+        self.assertEqual(proc.stderr, "")
+
+    def test_24f_unset_touches_global_only(self):
+        r = self._tier_fixture()
+        repo_file = r / ".claude" / "cfq" / "settings.json"
+        proc = self._get("unset", "stopUsed", cwd=r)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        glob = json.loads((self.home / ".claude" / "cfq" / "settings.json").read_text())
+        self.assertNotIn("stopUsed", glob)
+        self.assertEqual(json.loads(repo_file.read_text())["stopUsed"], 50000)
+
+    def test_24g_suite_switches_lookup_off(self):
+        self.assertEqual(self._base_env()["CFQ_SETTINGS_AUTO_REPO"], "0")
+
     def json_out_stderr(self, proc):
         try:
             return json.loads(proc.stderr)

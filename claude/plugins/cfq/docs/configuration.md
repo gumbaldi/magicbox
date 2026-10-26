@@ -15,6 +15,9 @@ highest wins:
    Applies to every repo unless a repo overrides the key.
 4. **Default** — the schema's built-in value, used when nothing above sets the key.
 
+A read without a flag uses the repository the shell stands in; a write without `--repo` always
+goes to the global file.
+
 A key not writable per repo (`scope` is `["global"]` in the schema — currently `scanRoots`,
 `securityTimeoutSeconds`, `securityFindingsCap`) rejects a `set --repo` attempt outright.
 
@@ -32,10 +35,14 @@ forever; the original file is left untouched.
 ## View settings
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings list [--repo <path>] [--sources]
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings list [--repo <path> | --global | --default] [--sources]
 ```
 
-`--repo` folds in that repo's tier-2 file. `--sources` adds, per key, which tier actually supplied
+Without a flag, the list shows the value in effect for the repository the shell stands in
+(env var, then that repo's file, then the global file, then the default); outside a Git
+repository the repo tier is absent. `--repo <path>` shows the value in effect for exactly that
+repo. `--global` leaves the repo tier out. `--default` shows the built-in defaults only, ignoring
+every file and env var. `settings get` takes the same flags. `--sources` adds, per key, which tier actually supplied
 the value: `env:process`, `env:repo-legacy` (the legacy `env` block, not a `CFQ_*` var set in the
 shell), `repo`, `global`, or `default`. Or run `/cfq` and pick the settings step — same data,
 presented as a table.

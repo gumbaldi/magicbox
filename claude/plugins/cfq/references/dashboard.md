@@ -33,8 +33,8 @@ On request, two extensions of the same block, same rendering:
 
 - **Full list** — re-run `bin/cfq dash`'s settings call without the `marker != "D"` filter, so
   default-valued keys show too.
-- **Global view** — `"<plugin-root>/bin/cfq" settings list --sources` without
-  `--repo`, rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
+- **Global view** — `"<plugin-root>/bin/cfq" settings list --global --sources`,
+  rendered identically (no `maskedValue`/`R` rows, since there is no repo tier here).
 
 ## Management, Six Actions (current repo only, always confirm before writing)
 

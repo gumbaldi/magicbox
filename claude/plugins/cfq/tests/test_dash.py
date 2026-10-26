@@ -826,7 +826,7 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
             "full batch list            bin/cfq dash render --all\n"
             "view reports               /rfq · /x/repo-a/.claude/cfq/reports/index.html\n"
             "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"
-            "settings, global           bin/cfq settings list --sources\n"
+            "settings, global           bin/cfq settings list --global --sources\n"
             "\n"
             "NEXT\n"
             "\n"

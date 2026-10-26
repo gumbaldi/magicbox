@@ -43,6 +43,9 @@ python3 -m unittest discover -s claude/plugins/cfq/tests   # the whole suite
 python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one area
 ```
 
+The test suite sets `CFQ_SETTINGS_AUTO_REPO=0` through `cfq_testlib.py`, so a settings read never
+picks up this checkout's own settings file.
+
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
 
@@ -180,7 +183,10 @@ state such as `setupDone`, `cfq_settings.py state get/set`). `cfq_scan.py` union
 `find` over `scanRoots`, so a repo is discovered even if it was never registered.
 
 **Settings precedence is env > repo `.claude/cfq/settings.json` > global `settings.json` >
-default**, one schema in `cfq_settings.py` driving every tier generically: `merged_tiers()` layers
+default**, one schema in `cfq_settings.py` driving every tier generically. A read without a flag
+uses the repository the shell stands in; a write without `--repo` always goes to the global file.
+`settings get`/`list` take `--repo <path>`, `--global` (no repo tier) or `--default` (schema default
+only), mutually exclusive: `merged_tiers()` layers
 global-then-repo file overlays onto the schema `defaults`, `with_overrides()` then applies `CFQ_*`
 env vars on top on read only — a `set` on an env-overridden key writes the file but stays invisible
 until the variable is gone. Adding a setting means adding **one schema entry** — type, default,

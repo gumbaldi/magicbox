@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Usage: cfq_settings.py list [--repo <path>] [--sources]
-#        cfq_settings.py get [--repo <path>] [--source] <key>
+# Usage: cfq_settings.py list [--repo <path> | --global | --default] [--sources]
+#        cfq_settings.py get [--repo <path> | --global | --default] [--source] <key>
 #        cfq_settings.py set [--repo <path>] <key> <value>
 #        cfq_settings.py unset [--repo <path>] <key>
 #        cfq_settings.py describe [<key>]
@@ -12,9 +12,15 @@
 
 Ported from cfq-settings.sh — a port, not a redesign: exit codes, stdout shapes and error
 messages are the invariant this file preserves, not something it improves on.
+
+A read (`list`/`get`) without a tier flag answers for the repository the shell stands in
+(env > that repository's file > global file > default); `--repo <path>` names the repository,
+`--global` leaves the repository tier out, `--default` returns the schema default only. A write
+without `--repo` always goes to the global file.
 """
 
 import argparse
+import copy
 import json
 import os
 import pathlib
@@ -23,7 +29,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, paths, render, text  # noqa: E402
+from cfq_lib import errors, paths, proc, render, text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
 # The eight fixed settings-menu groups, in display order — `settings menu` walks this list, never
@@ -294,12 +300,52 @@ def _apply_set(key, val, repo_path):
     _write_json(target, data)
 
 
+def _detect_repo():
+    """The git toplevel of the working directory, or "" outside a repository or when
+    CFQ_SETTINGS_AUTO_REPO=0 (the test suite's switch)."""
+    if os.environ.get("CFQ_SETTINGS_AUTO_REPO") == "0":
+        return ""
+    result = proc.git(os.getcwd(), "rev-parse", "--show-toplevel")
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _read_scope(args):
+    """Resolves the tier flags of a read into `(repo_path, default_only)`. Tolerates a parser
+    that defines only some of the three flags."""
+    repo = getattr(args, "repo", None)
+    flags = [
+        name for name, on in (
+            ("--repo", repo), ("--global", getattr(args, "_global", False)),
+            ("--default", getattr(args, "default_only", False)),
+        ) if on
+    ]
+    if len(flags) > 1:
+        errors.die(f"{PROG}: --repo, --global and --default are mutually exclusive")
+    if flags == ["--default"]:
+        return "", True
+    if flags == ["--global"]:
+        return "", False
+    if repo:
+        return repo, False
+    return _detect_repo(), False
+
+
+def _read_values(args):
+    """`(repo_path, base, final)` for a read: the tier chain for the resolved scope, or the plain
+    schema defaults for `--default`."""
+    repo_path, default_only = _read_scope(args)
+    if default_only:
+        base = copy.deepcopy(DEFAULTS)
+        return repo_path, base, base
+    base = merged_tiers(repo_path)
+    return repo_path, base, with_overrides(base)
+
+
 def cmd_list(args):
     ensure()
-    base = merged_tiers(args.repo)
-    final = with_overrides(base)
+    repo_path, base, final = _read_values(args)
     if args.want_source:
-        out = {k: {"value": final.get(k), "source": key_source(k, args.repo, base, final)} for k in SCHEMA}
+        out = {k: {"value": final.get(k), "source": key_source(k, repo_path, base, final)} for k in SCHEMA}
         print(render.dump_json(out))
     else:
         print(render.dump_json(final))
@@ -307,10 +353,9 @@ def cmd_list(args):
 
 def cmd_get(args):
     ensure()
-    base = merged_tiers(args.repo)
-    final = with_overrides(base)
+    repo_path, base, final = _read_values(args)
     if args.want_source:
-        src = key_source(args.key, args.repo, base, final)
+        src = "default" if getattr(args, "default_only", False) else key_source(args.key, repo_path, base, final)
         print(render.dump_json({"value": final.get(args.key), "source": src}))
         return
     type_ = SCHEMA.get(args.key, {}).get("type", "")
@@ -325,6 +370,18 @@ def cmd_get(args):
 
 def cmd_set(args):
     _apply_set(args.key, args.value, args.repo)
+    if args.repo:
+        return
+    current = _detect_repo()
+    if not current:
+        return
+    repo_file = paths.repo_settings_file(current)
+    data = _read_json(repo_file, default={}) if os.path.isfile(repo_file) else {}
+    if isinstance(data, dict) and args.key in data:
+        print(
+            f"{PROG}: note: '{args.key}' is also set in {repo_file} — that value still wins in that repository",
+            file=sys.stderr,
+        )
 
 
 def cmd_unset(args):
@@ -477,6 +534,7 @@ def _render_menu_group(group_out, repo_path):
 
 def cmd_menu(args):
     ensure()
+    # The menu edits tiers, so it never uses the automatic repository lookup: its caller names the tier.
     if args.group and args.group not in GROUP_IDS:
         errors.fail("UNKNOWN_GROUP", detail=f"unknown group '{args.group}', want one of {', '.join(GROUP_IDS)}")
     base = merged_tiers(args.repo)
@@ -544,12 +602,14 @@ def build_parser():
     list_p = sub.add_parser("list")
     list_p.add_argument("--repo")
     list_p.add_argument("--global", action="store_true", dest="_global")
+    list_p.add_argument("--default", action="store_true", dest="default_only")
     list_p.add_argument("--source", "--sources", action="store_true", dest="want_source")
     list_p.set_defaults(func=cmd_list)
 
     get_p = sub.add_parser("get")
     get_p.add_argument("--repo")
     get_p.add_argument("--global", action="store_true", dest="_global")
+    get_p.add_argument("--default", action="store_true", dest="default_only")
     get_p.add_argument("--source", "--sources", action="store_true", dest="want_source")
     get_p.add_argument("key")
     get_p.set_defaults(func=cmd_get)
@@ -603,7 +663,8 @@ def main(argv):
         errors.die(f"usage: {PROG} state get <key> | state set <key> <value>")
     if func is None:
         errors.die(
-            f"usage: {PROG} list [--repo <path>] [--sources] | get [--repo <path>] [--source] <key> | "
+            f"usage: {PROG} list [--repo <path> | --global | --default] [--sources] | "
+            f"get [--repo <path> | --global | --default] [--source] <key> | "
             f"set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | "
             f"menu [--repo <path>] [--group <id>] [--format text|json] | "
             f"migrate <repo-root> | state get <key> | state set <key> <value>"

@@ -47,7 +47,7 @@ ACTION_ROWS_TEMPLATE = [
     ("full batch list", "bin/cfq dash render --all"),
     ("view reports", "/rfq · {path}/.claude/cfq/reports/index.html"),
     ("settings, this repo", "bin/cfq settings list --repo {path} --sources"),
-    ("settings, global", "bin/cfq settings list --sources"),
+    ("settings, global", "bin/cfq settings list --global --sources"),
 ]
 
 
