@@ -3,8 +3,9 @@
 """Runs the batch-done sequence (move, register, language check, maintenance check, security
 diff, changelog, telemetry sync) in a fixed order and prints one JSON object. The lock release is
 guaranteed via a `finally` -- a mid-sequence failure must never leave the repo locked. The
-`statusLines` array also carries a `Branch` line (the batch branch and the branch it was cut from)
-and the object a `branch` field with the same two values.
+`statusLines` array also carries a `Branch` line (the batch branch, the branch it was cut from and
+its push state) and the object a `branch` field with those values (`push` is `{state, ahead,
+behind}`, `null` without a branch).
 
 The language checks compare against the batch's own base branch (the changelog block's `base:`,
 `origin` first, then local), so a batch cut from an unmerged predecessor is checked only for its
@@ -116,12 +117,55 @@ def changelog_line(changelog):
     return cfq_text.status_entry("Changelog", "done", changelog)
 
 
-def branch_line(branch, base):
-    """The `Branch` line: the batch's branch and, when the changelog records one, the branch it
-    was cut from. An empty or detached (`HEAD`) branch argument renders `➖ no branch`."""
+def push_state(repo_root, branch):
+    """The batch branch's push state, read from `refs/remotes/origin/<branch>` with no fetch (so
+    "as of the last push or fetch of this clone"): `{"state", "ahead", "behind"}` where `state` is
+    `not-pushed` (no remote-tracking ref), `pushed`, `ahead`, `behind`, `diverged` or `unknown`.
+    Never raises."""
+    unknown = {"state": "unknown", "ahead": 0, "behind": 0}
+    try:
+        ref = f"refs/remotes/origin/{branch}"
+        if git(repo_root, "rev-parse", "--verify", "--quiet", ref).returncode != 0:
+            return {"state": "not-pushed", "ahead": 0, "behind": 0}
+        proc = git(repo_root, "rev-list", "--left-right", "--count", f"HEAD...{ref}")
+        if proc.returncode != 0:
+            return unknown
+        ahead, behind = (int(n) for n in proc.stdout.split())
+    except (OSError, ValueError):
+        return unknown
+    if ahead and behind:
+        state = "diverged"
+    elif ahead:
+        state = "ahead"
+    elif behind:
+        state = "behind"
+    else:
+        state = "pushed"
+    return {"state": state, "ahead": ahead, "behind": behind}
+
+
+def push_suffix(push):
+    state, ahead, behind = push["state"], push["ahead"], push["behind"]
+    return {
+        "not-pushed": "not pushed",
+        "pushed": "pushed",
+        "ahead": f"ahead {ahead} · not pushed",
+        "behind": f"behind {behind}",
+        "diverged": f"diverged (ahead {ahead}, behind {behind})",
+    }.get(state, "push state unknown")
+
+
+def branch_line(branch, base, push=None):
+    """The `Branch` line: the batch's branch, when the changelog records one the branch it was cut
+    from and, when `push` (see `push_state`) is given, the push state. An empty or detached
+    (`HEAD`) branch argument renders `➖ no branch`."""
     if not branch or branch == "HEAD":
         return cfq_text.status_entry("Branch", "skip", "no branch")
-    return cfq_text.status_entry("Branch", "done", f"{branch} · from {base}" if base else branch)
+    detail = f"{branch} · from {base}" if base else branch
+    if push is None:
+        return cfq_text.status_entry("Branch", "done", detail)
+    icon = "done" if push["state"] == "pushed" else "warn"
+    return cfq_text.status_entry("Branch", icon, f"{detail} · {push_suffix(push)}")
 
 
 def skipped_line(skipped, written, failed):
@@ -136,8 +180,13 @@ def skipped_line(skipped, written, failed):
     return cfq_text.status_entry("Skipped", "done", detail)
 
 
-def telemetry_line(telemetry, ok):
-    return cfq_text.status_entry("Telemetry", "done" if ok else "warn", telemetry)
+def telemetry_line(telemetry, ok, sync_repo=""):
+    """The `Telemetry` line: the sync's own output when there is one, else why there was none."""
+    if not ok or telemetry:
+        return cfq_text.status_entry("Telemetry", "done" if ok else "warn", telemetry)
+    if not sync_repo:
+        return cfq_text.status_entry("Telemetry", "skip", "sync off · telemetrySyncRepo is empty")
+    return cfq_text.status_entry("Telemetry", "done", f"nothing to sync · target {sync_repo}")
 
 
 def report_line(html_report, repo_root, batch_name):
@@ -407,6 +456,8 @@ def cmd_finish(args):
             add_error("telemetry", telemetry)
 
         html_report = capture(cfq_run("settings", "get", "--repo", str(repo_root), "htmlReport"))
+        sync_repo = capture(cfq_run("settings", "get", "--repo", str(repo_root), "telemetrySyncRepo"))
+        push = push_state(repo_root, branch) if branch and branch != "HEAD" else None
         if report_path.is_file():
             try:
                 data = json.loads(report_path.read_text())
@@ -429,9 +480,9 @@ def cmd_finish(args):
             maintenance_line(maintenance),
             security_diff_line({"planning": planning_json, "now": now_json, "new": new_json}),
             changelog_line(changelog),
-            branch_line(branch, batch_base_name),
+            branch_line(branch, batch_base_name, push),
             skipped_line(len(skipped_slugs), skipped_written, skipped_failed),
-            telemetry_line(telemetry, tel_proc.returncode == 0),
+            telemetry_line(telemetry, tel_proc.returncode == 0, sync_repo),
             report_line(html_report, str(repo_root), batch_dir.name),
             lock_line("released"),
         ]
@@ -443,6 +494,7 @@ def cmd_finish(args):
             "changelog": changelog, "telemetry": telemetry, "lock": "released", "errors": errs,
             "branch": {
                 "name": "" if not branch or branch == "HEAD" else branch, "base": batch_base_name,
+                "push": push,
             },
             "statusLines": [line for line in status_lines if line is not None],
         }))

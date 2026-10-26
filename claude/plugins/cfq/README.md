@@ -72,7 +72,8 @@ a full context window genuinely can't continue. Crossing a rate-limit threshold 
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
 is offered with the warning attached, and the user decides whether to continue or hand off.
 
-At the end of a batch the closing report names the batch branch and the branch it was cut from.
+At the end of a batch the closing report names the batch branch and the branch it was cut from, and states whether the
+branch is pushed, read from `origin/<branch>` as of the last push or fetch of this clone.
 Merging is the user's own step; cfq writes no entry for it.
 
 ```bash
