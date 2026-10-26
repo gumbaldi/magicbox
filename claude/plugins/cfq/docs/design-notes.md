@@ -164,7 +164,7 @@ shape, just to two different roots.
 
 Data files are `.js`, not `.json`: browsers refuse `fetch()` of a local file under `file://`
 (`CORS request not http`), which every one of these pages is opened as — no server, no build step,
-just opening a path from a file manager or `/rfq`'s own printed URL. A `<script src="…">` tag has
+just opening a path from a file manager or the link `/ifq` prints at batch end. A `<script src="…">` tag has
 no such restriction, so each data file registers its payload on `window.CFQ_DATA["<key>"]` as a
 side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
 a request for it.
@@ -353,8 +353,8 @@ condition under which it is read.
 
 The `.toml` command files were never loaded: Claude Code reads command files as Markdown only. They
 are replaced by `pfq.md` and `ifq.md`. A command with the same name as a skill also hides the
-skill's description from the session's listing and shows the command's instead, so the four
-commands (`cfq`, `pfq`, `ifq`, `rfq`) are short aliases and none repeats a skill name.
+skill's description from the session's listing and shows the command's instead, so the three
+commands (`cfq`, `pfq`, `ifq`) are short aliases and none repeats a skill name.
 
 ## cfq: why the skill prose has eval cases
 

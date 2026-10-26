@@ -185,7 +185,7 @@ setting; the rule is fixed, never a judgment call.
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
+| `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on request (`bin/cfq portal sync <repo-root>`) |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
 | `changelogFile` | `CFQ_CHANGELOG_FILE` | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
@@ -239,11 +239,10 @@ two different repos) and installs one global viewer shell at `<reportDir>/` itse
 `data/repos.js` listing the mirrored repos; its `index.html` renders a cross-repo index over every
 mirrored repo instead of one repo's own overview
 — a location reachable outside any one queue's own git-excluded directory and shared across repos,
-a WSL user opening reports from Windows Explorer, for example. Either way, `bin/cfq report html
-<batch-dir>` (`/rfq`'s own drill-down call) always syncs that one batch fresh and prints its
-`file://` route; the portal itself keeps itself current automatically at every batch-affecting
+a WSL user opening reports from Windows Explorer, for example. Either way, `bin/cfq portal sync
+<repo-root> --batch <name>` is the on-demand call: it syncs that one batch fresh; the portal itself keeps itself current automatically at every batch-affecting
 `bin/cfq` mutation (park, phase commit, `finish`, …) by default — `htmlReport` (above) is the
-switch that turns that automatic sync off, leaving it to `/rfq` on request.
+switch that turns that automatic sync off, leaving it to that on-demand call.
 
 ## Script Output Reference
 

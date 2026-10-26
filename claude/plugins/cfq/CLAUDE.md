@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`) whose implementations
+A Claude Code plugin, not an application: three skills (`skills/*/SKILL.md`) whose implementations
 live under `scripts/` — all of them stdlib Python (`cfq_settings.py`, `cfq_changelog.py`,
 `cfq_report.py`, `cfq_doctor.py` ported as batch `014`; `cfq_layout.py`, `cfq_registry.py`,
 `cfq_park.py` ported as batch `017` phase 01; `cfq_lock.py`, `cfq_maintenance.py` ported as batch
@@ -24,7 +24,7 @@ CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `04
 the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
 CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
-design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
+design, see Commands — three Markdown command aliases (`commands/`: `cfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
@@ -99,11 +99,10 @@ own location, so the copy only routes to the shadowed sibling if both directorie
 
 ## Architecture
 
-**Four skills, four roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
+**Three skills, three roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
 plans and never edits code; `implement-for-queue` (cheap model) works exactly one batch per session and
 hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
-on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
-`report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
+on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings.
 The `implement-for-queue` `SKILL.md` carries only what both modes share, and each mode's per-phase
 loop lives in its own reference file (`references/orchestrator.md`, `references/ifq-classic.md`).
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
@@ -159,7 +158,7 @@ follow-up work out of scope for the current phase, and `plan-for-queue` reads an
 via `cfq note close`, which appends a `## Closed` section and moves it into `plan/done/`);
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
-current repo only), and `report-for-queue` only lists. `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
+current repo only). `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
 `plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase)
 may sit in a batch directory next to `status.json`. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
@@ -422,7 +421,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   (section header in caps, per step `<icon> <label padded to 16 chars> <detail>`, icons
   `✅ ⚠️ ❌ ➖`, printed live as each step completes) lives in
   `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
-  `plan-for-queue`, `code-for-queue` and `report-for-queue`. A new skill points at the reference
+  `plan-for-queue` and `code-for-queue`. A new skill points at the reference
   file rather than copying the block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
 - **16,000-character budget per `SKILL.md`, counted on the text as loaded** (each
   `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length). Every session pays for a
@@ -489,7 +488,7 @@ of:
   code/hint through unmodified in a `runtimeDiagnostic` field, never re-derives or hides it.
 
 Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never folded into
-`status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
+`status` itself. The report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
 documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
 not replaces, the list above. The same goes for the phase states `open`/`done`/`error`/`skipped`
 in `status.json`: a separate, additive vocabulary for phases, never an aggregator `status`, and no

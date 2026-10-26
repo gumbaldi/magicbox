@@ -33,7 +33,7 @@ ACTION_KEYWORDS = [
     "dependency",
     "todo",
     "setting",
-    "rfq",
+    "view reports",
 ]
 
 DASHBOARD_MD = Path(__file__).resolve().parents[1] / "references" / "dashboard.md"
@@ -459,8 +459,8 @@ class TestDash(CfqTestCase):
             "| repo | 0 | 0 | 1/0 | 0 |", rendered, f"zero reports should render as a bare 0:\n{rendered}"
         )
 
-    def test_actions_lists_view_reports_pointing_at_rfq(self):
-        tmp = self._repos_dir / "rfqactionsroot"
+    def test_actions_lists_view_reports_pointing_at_the_portal(self):
+        tmp = self._repos_dir / "portalactionsroot"
         repo = tmp / "repo"
         (repo / ".claude" / "cfq").mkdir(parents=True)
         self._plain_repo(repo)
@@ -469,7 +469,9 @@ class TestDash(CfqTestCase):
         rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
 
         self.assertIn("view reports", rendered, f"view-reports action missing:\n{rendered}")
-        self.assertIn("/rfq", rendered, f"/rfq pointer missing from ACTIONS:\n{rendered}")
+        self.assertIn("reports/index.html", rendered, f"portal path missing from ACTIONS:\n{rendered}")
+        removed_command = "/r" + "fq"  # built apart so the repo-wide removal grep stays clean
+        self.assertNotIn(removed_command, rendered, f"{removed_command} still named in ACTIONS:\n{rendered}")
 
     # --- Phase 03: NEXT last, ACTIONS visible, unambiguous plugins line ---
 
@@ -859,7 +861,7 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
             "settings menu              /cfq settings\n"
             "setup wizard               /cfq setup\n"
             "full batch list            bin/cfq dash render --all\n"
-            "view reports               /rfq · /x/repo-a/.claude/cfq/reports/index.html\n"
+            "view reports               /x/repo-a/.claude/cfq/reports/index.html\n"
             "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"
             "settings, global           bin/cfq settings list --global --sources\n"
             "\n"

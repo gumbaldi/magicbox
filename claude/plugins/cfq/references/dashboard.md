@@ -16,9 +16,8 @@ counts the batch records (open and archived both) whose `report.json` exists —
 with none prints a bare `0`, never a dash or blank. The `open/done` cell of a batch row carries a ` · <n> skipped` suffix
 when the batch has skipped phases.
 
-The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing at `/rfq`
-(`report-for-queue`), the skill that lists and renders them, plus this repo's own report portal
-path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
+The `ACTIONS` list gains a seventh, read-only entry — `view reports`, naming this repo's own report
+portal path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
 and isn't one of **Management**'s six mutating actions below.
 
 A `Settings` warning line follows the `Plugins` line when a settings file holds a key cfq does not

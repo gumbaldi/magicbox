@@ -16,7 +16,7 @@ reports the phase's cost (a `Cost` status line) alongside the commit result, so 
 green phase costs one `bin/cfq` invocation instead of the five or six it used to (`phase record`,
 `changelog commit-message`, `git commit`, `git push`, `git rev-parse HEAD`, `report set-commit`,
 `registry add`). `reopen` is `record`'s inverse: it moves a phase back out of `done/` and marks the
-ledger entry `reopened`, never erasing `status`/`commit` -- that history is what `/rfq` and `ifq`
+ledger entry `reopened`, never erasing `status`/`commit` -- that history is what the report portal and `ifq`
 Step 5's failed-attempt detection read. `skip` takes an `open` or `error` phase out of the way
 without implementing it (file into `skipped/`, a `skipped` ledger entry), `unskip` brings it back
 to the status it held before.

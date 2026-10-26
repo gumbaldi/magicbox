@@ -1109,7 +1109,7 @@ class TestCommandFiles(CfqTestCase):
                 self.assertEqual(f.suffix, ".md", f"commands/{f.name} is not Markdown")
 
     def test_expected_set(self):
-        self.assertEqual({f.stem for f in self._files()}, {"cfq", "rfq", "pfq", "ifq"})
+        self.assertEqual({f.stem for f in self._files()}, {"cfq", "pfq", "ifq"})
 
     def test_no_command_shares_a_skill_name(self):
         skills = {d.name for d in (PLUGIN_ROOT / "skills").iterdir() if d.is_dir()}
