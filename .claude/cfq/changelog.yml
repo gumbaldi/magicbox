@@ -3,7 +3,33 @@
   branch: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
   base: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
   started: 2026-10-26
-  status: in-progress
+  status: done
+  finished: 2026-10-27
+  phases:
+    - phase: "01-report-summary-json-with-planning-split"
+      status: "green"
+      summary: "report summary now prints a named JSON object with planning as its own layer and de-duplicated deviations; the TSV is removed"
+    - phase: "02-finish-telemetry-detail-and-push-state"
+      status: "green"
+      summary: "push_state and the push suffix on the Branch line, the four-way Telemetry line, branch.push in the finish JSON, README sentence"
+    - phase: "03-closing-report-fields-and-rules"
+      status: "green"
+      summary: "Closing report fields rewritten around the JSON summary (layers incl. planning, de-duplicated deviations, no skills line) with push/merge-state rules, plus branch, worker and README wording"
+    - phase: "04-required-tools-setting-and-preflight-check"
+      status: "green"
+      summary: "requiredTools setting, cfq_lib/tools.py name-lookup checker, Required Tools line and requiredTools object in both preflights, skill prose and docs"
+    - phase: "05-security-entry-names-covering-phase"
+      status: "green"
+      summary: "Step 10 and the Plan Entry rule let a security-findings entry name the covering phase and say it can be closed once it lands, instead of a decision-still-open sentence"
+    - phase: "06-note-ledger-reads-phase-state"
+      status: "green"
+      summary: "cfq_note.py takes a note's phase from phase_state.next_pending (None when status.json is missing or unreadable) instead of globbing plan files; test_note.py batch fixture carries a status.json and covers the error, skipped and missing-status cases"
+    - phase: "07-portal-phase-title-inline-code"
+      status: "green"
+      summary: "phase titles in the batch page's phase table render backticked words as code via inlineCode"
+    - phase: "08-design-notes-version-and-repo-tool-declaration"
+      status: "green"
+      summary: "Five design-note sections appended, plugin version raised to 0.40.0, requiredTools py:pytest set for this repo"
 - batchNumber: 58
   batch: 058-2026-10-26-prune-features-plain-summary-explore-first
   branch: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
