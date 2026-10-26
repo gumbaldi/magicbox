@@ -32,7 +32,6 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
-from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
@@ -56,9 +55,6 @@ SETTLE_QUIET_SECONDS = 120
 # "orchestrator" and poison the comparison mode exists for.
 WORKER_AGENT = "cfq:cfq-phase-worker"
 
-RECOMMENDED_HEADING_RE = re.compile(r"^## Empfohlene Skills")
-HEADING_RE = re.compile(r"^## ")
-RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 TS_TRAILING_MS_RE = re.compile(r"\.\d+Z$")
 
 
@@ -102,38 +98,6 @@ def subagent_dir(repo="", session=""):
     # derived, never guessed here (cfq_runtime.py owns every assumption about Claude Code's
     # on-disk layout).
     return cfq_run(*_runtime_args("subagent-dir", repo, session)).stdout.strip()
-
-
-def extract_recommended_skills(dir_, phase):
-    if not phase:
-        return []
-    batch_dir = pathlib.Path(dir_)
-    try:
-        slug = phase_state.resolve_slug(batch_dir, phase)
-    except phase_state.PhaseStateError:
-        slug = phase
-    pf = phase_state.locate(batch_dir, slug)
-    if pf is None:
-        return []
-    lines = pf.read_text().splitlines()
-    start = None
-    for i, line in enumerate(lines):
-        if RECOMMENDED_HEADING_RE.match(line):
-            start = i
-            break
-    if start is None:
-        return []
-    block = [lines[start]]
-    for line in lines[start + 1:]:
-        block.append(line)
-        if HEADING_RE.match(line):
-            break
-    recommended = []
-    for line in block:
-        m = RECOMMENDED_ITEM_RE.match(line)
-        if m:
-            recommended.append(m.group(1))
-    return recommended
 
 
 def parse_transcript(tf):
@@ -401,7 +365,7 @@ def build_layers(t, nodes, turns_by_id):
     return layers
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", subagents_dir=""):
+def build_record(tf, since, kind, phase, batch, repo, upper="", subagents_dir=""):
     """`upper` bounds the main-transcript window like `since` bounds it from below (default
     unbounded); the same (since, upper] window decides which sub-agents belong to the record.
     `subagents_dir` is the `subagents/` directory of the session `tf` belongs to -- the caller
@@ -480,7 +444,6 @@ def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", sub
         "subagent_explore": sums(explore_sub),
         "agents": agent_nodes,
         "layers": layers,
-        "skills_recommended": recommended,
     }
 
 
@@ -542,9 +505,8 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
     if os.path.isfile(jsonl) and sid:
         since = last_until_for_session(jsonl, sid)
 
-    recommended = extract_recommended_skills(dir_, phase)
     batch = pathlib.Path(dir_).name
-    rec = build_record(tf, since, kind, phase, batch, repo, recommended, subagents_dir=subagent_dir())
+    rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
 
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -634,7 +596,7 @@ def _recompute(old, tf, subdir, upper):
     try:
         new = build_record(
             tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
-            old.get("batch"), old.get("repo"), old.get("skills_recommended") or [],
+            old.get("batch"), old.get("repo"),
             upper=upper, subagents_dir=subdir,
         )
     except (OSError, ValueError):

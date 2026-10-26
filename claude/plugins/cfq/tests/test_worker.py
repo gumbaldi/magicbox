@@ -17,7 +17,7 @@ from cfq_testlib import CFQ_BIN, CfqTestCase, PhaseDirsStatus, write_status
 
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 
-PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
+PHASE = textwrap.dedent("""\
     # Some phase
 
     ## Size
@@ -37,11 +37,6 @@ PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
 
     1. First step of the phase.
     2. Second step of the phase.
-
-    ## Recommended skills
-
-    - superpowers half a sentence why (blocked, must be filtered)
-    - mattpocock-skills:tdd half a sentence why (kept)
 
     ## Verification
 
@@ -65,7 +60,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.repo = self.make_repo("workerrepo")
         self.batch_dir = self.repo / ".claude/cfq/impl/2026-01-01-workerbatch"
         self.batch_dir.mkdir(parents=True)
-        (self.batch_dir / "02-something.md").write_text(PHASE_WITH_RECOMMENDED)
+        (self.batch_dir / "02-something.md").write_text(PHASE)
         (self.batch_dir / ".batch-context.md").write_text("# Batch Context\n")
 
     def _brief(self, phase, home=None):
@@ -98,6 +93,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.assertIn("language", body)
         self.assertIn("codeLanguage", body["language"])
         self.assertIn("blockedPlugins", body)
+        self.assertNotIn("recommendedSkills", body)
         self.assertIn("exploreModels", body)
         self.assertIn("failedAttempt", body)
         self.assertEqual(body["failedAttempt"], {"found": False})
@@ -217,11 +213,6 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.assertEqual(body["status"], "OK")
         self.assertEqual(body["size"], "M")
 
-    def test_blocked_plugin_filtered_from_recommended_skills(self):
-        body = self._brief_file()
-        self.assertNotIn("superpowers", body["recommendedSkills"], f"blocked plugin leaked: {body}")
-        self.assertIn("mattpocock-skills:tdd", body["recommendedSkills"], f"kept entry missing: {body}")
-
     def test_brief_finds_a_phase_lying_in_skipped(self):
         write_status(self.batch_dir, **{"02_something": {"status": "skipped", "reason": "obsolete"}})
         self.assertTrue((self.batch_dir / "skipped" / "02-something.md").is_file())
@@ -258,7 +249,7 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
         (self.batch_dir / ".batch-context.md").write_text("# Batch Context\n")
 
     def _phase(self, model=None):
-        text = PHASE_WITH_RECOMMENDED
+        text = PHASE
         if model:
             text = text.replace("## Context", f"## Model\n\n{model}\n\n## Context", 1)
         (self.batch_dir / "02-something.md").write_text(text)

@@ -820,7 +820,6 @@ def attempt_payload(p):
     tel = p.get("telemetry") if isinstance(p.get("telemetry"), dict) else None
     tel_or_empty = tel or {}
     by_skill = tel_or_empty.get("by_skill") if isinstance(tel_or_empty.get("by_skill"), dict) else {}
-    recommended = tel_or_empty.get("skills_recommended")
     tools = tel_or_empty.get("tools")
     return {
         "status": render.jq_alt(p.get("status"), ""),
@@ -841,10 +840,7 @@ def attempt_payload(p):
         "mode": render.jq_alt(tel_or_empty.get("mode"), ""),
         "cost": cost_of(tel),
         "tools": tools if isinstance(tools, dict) else {},
-        "skills": {
-            "recommended": recommended if isinstance(recommended, list) else [],
-            "used": sorted(k for k in by_skill if k != "-"),
-        },
+        "skills": {"used": sorted(k for k in by_skill if k != "-")},
     }
 
 

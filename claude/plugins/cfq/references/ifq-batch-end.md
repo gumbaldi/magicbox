@@ -57,7 +57,7 @@ instead, with no `file://` line in **Closing Reports**.
   together when summarizing this line. A row without fields 12-15 (classic mode, or an older
   report) renders without a worker line — there, `orchestrator_turns + explore_turns`
   equals the total, since worker and worker explorer are both zero.
-- `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
+- `Skills` — the skills this batch used, from **Skills Used** below.
 - `Security` — the difference only, one line.
 - `Review` — the `Review` status line's detail, and the parked entry's path when there is one;
   omitted when `batchReview` is `off`.
@@ -71,7 +71,7 @@ open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no `Branch` line
 full format, naming the red phase; its `❌` line already appeared in **Implementation**, so this
 step only repeats the `5 green, 1 red` split in `Batch`, not the error text.
 
-## Skills Recommended vs. Used
+## Skills Used
 
 ```bash
 "<plugin-root>/bin/cfq" report skills "<batch-dir>"

@@ -75,8 +75,7 @@ this applies — decide it here, at planning time, not discover it mid-`ifq` as 
 Write the estimate into that phase's file as a `## Size` heading (structural markers are always
 English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
 what `bin/cfq brief` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
-to `M`. Optionally add **Recommended skills** (half-sentence reason each, never from
-`implBlockedPlugins`; usually omitted).
+to `M`.
 
 ## 6. `## Affected Files` is the complete list
 

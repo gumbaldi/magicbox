@@ -242,10 +242,10 @@ class TestReport(CfqTestCase):
         fields = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n").split("\t")
         self.assertEqual(fields[-1], "0", fields)
 
-    # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
-    # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
+    # ---- skills (`cfq report skills` lists the used skills from report.json's
+    # telemetry.by_skill) ----------------------------------------------------------------------
 
-    def test_skills_overlapping_recommendations_deduplicated_and_sorted(self):
+    def test_skills_used_deduplicated_and_sorted(self):
         batch = self._batch("2026-01-05-skills")
         (batch / "report.json").write_text(json.dumps({
             "repo": "", "batch": "2026-01-05-skills", "started": "2026-01-05T10:00:00+01:00",
@@ -253,22 +253,19 @@ class TestReport(CfqTestCase):
                 {
                     "phase": "01-a", "status": "green",
                     "telemetry": {
-                        "skills_recommended": ["tdd", "code-review"],
                         "by_skill": {"tdd": 5, "-": 2},
                     },
                 },
                 {
                     "phase": "02-b", "status": "green",
                     "telemetry": {
-                        "skills_recommended": ["code-review", "dataviz"],
                         "by_skill": {"-": 3},
                     },
                 },
             ],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], ["code-review", "dataviz", "tdd"])
-        self.assertEqual(out["used"], ["tdd"])
+        self.assertEqual(out, {"used": ["tdd"]})
 
     def test_skills_phase_without_telemetry_is_skipped_not_a_crash(self):
         batch = self._batch("2026-01-06-no-telemetry")
@@ -277,8 +274,7 @@ class TestReport(CfqTestCase):
             "phases": [{"phase": "01-a", "status": "green"}],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], [])
-        self.assertEqual(out["used"], [])
+        self.assertEqual(out, {"used": []})
 
     def test_skills_empty_phases_array_both_lists_empty(self):
         batch = self._batch("2026-01-07-empty")
@@ -287,8 +283,7 @@ class TestReport(CfqTestCase):
             "phases": [],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], [])
-        self.assertEqual(out["used"], [])
+        self.assertEqual(out, {"used": []})
 
     # ---- summary orchestrator/worker split (phase 05: `report summary` surfaces the subagent
     # token split cfq_telemetry.py already computes, additive so a classic-mode report is unaffected)

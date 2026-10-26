@@ -114,17 +114,14 @@ class TelemetryTest(CfqTestCase):
     def _last_record(self):
         return json.loads(self.jsonl.read_text().splitlines()[-1])
 
-    def test_recommended_skills_found_for_a_phase_lying_in_skipped(self):
+    def test_record_has_no_skills_recommended_key(self):
         # The phase file is located through status.json's mirror directories, `skipped/` included.
         (self.batch / "skipped").mkdir()
         (self.batch / "skipped" / "02-bar.md").write_text(
-            "# Bar\n\n## Empfohlene Skills\n\n- mattpocock-skills:tdd why\n\n## Verification\n"
+            "# Bar\n\n## Recommended skills\n\n- mattpocock-skills:tdd why\n\n## Verification\n"
         )
         self._record(str(self.batch), "phase", "02-bar")
-        self.assertEqual(
-            self._last_record()["skills_recommended"], ["mattpocock-skills:tdd"],
-            msg="skills_recommended for a phase in skipped/",
-        )
+        self.assertNotIn("skills_recommended", self._last_record())
 
     def test_record_and_sync(self):
         # 1. First record call
@@ -689,7 +686,7 @@ class TelemetryTest(CfqTestCase):
         self._write_agent(subdir, "u1", "Explore", ["2026-08-13T10:00:30.000Z"])
         self._write_agent(subdir, "u2", "Explore", ["2026-08-13T10:03:30.000Z"])
         rec = cfq_telemetry.build_record(
-            str(self.transcript), "", "phase", "01-foo", "b", "r", [], upper="2026-08-13T10:02:00.000Z",
+            str(self.transcript), "", "phase", "01-foo", "b", "r", upper="2026-08-13T10:02:00.000Z",
             subagents_dir=str(subdir),
         )
         self.assertEqual(rec["totals"]["turns"], 3)

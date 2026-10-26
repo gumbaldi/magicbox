@@ -1,7 +1,7 @@
 // The batch page's Notes and Closing tabs. Notes: the todo cards and plan entries this batch wrote,
 // the plan entries it implements and the entries its phases parked. Closing: what the `ifq` run
 // reported when it finished (language check, maintenance, security, changelog, errors, merge) and
-// which skills were recommended versus used.
+// which skills were used.
 //
 // Every value reaches the DOM through `textContent` / `inlineCode`; nothing here parses markup.
 
@@ -194,17 +194,16 @@
     return v === undefined || v === null || v === "" ? dash(doc) : core().el(doc, "span", v);
   }
 
-  // Skills recommended and used across every attempt, each name once, sorted.
+  // Skills used across every attempt, each name once, sorted.
   function skillSets(batch) {
-    var rec = {}, used = {};
+    var used = {};
     ((batch && batch.phases) || []).forEach(function (phase) {
       (phase.attempts || []).forEach(function (a) {
         var s = a.skills || {};
-        (s.recommended || []).forEach(function (n) { rec[n] = true; });
         (s.used || []).forEach(function (n) { used[n] = true; });
       });
     });
-    return { recommended: Object.keys(rec).sort(), used: Object.keys(used).sort() };
+    return { used: Object.keys(used).sort() };
   }
 
   function securityNode(doc, closing, batch) {
@@ -270,8 +269,6 @@
 
     var skills = skillSets(batch);
     var sk = C.el(doc, "div");
-    sk.appendChild(C.el(doc, "div", "Recommended", "faint"));
-    sk.appendChild(textList(doc, skills.recommended));
     sk.appendChild(C.el(doc, "div", "Used", "faint"));
     sk.appendChild(textList(doc, skills.used));
     defRow(doc, dl, "Skills", sk);

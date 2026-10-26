@@ -25,7 +25,7 @@ def attempt(status="green", *, turns=10, output=1000, has_cost=True, **extra):
         "question": "", "commit": "abc123", "reopened": "", "diffstat": None, "filesTouched": [],
         "parkedPlanEntries": [], "settled": True,
         "cost": cost(turns, output) if has_cost else None,
-        "skills": {"recommended": [], "used": []},
+        "skills": {"used": []},
     }
     a.update(extra)
     return a
@@ -170,17 +170,15 @@ class PhaseFlagsTest(unittest.TestCase):
     def test_info_flags(self):
         p = phase(attempts=[attempt(
             observations=["a", "b"], parkedPlanEntries=["plan/x.md"], triggers=["omitted"],
-            skills={"recommended": ["tdd", "ponytail"], "used": ["tdd"]}, settled=False,
+            settled=False,
         )])
         got = {f["code"]: f for f in self.flags(p)}
-        self.assertEqual(sorted(got), ["observations", "parked-entries", "provisional", "skills-unused", "triggers"])
+        self.assertEqual(sorted(got), ["observations", "parked-entries", "provisional", "triggers"])
         self.assertTrue(all(f["level"] == "info" for f in got.values()))
         self.assertEqual(got["observations"]["text"], "2 observations")
-        self.assertIn("ponytail", got["skills-unused"]["text"])
-        self.assertNotIn("tdd", got["skills-unused"]["text"])
 
     def test_info_flags_negatives(self):
-        p = phase(attempts=[attempt(skills={"recommended": ["tdd"], "used": ["tdd"]})])
+        p = phase(attempts=[attempt(skills={"used": ["tdd"]})])
         self.assertEqual(self.flags(p), [])
 
     def test_warn_sorts_before_info_then_code(self):

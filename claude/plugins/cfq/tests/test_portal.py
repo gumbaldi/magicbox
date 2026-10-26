@@ -61,7 +61,7 @@ ZERO = T(0, 0, 0, 0, 0)
 
 
 def schema3(layers, *, since, until, wallclock, agents=(), tools=None, by_skill=None,
-            recommended=(), settled=True, mode="orchestrator", kind="phase"):
+            settled=True, mode="orchestrator", kind="phase"):
     return {
         "schema": 3, "kind": kind, "mode": mode, "from": since, "until": until,
         "wallclock_s": wallclock, "since": since, "settled": settled, "rev": 2 if settled else 1,
@@ -74,7 +74,6 @@ def schema3(layers, *, since, until, wallclock, agents=(), tools=None, by_skill=
         "agents": list(agents),
         "tools": tools or {},
         "by_skill": by_skill or {"-": T(1, 1, 1, 1, 1)},
-        "skills_recommended": list(recommended),
     }
 
 
@@ -98,7 +97,7 @@ GREEN_TEL = schema3(
     },
     since="2026-09-01T12:00:00Z", until="2026-09-01T12:02:00Z", wallclock=120,
     agents=[GREEN_AGENT], tools={"Agent": 1, "Bash": 3},
-    by_skill={"-": T(2, 1, 1, 1, 1), "tdd": T(6, 1, 1, 1, 1)}, recommended=["tdd"],
+    by_skill={"-": T(2, 1, 1, 1, 1), "tdd": T(6, 1, 1, 1, 1)},
 )
 # a finished-batch phase recorded before per-model data existed: totals only, no layers
 SETUP_TEL = {
@@ -741,7 +740,7 @@ class PortalTest(CfqTestCase):
         self.assertTrue(green["settled"])
         self.assertEqual(green["mode"], "orchestrator")
         self.assertEqual(green["tools"], {"Agent": 1, "Bash": 3})
-        self.assertEqual(green["skills"], {"recommended": ["tdd"], "used": ["tdd"]})
+        self.assertEqual(green["skills"], {"used": ["tdd"]})
 
         cost = green["cost"]
         self.assertEqual(cost["total"], T5(8, 16, 800, 5000, 110))
@@ -759,7 +758,7 @@ class PortalTest(CfqTestCase):
         # the schema-2 attempt without layers still yields its totals as the main layer, no models
         self.assertEqual(setup["attempts"][0]["cost"]["layers"]["main"]["total"], T5(2, 4, 100, 500, 20))
         self.assertEqual(setup["attempts"][0]["cost"]["byModel"], {})
-        self.assertEqual(setup["attempts"][0]["skills"], {"recommended": [], "used": []})
+        self.assertEqual(setup["attempts"][0]["skills"], {"used": []})
 
         self.assertEqual(b["cost"]["total"], T5(24, 48, 2300, 11500, 530))
         self.assertEqual(b["cost"]["layers"]["worker"]["total"], T5(5, 10, 500, 3000, 60))

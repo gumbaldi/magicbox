@@ -179,27 +179,23 @@ def cmd_set_commit(args):
 
 
 def cmd_skills(args):
-    """Replaces the retired `jq -c '{recommended: ..., used: ...}'` filter over
-    report.json's telemetry.skills_recommended / telemetry.by_skill (references/ifq-batch-end.md's
-    Skills Recommended vs. Used)."""
+    """Used skills per batch, from report.json's telemetry.by_skill (references/ifq-batch-end.md's
+    Skills Used)."""
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
     data = json.loads(pathlib.Path(f).read_text()) if os.path.isfile(f) else {}
     phases = data.get("phases", []) if isinstance(data, dict) else []
 
-    recommended, used = set(), set()
+    used = set()
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
         if not isinstance(tel, dict):
             continue
-        rec = render.jq_alt(tel.get("skills_recommended"), [])
-        if isinstance(rec, list):
-            recommended.update(rec)
         by_skill = render.jq_alt(tel.get("by_skill"), {})
         if isinstance(by_skill, dict):
             used.update(k for k in by_skill.keys() if k != "-")
 
-    print(render.dump_json({"recommended": sorted(recommended), "used": sorted(used)}))
+    print(render.dump_json({"used": sorted(used)}))
 
 
 def cmd_last_failure(args):

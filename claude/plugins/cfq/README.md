@@ -428,7 +428,7 @@ reachable, just not kept current in the background.
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
 by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the sub-agent
-share — plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or
+share — plus a `mode` (`orchestrator` or
 `classic`, empty for a planning record) derived from what actually ran, not from the
 `orchestratorMode` setting. Usage is counted once per API response, not once per transcript line.
 Every sub-agent is its own node, attributed to the session that spawned it through the spawning

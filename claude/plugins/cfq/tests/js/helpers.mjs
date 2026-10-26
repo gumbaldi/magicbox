@@ -306,7 +306,7 @@ function attempt(over) {
     filesTouched: ["/home/code/git/demo/scripts/a.py"], parkedPlanEntries: [],
     time: { from: "2026-10-01T08:00:00Z", until: "2026-10-01T08:30:00Z", wallclock_s: 1800 },
     settled: true, mode: "orchestrator", cost: doneCost(), tools: { Bash: 12, Edit: 8 },
-    skills: { recommended: [], used: [] },
+    skills: { used: [] },
     ...over,
   };
 }
