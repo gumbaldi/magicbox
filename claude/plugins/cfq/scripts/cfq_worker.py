@@ -25,9 +25,9 @@ plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_repo
 read) and is not inspected here.
 
 Every result also carries `statusLines`: for `green` and `red` the phase's `Cost` entry rendered
-from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_entry()`), a list of
-one, or `[]` when there is no telemetry to show or the report names no phase; for `question`
-always `[]`. The orchestrator prints those lines verbatim, so the cost summary costs no call of
+from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_line()`), a list of
+one -- the `⚠️ Cost` warning entry when there is no usable telemetry or the report names no phase;
+for `question` always `[]`. The orchestrator prints those lines verbatim, so the cost summary costs no call of
 its own.
 """
 
@@ -243,8 +243,7 @@ def cmd_verdict(args):
 
     status_lines = []
     if status in ("green", "red"):
-        cost = cfq_report.phase_cost_entry(args.batch_dir, report.get("phase"))
-        status_lines = [cost] if cost is not None else []
+        status_lines = [cfq_report.phase_cost_line(args.batch_dir, report.get("phase"))]
 
     if status == "red":
         print(render.dump_json({

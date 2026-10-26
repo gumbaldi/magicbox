@@ -278,10 +278,8 @@ def cmd_commit(args):
         result["pushError"] = _last_stderr_line(push.stderr)
     result["statusLines"] = [commit_status_line(result)]
     # The second entry, `Cost`, is rendered from the ledger entry just written -- see
-    # `cfq_report.phase_cost_entry()`; absent without a telemetry record.
-    cost = cfq_report.phase_cost_entry(dir_, phase_id)
-    if cost is not None:
-        result["statusLines"].append(cost)
+    # `cfq_report.phase_cost_line()`; a warning line without usable telemetry.
+    result["statusLines"].append(cfq_report.phase_cost_line(dir_, phase_id))
     print(render.dump_json(result))
 
 

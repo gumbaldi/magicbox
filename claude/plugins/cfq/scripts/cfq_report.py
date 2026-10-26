@@ -336,6 +336,15 @@ def phase_cost_entry(dir_, phase_slug):
         return None
 
 
+def phase_cost_line(dir_, phase_slug):
+    """`phase_cost_entry()` or, when that has no usable telemetry (None), the `Cost` warning entry --
+    so a caller never composes a fallback and a missing measurement never vanishes silently."""
+    entry = phase_cost_entry(dir_, phase_slug)
+    if entry is not None:
+        return entry
+    return text.status_entry("Cost", "warn", "unavailable · no usable telemetry for this phase")
+
+
 def cmd_summary(args):
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")

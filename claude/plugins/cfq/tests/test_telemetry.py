@@ -805,6 +805,16 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(t["turns"], 1)
         self.assertEqual(t["output"], 0)
 
+    def test_empty_window_warns_on_stderr(self):
+        self.transcript.write_text("")
+        proc = self._record(str(self.batch), "phase", "01-foo")
+        self.assertIn(
+            f"cfq_telemetry.py: record for '01-foo' has 0 turns — transcript {self.transcript} "
+            "holds nothing in this window", proc.stderr)
+        self.assertEqual(self._last_record()["totals"]["turns"], 0)
+        proc = self._record(str(self.batch), "planning")
+        self.assertIn("record for 'planning' has 0 turns", proc.stderr)
+
     def test_planning_record_mode_is_empty(self):
         self._record(str(self.batch), "planning")
         rec = self._last_record()

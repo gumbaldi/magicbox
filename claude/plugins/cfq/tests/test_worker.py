@@ -453,14 +453,31 @@ class WorkerVerdictTest(CfqTestCase):
             self.assert_status_lines_shape(body["statusLines"])
             self.assertEqual([e["label"] for e in body["statusLines"]], ["Cost"])
 
-    def test_question_and_missing_batch_have_no_status_lines(self):
+    def test_green_without_usable_telemetry_carries_unavailable_cost(self):
+        d = self._repos_dir / "zero-batch"
+        d.mkdir(parents=True, exist_ok=True)
+        zero = {"turns": 0, "output": 0, "billable_in": 0, "cache_read": 0, "models": []}
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [{
+            "phase": "02-x", "status": "green",
+            "telemetry": {"schema": 3, "kind": "phase", "layers": {
+                n: dict(zero) for n in ("main", "main_explore", "worker", "worker_explore")}},
+        }]}))
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green"}, batch_dir=str(d)).stdout)
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(len(body["statusLines"]), 1)
+        self.assertEqual(body["statusLines"][0]["icon"], "warn")
+        self.assertEqual(body["statusLines"][0]["detail"], "unavailable · no usable telemetry for this phase")
+
+    def test_question_has_no_status_lines_missing_batch_warns(self):
         d = self._batch_with_telemetry()
         body = json.loads(self._verdict({"phase": "02-x", "status": "question", "question": "?"}, batch_dir=d).stdout)
         self.assertEqual(body["statusLines"], [])
         proc = self._verdict({"phase": "02-x", "status": "green"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         body = json.loads(proc.stdout)
-        self.assertEqual(body["statusLines"], [])
+        self.assertEqual(len(body["statusLines"]), 1)
+        self.assertEqual(body["statusLines"][0]["label"], "Cost")
+        self.assertEqual(body["statusLines"][0]["icon"], "warn")
         self.assertEqual(body["verdict"], "CONTINUE")
 
     def test_malformed_json_fails_loudly_never_silent_continue(self):

@@ -507,6 +507,9 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     batch = pathlib.Path(dir_).name
     rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
+    if rec["totals"]["turns"] == 0:
+        print(f"{PROG}: record for '{phase or 'planning'}' has 0 turns — transcript {tf} holds nothing in this window",
+              file=sys.stderr)
 
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:

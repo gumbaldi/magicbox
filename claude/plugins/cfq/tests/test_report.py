@@ -814,6 +814,30 @@ class PhaseCostEntryTest(CfqTestCase):
         self.assertIsNone(self._cost(self._entry(layers=zero)))
         self.assertIsNone(self._cost("not a dict"))
 
+    def test_cost_line_falls_back_to_unavailable(self):
+        expected = "unavailable · no usable telemetry for this phase"
+
+        def check(entry):
+            self.assertEqual(entry["label"], "Cost")
+            self.assertEqual(entry["icon"], "warn")
+            self.assertEqual(entry["detail"], expected)
+
+        d = self._dir("line-batch")
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        (d / "report.json").write_text("{not json")
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        d = self._dir()
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [{"phase": "02-x", "status": "green"}]}))
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry()]}))
+        check(cfq_report.phase_cost_line(str(d), "09-other"))
+        zero = {n: dict(_ZERO_LAYER) for n in cfq_report.LAYER_NAMES}
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry(layers=zero)]}))
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        # the routine record passes through unchanged
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry()]}))
+        self.assertEqual(cfq_report.phase_cost_line(str(d), "02-x"), cfq_report.phase_cost_entry(str(d), "02-x"))
+
     def test_append_phase_stamps_finished(self):
         d = self._dir("stamp-batch")
         cfq_report.append_phase(str(d), json.dumps({"phase": "01-a", "status": "green"}),

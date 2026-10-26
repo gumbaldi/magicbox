@@ -60,8 +60,9 @@ into the prompt.
 
 Pipe the worker's returned report — the JSON object `<plugin-root>/agents/cfq-phase-worker.md`'s
 **Report** section defines — into `bin/cfq worker verdict "<batch-dir>"` on stdin. The result also
-carries `statusLines` — the phase's `Cost` line, read from the ledger entry the worker's own
-closing call wrote, empty for a `question` report.
+carries `statusLines` — for `green` and `red` always the phase's `Cost` line, read from the ledger
+entry the worker's own closing call wrote: either the cost or `⚠️ Cost unavailable`, already
+composed by the script (never write a fallback line yourself); empty for a `question` report.
 
 - `CONTINUE` → render the phase summary (step 5 below), then back to step 1 for the next phase.
 - `ASK` → resolve what can be resolved from `.batch-context.md`, the phase file and settings;
