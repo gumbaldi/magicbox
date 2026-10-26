@@ -521,3 +521,18 @@ a warning. A missing or unknown `CLAUDE_EFFORT` prints nothing.
 The warning is a sub-line of the `Model Gate` status entry both preflights already return. Both
 skills print that entry's `text` verbatim, so no skill or reference text had to change (and no
 `SKILL.md` had to grow).
+
+## pfq: why the planner must object once
+
+The user asked for it in the planning session of 2026-10-12: a planner that agrees in order to move
+on builds a plan on claims nobody checked. That session's own checks are the example. A price tier
+that was stated as applying per session applies per request, and the assumption that smaller phases
+are always cheaper is contradicted by the per-phase orchestrator cost. Both surfaced only because
+the claims were verified before the first question.
+
+The rule asks for exactly one objection, with a reason and an alternative, and then the user's
+decision stands. A planner that keeps arguing costs the user more turns than a wrong assumption
+would, so a repeated objection, or the alternative planned quietly in place of the request, is the
+opposite failure. The rule sits in `references/interaction-policy.md` as **Challenge Duty**, directly
+above **Active Interview Duty**, which `/pfq` already reads before its first interview round, so
+`SKILL.md` did not have to grow.
