@@ -184,11 +184,30 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (repo / ".claude" / "cfq" / "settings.json").write_text(
+            json.dumps({"orchestratorModels": []})
+        )
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["sonnet", "haiku"],
+            msg=f"an explicitly empty orchestratorModels should fall back to implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_default_is_sonnet(self):
+        repo = self._setup_repo("orch-default")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
 
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(
             out["policy"]["orchestratorModels"], ["sonnet"],
-            msg=f"orchestratorModels should fall back to implModels: {out['policy']}",
+            msg=f"default orchestratorModels should be sonnet: {out['policy']}",
+        )
+        self.assertEqual(
+            out["policy"]["implModels"], ["sonnet", "haiku"],
+            msg=f"default implModels should be sonnet, haiku: {out['policy']}",
         )
 
     def test_orchestrator_models_override_leaves_impl_models_untouched(self):
@@ -202,7 +221,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["policy"]["orchestratorModels"], ["opus"], msg=f"override = {out['policy']}"
         )
         self.assertEqual(
-            out["policy"]["implModels"], ["sonnet"],
+            out["policy"]["implModels"], ["sonnet", "haiku"],
             msg=f"fallback substitution must not overwrite implModels: {out['policy']}",
         )
 
@@ -211,7 +230,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
-        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": []}))
+        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": [], "orchestratorModels": []}))
 
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(

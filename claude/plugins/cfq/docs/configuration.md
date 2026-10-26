@@ -113,8 +113,8 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. With a smaller model added, set `orchestratorModels` to keep the `/ifq` session itself on the stronger one |
-| `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
+| `implModels` | `CFQ_IMPL_MODELS` | `sonnet,haiku` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. `orchestratorModels` keeps the `/ifq` session itself off the smaller model |
+| `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `sonnet` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when set to an empty list |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
 | `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |

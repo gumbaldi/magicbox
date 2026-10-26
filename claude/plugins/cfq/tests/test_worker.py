@@ -315,8 +315,8 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
         rows = [
             ("haiku", {"implModels": ["sonnet", "haiku"]}, "sonnet"),
             ("sonnet", {"implModels": ["sonnet", "haiku"]}, None),
-            ("haiku", {"implModels": ["haiku", "opus"]}, "opus"),
-            ("haiku", {"implModels": ["haiku", "mystery"]}, None),
+            ("haiku", {"implModels": ["haiku", "opus"], "orchestratorModels": []}, "opus"),
+            ("haiku", {"implModels": ["haiku", "mystery"], "orchestratorModels": []}, None),
         ]
         for phase_model, settings, expected in rows:
             with self.subTest(phase_model=phase_model, settings=settings):
