@@ -320,15 +320,18 @@ direct read-and-edit would have been one.
 That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
 (`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent reading and editing
 the same files directly — for a fragment the parent must read back, the subagent path loses.
-For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (its
-additive TSV fields 12-15, populated whenever a phase actually ran as a worker) is the same
-comparison already run per batch — read it before assuming the split still favors orchestrator
-mode. Fields 12/13 are the `main` layer's own turns/output (the session itself) and 14/15 the
-`worker` layer's, both read straight off `layers` (or derived the same way for an older record)
-rather than by subtracting one pool from another; the invariant across the whole row is
-`orchestrator_turns + worker_turns + explore_turns + worker_explore_turns` == the batch's whole
-`total_turns` (and the same shape for output) — four disjoint layers summing to the total, never a
-subtraction that could go negative. Anyone tempted to delegate anything beyond exploration,
+For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (the
+`layers` object of its JSON output, with `worker` populated whenever a phase actually ran as a
+worker) is the same comparison already run per batch — read it before assuming the split still
+favors orchestrator mode. `layers.orchestrator` is the `main` layer's own turns/output (the session
+itself) and `layers.worker` the `worker` layer's, both read straight off each record's `layers` (or
+derived the same way for an older record) rather than by subtracting one pool from another. The
+planning session is its own layer, `layers.planning` (all four of its layers summed), apart from the
+phases'; `layers.explorer` and `layers.worker_explorer` are the phases' `main_explore` and
+`worker_explore`. The invariant across the five named layers is
+`planning + orchestrator + worker + explorer + worker_explorer` == `totals`, for `turns`, `output`
+and `billable_in` alike — five disjoint layers summing to the total, never a subtraction that could
+go negative. Anyone tempted to delegate anything beyond exploration,
 verification execution, or a whole self-committing phase should re-run the relevant comparison
 first, not take this paragraph on faith.
 
