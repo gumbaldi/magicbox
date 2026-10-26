@@ -54,8 +54,10 @@ exception — reappears every phase by design, never a repetition bug — one `A
 
 ## Implementation
 
-Read `nextPhase`'s plan file (path from the preflight) in full — multi-file or unclear-scope phases may delegate
-that research to an `implExploreModel` subagent first; implementation itself never runs on one.
+Read `nextPhase`'s plan file (path from the preflight) in full. Code search is always delegated to an
+`implExploreModel` subagent before the first edit, and this session reads only the returned line ranges
+(`Read` with `offset`/`limit`), per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
+Delegation**; implementation itself never runs on one.
 Implement it completely, run the plan's verification with output filtered — a green run may
 delegate the filtering to the same subagent, a red run never does (full unfiltered failure back
 either way), per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
