@@ -34,7 +34,6 @@ its own.
 import argparse
 import json
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -43,6 +42,7 @@ import cfq_report  # noqa: E402
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_worker.py"
 
@@ -101,10 +101,7 @@ def find_phase_file(batch_dir, phase_num):
 
 
 def repo_root_of(batch_dir):
-    proc = subprocess.run(
-        ["git", "-C", str(batch_dir), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True,
-    )
+    proc = proc_git(batch_dir, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
 
 

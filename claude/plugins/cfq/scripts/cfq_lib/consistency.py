@@ -15,7 +15,6 @@ reconstructs a ledger entry (a JSON record) or restores a file `cfq trash` still
 import json
 import pathlib
 import shutil
-import subprocess
 import sys
 import time
 
@@ -26,6 +25,7 @@ from . import phase_state  # noqa: E402
 from . import render  # noqa: E402
 from . import trash  # noqa: E402
 from .proc import CFQ_BIN  # noqa: E402
+from .proc import git as proc_git  # noqa: E402
 
 STALE_PLANNING_SECONDS = 6 * 3600
 
@@ -108,21 +108,18 @@ def git_state(repo, batch):
     # plus %H into one --format line for many commits at once makes the record boundaries
     # ambiguous. Same one-commit-at-a-time shape as cfq_changelog.py's own
     # scan_trailer_batch_for_max.
-    hashes = subprocess.run(
-        ["git", "-C", repo, "log", "--all", "--fixed-strings", f"--grep=CFQ-Batch: {batch}", "--format=%H"],
-        capture_output=True, text=True,
+    hashes = proc_git(
+        repo, "log", "--all", "--fixed-strings", f"--grep=CFQ-Batch: {batch}", "--format=%H",
     ).stdout.split()
     state = {}
     for sha in hashes:
-        phase = subprocess.run(
-            ["git", "-C", repo, "log", "-1", "--format=%(trailers:key=CFQ-Phase,valueonly)", sha],
-            capture_output=True, text=True,
+        phase = proc_git(
+            repo, "log", "-1", "--format=%(trailers:key=CFQ-Phase,valueonly)", sha,
         ).stdout.strip()
         if not phase or phase in state:
             continue
-        status = subprocess.run(
-            ["git", "-C", repo, "log", "-1", "--format=%(trailers:key=CFQ-Phase-Status,valueonly)", sha],
-            capture_output=True, text=True,
+        status = proc_git(
+            repo, "log", "-1", "--format=%(trailers:key=CFQ-Phase-Status,valueonly)", sha,
         ).stdout.strip()
         state[phase] = {"status": status, "commit": sha}
     return state
@@ -336,9 +333,7 @@ def _reconstruct_summary(repo, batch, slug, commit):
         for p in changelog["phases"]:
             if p["phase"] == slug and p.get("summary"):
                 return p["summary"]
-    return subprocess.run(
-        ["git", "-C", repo, "log", "-1", "--format=%s", commit], capture_output=True, text=True,
-    ).stdout.strip()
+    return proc_git(repo, "log", "-1", "--format=%s", commit).stdout.strip()
 
 
 def _mark_text_unrecoverable(batch_dir, slug):

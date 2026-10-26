@@ -35,6 +35,7 @@ from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_telemetry.py"
 
@@ -60,9 +61,7 @@ TS_TRAILING_MS_RE = re.compile(r"\.\d+Z$")
 
 
 def git_toplevel(cwd):
-    proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True
-    )
+    proc = proc_git(cwd, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
@@ -741,6 +740,7 @@ def cmd_sync(rest):
 
     added = total - n
     # Never fatal: a broken sync repo must not abort an implementation session.
+    # Deliberately not proc_git: these do not capture output, so git's own errors reach the terminal.
     ok = (
         subprocess.run(["git", "-C", target, "add", "--", name]).returncode == 0
         and subprocess.run(

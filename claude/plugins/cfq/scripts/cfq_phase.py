@@ -30,7 +30,6 @@ directory without a readable `status.json` is refused with `STATUS_FILE_MISSING`
 import argparse
 import json
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -39,6 +38,7 @@ import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
 from cfq_lib import errors, phase_state, portal_hook, render, text  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_phase.py"
 
@@ -144,10 +144,6 @@ def cmd_record(args):
     print(str(new_path))
 
 
-def _git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-
-
 QUEUE_PREFIX = ".claude/cfq/"
 
 
@@ -156,7 +152,7 @@ def commit_diffstat(repo_root, sha):
     --numstat` (renames split into a deletion and an addition, queue files left out). A binary
     file carries `None` counts and is not summed. Returns None when git fails -- the diffstat is a
     nicety that must never stop a phase from closing."""
-    proc = _git(repo_root, "show", "--numstat", "--no-renames", "--format=", sha)
+    proc = proc_git(repo_root, "show", "--numstat", "--no-renames", "--format=", sha)
     if proc.returncode != 0:
         return None
     paths = []
@@ -229,11 +225,11 @@ def cmd_commit(args):
     if not root_path.is_file():
         errors.die(f"{PROG} commit: no such phase file {root_path}")
 
-    repo_root = _git(dir_, "rev-parse", "--show-toplevel").stdout.strip()
+    repo_root = proc_git(dir_, "rev-parse", "--show-toplevel").stdout.strip()
     if not repo_root:
         errors.die(f"{PROG} commit: {dir_} is not inside a git repository")
 
-    if _git(repo_root, "diff", "--cached", "--quiet").returncode == 0:
+    if proc_git(repo_root, "diff", "--cached", "--quiet").returncode == 0:
         result = {"status": "NOTHING_STAGED"}
         result["statusLines"] = [commit_status_line(result)]
         print(render.dump_json(result))
@@ -243,9 +239,7 @@ def cmd_commit(args):
     message = cfq_changelog.compose_commit_message(
         repo_root, batch, phase_id, "green", args.message_file
     )
-    commit = subprocess.run(
-        ["git", "-C", repo_root, "commit", "-F", "-"], input=message, capture_output=True, text=True,
-    )
+    commit = proc_git(repo_root, "commit", "-F", "-", input=message)
     if commit.returncode != 0:
         result = {"status": "COMMIT_FAILED", "detail": _last_stderr_line(commit.stderr)}
         result["statusLines"] = [commit_status_line(result)]
@@ -256,19 +250,20 @@ def cmd_commit(args):
         phase_state.transition(batch_dir, phase_id, "done")
         cfq_report.append_phase(dir_, phase_json, record_telemetry=True)
     except (OSError, SystemExit, phase_state.PhaseStateError) as e:
-        sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
+        sha = proc_git(repo_root, "rev-parse", "HEAD").stdout.strip()
         result = {"status": "RECORD_FAILED", "sha": sha, "detail": str(e)}
         result["statusLines"] = [commit_status_line(result)]
         print(render.dump_json(result))
         sys.exit(1)
 
-    sha = _git(repo_root, "rev-parse", "HEAD").stdout.strip()
+    sha = proc_git(repo_root, "rev-parse", "HEAD").stdout.strip()
     cfq_report.set_commit(dir_, phase_id, sha, diffstat=commit_diffstat(repo_root, sha))
 
-    branch = _git(repo_root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    upstream = _git(repo_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    branch = proc_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    upstream = proc_git(repo_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     tracks_self = upstream.returncode == 0 and upstream.stdout.strip() == f"origin/{branch}"
-    push = _git(repo_root, "push") if tracks_self else _git(repo_root, "push", "-u", "origin", branch)
+    push_args = ("push",) if tracks_self else ("push", "-u", "origin", branch)
+    push = proc_git(repo_root, *push_args)
 
     cfq_registry.add_repo(repo_root)
     portal_hook.sync(repo_root, batches=[pathlib.Path(dir_).name])

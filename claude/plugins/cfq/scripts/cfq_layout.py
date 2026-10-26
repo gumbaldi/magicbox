@@ -14,13 +14,13 @@ text output, exit codes) is the invariant this file preserves.
 import argparse
 import os
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 from cfq_lib.proc import settings_get  # noqa: E402
 
 PROG = "cfq_layout.py"
@@ -42,9 +42,7 @@ BLOCK_ENTRIES = [
 
 
 def exclude_file(repo):
-    proc = subprocess.run(
-        ["git", "-C", repo, "rev-parse", "--absolute-git-dir"], capture_output=True, text=True,
-    )
+    proc = proc_git(repo, "rev-parse", "--absolute-git-dir")
     if proc.returncode != 0:
         return None
     return f"{proc.stdout.strip()}/info/exclude"

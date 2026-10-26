@@ -24,6 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, phase_state, render, text  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_report.py"
 
@@ -45,9 +46,7 @@ def ensure_report(dir_):
     path = os.path.join(dir_, "report.json")
     if os.path.isfile(path):
         return
-    repo = subprocess.run(
-        ["git", "-C", dir_, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-    ).stdout.strip()
+    repo = proc_git(dir_, "rev-parse", "--show-toplevel").stdout.strip()
     started = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
     render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
