@@ -623,3 +623,42 @@ The Claude Code advisor (`advisorModel`) was evaluated and not adopted. It can o
 globally or per session, not per skill or agent, and the model alone decides when to consult it.
 Whether its usage appears in session transcripts is undocumented, so cfq could not measure it.
 cfq's worker escalation is deterministic and measured, which is the property the advisor lacks.
+
+## cfq: why report summary prints only JSON
+
+The old tab-separated row shifted its later fields with the batch mode, and the report writer miscounted
+them. The JSON form names every value, and its five layers (`planning`, `orchestrator`, `worker`,
+`explorer`, `worker_explorer`) keep planning apart from the orchestrator and add up to the total.
+No second form is kept, because the only consumers were the closing-report reference, `CLAUDE.md` and
+the tests, all of which now read the JSON. The cost is that a shell script wanting one number has to
+parse JSON instead of cutting a column.
+
+## cfq: why the closing report has no skills line
+
+`by_skill` records only the ambient skill of the session (`cfq:ifq`, `cfq:implement-for-queue`), not
+explicit invocations, and it excludes sub-agent and planning records. Workers made no skill calls in
+batch 058, so the line carried no information, and it was composed without running the command at all.
+The line is dropped while `report skills` stays as a command. The trade-off is that the closing report
+no longer hints at skill usage; whoever wants it runs the command.
+
+## cfq: why finish reads the push state from origin/<branch> without fetching
+
+After a push, `refs/remotes/origin/<branch>` is current, so the state read from it is correct at the
+moment finish runs. The state means "as of the last push or fetch of this clone", and the `Branch` line
+says nothing stronger. A fetch would add a network call to every finish. The preflight values
+`remoteState` and `pushable` describe the base branch at session start and are never an end state. The
+cost is that a push made from another clone is not seen until this clone fetches.
+
+## cfq: why requiredTools holds names, not commands
+
+The settings file of a repository is versioned, so a command stored there would run on a freshly cloned
+repository at preflight, without the confirmation a hook gets. Names are only looked up: a `PATH` search,
+or an import search for `py:<module>`. The setting is per repository because cfq runs in repositories
+where pytest is irrelevant. The cost is that version checks are not possible.
+
+## pfq: why the security entry names its covering phase
+
+The `security-findings` entry stays when a phase of the batch fixes every fixable critical or high
+advisory, because it is the safety net if that phase fails. It names the covering phase and drops the
+"decision still open" sentence, so it says what is true: the fix is planned and the entry only records
+the finding. The trade-off is one more entry in the queue until the phase has landed.
