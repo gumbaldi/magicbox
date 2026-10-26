@@ -1,6 +1,9 @@
 - batchNumber: 58
   batch: 058-2026-10-26-prune-features-plain-summary-explore-first
-  status: parked
+  branch: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
+  base: cfq/057-2026-10-26-security-host-detection-and-model-defaults
+  started: 2026-10-26
+  status: in-progress
 - batchNumber: 57
   batch: 057-2026-10-26-security-host-detection-and-model-defaults
   branch: cfq/057-2026-10-26-security-host-detection-and-model-defaults
