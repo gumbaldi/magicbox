@@ -74,11 +74,11 @@ class TestRuntime(CfqTestCase):
             json.dumps(obj, separators=(",", ":")) + "\n"
         )
 
-    def _run(self, *args, home, env=None):
+    def _run(self, *args, home, env=None, cwd=None):
         run_env = {"CLAUDE_CODE_SESSION_ID": SID}
         if env:
             run_env.update(env)
-        return self.run_cfq("runtime", *args, home=home, env=run_env)
+        return self.run_cfq("runtime", *args, home=home, env=run_env, cwd=cwd)
 
     # -- context: statusline payload primary source -----------------------------------------
 
@@ -124,6 +124,35 @@ class TestRuntime(CfqTestCase):
         self.assertEqual(out["status"], "ok")
         self.assertEqual(out["source"], "transcript", "stale must fall through")
         self.assertIsNone(out["code"], "staleness is not structural")
+
+    def test_diagnose_repo_reads_the_repository_tier_of_ctx_window_limits(self):
+        # Global ctxWindowLimits stays at its default (200000 / large 1000000); only the
+        # repository file sets 123456, and the automatic lookup is off -- so the window size can
+        # only come from the repository passed with --repo.
+        h = self._new_home()
+        repo = self._repos_dir / "limitrepo"
+        repo.mkdir()
+        (h / ".claude" / "projects" / slug_for(str(repo))).mkdir(parents=True)
+        obj = {
+            "type": "assistant", "isSidechain": False, "version": "2.1.0",
+            "message": {"model": "claude-haiku-4", "usage": {
+                "input_tokens": 40000, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 1000,
+            }},
+        }
+        (h / ".claude" / "projects" / slug_for(str(repo)) / f"{SID}.jsonl").write_text(
+            json.dumps(obj, separators=(",", ":")) + "\n"
+        )
+        self.run_cfq(
+            "settings", "set", "--repo", str(repo), "ctxWindowLimits", '{"default": 123456}', home=h, check=True,
+        )
+        diag = self.json_out(self._run("diagnose", "--repo", str(repo), home=h))
+        self.assertEqual(diag["result"]["windowSize"], 123456, msg=f"repo-level limit ignored: {diag}")
+
+        # Without --repo (and the lookup off) the global default applies.
+        h2 = self._new_home()
+        self._write_transcript(h2, "claude-haiku-4", 40000, 1000, 1000, "2.1.0")
+        diag = self.json_out(self._run("diagnose", home=h2))
+        self.assertEqual(diag["result"]["windowSize"], 200000, msg=f"global default expected: {diag}")
 
     def test_malformed_payload_json_with_transcript_fallback_degrades(self):
         h = self._new_home()
@@ -347,6 +376,89 @@ class TestRuntime(CfqTestCase):
         self.assertEqual(
             proc.stdout.strip(), str(h / ".claude" / "projects" / otherslug / f"{SID}.jsonl"), "repo-slug",
         )
+
+    # -- transcript-path: session-id fallback across project folders ---------------------------
+
+    def _dirs_d_and_sub(self):
+        t = tempfile.TemporaryDirectory()
+        self.addCleanup(t.cleanup)
+        d = pathlib.Path(t.name).resolve()
+        sub = d / "sub"
+        sub.mkdir()
+        return d, sub
+
+    def _project_file(self, home, folder_of, name=f"{SID}.jsonl", mtime=None):
+        folder = home / ".claude" / "projects" / slug_for(str(folder_of))
+        folder.mkdir(parents=True, exist_ok=True)
+        f = folder / name
+        f.write_text("{}\n")
+        if mtime is not None:
+            os.utime(f, (mtime, mtime))
+        return f
+
+    def test_session_id_fallback_finds_file_of_parent_folder(self):
+        h = self._new_home()
+        d, sub = self._dirs_d_and_sub()
+        f = self._project_file(h, d)
+        for args in (("transcript-path",), ("transcript-path", "--exact")):
+            with self.subTest(args=args):
+                proc = self._run(*args, home=h, cwd=sub)
+                self.assertEqual(proc.stdout.strip(), str(f))
+
+    def test_session_id_direct_hit_wins_over_other_folder(self):
+        h = self._new_home()
+        d, sub = self._dirs_d_and_sub()
+        f_sub = self._project_file(h, sub)
+        self._project_file(h, d)
+        proc = self._run("transcript-path", home=h, cwd=sub)
+        self.assertEqual(proc.stdout.strip(), str(f_sub))
+
+    def test_exact_without_any_file_returns_guessed_path(self):
+        h = self._new_home()
+        _, sub = self._dirs_d_and_sub()
+        proc = self._run("transcript-path", "--exact", home=h, cwd=sub)
+        expected = h / ".claude" / "projects" / slug_for(str(sub)) / f"{SID}.jsonl"
+        self.assertEqual(proc.stdout.strip(), str(expected))
+
+    def test_no_session_id_still_picks_newest_of_guessed_folder(self):
+        h = self._new_home()
+        _, sub = self._dirs_d_and_sub()
+        self._project_file(h, sub, "old.jsonl", mtime=1000)
+        new = self._project_file(h, sub, "new.jsonl", mtime=2000)
+        proc = self.run_cfq("runtime", "transcript-path", home=h, cwd=sub)
+        self.assertEqual(proc.stdout.strip(), str(new))
+
+    def test_session_id_in_two_foreign_folders_picks_newest(self):
+        h = self._new_home()
+        _, sub = self._dirs_d_and_sub()
+        self._project_file(h, "/foreign/one", mtime=1000)
+        newer = self._project_file(h, "/foreign/two", mtime=2000)
+        proc = self._run("transcript-path", home=h, cwd=sub)
+        self.assertEqual(proc.stdout.strip(), str(newer))
+
+    def test_session_id_is_a_literal_file_name_not_a_pattern(self):
+        h = self._new_home()
+        d, sub = self._dirs_d_and_sub()
+        self._project_file(h, d)
+        proc = self._run("transcript-path", home=h, cwd=sub, env={"CLAUDE_CODE_SESSION_ID": "*"})
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "")
+
+    def test_subagent_dir_follows_session_id_fallback(self):
+        h = self._new_home()
+        d, sub = self._dirs_d_and_sub()
+        f = self._project_file(h, d)
+        (f.parent / SID / "subagents").mkdir(parents=True)
+        proc = self._run("subagent-dir", home=h, cwd=sub)
+        self.assertEqual(proc.stdout.strip(), str(f.parent / SID / "subagents"))
+
+    def test_no_projects_directory_gives_empty_output(self):
+        h = self._new_home()
+        shutil.rmtree(h / ".claude" / "projects")
+        _, sub = self._dirs_d_and_sub()
+        proc = self._run("transcript-path", home=h, cwd=sub)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "")
 
     def test_slug_for_replaces_every_non_alnum_char(self):
         # Windows drive paths and any Linux/macOS repo path containing "." or "_" must slug the

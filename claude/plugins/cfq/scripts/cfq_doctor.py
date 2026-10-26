@@ -164,7 +164,7 @@ def cmd_hook(args):
     msg = f"cfq: missing required host command(s): {gap} — cfq scripts will fail until this is installed."
     ctx = (
         f"cfq dependency check found missing required command(s): {gap}. Avoid running any cfq "
-        "(/pfq, /ifq, /cfq, /rfq) command until this is resolved; the environment owner needs to "
+        "(/pfq, /ifq, /cfq) command until this is resolved; the environment owner needs to "
         "install it."
     )
     print(json.dumps({

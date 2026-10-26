@@ -146,7 +146,7 @@ def report_line(html_report, repo_root, batch_name):
     where it landed: the batch's own route inside the (already-synced) portal, or `➖ off` when
     `htmlReport` turns the automatic sync off."""
     if html_report != "true":
-        return cfq_text.status_entry("Report", "skip", "off · /rfq renders on demand")
+        return cfq_text.status_entry("Report", "skip", "off · bin/cfq portal sync renders on demand")
     return cfq_text.status_entry("Report", "done", paths.portal_batch_url(repo_root, batch_name))
 
 

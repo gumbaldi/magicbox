@@ -35,7 +35,7 @@ from cfq_lib import errors  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
-from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_telemetry.py"
 
@@ -720,7 +720,7 @@ def cmd_sync(rest):
     if not repo:
         return
 
-    target = cfq_run("settings", "get", "telemetrySyncRepo").stdout.strip()
+    target = settings_get(repo, "telemetrySyncRepo")
     if target in ("", "null"):
         return
 

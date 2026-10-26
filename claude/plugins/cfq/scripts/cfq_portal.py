@@ -245,8 +245,7 @@ DATA_FILE_RE = re.compile(
 
 
 def report_dir_setting(repo_root):
-    """`""`/`"null"` both mean "mirroring is off" -- the same two-value check `cfq_report.py`'s
-    `html`/`index` verbs use for this same setting."""
+    """`""`/`"null"` both mean "mirroring is off"."""
     value = settings_get(repo_root, "reportDir")
     return value if value not in ("", "null") else ""
 
@@ -1031,9 +1030,9 @@ def sync(repo_root, batch_names=None):
 
 # ---- migrate: removing the old per-batch HTML report (batch 040 phase 05) ----------------------
 
-# Matches a legacy `report html`-written file's name, whichever batch-naming era it's from: a
-# numbered batch (`038-2026-09-23-topic.html`) or the pre-numbering shape
-# (`2026-09-23-topic.html`) -- never `index.html` itself (neither pattern matches a bare
+# Matches a legacy per-batch HTML file's name (older cfq versions wrote it), whichever
+# batch-naming era it's from: a numbered batch (`038-2026-09-23-topic.html`) or the
+# pre-numbering shape (`2026-09-23-topic.html`) -- never `index.html` itself (neither pattern matches a bare
 # `index.html`), and this is only ever glob-matched against a directory's own top level, so it
 # never reaches into `assets/`/`data/` either.
 LEGACY_BATCH_HTML_RE = re.compile(r"^(\d{3}-.*|\d{4}-\d{2}-\d{2}-.*)\.html$")
@@ -1042,7 +1041,7 @@ LEGACY_BATCH_HTML_RE = re.compile(r"^(\d{3}-.*|\d{4}-\d{2}-\d{2}-.*)\.html$")
 def remove_legacy_html(base_dir):
     """Deletes every file directly under `base_dir` (a `reports/` directory, repo-local or a
     `reportDir` mirror) whose name matches `LEGACY_BATCH_HTML_RE` -- the flat `<batch>.html` files
-    the old `report html` verb used to write there. Non-recursive on purpose: `assets/` and `data/`
+    older cfq versions wrote there. Non-recursive on purpose: `assets/` and `data/`
     are subdirectories, never touched. Returns the removed paths, sorted; `[]` for a directory that
     doesn't exist."""
     if not base_dir.is_dir():

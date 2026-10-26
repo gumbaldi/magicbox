@@ -149,18 +149,15 @@ skills; see [configuration.md](configuration.md).
 
 Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.md).
 
-## Reports — `/rfq`
+## Reports
 
-Read-only: surfaces what `/ifq` already did — a compact terminal table across all repos, or the
-report portal's page for one batch. The portal (`<repo>/.claude/cfq/reports/index.html`) shows
-every batch with its phases, deviations, flags and cost in turns and tokens per model, plus the
-open and closed todo cards and plan-inbox entries; the README's
-[Report portal](../README.md#report-portal) section describes each view. Never writes anything.
+The report portal lives at `<repo>/.claude/cfq/reports/index.html` and shows every batch with its
+phases, deviations, flags and cost; the README's [Report portal](../README.md#report-portal)
+section describes each view. `/ifq` prints the link of the finished batch at its end, and `/cfq`
+names the portal path under `view reports`.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,
 `reportDir`.
-
-Exact steps: [`skills/report-for-queue/SKILL.md`](../skills/report-for-queue/SKILL.md).
 
 ## See also
 

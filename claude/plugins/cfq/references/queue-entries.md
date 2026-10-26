@@ -80,6 +80,9 @@ fails `INVALID_PATH`, a missing entry fails `NOT_FOUND`. It appends a `## Closed
 reason) to the entry and moves it into `plan/done/`, creating that directory if absent; repeated
 `<entry>` arguments close several entries in one call, all with the same reason. It never touches
 `todo/` — `note sweep --close` stays the only todo closer.
+When `plan/done/` already holds a file of the same name, the entry is archived as `<name>-2.md`
+(then `-3`, …); nothing in `plan/done/` is ever overwritten, and the same holds for
+`park --from-plan`.
 
 ## Parking Out-of-Scope Work
 

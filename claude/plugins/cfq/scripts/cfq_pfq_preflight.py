@@ -16,6 +16,7 @@ break of that rule, only a removal or rename would be.
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -23,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import render, text  # noqa: E402
+from cfq_lib import effort, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
@@ -43,14 +44,16 @@ def inbox_count_from_overview(overview_text):
     return int(m.group(1)) if m else 0
 
 
-def model_check_line(allow_any_model):
+def model_check_line(allow_any_model, effort_warning=None):
     """The `Model Gate` status line's deterministic half -- mirrors `cfq_ifq_preflight.py`'s
     `model_gate_line`. The actual substring match against the running model's name stays with the
     skill (`plan-for-queue/SKILL.md`'s **Start Block**), since only the session itself knows
-    its own model, from its own system prompt."""
+    its own model, from its own system prompt. `effort_warning`, when set, becomes the entry's one
+    sub-line (see `cfq_lib/effort.py`)."""
+    sub = [effort_warning] if effort_warning else None
     if allow_any_model:
-        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
-    return text.status_entry("Model Gate", "done", "checked against planModels")
+        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel", sub=sub)
+    return text.status_entry("Model Gate", "done", "checked against planModels", sub=sub)
 
 
 def plugin_boundaries_line(blocked):
@@ -125,6 +128,10 @@ def cmd_preflight(args):
     inbox_n = inbox_count_from_overview(inbox_overview)
     inbox_detail = cfq_run("note", "list", repo, "--detail").stdout.rstrip("\n")
 
+    current_effort = os.environ.get("CLAUDE_EFFORT")
+    required_effort = settings["planSessionEffort"]
+    effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
+
     print(render.dump_json({
         "status": "OK",
         "repo": {"root": repo, "known": known},
@@ -145,6 +152,7 @@ def cmd_preflight(args):
             "docLanguages": settings["docLanguages"],
             "docLevel": settings["docLevel"],
         },
+        "effort": effort.status(current_effort, required_effort),
         "queue": {"openBatches": batches, "awaitingReview": awaiting},
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
@@ -154,7 +162,7 @@ def cmd_preflight(args):
             "detail": inbox_detail,
         },
         "statusLines": [
-            model_check_line(settings["allowAnyModel"]),
+            model_check_line(settings["allowAnyModel"], effort_warning),
             inbox_line(inbox_n, imported_n),
             review_line(awaiting),
             plugin_boundaries_line(settings["planBlockedPlugins"]),

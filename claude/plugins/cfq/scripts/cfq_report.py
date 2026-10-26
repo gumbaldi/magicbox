@@ -4,9 +4,6 @@
 #        cfq_report.py skills <batch-dir>
 #        cfq_report.py last-failure <batch-dir> <phase-slug>
 #        cfq_report.py summary <batch-dir>
-#        cfq_report.py html <batch-dir>
-#        cfq_report.py index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text]
-#        cfq_report.py detail <batch-dir>
 """Implementation reports per batch. The report lives in the batch directory and travels with it.
 
 Ported from cfq-report.sh -- a port, not a redesign: the CLI contract (verbs, argument order,
@@ -26,12 +23,9 @@ from datetime import datetime
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, phase_state, render, text  # noqa: E402
-from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
 PROG = "cfq_report.py"
-
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
 PHASE_ID_RE = re.compile(r"^[0-9]{2}-.+$")
 
@@ -43,24 +37,7 @@ def jq_round(x):
     return math.floor(x + 0.5) if x >= 0 else math.ceil(x - 0.5)
 
 
-# ---- shared path/settings helpers ----------------------------------------------------------
-
-def repo_root_of(d):
-    """Batch dir -> containing repo root, stripping the known queue suffixes. Empty string if
-    it isn't nested under either suffix."""
-    d = d.rstrip("/")
-    try:
-        abs_path = str(pathlib.Path(d).resolve()) if os.path.isdir(d) else d
-    except OSError:
-        abs_path = d
-    idx = abs_path.rfind("/.claude/cfq/impl/done/")
-    if idx != -1:
-        return abs_path[:idx]
-    idx = abs_path.rfind("/.claude/cfq/impl/")
-    if idx != -1:
-        return abs_path[:idx]
-    return ""
-
+# ---- shared report helpers -----------------------------------------------------------------
 
 def ensure_report(dir_):
     """report.json is created by whoever writes to it first -- planning-time security snapshot
@@ -102,16 +79,6 @@ def outcome(phases):
         if isinstance(p, dict):
             latest[p.get("phase", "")] = p.get("status")
     return "RED" if any(v == "red" for v in latest.values()) else "MIXED"
-
-
-def bound_lines(value, n=5):
-    s = render.jq_alt(value, "")
-    if not isinstance(s, str):
-        s = render.tostring(s)
-    lines = s.split("\n")
-    if len(lines) <= 2 * n:
-        return s
-    return "\n".join(lines[:n] + ["…"] + lines[-n:])
 
 
 # ---- verbs: append / security / set-commit / last-failure / summary ------------------------
@@ -483,24 +450,10 @@ def _tsv_field(v):
     return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
 
 
-# ---- report derivations: status glyph, summary, timestamps, formatting ---------------------
+# ---- report derivations: summary, timestamps, formatting ----------------------------------
 #
-# Pure functions over a phase dict, no I/O, feeding `report summary`/`report index`/`report
-# detail` and `cfq_portal.py` (see tests/test_report.py's TestDerivations).
-
-# The cfq icon set from references/output-format.md -- shape-coded, not colour-coded, so the
-# status survives a colourblind reader and a monochrome print alike.
-STATUS_GLYPH = {"green": "✅", "red": "❌", "mixed": "⚠️"}
-
-
-def status_glyph(status):
-    """`STATUS_GLYPH[status.lower()]`, or "" for an unknown/missing status -- never raises,
-    because `outcome()` returns upper-case ("GREEN") while a raw `phase["status"]` is lower-case
-    ("green"), and both call sites exist."""
-    if not isinstance(status, str):
-        return ""
-    return STATUS_GLYPH.get(status.lower(), "")
-
+# Pure functions over a phase dict, no I/O, feeding `report summary` and `cfq_portal.py` (see
+# tests/test_report.py's TestDerivations).
 
 def phase_summary(phase):
     """The one-clause "what was built": `implemented` (current worker schema) then `summary`
@@ -555,17 +508,9 @@ def parse_ts(iso):
         return None
 
 
-def fmt_short(iso):
-    """`"2026-09-21T13:16:49.329Z"` -> `"21.09 13:16"` (local time) -- `report index --text`'s
-    compact date column. "" when `parse_ts` fails."""
-    dt = parse_ts(iso)
-    return dt.strftime("%d.%m %H:%M") if dt else ""
-
-
 def fmt_duration(seconds):
     """`"0:46"`, `"1:13"`, `"1:02:03"` -- `m:ss` under an hour, `h:mm:ss` at or above.
-    `0`/`None`/a non-numeric value -> "–" (en dash), the same placeholder `cmd_index` already
-    uses for a missing cost."""
+    `0`/`None`/a non-numeric value -> "–" (en dash), the placeholder for a missing figure."""
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not seconds:
         return "–"
     total = int(seconds)
@@ -576,18 +521,9 @@ def fmt_duration(seconds):
     return f"{m}:{s:02d}"
 
 
-def fmt_int(n):
-    """`1582736` -> `"1,582,736"` -- English grouping, since `codeLanguage` is `en` and the
-    report's labels are English. `None`/non-numeric -> "–"."""
-    if isinstance(n, bool) or not isinstance(n, (int, float)):
-        return "–"
-    return f"{int(n):,}"
-
-
 def fmt_tokens(n):
     """`jq_round`'s `k` rounding, stepped up to one decimal place of `M` above 1,000k (`12.4M`) --
-    the one formatter the index table's `Out` cell and its group header's summed total both call,
-    so the two numbers can never disagree. `0`/negative/non-numeric -> "–", same placeholder the
+    the one token formatter `phase_cost_entry` uses. `0`/negative/non-numeric -> "–", same placeholder the
     `k`-only rounding already used for a zero cost."""
     if isinstance(n, bool) or not isinstance(n, (int, float)) or n <= 0:
         return "–"
@@ -617,248 +553,6 @@ def read_batch_context(dir_):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         sections[heading] = text[m.end():end].strip("\n")
     return sections
-
-
-# ---- verb: html -----------------------------------------------------------------------------
-
-def cmd_html(args):
-    """Batch 040 phase 05: a thin alias over `portal sync` -- the portal (`cfq_portal.py`) is now
-    the only HTML `report` writes. No `<batch>.html`/`report.html` file is produced here any more;
-    this verb only makes sure this one batch's own data is current in the portal, then prints the
-    `file://` route to it. This verb's former per-batch and collected-tree file writers are gone
-    along with the files they used to write."""
-    dir_ = args.dir.rstrip("/")
-    repo_root = repo_root_of(dir_)
-    if not repo_root:
-        errors.die(f"{PROG}: cannot resolve a repo root for {dir_} -- no portal to sync into")
-    batch_name = os.path.basename(dir_)
-    proc = subprocess.run(
-        cfq_argv("portal", "sync", repo_root, "--batch", batch_name), capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        errors.die(f"{PROG}: portal sync failed for {batch_name}: {proc.stderr.strip()}")
-    print(cfq_lib_paths.portal_batch_url(repo_root, batch_name))
-
-
-# ---- verbs: index / detail -------------------------------------------------------------------
-
-def run_scan():
-    # Direct sibling call, not the dispatcher: cfq_report.py resolves cfq_scan.py relative to
-    # its own real location, which would bypass a test double that shadows cfq_scan.py in a copy
-    # of this script's directory (see tests/test_report.py's index/scan-count test).
-    out = subprocess.run([sys.executable, str(SCRIPT_DIR / "cfq_scan.py")], capture_output=True, text=True)
-    return json.loads(out.stdout)
-
-
-def build_index_rows(repo_filter="", batch_filter="", any_filter=""):
-    scan = run_scan()
-    meta = []
-    rf, bf, af = repo_filter.lower(), batch_filter.lower(), any_filter.lower()
-    for r in scan.get("repos", []):
-        rpath = r.get("path", "")
-        for b in r.get("batches", []):
-            if not b.get("report"):
-                continue
-            name = b.get("name", "")
-            if rf and rf not in rpath.lower():
-                continue
-            if bf and bf not in name.lower():
-                continue
-            if af and af not in rpath.lower() and af not in name.lower():
-                continue
-            sub = "impl/done" if b.get("archived") else "impl"
-            meta.append({
-                "repo": rpath, "name": name,
-                "path": f"{rpath}/.claude/cfq/{sub}/{name}/report.json",
-            })
-
-    rows = []
-    for m in meta:
-        try:
-            data = json.loads(pathlib.Path(m["path"]).read_text())
-        except (OSError, json.JSONDecodeError):
-            data = {}
-        phases = data.get("phases", []) if isinstance(data, dict) else []
-        deviations = 0
-        for p in phases:
-            d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
-            if isinstance(d, list):
-                deviations += len(d)
-        date = batch_finished(data)
-        status = outcome(phases)
-
-        planning = data.get("planning") if isinstance(data, dict) else None
-        planning_totals = planning.get("totals") if isinstance(planning, dict) else None
-        planning_output = _totals_field(planning_totals, "output")
-        planning_turns = _totals_field(planning_totals, "turns")
-        planning_billable_in = _totals_field(planning_totals, "billable_in")
-        phase_outputs, phase_turns, phase_billable_in = [], [], []
-        for p in phases:
-            tel = p.get("telemetry") if isinstance(p, dict) else None
-            totals = tel.get("totals") if isinstance(tel, dict) else None
-            phase_outputs.append(_totals_field(totals, "output"))
-            phase_turns.append(_totals_field(totals, "turns"))
-            phase_billable_in.append(_totals_field(totals, "billable_in"))
-
-        # `rendered` means "the portal has this batch's data" -- checked directly against the one
-        # file `portal sync` writes for a batch (`data/batch/<name>.js`, also for a batch without a
-        # report.json). `href` is the batch's portal route when rendered, "" otherwise, same
-        # empty-string contract `row_html`/`_index_group_lines` already relied on.
-        impl_data = pathlib.Path(m["repo"], ".claude", "cfq", "reports", "data", "batch", f"{m['name']}.js")
-        rendered = impl_data.is_file()
-        href = cfq_lib_paths.portal_batch_url(m["repo"], m["name"]) if rendered else ""
-
-        rows.append({
-            "batch": m["name"],
-            "repo": m["repo"],
-            "date": date,
-            "status": status,
-            "skipped": skipped_count(os.path.dirname(m["path"])),
-            "glyph": status_glyph(status),
-            "deviations": deviations,
-            "rendered": rendered,
-            "href": href,
-            "cost": {
-                "outputTokens": planning_output + sum(phase_outputs),
-                "turns": planning_turns + sum(phase_turns),
-                # Mirrors outputTokens/turns above (planning's own share folded in, not kept
-                # apart) -- a report predating phase 06 has no `billable_in` anywhere, so this
-                # sums to 0 via `_totals_field`'s own default, and `fmt_tokens(0)` already
-                # renders that as "-", the same placeholder a genuine zero would get. No separate
-                # "unavailable" tracking is needed: zero and unknown render identically here, by
-                # the same convention `outputTokens` already relies on.
-                "inputTokens": planning_billable_in + sum(phase_billable_in),
-            },
-        })
-
-    rows.sort(key=lambda r: r["date"])
-    rows.reverse()
-    return rows, meta
-
-
-def _index_group_lines(repo_key, group_rows, limit):
-    """One repo's `### heading` + table + optional "… n more" hint, each block ending in a blank
-    line -- the fix for the pasted defect (a Markdown table row followed by a non-blank line
-    renders as a further row). `limit <= 0` means no truncation at all."""
-    total_out = sum(r["cost"]["outputTokens"] for r in group_rows)
-    shown = group_rows if limit <= 0 else group_rows[:limit]
-    lines = [f"### {repo_key} · {len(group_rows)} batches · {fmt_tokens(total_out)} out", ""]
-    lines.append("| Batch | · | Devs | Date | Out | Turns | In | 📄 |")
-    lines.append("|---|---|---|---|---|---|---|---|")
-    for r in shown:
-        devs_disp = "" if not r["deviations"] else str(r["deviations"])
-        date_disp = fmt_short(r["date"]) or "–"
-        out_disp = fmt_tokens(r["cost"]["outputTokens"])
-        turns_disp = fmt_int(r["cost"]["turns"])
-        # `fmt_tokens` -- same rounding as `out_disp` above, and the same "0/negative -> -"
-        # convention already covers a report predating phase 06 (no `billable_in` anywhere sums
-        # to 0 in build_index_rows), so a missing figure and a genuine zero render identically,
-        # exactly as `Out` already does.
-        in_disp = fmt_tokens(r["cost"]["inputTokens"])
-        rendered_disp = "✓" if r["rendered"] else ""
-        lines.append(
-            "| " + " | ".join(
-                [r["batch"], r["glyph"], devs_disp, date_disp, out_disp, turns_disp, in_disp, rendered_disp]
-            ) + " |"
-        )
-    lines.append("")
-    remaining = len(group_rows) - len(shown)
-    if remaining > 0:
-        lines.append(f"… {remaining} more · --limit 0 shows all")
-        lines.append("")
-    return lines
-
-
-def cmd_index(args):
-    rows, _meta = build_index_rows(args.repo, args.batch, args.any_filter)
-    if not args.text:
-        print(render.dump_json(rows))
-        return
-    if not rows:
-        print("No batch has a report yet — reports have existed only since v0.2, so older batches never got one.")
-        return
-
-    # One group per repo, newest-group-first without a second sort: `rows` already arrives sorted
-    # newest-first across every repo (build_index_rows), so the first row encountered for a given
-    # repo is necessarily that repo's own newest -- and since the whole list is date-descending,
-    # the order groups are first encountered in is already newest-group-first too.
-    groups = {}
-    order = []
-    for row in rows:
-        key = os.path.basename(row["repo"])
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(row)
-
-    out_lines = []
-    for key in order:
-        out_lines.extend(_index_group_lines(key, groups[key], args.limit))
-    print("\n".join(out_lines).rstrip("\n"))
-
-
-def cmd_detail(args):
-    dir_ = args.dir.rstrip("/")
-    f = os.path.join(dir_, "report.json")
-    if not os.path.isfile(f):
-        print(render.dump_json({"found": False}))
-        return
-    data = json.loads(pathlib.Path(f).read_text())
-
-    repo_root = repo_root_of(dir_)
-    todos = []
-    if repo_root:
-        todo_dir = pathlib.Path(repo_root) / ".claude" / "cfq" / "todo"
-        if todo_dir.is_dir():
-            for t in sorted(todo_dir.glob("*.md")):
-                lines = t.read_text().splitlines()
-                title = re.sub(r"^#+\s*", "", lines[0]) if lines else ""
-                todos.append({"file": t.name, "title": title})
-
-    phases = data.get("phases", [])
-    deviations_total = 0
-    for p in phases:
-        d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
-        if isinstance(d, list):
-            deviations_total += len(d)
-
-    planning = data.get("planning") if isinstance(data, dict) else None
-    planning_totals = planning.get("totals") if isinstance(planning, dict) else None
-    planning_output = _totals_field(planning_totals, "output")
-    planning_turns = _totals_field(planning_totals, "turns")
-    phase_outputs, phase_turns, out_phases = [], [], []
-    for p in phases:
-        tel = p.get("telemetry") if isinstance(p, dict) else None
-        totals = tel.get("totals") if isinstance(tel, dict) else None
-        phase_outputs.append(_totals_field(totals, "output"))
-        phase_turns.append(_totals_field(totals, "turns"))
-        out_phases.append({
-            "phase": p.get("phase"),
-            "status": p.get("status"),
-            "summary": phase_summary(p),
-            "deviations": render.jq_alt(p.get("deviations"), []),
-            "observations": render.jq_alt(p.get("observations"), []),
-            "errors": render.jq_alt(p.get("errors"), []),
-            "verification": bound_lines(p.get("verification"), 5),
-            "commit": render.jq_alt(p.get("commit"), ""),
-            "telemetry": render.jq_alt(p.get("telemetry"), None),
-        })
-
-    print(render.dump_json({
-        "found": True,
-        "batch": data.get("batch"),
-        "repo": data.get("repo"),
-        "started": data.get("started"),
-        "status": outcome(phases),
-        "skipped": skipped_count(dir_),
-        "deviationsTotal": deviations_total,
-        "cost": {
-            "outputTokens": planning_output + sum(phase_outputs),
-            "turns": planning_turns + sum(phase_turns),
-        },
-        "phases": out_phases,
-        "todos": todos,
-    }))
 
 
 # ---- argument parsing ------------------------------------------------------------------------
@@ -891,26 +585,6 @@ def build_parser():
     p.add_argument("dir")
     p.set_defaults(func=cmd_summary)
 
-    p = sub.add_parser("html")
-    p.add_argument("dir")
-    p.set_defaults(func=cmd_html)
-
-    p = sub.add_parser("index")
-    p.add_argument("--repo", default="")
-    p.add_argument("--batch", default="")
-    p.add_argument("--any", dest="any_filter", default="")
-    p.add_argument(
-        "--limit", type=int, default=10,
-        help="rows per repo group in --text mode, 0 for no limit; ignored in JSON mode, "
-             "which is never truncated",
-    )
-    p.add_argument("--text", action="store_true")
-    p.set_defaults(func=cmd_index)
-
-    p = sub.add_parser("detail")
-    p.add_argument("dir")
-    p.set_defaults(func=cmd_detail)
-
     return parser
 
 
@@ -924,9 +598,7 @@ def main(argv):
             f"set-commit <batch-dir> <phase-slug> <sha> | "
             f"skills <batch-dir> | "
             f"last-failure <batch-dir> <phase-slug> | "
-            f"summary <batch-dir> | html <batch-dir> | "
-            f"index [--repo <substr>] [--batch <substr>] [--any <substr>] [--limit <n>] [--text] | "
-            f"detail <batch-dir>"
+            f"summary <batch-dir>"
         )
     func(args)
 

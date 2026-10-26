@@ -385,7 +385,7 @@ class FinishTest(CfqTestCase):
         out = self.json_out(proc)
         report_line = next(e for e in out["statusLines"] if e["label"] == "Report")
         self.assertEqual(report_line["icon"], "skip", f"report line: {report_line}")
-        self.assertEqual(report_line["detail"], "off · /rfq renders on demand", f"report line: {report_line}")
+        self.assertEqual(report_line["detail"], "off · bin/cfq portal sync renders on demand", f"report line: {report_line}")
         self.assertFalse(
             (repo / ".claude/cfq/impl/done/2026-01-01-htmloff/report.html").exists(),
             "explicit htmlReport=false must not auto-render report.html",

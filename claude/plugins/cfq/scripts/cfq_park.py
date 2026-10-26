@@ -20,8 +20,9 @@ half-parked batch behind. The move itself stays idempotent the same way the rest
 is: a path already under `plan/done/`, or one that no longer exists, is a no-op rather than an
 error, since a `/pfq` session retrying Park must not fail on the second attempt. A path outside
 `plan/` is rejected -- the flag consumes inbox entries, not arbitrary files -- and a filename
-collision inside `plan/done/` is a real error, naming both paths, since overwriting a previously
-parked entry is never the right move. The basenames of every `--from-plan` argument are also
+collision inside `plan/done/` is resolved by `cfq_note.free_archive_path()`: the entry lands as
+`<name>-2.md` (then `-3`, ...), so a previously parked entry is never overwritten and one
+collision never holds back the other entries. The basenames of every `--from-plan` argument are also
 unioned (sorted, no duplicates) into the batch's `report.json` `fromPlan` list, creating the file
 through `cfq_report.ensure_report()` when it is missing.
 """
@@ -36,6 +37,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import cfq_report  # noqa: E402
+from cfq_note import free_archive_path  # noqa: E402
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
@@ -69,12 +71,7 @@ def _resolve_plan_entry(repo, from_plan):
         errors.fail("INVALID_PATH", detail=f"--from-plan is outside plan/: {src}")
         return None  # unreachable -- errors.fail() exits
 
-    target = plan_done / src.name
-    if target.exists():
-        errors.fail("EXISTS", detail=f"{src} -> {target}")
-        return None  # unreachable -- errors.fail() exits
-
-    return (src, target)
+    return (src, free_archive_path(plan_done, src.name))
 
 
 def _consume_plan_entries(repo, from_plan_list):

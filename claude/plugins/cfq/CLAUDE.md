@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin, not an application: four skills (`skills/*/SKILL.md`) whose implementations
+A Claude Code plugin, not an application: three skills (`skills/*/SKILL.md`) whose implementations
 live under `scripts/` — all of them stdlib Python (`cfq_settings.py`, `cfq_changelog.py`,
 `cfq_report.py`, `cfq_doctor.py` ported as batch `014`; `cfq_layout.py`, `cfq_registry.py`,
 `cfq_park.py` ported as batch `017` phase 01; `cfq_lock.py`, `cfq_maintenance.py` ported as batch
@@ -24,7 +24,7 @@ CLI-less `cfq_lib/markdown.py`, split out of `cfq_report.py`) added as batch `04
 the CLI-less `cfq_lib/flags.py` and `cfq_telemetry.py`'s `settle` verb added as batch `050`; the
 CLI-less `cfq_lib/phase_state.py` and `cfq_phase.py`'s `skip`/`unskip` verbs added as batch `051`) —
 `bin/cfq` itself stays shell by
-design, see Commands — four Markdown command aliases (`commands/`: `cfq`, `rfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
+design, see Commands — three Markdown command aliases (`commands/`: `cfq`, `pfq`, `ifq`), and `evals/`, on-demand behavioural cases for the skill prose. No build step, no package
 manager; `bin/cfq doctor check` reports the host's dependency inventory (`bash`, `git` required,
 a Python 3.8+ interpreter as `python3`/`python`/`py`) — see Architecture.
 
@@ -42,6 +42,9 @@ every session.
 python3 -m unittest discover -s claude/plugins/cfq/tests   # the whole suite
 python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one area
 ```
+
+The test suite sets `CFQ_SETTINGS_AUTO_REPO=0` through `cfq_testlib.py`, so a settings read never
+picks up this checkout's own settings file.
 
 Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
 if you have it, and gives better failure output — it is optional, never required.
@@ -79,15 +82,10 @@ no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` h
 path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers and `default_branch()`, the
 one default-branch resolution every script uses; `cfq_lib/text.py`
 holds the shared terminal-rendering helpers — padding, wrapping, aligned columns, icon lookup).
-Two further
-exceptions stay direct filename calls, each commented at its call site:
+One further exception stays a direct filename call, commented at its call site:
 - **Inner-loop calls** (`cfq_batch_id.py`'s per-pair rename and per-orphan reserve,
   `cfq_scan.py`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
   `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.
-- **`cfq_report.py`'s internal call to `cfq_scan.py`** (used by the `index` verb): `bin/cfq`
-  resolves its `NOUN_SCRIPT` table relative to its own real location, so routing this call through
-  the dispatcher would always reach the real, unstubbed `cfq_scan.py` — breaking the test double
-  `tests/test_report.py` shadows it with. Stays a direct `SCRIPT_DIR` call for that reason.
 
 Any test double that copies `scripts/` to intercept a sibling call by filename (e.g.
 `tests/test_ifq_preflight.py`, `tests/test_pfq_preflight.py`) must copy `bin/` alongside it,
@@ -96,11 +94,10 @@ own location, so the copy only routes to the shadowed sibling if both directorie
 
 ## Architecture
 
-**Four skills, four roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
+**Three skills, three roles, one shared data model.** `plan-for-queue` (expensive model) writes phase
 plans and never edits code; `implement-for-queue` (cheap model) works exactly one batch per session and
 hands off on the context gate — or, in orchestrator mode, drives one sub-agent per phase and hands off
-on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings;
-`report-for-queue` only reads, never writes — it surfaces the reports `implement-for-queue` produces.
+on the rate-limit window instead; `code-for-queue` is the cross-repo dashboard plus settings.
 The `implement-for-queue` `SKILL.md` carries only what both modes share, and each mode's per-phase
 loop lives in its own reference file (`references/orchestrator.md`, `references/ifq-classic.md`).
 Behaviour lives in the SKILL.md prose — the scripts only supply numbers and state.
@@ -156,7 +153,7 @@ follow-up work out of scope for the current phase, and `plan-for-queue` reads an
 via `cfq note close`, which appends a `## Closed` section and moves it into `plan/done/`);
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
-current repo only), and `report-for-queue` only lists. `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
+current repo only). `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
 `plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase)
 may sit in a batch directory next to `status.json`. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
@@ -180,7 +177,10 @@ state such as `setupDone`, `cfq_settings.py state get/set`). `cfq_scan.py` union
 `find` over `scanRoots`, so a repo is discovered even if it was never registered.
 
 **Settings precedence is env > repo `.claude/cfq/settings.json` > global `settings.json` >
-default**, one schema in `cfq_settings.py` driving every tier generically: `merged_tiers()` layers
+default**, one schema in `cfq_settings.py` driving every tier generically. A read without a flag
+uses the repository the shell stands in; a write without `--repo` always goes to the global file.
+`settings get`/`list` take `--repo <path>`, `--global` (no repo tier) or `--default` (schema default
+only), mutually exclusive: `merged_tiers()` layers
 global-then-repo file overlays onto the schema `defaults`, `with_overrides()` then applies `CFQ_*`
 env vars on top on read only — a `set` on an env-overridden key writes the file but stays invisible
 until the variable is gone. Adding a setting means adding **one schema entry** — type, default,
@@ -191,7 +191,8 @@ whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) curren
 the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
 is resolved by `ctx_usage.py` through `bin/cfq settings get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
-point. The gate reports three verdicts and five reasons: capacity (`stopUsed`) always blocks
+point. `preflight-impl` passes its repository with `--repo`; a bare `bin/cfq ctx` relies on the
+working-directory lookup of `settings get`. The gate reports three verdicts and five reasons: capacity (`stopUsed`) always blocks
 (`HANDOFF`/`STOP`); a rate limit (`stopFiveHourPct`/`stopSevenDayPct`) or an unresolvable context
 reading only warns (`WARN`, advisory — the user decides whether to continue). All five reasons are
 resolved through the same precedence chain, with three independent `-1` off switches. The rate
@@ -388,10 +389,9 @@ every batch-affecting `bin/cfq` mutation (`park`, `phase` `record`/`commit`/`reo
 acquire`, `finish`, `batch ready`, `trash put`/`restore`, `note`'s mutating verbs, `dash render`)
 fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect after its own mutation succeeds — first
 `telemetry settle`, then the portal sync, the latter gated on `htmlReport` and neither touching
-the triggering verb's own exit code or stdout. `cfq_report.py`'s `html` verb is a thin alias over
-`portal sync <repo> --batch <b>`, printing the batch's own portal route; `report index`'s
-`rendered`/`href` fields read the same portal data (`data/batch/<name>.js`). `portal rebuild
-<repo-root> --migrate` is the one-time cleanup for a repo that still carries the old per-batch HTML
+the triggering verb's own exit code or stdout. The portal is the only HTML cfq produces; on demand,
+`bin/cfq portal sync <repo-root>` refreshes it. `portal rebuild <repo-root> --migrate` is the
+one-time cleanup for a repo that still carries the old per-batch HTML
 files — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror directory
 under `reportDir` when set) whose name matches a batch's own shape, never touching `assets/`,
 `data/`, or the portal's own `index.html`.
@@ -415,7 +415,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   (section header in caps, per step `<icon> <label padded to 16 chars> <detail>`, icons
   `✅ ⚠️ ❌ ➖`, printed live as each step completes) lives in
   `claude/plugins/cfq/references/output-format.md`, read by `implement-for-queue`,
-  `plan-for-queue`, `code-for-queue` and `report-for-queue`. A new skill points at the reference
+  `plan-for-queue` and `code-for-queue`. A new skill points at the reference
   file rather than copying the block. `AskUserQuestion`, briefings, and data tables are exempt and stay prose.
 - **16,000-character budget per `SKILL.md`, counted on the text as loaded** (each
   `${CLAUDE_PLUGIN_ROOT}` counted at its expanded installed-path length). Every session pays for a
@@ -458,7 +458,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
 ## Status Vocabulary
 
 Every read-only aggregator (`cfq_pfq_preflight.py`, `cfq_ifq_preflight.py`, `cfq_scan.py
---format=`, `cfq_report.py index/detail`, `cfq_runtime.py plugins`, and any future one) reports a
+--format=`, `cfq_runtime.py plugins`, and any future one) reports a
 `status` field skills react to structurally, never by parsing prose. `status` is always exactly one
 of:
 
@@ -482,7 +482,7 @@ of:
   code/hint through unmodified in a `runtimeDiagnostic` field, never re-derives or hides it.
 
 Any additional detail goes in a `detail`/`note`/`runtimeDiagnostic` field, never folded into
-`status` itself. RFQ's report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
+`status` itself. The report-outcome vocabulary (`GREEN`/`RED`/`MIXED`, phase-level) is a
 documented, additive extension for that one domain, not a conflicting scheme — it coexists with,
 not replaces, the list above. The same goes for the phase states `open`/`done`/`error`/`skipped`
 in `status.json`: a separate, additive vocabulary for phases, never an aggregator `status`, and no

@@ -117,12 +117,17 @@ class CfqTestCase(unittest.TestCase):
         CFQ_PORTAL_SYNC=0 on top -- every mutating verb now fires a `portal sync` side effect
         (`cfq_lib/portal_hook.py`), and this suite's directory-content assertions were all written
         before that existed; a test opting back in (only `test_portal_triggers.py` does) overrides
-        it via its own `env=`."""
+        it via its own `env=`. Also sets CFQ_SETTINGS_AUTO_REPO=0: the suite runs from inside a
+        checkout that has its own repository settings file, which a settings read must never pick
+        up through the working directory. CLAUDE_EFFORT is stripped as well, so the session-effort
+        warning of the preflights never depends on the effort of the session running the suite."""
         env = {
             k: v for k, v in os.environ.items()
-            if not k.startswith("CFQ_") and k not in ("XDG_CONFIG_HOME", "PONYTAIL_DEFAULT_MODE")
+            if not k.startswith("CFQ_")
+            and k not in ("XDG_CONFIG_HOME", "PONYTAIL_DEFAULT_MODE", "CLAUDE_EFFORT")
         }
         env["CFQ_PORTAL_SYNC"] = "0"
+        env["CFQ_SETTINGS_AUTO_REPO"] = "0"
         return env
 
     def run_cfq(self, *args, home=None, env=None, cwd=None, check=False):
@@ -142,7 +147,8 @@ class CfqTestCase(unittest.TestCase):
 
     def run_clean(self, *args, env=None, cwd=None, check=False):
         self._prepare_status()
-        run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", ""), "CFQ_PORTAL_SYNC": "0"}
+        run_env = {"HOME": str(self.home), "PATH": os.environ.get("PATH", ""), "CFQ_PORTAL_SYNC": "0",
+                   "CFQ_SETTINGS_AUTO_REPO": "0"}
         if env:
             run_env.update(env)
         return subprocess.run(

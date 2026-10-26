@@ -33,7 +33,7 @@ ACTION_KEYWORDS = [
     "dependency",
     "todo",
     "setting",
-    "rfq",
+    "view reports",
 ]
 
 DASHBOARD_MD = Path(__file__).resolve().parents[1] / "references" / "dashboard.md"
@@ -169,6 +169,41 @@ class TestDash(CfqTestCase):
         self.assertEqual(
             plugins_line_text, f"➖ {'Plugins':<16}mattpocock-skills/ponytail not installed",
         )
+
+    def test_settings_line_lists_unknown_keys(self):
+        tmp = self._repos_dir / "unkroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-08-01-a")
+        gfile = self.home / ".claude" / "cfq" / "settings.json"
+        gfile.parent.mkdir(parents=True, exist_ok=True)
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        hint = "replaced by stopUsed (absolute tokens, not percent)"
+
+        # no unknown key: the line is absent
+        gfile.write_text('{"stopUsed": 1}')
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        self.assertNotIn("Settings", rendered.split("\n\n")[0])
+        self.assertNotIn("unknown key", rendered)
+
+        # one unknown key in the global file
+        gfile.write_text('{"stopPct": 0, "stopUsed": 1}')
+        lines = self.run_cfq("dash", "render", str(repo), env=env).stdout.splitlines()
+        i = next(n for n, l in enumerate(lines) if "unknown key" in l)
+        self.assertEqual(lines[i], f"⚠️ {'Settings':<16}1 unknown key · stopPct (global)")
+        self.assertEqual(lines[i + 1], f"   └ stopPct in {gfile} — {hint}")
+
+        # two unknown keys, one per tier
+        rfile = repo / ".claude" / "cfq" / "settings.json"
+        rfile.parent.mkdir(parents=True, exist_ok=True)
+        rfile.write_text('{"madeUpKey": true}')
+        lines = self.run_cfq("dash", "render", str(repo), env=env).stdout.splitlines()
+        i = next(n for n, l in enumerate(lines) if "unknown key" in l)
+        self.assertEqual(
+            lines[i], f"⚠️ {'Settings':<16}2 unknown keys · stopPct (global), madeUpKey (repo)",
+        )
+        self.assertEqual(lines[i + 1], f"   └ stopPct in {gfile} — {hint}")
+        self.assertEqual(lines[i + 2], f"   └ madeUpKey in {rfile}")
 
     def test_settings_marker_mapping(self):
         # 5. Marker mapping, one case per --sources value (default/global/repo/env:process), plus
@@ -424,8 +459,8 @@ class TestDash(CfqTestCase):
             "| repo | 0 | 0 | 1/0 | 0 |", rendered, f"zero reports should render as a bare 0:\n{rendered}"
         )
 
-    def test_actions_lists_view_reports_pointing_at_rfq(self):
-        tmp = self._repos_dir / "rfqactionsroot"
+    def test_actions_lists_view_reports_pointing_at_the_portal(self):
+        tmp = self._repos_dir / "portalactionsroot"
         repo = tmp / "repo"
         (repo / ".claude" / "cfq").mkdir(parents=True)
         self._plain_repo(repo)
@@ -434,7 +469,9 @@ class TestDash(CfqTestCase):
         rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
 
         self.assertIn("view reports", rendered, f"view-reports action missing:\n{rendered}")
-        self.assertIn("/rfq", rendered, f"/rfq pointer missing from ACTIONS:\n{rendered}")
+        self.assertIn("reports/index.html", rendered, f"portal path missing from ACTIONS:\n{rendered}")
+        removed_command = "/r" + "fq"  # built apart so the repo-wide removal grep stays clean
+        self.assertNotIn(removed_command, rendered, f"{removed_command} still named in ACTIONS:\n{rendered}")
 
     # --- Phase 03: NEXT last, ACTIONS visible, unambiguous plugins line ---
 
@@ -824,9 +861,9 @@ class TestDashRenderPinnedPreShared(unittest.TestCase):
             "settings menu              /cfq settings\n"
             "setup wizard               /cfq setup\n"
             "full batch list            bin/cfq dash render --all\n"
-            "view reports               /rfq · /x/repo-a/.claude/cfq/reports/index.html\n"
+            "view reports               /x/repo-a/.claude/cfq/reports/index.html\n"
             "settings, this repo        bin/cfq settings list --repo /x/repo-a --sources\n"
-            "settings, global           bin/cfq settings list --sources\n"
+            "settings, global           bin/cfq settings list --global --sources\n"
             "\n"
             "NEXT\n"
             "\n"
