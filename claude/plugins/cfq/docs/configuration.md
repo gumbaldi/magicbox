@@ -266,12 +266,9 @@ restate a field list inline — read the field here, then read it back from the 
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
-- **`bin/cfq scan [--format=json|md|tsv|overview|next]`** — `json` (default): `{repos: [{path, plan,
+- **`bin/cfq scan [--format=json|next]`** — `json` (default): `{repos: [{path, plan,
   todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
-  inProgress, planning, review}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
-  Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`. `overview`: one row per repo
-  (Repo, Plan, Todo, Batches, Status) — `Batches` is the open/done batch counts, `Status` the most
-  severe status among the repo's own batches. `next`: one object per repo — `{path, next, reason,
+  inProgress, planning, review}]}]}`. `next`: one object per repo — `{path, next, reason,
   blocked, planning, review}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
   `reason` one of `inProgress`/`priority`/`order`/`multipleInProgress`/`null`; the one place the
   `ifq` selection ranking is decided, consumed rather than recomputed by `cfq_ifq_preflight.py`.

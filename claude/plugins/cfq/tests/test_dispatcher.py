@@ -113,6 +113,16 @@ class DispatcherTest(CfqTestCase):
         dupes = sorted({s for s in all_mapped if all_mapped.count(s) > 1})
         self.assertEqual(dupes, [], msg=f"script(s) mapped by more than one noun: {dupes}")
 
+    def test_every_noun_maps_to_a_python_file(self):
+        # bin/cfq has no non-Python dispatch path: every noun's script exists and is a .py file.
+        text = CFQ_BIN.read_text()
+        pairs = re.findall(r"^\s*([a-z-]+)\) echo (\S+) ;;$", text, re.MULTILINE)
+        self.assertTrue(pairs, msg="could not parse any noun -> script mapping from bin/cfq")
+        for noun, script in pairs:
+            with self.subTest(noun=noun):
+                self.assertTrue(script.endswith(".py"), msg=f"{noun} maps to non-Python {script}")
+                self.assertTrue((SCRIPTS_DIR / script).is_file(), msg=f"{noun} maps to missing {script}")
+
     def test_08_every_help_listed_noun_routes(self):
         # Dynamic counterpart to test_07's static table check: actually runs `--help` for every
         # noun bin/cfq itself advertises, catching a typo'd case arm (e.g. a stray noun in the
