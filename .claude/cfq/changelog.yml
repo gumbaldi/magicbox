@@ -3,7 +3,39 @@
   branch: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
   base: cfq/057-2026-10-26-security-host-detection-and-model-defaults
   started: 2026-10-26
-  status: in-progress
+  status: done
+  finished: 2026-10-26
+  phases:
+    - phase: "01-remove-recommended-skills"
+      status: "green"
+      summary: "Removed the Recommended skills feature from the planning rule, worker briefing, telemetry, report, flags and portal; used skills stay."
+    - phase: "02-plain-summary-section"
+      status: "green"
+      summary: "Added a plain-words ## Summary section: parsed in cfq_brief (announcement Goal, one-line listing, review digest), warn-only summary-missing lint, template, quality rule 9, README and ifq-phase docs"
+    - phase: "03-zero-test-verification-guard"
+      status: "green"
+      summary: "lint finding verification-filter for unittest -k expressions, planner guidance in phase-quality rules 4 and 6, zero-tests-is-red rule in worker definition and classic ifq, README lint row"
+    - phase: "04-workers-never-search-themselves"
+      status: "green"
+      summary: "Code search is always delegated to an implExploreModel Explore agent in ifq-phase.md, cfq-phase-worker.md and ifq-classic.md; implementer reads only returned line ranges"
+    - phase: "05-visible-missing-cost-line"
+      status: "green"
+      summary: "phase_cost_line wrapper returning a Cost warning entry instead of dropping the line, used by worker verdict and phase commit; telemetry warns on stderr for 0-turn records; orchestrator.md updated"
+    - phase: "06-planning-telemetry-depth-and-phase-count"
+      status: "green"
+      summary: "Planning telemetry records carry interview_depth (new --depth quick|thorough|docs flag) and phase_count (from status.json), kept by settle; pfq call and README updated"
+    - phase: "07-drop-unused-scan-formats-and-dead-dispatch"
+      status: "green"
+      summary: "Removed the md/tsv/overview scan formats and their helpers, and collapsed the unreachable non-Python branches in bin/cfq"
+    - phase: "08-route-git-calls-through-proc-helper"
+      status: "green"
+      summary: "proc.git gained an input keyword and the hand-written git subprocess calls in eight scripts now go through it"
+    - phase: "09-collapse-duplicate-helpers"
+      status: "green"
+      summary: "Moved batch-number parsing, atomic writes (render.write_text_atomic), inbox count, plugin-boundaries line and mtime into cfq_lib and converted every duplicate site"
+    - phase: "10-docs-design-notes-version"
+      status: "green"
+      summary: "Five design-note sections, usage.md and CLAUDE.md updates for Summary and always-delegated code search, plugin version raised 0.38.0 to 0.39.0"
 - batchNumber: 57
   batch: 057-2026-10-26-security-host-detection-and-model-defaults
   branch: cfq/057-2026-10-26-security-host-detection-and-model-defaults
