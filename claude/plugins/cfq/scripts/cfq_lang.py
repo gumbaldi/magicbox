@@ -9,6 +9,7 @@ shape, exit codes) is the invariant this file preserves.
 """
 
 import argparse
+import json
 import pathlib
 import re
 import sys
@@ -25,16 +26,12 @@ PROSE_MAX_LINES = 200
 PROSE_MAX_BYTES = 8192
 
 
-def csv_to_list(csv):
-    return [p for p in csv.split(",") if p] if csv else []
-
-
-def get_settings():
-    code_language = capture(cfq_run("settings", "get", "codeLanguage"))
-    doc_languages = csv_to_list(capture(cfq_run("settings", "get", "docLanguages")))
-    doc_level = capture(cfq_run("settings", "get", "docLevel"))
-    i18n_patterns = csv_to_list(capture(cfq_run("settings", "get", "i18nExcludePatterns")))
-    return code_language, doc_languages, doc_level, i18n_patterns
+def get_settings(repo):
+    settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
+    return (
+        settings["codeLanguage"], settings["docLanguages"], settings["docLevel"],
+        settings["i18nExcludePatterns"],
+    )
 
 
 def verify_ref(repo, ref):
@@ -65,7 +62,7 @@ def count_lines(s):
 def cmd_prose(args):
     repo = args.repo
     ref = args.ref
-    code_language, _doc_languages, _doc_level, i18n_patterns = get_settings()
+    code_language, _doc_languages, _doc_level, i18n_patterns = get_settings(repo)
 
     sample = ""
     truncated = False
@@ -125,7 +122,7 @@ def scoped(paths, scope, changed_set):
 def cmd_tree(args):
     repo = args.repo
     changed_ref = args.changed
-    code_language, doc_languages, doc_level, _i18n_patterns = get_settings()
+    code_language, doc_languages, doc_level, _i18n_patterns = get_settings(repo)
 
     scope = "repo"
     note = ""

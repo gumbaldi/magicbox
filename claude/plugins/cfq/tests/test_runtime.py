@@ -125,6 +125,35 @@ class TestRuntime(CfqTestCase):
         self.assertEqual(out["source"], "transcript", "stale must fall through")
         self.assertIsNone(out["code"], "staleness is not structural")
 
+    def test_diagnose_repo_reads_the_repository_tier_of_ctx_window_limits(self):
+        # Global ctxWindowLimits stays at its default (200000 / large 1000000); only the
+        # repository file sets 123456, and the automatic lookup is off -- so the window size can
+        # only come from the repository passed with --repo.
+        h = self._new_home()
+        repo = self._repos_dir / "limitrepo"
+        repo.mkdir()
+        (h / ".claude" / "projects" / slug_for(str(repo))).mkdir(parents=True)
+        obj = {
+            "type": "assistant", "isSidechain": False, "version": "2.1.0",
+            "message": {"model": "claude-haiku-4", "usage": {
+                "input_tokens": 40000, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 1000,
+            }},
+        }
+        (h / ".claude" / "projects" / slug_for(str(repo)) / f"{SID}.jsonl").write_text(
+            json.dumps(obj, separators=(",", ":")) + "\n"
+        )
+        self.run_cfq(
+            "settings", "set", "--repo", str(repo), "ctxWindowLimits", '{"default": 123456}', home=h, check=True,
+        )
+        diag = self.json_out(self._run("diagnose", "--repo", str(repo), home=h))
+        self.assertEqual(diag["result"]["windowSize"], 123456, msg=f"repo-level limit ignored: {diag}")
+
+        # Without --repo (and the lookup off) the global default applies.
+        h2 = self._new_home()
+        self._write_transcript(h2, "claude-haiku-4", 40000, 1000, 1000, "2.1.0")
+        diag = self.json_out(self._run("diagnose", home=h2))
+        self.assertEqual(diag["result"]["windowSize"], 200000, msg=f"global default expected: {diag}")
+
     def test_malformed_payload_json_with_transcript_fallback_degrades(self):
         h = self._new_home()
         self._write_payload(h, "not json")

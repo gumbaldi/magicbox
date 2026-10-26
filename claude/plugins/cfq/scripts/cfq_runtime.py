@@ -92,9 +92,12 @@ def resolve_subagent_dir(repo_path, exact, session=""):
     return str(d) if d.is_dir() else ""
 
 
-def ctx_window_limit_for(model):
+def ctx_window_limit_for(model, repo_path=""):
+    """Without a repository path (`context`/`model` callers hold none) the read answers for the
+    repository of the working directory -- the documented flagless fallback."""
+    repo_args = ["--repo", repo_path] if repo_path else []
     proc = subprocess.run(
-        cfq_argv("settings", "get", "ctxWindowLimits"), capture_output=True, text=True
+        cfq_argv("settings", "get", *repo_args, "ctxWindowLimits"), capture_output=True, text=True
     )
     try:
         limits = json.loads(proc.stdout) if proc.returncode == 0 else {}
@@ -343,7 +346,7 @@ def do_resolve(repo_path):
                     state["status"], state["code"], state["note"] = "unavailable", primary_code, primary_detail
                     state["diagnostic"] = build_diagnostic(primary_detail, "unavailable", "FALLBACK_FAILED")
             else:
-                window_size = ctx_window_limit_for(parsed["model"])
+                window_size = ctx_window_limit_for(parsed["model"], repo_path)
                 state["used"] = parsed["used"]
                 state["windowSize"] = window_size
                 state["fresh"] = parsed["fresh"]

@@ -43,6 +43,13 @@ class BranchTest(CfqTestCase):
         )
         self.assertEqual(out["batchNumber"], 1, msg=f"numbered batchNumber -> {out}")
 
+    def test_plan_reads_the_repository_tier_of_branch_per_batch(self):
+        # Global stays at its default (true); only the repository says false, and the automatic
+        # lookup is off -- so "off" can only come from the repository passed to `branch plan`.
+        self.run_cfq("settings", "set", "--repo", str(self.repo), "branchPerBatch", "false", check=True)
+        out = self.json_out(self._plan("2026-01-01-mytopic"))
+        self.assertEqual(out["mode"], "off", msg=f"repo-level branchPerBatch=false ignored -> {out}")
+
     def test_stray_version_branches_ignored(self):
         # Stray vX.Y branches in the repo never influence the new branch name (no version
         # scanning).

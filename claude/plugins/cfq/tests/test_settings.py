@@ -9,11 +9,13 @@ import contextlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase
+import cfq_settings
+from cfq_testlib import CFQ_BIN, SCRIPTS_DIR, CfqTestCase
 
 
 class SettingsTest(CfqTestCase):
@@ -1265,6 +1267,92 @@ class SettingsTest(CfqTestCase):
             return json.loads(proc.stderr)
         except json.JSONDecodeError:
             self.fail(f"could not parse JSON, raw stderr: {proc.stderr!r}")
+
+
+# -- guard: a script that holds a repository path must name it when it reads a setting --------
+
+_SETTINGS_READ = re.compile(r'"settings",\s*"(get|list)"')
+_STRING_LITERAL = re.compile(r'"([^"\\]*)"')
+# The two documented callers that have no repository path to pass: each may make one flagless
+# read, answered for the repository of the working directory.
+_FLAGLESS_FALLBACK_FILES = {"ctx_usage.py", "cfq_runtime.py"}
+
+
+def _enclosing_call(text, pos):
+    """The `( ... )` text of the innermost call that contains the character at `pos`."""
+    depth = 0
+    start = None
+    for i in range(pos - 1, -1, -1):
+        if text[i] == ")":
+            depth += 1
+        elif text[i] == "(":
+            if depth == 0:
+                start = i
+                break
+            depth -= 1
+    if start is None:
+        return text[pos:]
+    depth = 0
+    for j in range(start, len(text)):
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:j + 1]
+    return text[start:]
+
+
+def find_unscoped_settings_reads(name, source, fallback_used=None):
+    """Returns `(violations, total)` for one source file: every call with the adjacent literals
+    `"settings", "get"` or `"settings", "list"` is counted; a violation is one that names no
+    repository (`"--repo"`, `"--global"` or `*repo_args`), does not read a global-only key and is
+    not the single documented flagless fallback of its file. `fallback_used` is the set of file
+    names whose fallback is already spent."""
+    fallback_used = set() if fallback_used is None else fallback_used
+    global_only = {k for k, v in cfq_settings.SCHEMA.items() if v.get("scope") == ["global"]}
+    text = re.sub(r"\s+", " ", source)
+    violations = []
+    total = 0
+    for match in _SETTINGS_READ.finditer(text):
+        total += 1
+        call = _enclosing_call(text, match.start())
+        if '"--repo"' in call or '"--global"' in call or "*repo_args" in call:
+            continue
+        literals = _STRING_LITERAL.findall(call)
+        if match.group(1) == "get" and literals and literals[-1] in global_only:
+            continue
+        if name in _FLAGLESS_FALLBACK_FILES and name not in fallback_used:
+            fallback_used.add(name)
+            continue
+        violations.append(f"{name}: {call}")
+    return violations, total
+
+
+class RepoScopedReadGuardTest(unittest.TestCase):
+    def test_no_script_reads_a_repo_scoped_key_without_naming_the_repo(self):
+        files = sorted(SCRIPTS_DIR.glob("*.py")) + sorted((SCRIPTS_DIR / "cfq_lib").glob("*.py"))
+        violations = []
+        total = 0
+        fallback_used = set()
+        for path in files:
+            found, count = find_unscoped_settings_reads(path.name, path.read_text(), fallback_used)
+            violations.extend(found)
+            total += count
+        self.assertGreaterEqual(total, 10, msg=f"the scan found only {total} settings reads")
+        self.assertEqual(
+            violations, [],
+            msg="settings read without --repo/--global for a repo-scoped key:\n" + "\n".join(violations),
+        )
+
+    def test_scanner_flags_a_repo_scoped_key_and_spares_a_global_only_one(self):
+        violations, total = find_unscoped_settings_reads("x.py", 'cfq_run("settings", "get", "stopUsed")')
+        self.assertEqual((len(violations), total), (1, 1), msg=f"stopUsed not flagged: {violations}")
+        violations, total = find_unscoped_settings_reads("x.py", 'cfq_run("settings", "get", "scanRoots")')
+        self.assertEqual((violations, total), ([], 1), msg=f"scanRoots flagged: {violations}")
+        spread = 'cfq_run(\n    "settings", "list",\n    "--repo", repo)'
+        self.assertEqual(find_unscoped_settings_reads("x.py", spread), ([], 1))
+        self.assertEqual(find_unscoped_settings_reads("x.py", 'cfq_run("settings", "state", "get", "k")'), ([], 0))
 
 
 if __name__ == "__main__":

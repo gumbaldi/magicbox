@@ -994,6 +994,42 @@ class TestLang(CfqTestCase):
             f"unchanged invocation key set changed: {out}",
         )
 
+    def test_prose_reads_the_repository_i18n_patterns(self):
+        proserepo = self._plain_repo("prose-tier")
+        subprocess.run(["git", "init", "-q"], cwd=proserepo, check=True)
+        (proserepo / "base.txt").write_text("base\n")
+        subprocess.run(["git", "add", "."], cwd=proserepo, check=True)
+        commit = ["git", "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-q", "-m"]
+        subprocess.run([*commit, "base"], cwd=proserepo, check=True)
+        base_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=proserepo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        (proserepo / "notes").mkdir()
+        (proserepo / "notes" / "only.txt").write_text("MARKER-ONLY-IN-NOTES\n")
+        subprocess.run(["git", "add", "."], cwd=proserepo, check=True)
+        subprocess.run([*commit, "add notes"], cwd=proserepo, check=True)
+
+        before = self.json_out(self.run_cfq("lang", "prose", str(proserepo), base_ref))
+        self.assertIn("MARKER-ONLY-IN-NOTES", before["sample"], f"fixture file missing from sample: {before}")
+
+        self.run_cfq("settings", "set", "--repo", str(proserepo), "i18nExcludePatterns", "*/notes/*", check=True)
+        after = self.json_out(self.run_cfq("lang", "prose", str(proserepo), base_ref))
+        self.assertNotIn(
+            "MARKER-ONLY-IN-NOTES", after["sample"], f"repo-level i18nExcludePatterns ignored: {after}",
+        )
+
+    def test_tree_reads_the_repository_doc_level(self):
+        # Global docLevel is standard, the repository says minimal: the note proves the
+        # repository value was read.
+        treerepo = self._plain_repo("tree-tier")
+        self.run_cfq("settings", "set", "docLevel", "standard", check=True)
+        self.run_cfq("settings", "set", "--repo", str(treerepo), "docLevel", "minimal", check=True)
+        out = self.json_out(self.run_cfq("lang", str(treerepo)))
+        self.assertEqual(out["docLevel"], "minimal", f"repo-level docLevel ignored: {out}")
+        self.assertEqual(
+            out["note"], "docLevel=minimal, no docs tree expected", f"minimal note missing: {out}",
+        )
+
 
 class TestMaintenance(CfqTestCase):
     def test_due_stamp_lifecycle(self):
@@ -1049,6 +1085,18 @@ class TestMaintenance(CfqTestCase):
         self.assertEqual(proc.stdout.strip(), "OFF", f"maintenanceEvery=0 -> '{proc.stdout.strip()}', want 'OFF'")
         after = marker.read_text()
         self.assertEqual(before, after, "OFF must not touch the marker")
+
+    def test_due_reads_the_repository_tier(self):
+        # The repository value differs from the global one (default 50) and the automatic lookup
+        # is off: the answer can only come from the repository passed on the command line.
+        maintrepo = self._repos_dir / "maintrepo-tier"
+        maintrepo.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=maintrepo, check=True)
+        self.run_cfq("settings", "set", "--repo", str(maintrepo), "maintenanceEvery", "0", check=True)
+        proc = self.run_cfq("maintenance", "due", str(maintrepo))
+        self.assertEqual(
+            proc.stdout.strip(), "OFF", f"repo-level maintenanceEvery=0 ignored -> '{proc.stdout.strip()}'",
+        )
 
 
 class TestCommandFiles(CfqTestCase):
