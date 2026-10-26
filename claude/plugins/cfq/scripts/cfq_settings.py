@@ -89,6 +89,8 @@ SCHEMA = {
     "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
     "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
     "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
+    "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
+    "implSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_IMPL_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /ifq session should run at; a lower level prints a warning and never blocks. off disables the check."},
 }
 
 # Only feeds the hint text of `unknown_keys()`: a key that was replaced by another one. A key

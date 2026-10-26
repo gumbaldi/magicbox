@@ -896,6 +896,79 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(gate["icon"], "skip", msg=f"gate = {gate}")
         self.assertEqual(gate["detail"], "skipped · allowAnyModel", msg=f"gate = {gate}")
 
+    def _effort_batch_repo(self, name):
+        repo = self._setup_repo(name)
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").touch()
+        return repo
+
+    def _gate(self, out):
+        return next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+
+    def test_effort_too_low(self):
+        repo = self._effort_batch_repo("effort-low")
+        out = self.json_out(self._run_pf(str(repo), env={"CLAUDE_EFFORT": "medium"}))
+        warning = (
+            "⚠️ effort medium is below implSessionEffort high — raise it with /effort high"
+        )
+        gate = self._gate(out)
+        self.assertEqual(gate["sub"], [warning], msg=f"gate = {gate}")
+        self.assertEqual(len(gate["text"].splitlines()), 2, msg=f"gate = {gate}")
+        self.assertEqual(
+            out["effort"], {"current": "medium", "required": "high", "ok": False}
+        )
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_enough(self):
+        repo = self._effort_batch_repo("effort-ok")
+        out = self.json_out(self._run_pf(str(repo), env={"CLAUDE_EFFORT": "high"}))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"], {"current": "high", "required": "high", "ok": True})
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_unknown(self):
+        repo = self._effort_batch_repo("effort-unknown")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"], {"current": None, "required": "high", "ok": True})
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_check_off_per_repo(self):
+        repo = self._effort_batch_repo("effort-off")
+        self.run_cfq("settings", "set", "--repo", str(repo), "implSessionEffort", "off",
+                     home=self.home, check=True)
+        out = self.json_out(self._run_pf(str(repo), env={"CLAUDE_EFFORT": "low"}))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"]["required"], "off")
+        self.assertTrue(out["effort"]["ok"])
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_lower_minimum_by_env(self):
+        repo = self._effort_batch_repo("effort-env")
+        out = self.json_out(self._run_pf(
+            str(repo), env={"CFQ_IMPL_SESSION_EFFORT": "medium", "CLAUDE_EFFORT": "medium"},
+        ))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_warning_with_allow_any_model(self):
+        repo = self._effort_batch_repo("effort-any")
+        out = self.json_out(self._run_pf(
+            str(repo), env={"CFQ_ALLOW_ANY_MODEL": "1", "CLAUDE_EFFORT": "medium"},
+        ))
+        gate = self._gate(out)
+        self.assertEqual((gate["icon"], gate["detail"]), ("skip", "skipped · allowAnyModel"))
+        self.assertEqual(len(gate["sub"]), 1, msg=f"gate = {gate}")
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_on_empty_result_shape(self):
+        repo = self._setup_repo("effort-empty")
+        out = self.json_out(self._run_pf(str(repo), env={"CLAUDE_EFFORT": "low"}))
+        self.assertEqual(out["status"], "NO_BATCH")
+        self.assertFalse(out["effort"]["ok"], msg=f"out = {out}")
+        self.assertEqual(len(self._gate(out)["sub"]), 1)
+
     def test_batch_line_four_phrasings(self):
         # single selectable
         repo = self._setup_repo("batch-line-single")

@@ -301,6 +301,20 @@ class SettingsTest(CfqTestCase):
                 ).stdout.strip()
                 self.assertEqual(got, values[-1], msg=f"env override {key} -> got '{got}'")
 
+    # 5j. planSessionEffort / implSessionEffort: default high, every allowed value, rejection
+    def test_05j_session_effort_settings(self):
+        values = ["off", "low", "medium", "high", "xhigh", "max"]
+        for key in ("planSessionEffort", "implSessionEffort"):
+            with self.subTest(key=key):
+                listed = self.json_out(self.run_cfq("settings", "list", home=self.home))
+                self.assertEqual(listed[key], "high", msg=f"list {key} = {listed.get(key)!r}")
+                for value in values:
+                    self.run_cfq("settings", "set", key, value, home=self.home, check=True)
+                    got = self.run_cfq("settings", "get", key, home=self.home).stdout.strip()
+                    self.assertEqual(got, value, msg=f"set {key} {value} -> got '{got}'")
+                proc = self.run_cfq("settings", "set", key, "ultra", home=self.home)
+                self.assertNotEqual(proc.returncode, 0, msg=f"set {key} ultra should fail")
+
     # 5h. orchestratorModels: default, round-trip, env comma split, repo overrides global
     def test_05h_orchestrator_models(self):
         got = self.run_clean(
@@ -1006,7 +1020,7 @@ class SettingsTest(CfqTestCase):
             "models": {
                 "planModels", "implModels", "orchestratorModels", "allowAnyModel",
                 "planExploreModel", "planExploreModelComplex", "implExploreModel",
-                "implExploreModelComplex",
+                "implExploreModelComplex", "planSessionEffort", "implSessionEffort",
             },
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {

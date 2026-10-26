@@ -120,6 +120,8 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |
 | `implExploreModel` | `CFQ_IMPL_EXPLORE_MODEL` | `haiku` | global, repo | model ifq's pre-implementation research and test-run subagents run on |
 | `implExploreModelComplex` | `CFQ_IMPL_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for ifq's Explore agents whose task is to judge rather than to locate |
+| `planSessionEffort` | `CFQ_PLAN_SESSION_EFFORT` | `high` | global, repo | minimum reasoning effort a `/pfq` session should run at (`off`, `low`, `medium`, `high`, `xhigh`, `max`); a lower level prints a warning under the model line and never blocks. `off` disables the check |
+| `implSessionEffort` | `CFQ_IMPL_SESSION_EFFORT` | `high` | global, repo | the same for `/ifq` |
 
 ### Planning
 

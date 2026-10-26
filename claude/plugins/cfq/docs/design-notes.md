@@ -504,3 +504,20 @@ working directory would silently break existing instructions; `set` only prints 
 current repository's file shadows the new global value. The test suite switches the lookup off
 (`CFQ_SETTINGS_AUTO_REPO=0`) because it runs from inside a checkout that has its own settings
 file.
+
+## Session effort: why it warns and never blocks
+
+The level comes from `CLAUDE_EFFORT`, which Claude Code sets for every command a session runs
+through its shell tool, to the level in effect at that moment. The preflight scripts read it
+themselves, so the check needs no help from the model.
+
+`high` is the default minimum because Claude Code's own default for the current models is `medium`,
+and `/pfq` and `/ifq` are long, rule-heavy procedures that lose steps more easily at lower levels.
+`planSessionEffort` and `implSessionEffort` set it per skill; `off` disables the check.
+
+The check never blocks: a forgotten `/effort` switch must not stop a batch, and the request was for
+a warning. A missing or unknown `CLAUDE_EFFORT` prints nothing.
+
+The warning is a sub-line of the `Model Gate` status entry both preflights already return. Both
+skills print that entry's `text` verbatim, so no skill or reference text had to change (and no
+`SKILL.md` had to grow).
