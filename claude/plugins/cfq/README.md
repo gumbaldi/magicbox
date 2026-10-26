@@ -247,7 +247,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
-| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
+| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`glab`/`tea`/`npm` optional). |
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
 | `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
@@ -266,7 +266,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
 | `scan` | Every registered/discovered repo's queues, counted live from disk. |
-| `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
+| `security` | Security snapshot — forge advisories (`gh`/`glab`/`tea`) plus `npm audit`. |
 | `settings` | The global/repo/env settings tiers. |
 | `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase — `record`, `sync`, `show`, and `settle`, which recomputes provisional records once their session has ended. |
 | `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
@@ -355,7 +355,7 @@ Progress is reported as status lines — one per step, printed as it happens:
 
 ```
 PRECHECKS
-✅ Model Gate       sonnet · implModels: sonnet
+✅ Model Gate       sonnet · implModels: sonnet, haiku
 ✅ Batch            2026-08-13-cfq-plugin · 1 open phase
 ➖ Failed Attempt   none
 ⚠️ Security Diff    unavailable for this repo
@@ -455,17 +455,19 @@ cfq only collects this data — it doesn't analyze it beyond the portal's own fl
 ## Security
 
 `pfq` checks in its **Security Check** step, `ifq` checks again at the end of the batch. The forge
-is detected from the origin remote; both common CLIs are supported:
+is detected from the origin remote; these CLIs are supported:
 
 | Forge | CLI | Source |
 |---|---|---|
-| GitHub | `gh` | Dependabot advisories and code-scanning alerts — SARIF results from a Checkmarx or CodeQL action land there too, so cfq needs no scanner CLI of its own |
+| GitHub and GitHub Enterprise Server | `gh` | Dependabot advisories and code-scanning alerts — SARIF results from a Checkmarx or CodeQL action land there too, so cfq needs no scanner CLI of its own |
+| GitLab | `glab` | the project's vulnerability report, which needs GitLab Ultimate; findings are counted but never marked fixable, so they do not create a `security-findings` entry |
 | Gitea / Forgejo | `tea` | the forge has no security-alerts API; `tea` only confirms login and reachability, and that's reported openly |
 | any | — | `npm audit` whenever a `package.json` exists, always in addition |
 
-The host is checked explicitly against the CLI's own login list, since `tea` otherwise silently
-falls back to a mismatched login and queries the wrong instance. A missing CLI or login produces
-a hint naming the exact fix (`gh auth login` or `tea login add --url <host>`), never a generic one.
+Any host other than `github.com` is classified by which CLI is logged in to it, in the order `gh`,
+`glab`, `tea`, and every query runs against the repository's own host. A missing CLI or login
+produces a hint naming the exact fix (`gh auth login --hostname <host>`, `glab auth login
+--hostname <host>` or `tea login add --url <host>`), never a generic one.
 
 Only `critical`/`high` findings **with** an available fix get planned as a phase — everything else
 stays a warning line.
@@ -509,7 +511,7 @@ plugin does not install any of these — it only adds the plugin's own files. `b
 reports what's missing and, for a required gap, a platform-appropriate install hint; the bundled
 `SessionStart` hook runs it automatically and stays completely silent on a healthy host, only
 warning (user and Claude both) when a required command is absent. Optional, each degrading only the
-one feature it powers rather than blocking the plugin: `gh` or `tea` for the security check
+one feature it powers rather than blocking the plugin: `gh`, `glab` or `tea` for the security check
 (whichever matches the repo's forge), `npm` for `npm audit` on repos with a `package.json`.
 
 ## Platforms

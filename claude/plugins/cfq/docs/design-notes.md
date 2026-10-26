@@ -554,3 +554,29 @@ because `/pfq` and `/ifq` use them.
 
 What a user does instead: open the portal file, or run `bin/cfq portal sync <repo-root>` to
 refresh it when `htmlReport` is off.
+
+## security: why hosts are classified by CLI login
+
+The old check knew only `github.com`, so a GitHub Enterprise or GitLab repository silently got no
+forge source and the report did not say why.
+
+A host other than `github.com` is classified by the CLI logins, in the order `gh`, `glab`, `tea`,
+because the origin URL alone cannot tell the forge type. A guess from the hostname would query a
+wrong instance, which is worse than no result. The first CLI that is logged in to the host wins, and
+every query runs against the repository's own host.
+
+GitLab findings are counted and listed but never marked fixable, because the API gives no
+fixed-version information; a finding without a known fix does not belong in a `security-findings`
+entry. Gitea stays reachability-only, because it has no security-alert API: `tea` confirms login and
+reachability, and `npm audit` covers the rest.
+
+## models: why orchestratorModels has its own default
+
+`orchestratorModels` used to fall back to `implModels` while it was empty. With `implModels` now
+defaulting to `sonnet` and `haiku`, that fallback would let the `/ifq` session itself run on Haiku
+on a fresh installation. The default of `orchestratorModels` is therefore `sonnet`, so only the
+phase workers may be Haiku. An explicitly empty list still falls back to `implModels`, for a user
+who wants that on purpose.
+
+The rejected alternative was to leave `orchestratorModels` empty and document the risk. That would
+have made a safe session model depend on every user reading the note before the first run.

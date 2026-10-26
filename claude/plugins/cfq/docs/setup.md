@@ -5,8 +5,9 @@ Install the `cfq` plugin marketplace and run first-time setup once per machine.
 ## Prerequisites
 
 `bash` (3.2 or newer), `git` and Python 3.8+ (as `python3`, `python` or `py`) on PATH — required,
-installing the plugin does not install them; no `jq`. Optional: `gh` (GitHub) or `tea`
-(Gitea/Forgejo) for the security check, logged in to the forge cfq should query; `npm` for
+installing the plugin does not install them; no `jq`. Optional: `gh` (GitHub and GitHub Enterprise),
+`glab` (GitLab) or `tea` (Gitea/Forgejo) for the security check, logged in to the forge cfq should
+query; `npm` for
 `npm audit` on repos with a `package.json`.
 
 Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" doctor check` any time to see what's missing and how to
@@ -31,8 +32,8 @@ pick only some:
 
 - **Models** — which model families `/pfq`/`/ifq` are allowed to run under, and whether `/ifq`
   runs each phase in its own sub-agent (`orchestratorMode`). Every `implModels` entry may be
-  planned and spawned as a phase worker; set `orchestratorModels` to keep the `/ifq` session
-  itself on the stronger model.
+  planned and spawned as a phase worker; the default `orchestratorModels` keeps the `/ifq`
+  session itself on Sonnet.
 - **Language defaults** — `codeLanguage`, `docLanguages`, `docLevel`.
 - **Environment & plugins** — `scanRoots`, `frameworkRepo`, the grill procedure, and the two
   optional third-party plugin offers below (including, when `ponytail` is installed and not
