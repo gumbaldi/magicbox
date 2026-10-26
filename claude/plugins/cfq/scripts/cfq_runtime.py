@@ -52,8 +52,22 @@ def slug_for(repo_path):
     # Claude Code replaces every non-alphanumeric character with "-" when it derives a project
     # slug from a repo path (not just "/" -- also Windows drive-path characters, and any "."/"_"
     # a Linux/macOS path might contain), so this must match that rule exactly or the context gate
-    # falls back to `WARN REASON=unknown` for perfectly normal paths.
+    # falls back to `WARN REASON=unknown` for perfectly normal paths. The working directory is only
+    # the first guess; the session id is the fallback that survives a changed working directory.
     return re.sub(r"[^A-Za-z0-9]", "-", repo_path or os.getcwd())
+
+
+def _find_by_session_id(sid):
+    """The newest `<sid>.jsonl` in any project folder, or "" -- the id is joined as a literal file
+    name, never used as a glob pattern."""
+    try:
+        children = [c for c in (home_dir() / ".claude" / "projects").iterdir() if c.is_dir()]
+    except OSError:
+        return ""
+    found = [c / f"{sid}.jsonl" for c in children if (c / f"{sid}.jsonl").is_file()]
+    if not found:
+        return ""
+    return str(max(found, key=mtime))
 
 
 def resolve_transcript_path(repo_path, exact, session=""):
@@ -65,10 +79,14 @@ def resolve_transcript_path(repo_path, exact, session=""):
         p = d / f"{session}.jsonl"
         return str(p) if p.is_file() else ""
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    if exact == "1":
-        return str(d / f"{sid}.jsonl") if sid else ""
     if sid and (d / f"{sid}.jsonl").is_file():
         return str(d / f"{sid}.jsonl")
+    if sid:
+        found = _find_by_session_id(sid)
+        if found:
+            return found
+    if exact == "1":
+        return str(d / f"{sid}.jsonl") if sid else ""
     try:
         files = [p for p in d.glob("*.jsonl") if p.is_file()]
     except OSError:
