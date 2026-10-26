@@ -19,7 +19,7 @@ A read without a flag uses the repository the shell stands in; a write without `
 goes to the global file.
 
 A key not writable per repo (`scope` is `["global"]` in the schema — currently `scanRoots`,
-`securityTimeoutSeconds`, `securityFindingsCap`) rejects a `set --repo` attempt outright.
+`frameworkRepo`, `securityTimeoutSeconds`, `securityFindingsCap`) rejects a `set --repo` attempt outright.
 
 The legacy `env` block in `<repo>/.claude/settings.json` still works and still sits at the top
 tier — it's not the only per-repo mechanism anymore, just the oldest one:
@@ -46,6 +46,15 @@ every file and env var. `settings get` takes the same flags. `--sources` adds, p
 the value: `env:process`, `env:repo-legacy` (the legacy `env` block, not a `CFQ_*` var set in the
 shell), `repo`, `global`, or `default`. Or run `/cfq` and pick the settings step — same data,
 presented as a table.
+
+```
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings unknown [--repo <path> | --global]
+```
+
+Lists the keys the global file (and, with `--repo`, that repo's file) holds that cfq does not
+know, as a JSON list of `key`, `tier`, `file` and `hint`; a retired key such as `stopPct` names its
+replacement in `hint`. Nothing is edited. The settings menu and the `/cfq` dashboard show the same
+keys as warnings.
 
 ## Settings menu
 
@@ -118,7 +127,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 |---|---|---|---|---|
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | global, repo | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
-| `planBlockedPlugins` | — | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
+| `planBlockedPlugins` | `CFQ_PLAN_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 
 ### Implementation
 
@@ -126,10 +135,10 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 |---|---|---|---|---|
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
-| `branchPerBatch` | — | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
-| `implBlockedPlugins` | — | `superpowers` | global, repo | prohibition for implementation |
+| `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
 
 Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
 runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit
@@ -159,7 +168,7 @@ setting; the rule is fixed, never a judgment call.
 | `codeLanguage` | `CFQ_CODE_LANGUAGE` | `en` | global, repo | language of everything executed or read as an instruction: code, comments, commit messages, `README`, `CLAUDE.md`, `SKILL.md` |
 | `docLanguages` | `CFQ_DOC_LANGUAGES` | `""` | global, repo | additional languages kept under `docs/<lang>/`; empty means documentation follows `codeLanguage` alone |
 | `docLevel` | `CFQ_DOC_LEVEL` | `minimal` | global, repo | how much documentation a repo keeps: `minimal` (`README` only), `standard` (`docs/` with setup, usage, configuration) |
-| `i18nExcludePatterns` | — | `*/locales/*, */locale/*, */i18n/*, */lang/*, */translations/*` | global, repo | Git pathspec exclusions applied to `ifq`'s language-prose sample — directories that intentionally hold multiple languages, never judged as a `codeLanguage` violation |
+| `i18nExcludePatterns` | `CFQ_I18N_EXCLUDE_PATTERNS` | `*/locales/*, */locale/*, */i18n/*, */lang/*, */translations/*` | global, repo | Git pathspec exclusions applied to `ifq`'s language-prose sample — directories that intentionally hold multiple languages, never judged as a `codeLanguage` violation |
 
 ### Maintenance & security
 
@@ -167,23 +176,23 @@ setting; the rule is fixed, never a judgment call.
 |---|---|---|---|---|
 | `maintenanceEvery` | `CFQ_MAINTENANCE_EVERY` | `50` | global, repo | commits since the last maintenance run before it's due again; `0` disables maintenance entirely |
 | `usePonytailAudit` | `CFQ_USE_PONYTAIL` | `true` | global, repo | enables the optional cleanup audit (one of several maintenance tasks gated by `maintenanceEvery`) |
-| `securityTimeoutSeconds` | — | `30` | global only | timeout in seconds for the batch-completion security scan |
-| `securityFindingsCap` | — | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
+| `securityTimeoutSeconds` | `CFQ_SECURITY_TIMEOUT_SECONDS` | `30` | global only | timeout in seconds for the batch-completion security scan |
+| `securityFindingsCap` | `CFQ_SECURITY_FINDINGS_CAP` | `20` | global only | maximum number of security findings surfaced per batch-completion scan |
 
 ### Reports & telemetry
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `htmlReport` | — | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
+| `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on `/rfq` request |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
-| `changelogFile` | — | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
+| `changelogFile` | `CFQ_CHANGELOG_FILE` | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 
 ### Repo & git
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
-| `gitStatePolicy` | — | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
+| `gitStatePolicy` | `CFQ_GIT_STATE_POLICY` | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | global only | roots for automatic queue discovery |
 | `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
 

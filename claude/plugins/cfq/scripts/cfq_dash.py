@@ -309,6 +309,19 @@ def render_body(repos, this_repo, settings_json, all_flag, next_expanded, next_h
     return "\n".join(lines)
 
 
+def unknown_keys_entry(repo):
+    """The `Settings` warning entry when a settings file holds a key cfq does not know, else
+    None. `repo` is "" outside a repository (then only the global file is read)."""
+    scope = ["--repo", repo] if repo else ["--global"]
+    unknown = json.loads(cfq_run("settings", "unknown", *scope).stdout)
+    if not unknown:
+        return None
+    n = len(unknown)
+    names = ", ".join(f"{u['key']} ({u['tier']})" for u in unknown)
+    sub = [f"{u['key']} in {u['file']}" + (f" — {u['hint']}" if u["hint"] else "") for u in unknown]
+    return text.status_entry("Settings", "warn", f"{n} unknown key{'s' if n != 1 else ''} · {names}", sub)
+
+
 def main(argv):
     mode, all_flag, cwd = parse_args(argv)
 
@@ -388,6 +401,9 @@ def main(argv):
     print("PRECHECKS")
     print(text.status_line(d_icon, "Dash", d_text))
     print(plugins_obj["statusLine"]["text"])
+    unknown_entry = unknown_keys_entry(repo)
+    if unknown_entry:
+        print(unknown_entry["text"])
     if hint_line:
         print(hint_line)
     print(render_body(repos_json, this_repo_json, settings_json, all_flag, next_expanded, next_header, next_note))

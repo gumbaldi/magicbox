@@ -170,6 +170,41 @@ class TestDash(CfqTestCase):
             plugins_line_text, f"➖ {'Plugins':<16}mattpocock-skills/ponytail not installed",
         )
 
+    def test_settings_line_lists_unknown_keys(self):
+        tmp = self._repos_dir / "unkroot"
+        repo = tmp / "repo"
+        self._plain_repo(repo)
+        self._open_batch(repo, "2026-08-01-a")
+        gfile = self.home / ".claude" / "cfq" / "settings.json"
+        gfile.parent.mkdir(parents=True, exist_ok=True)
+        env = {"CFQ_SCAN_ROOTS": str(tmp)}
+        hint = "replaced by stopUsed (absolute tokens, not percent)"
+
+        # no unknown key: the line is absent
+        gfile.write_text('{"stopUsed": 1}')
+        rendered = self.run_cfq("dash", "render", str(repo), env=env).stdout
+        self.assertNotIn("Settings", rendered.split("\n\n")[0])
+        self.assertNotIn("unknown key", rendered)
+
+        # one unknown key in the global file
+        gfile.write_text('{"stopPct": 0, "stopUsed": 1}')
+        lines = self.run_cfq("dash", "render", str(repo), env=env).stdout.splitlines()
+        i = next(n for n, l in enumerate(lines) if "unknown key" in l)
+        self.assertEqual(lines[i], f"⚠️ {'Settings':<16}1 unknown key · stopPct (global)")
+        self.assertEqual(lines[i + 1], f"   └ stopPct in {gfile} — {hint}")
+
+        # two unknown keys, one per tier
+        rfile = repo / ".claude" / "cfq" / "settings.json"
+        rfile.parent.mkdir(parents=True, exist_ok=True)
+        rfile.write_text('{"madeUpKey": true}')
+        lines = self.run_cfq("dash", "render", str(repo), env=env).stdout.splitlines()
+        i = next(n for n, l in enumerate(lines) if "unknown key" in l)
+        self.assertEqual(
+            lines[i], f"⚠️ {'Settings':<16}2 unknown keys · stopPct (global), madeUpKey (repo)",
+        )
+        self.assertEqual(lines[i + 1], f"   └ stopPct in {gfile} — {hint}")
+        self.assertEqual(lines[i + 2], f"   └ madeUpKey in {rfile}")
+
     def test_settings_marker_mapping(self):
         # 5. Marker mapping, one case per --sources value (default/global/repo/env:process), plus
         # the env:process must-fall-back to the masked file value (not just the env value), plus

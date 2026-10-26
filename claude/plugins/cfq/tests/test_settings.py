@@ -1262,6 +1262,100 @@ class SettingsTest(CfqTestCase):
     def test_24g_suite_switches_lookup_off(self):
         self.assertEqual(self._base_env()["CFQ_SETTINGS_AUTO_REPO"], "0")
 
+    # 25. Nine more keys carry an env variable.
+    def test_25_env_variables_for_simple_keys(self):
+        rows = [
+            ("branchPerBatch", "CFQ_BRANCH_PER_BATCH", "0", "false"),
+            ("changelogFile", "CFQ_CHANGELOG_FILE", "docs/CHANGES.yml", "docs/CHANGES.yml"),
+            ("htmlReport", "CFQ_HTML_REPORT", "0", "false"),
+            ("planBlockedPlugins", "CFQ_PLAN_BLOCKED_PLUGINS", "a,b", "a,b"),
+            ("implBlockedPlugins", "CFQ_IMPL_BLOCKED_PLUGINS", "a,b", "a,b"),
+            ("securityTimeoutSeconds", "CFQ_SECURITY_TIMEOUT_SECONDS", "5", "5"),
+            ("securityFindingsCap", "CFQ_SECURITY_FINDINGS_CAP", "3", "3"),
+            ("gitStatePolicy", "CFQ_GIT_STATE_POLICY", "trackable", "trackable"),
+            ("i18nExcludePatterns", "CFQ_I18N_EXCLUDE_PATTERNS", "*/x/*,*/y/*", "*/x/*,*/y/*"),
+        ]
+        for key, var, value, want in rows:
+            with self.subTest(key):
+                proc = self.run_cfq("settings", "get", key, env={var: value})
+                self.assertEqual(proc.stdout.strip(), want, msg=proc.stderr)
+                src = self.json_out(self.run_cfq("settings", "get", "--source", key, env={var: value}))
+                self.assertEqual(src["source"], "env:process")
+                desc = self.json_out(self.run_cfq("settings", "describe", key))
+                self.assertEqual(desc["env"], var)
+
+    def test_25b_malformed_integer_env_keeps_tiered_value(self):
+        self.run_cfq("settings", "set", "securityFindingsCap", "7", check=True)
+        proc = self.run_cfq("settings", "get", "securityFindingsCap", env={"CFQ_SECURITY_FINDINGS_CAP": "abc"})
+        self.assertEqual(proc.stdout.strip(), "7")
+
+    def test_25c_ctx_window_limits_has_no_env_variable(self):
+        desc = self.json_out(self.run_cfq("settings", "describe", "ctxWindowLimits"))
+        self.assertIsNone(desc["env"])
+
+    # 26. Keys cfq does not know are reported, never edited.
+    def _unknown_fixture(self):
+        r = self.make_repo("unk")
+        gfile = self.home / ".claude" / "cfq" / "settings.json"
+        gfile.parent.mkdir(parents=True, exist_ok=True)
+        gfile.write_text(json.dumps({"stopPct": 0, "stopUsed": 1}))
+        rfile = r / ".claude" / "cfq" / "settings.json"
+        rfile.parent.mkdir(parents=True, exist_ok=True)
+        rfile.write_text(json.dumps({"madeUpKey": True}))
+        return r, gfile, rfile
+
+    _STOPPCT_HINT = "replaced by stopUsed (absolute tokens, not percent)"
+
+    def test_26_unknown_keys_by_scope(self):
+        r, gfile, rfile = self._unknown_fixture()
+        glob_entry = {"key": "stopPct", "tier": "global", "file": str(gfile), "hint": self._STOPPCT_HINT}
+        repo_entry = {"key": "madeUpKey", "tier": "repo", "file": str(rfile), "hint": ""}
+        out = self.json_out(self.run_cfq("settings", "unknown", "--global"))
+        self.assertEqual(out, [glob_entry])
+        out = self.json_out(self.run_cfq("settings", "unknown", "--repo", str(r)))
+        self.assertEqual(out, [glob_entry, repo_entry])
+
+    def test_26b_unknown_keys_clean_and_broken_files(self):
+        r, gfile, rfile = self._unknown_fixture()
+        cases = [
+            ("clean", '{"stopUsed": 1}', '{"docLevel": "standard"}'),
+            ("broken", "this is not json", "{"),
+            ("list", "[1, 2]", '["x"]'),
+        ]
+        for name, gtext, rtext in cases:
+            with self.subTest(name):
+                gfile.write_text(gtext)
+                rfile.write_text(rtext)
+                proc = self.run_cfq("settings", "unknown", "--repo", str(r))
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+                self.assertEqual(self.json_out(proc), [])
+
+    def test_26c_unknown_keys_flag_conflict(self):
+        r, _, _ = self._unknown_fixture()
+        proc = self.run_cfq("settings", "unknown", "--repo", str(r), "--global")
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_26d_menu_ends_with_unknown_key_lines(self):
+        r, gfile, rfile = self._unknown_fixture()
+        want_tail = (
+            f"\n\n⚠️ unknown key 'stopPct' in {gfile} — ignored ({self._STOPPCT_HINT})"
+            f"\n⚠️ unknown key 'madeUpKey' in {rfile} — ignored"
+        )
+        for extra in ((), ("--group", "limits")):
+            with self.subTest(extra):
+                out = self.run_cfq("settings", "menu", "--repo", str(r), *extra).stdout.rstrip("\n")
+                self.assertTrue(out.endswith(want_tail), msg=out)
+        data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
+        self.assertEqual([u["key"] for u in data["unknownKeys"]], ["stopPct", "madeUpKey"])
+        self.assertIn("groups", data)
+
+    def test_26e_menu_without_unknown_keys_is_unchanged(self):
+        r = self.make_repo("clean")
+        out = self.run_cfq("settings", "menu", "--repo", str(r)).stdout
+        self.assertNotIn("unknown key", out)
+        data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
+        self.assertEqual(data["unknownKeys"], [])
+
     def json_out_stderr(self, proc):
         try:
             return json.loads(proc.stderr)

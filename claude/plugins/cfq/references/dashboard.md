@@ -21,6 +21,9 @@ The `ACTIONS` list gains a seventh, read-only entry — `view reports`, pointing
 path (`<repo>/.claude/cfq/reports/index.html`) for opening it directly. It needs no confirmation
 and isn't one of **Management**'s six mutating actions below.
 
+A `Settings` warning line follows the `Plugins` line when a settings file holds a key cfq does not
+know (for example the retired `stopPct`); it is printed as returned, one `└` sub-line per key.
+
 ## Optional Third-Party Plugins and Ponytail Dormant-by-Default Offer
 
 Lives in `<plugin-root>/references/setup-wizard.md`'s **Environment & Plugins** section (the
