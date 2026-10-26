@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_lint.py <batch-dir>
 """Lints a parked batch of phase plans before pfq hands it off. Reports, never repairs, never
-aborts on soft findings (`depends` and `changes-steps` are warn-only and never affect the exit
-code).
+aborts on soft findings (`depends`, `changes-steps` and `summary-missing` are warn-only and never
+affect the exit code).
 
 Three rules resolve a file that no phase has created yet, against the plan itself: a bare absolute
 path that is not on disk is accepted while a pending phase creates it (an earlier phase of the same
@@ -162,6 +162,9 @@ def lint_open_file(f, findings, warn_findings, impl_models=None, creators=None,
             findings.append(f"{name}: changes-empty: Changes section is empty")
         elif not has_numbered_steps(text):
             warn_findings.append(f"warn: {name}: changes-steps: Changes has no numbered top-level step")
+
+    if not has_heading(text, "Summary"):
+        warn_findings.append(f"warn: {name}: summary-missing: no ## Summary section")
 
     if has_heading(text, "Affected Files"):
         files_section = extract_files_section(text)

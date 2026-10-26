@@ -270,6 +270,8 @@ x
         (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
         changes_block = f"## Changes\n{changes}\n" if with_changes_heading else ""
         self._write(batch / "01-a.md", f"""# Phase A
+## Summary
+Does a thing in plain words.
 ## Size
 M
 ## Context
@@ -288,6 +290,23 @@ x
         self.assertEqual(proc.returncode, 0, out)
         self.assertIsNotNone(re.search(r"^OK 1 phases$", out, re.MULTILINE), out)
         self.assertNotIn("changes-steps", out)
+
+    def test_missing_summary_warns_but_exits_zero(self):
+        batch = self._changes_steps_batch("sumrepo1", "1. Do it.")
+        phase = batch / "01-a.md"
+        phase.write_text(phase.read_text().replace("## Summary\nDoes a thing in plain words.\n", ""))
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        self.assertIsNotNone(re.search(r"^OK 1 phases$", out, re.MULTILINE), out)
+        self.assertEqual(out.count("warn: 01-a.md: summary-missing: no ## Summary section"), 1, out)
+
+    def test_summary_present_has_no_summary_warning(self):
+        batch = self._changes_steps_batch("sumrepo2", "1. Do it.")
+        proc = self.run_cfq("lint", str(batch))
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        self.assertNotIn("summary-missing", out)
 
     def test_changes_prose_only_warns_but_exits_zero(self):
         batch = self._changes_steps_batch("stepsrepo2", "x")

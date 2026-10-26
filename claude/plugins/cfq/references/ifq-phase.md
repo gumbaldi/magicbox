@@ -26,7 +26,7 @@ one documented `--classic-fallback` override.
 
 ```
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+  Goal     <## Summary, or the first two ## Context lines when there is none; wrapped word-boundary to width 68, up to 6 lines for a Summary, 4 for Context>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
@@ -56,7 +56,7 @@ language — e.g.:
 normally if you start it.
 
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+  Goal     <## Summary, or the first two ## Context lines when there is none; wrapped word-boundary to width 68, up to 6 lines for a Summary, 4 for Context>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>

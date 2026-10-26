@@ -127,6 +127,35 @@ class BriefTest(PhaseDirsStatus, CfqTestCase):
         )
         self.assertFalse(any(l.endswith(" ") for l in lines), f"trailing whitespace in: {out}")
 
+    def _summary_phase(self, name, summary):
+        batch = self._repos_dir / name
+        batch.mkdir(parents=True)
+        (batch / "01-sum.md").write_text(
+            f"# Summary phase\n\n## Summary\n\n{summary}\n\n## Size\n\nS\n\n"
+            "## Context\n\nContext text that must not show.\n\n"
+            "## Affected Files\n\n- `/tmp/example/only.sh`\n"
+        )
+        return batch
+
+    def test_phase_announcement_prefers_summary(self):
+        batch = self._summary_phase("2026-01-06-sum", "Alpha beta.\nGamma.")
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout
+        self.assertIn("  Goal     Alpha beta. Gamma.", out.splitlines())
+        self.assertNotIn("Context text", out)
+
+    def test_phase_announcement_summary_wraps_to_six_lines(self):
+        batch = self._summary_phase("2026-01-07-sumlong", " ".join(f"w{i:03d}" for i in range(150)))
+        out = self.run_cfq("brief", str(batch), "--phase", "01", check=True).stdout
+        goal_lines = [l for l in out.splitlines() if l.startswith("  Goal     ") or l.startswith(" " * 11)]
+        self.assertGreater(len(goal_lines), 4, out)
+        self.assertLessEqual(len(goal_lines), 6, out)
+
+    def test_batch_listing_prefers_summary(self):
+        batch = self._summary_phase("2026-01-08-sumlist", "Plain words here.")
+        out = self.run_cfq("brief", str(batch), check=True).stdout
+        self.assertTrue(any(l.startswith("01  Summary phase  [S]  Plain words here.") for l in out.splitlines()), out)
+        self.assertNotIn("Context text", out)
+
     def _steps_phase(self, name, changes):
         batch = self._repos_dir / name
         batch.mkdir(parents=True)
@@ -843,8 +872,11 @@ class BriefReviewTest(PhaseDirsStatus, CfqTestCase):
         return repo, batch
 
     def _phase(self, batch, filename, title="Phase", size="S", context=None, files=None,
-               changes=None, verify=None):
-        body = f"# {title}\n\n## Size\n\n{size}\n"
+               changes=None, verify=None, summary=None):
+        body = f"# {title}\n\n"
+        if summary is not None:
+            body += f"## Summary\n\n{summary}\n\n"
+        body += f"## Size\n\n{size}\n"
         if context is not None:
             body += f"\n## Context\n\n{context}\n"
         if files is not None:
@@ -864,6 +896,22 @@ class BriefReviewTest(PhaseDirsStatus, CfqTestCase):
     def _no_trailing_space(self, out):
         for line in out.splitlines():
             self.assertFalse(line.endswith(" "), f"line ends in a space: {line!r}")
+
+    def test_summary_replaces_context_block(self):
+        repo, batch = self._review_batch("021-2026-03-02-sumrev")
+        self._phase(
+            batch, "01-first.md", "First phase", "S", summary="Plain one.\n\nPlain two.",
+            context="Technical context.",
+            files=[f"- `{repo}/src/a.py`"], changes="1. Do it.", verify="echo ok",
+        )
+        out = self._review(batch).stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        self.assertIn("  Summary", lines)
+        self.assertIn("    Plain one.", lines)
+        self.assertIn("    Plain two.", lines)
+        self.assertNotIn("  Context", lines)
+        self.assertNotIn("Technical context", out)
 
     def test_routine_full_digest(self):
         repo, batch = self._review_batch("020-2026-03-01-review")

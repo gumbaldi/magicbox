@@ -1,5 +1,10 @@
 # <Imperative one-sentence title, no phase number>
 
+## Summary
+
+<2-4 sentences in plain words: what is wrong or missing today, what is different afterwards.
+No file, function, setting or command names.>
+
 ## Size
 
 M

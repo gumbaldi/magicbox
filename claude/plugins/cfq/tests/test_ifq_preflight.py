@@ -1197,6 +1197,8 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
     def _clean_phase_body(self, target):
         return f"""# Phase A
+## Summary
+Does a thing in plain words.
 ## Size
 M
 ## Context
@@ -1312,6 +1314,8 @@ x
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text(f"""# Phase A
+## Summary
+Does a thing in plain words.
 ## Size
 M
 ## Context

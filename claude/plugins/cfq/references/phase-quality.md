@@ -4,12 +4,12 @@ Read unconditionally in **Language and Cut Phases**, before any phase's Changes 
 text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
-simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6 and 7 apply
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6, 7 and 9 apply
 to every phase without exception; rule 8 is optional. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The eight rules below are a standing checkpoint against runaway debugging tokens and untested
+The nine rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## Contents
@@ -22,6 +22,7 @@ verbatim moves, not a one-time lesson repeated only in a post-mortem.
 - 6. `## Affected Files` is the complete list
 - 7. `## Changes` is a numbered step list
 - 8. `## Model` names the smallest model that fits
+- 9. `## Summary` says it in plain words
 - Phase File Structure
 
 ## 1. Test-first, not shell exploration
@@ -144,16 +145,27 @@ One condition failing means no heading. A larger model than the default is plann
 for a phase whose `## Changes` cannot avoid a design decision. The first entry of `implModels` is
 the default; when the list has one entry, never write the heading.
 
+## 9. `## Summary` says it in plain words
+
+Every phase opens with `## Summary`, directly under the title and before `## Size`. It is 2 to 4
+sentences: what the user sees or does today and what is different afterwards. It names no file,
+function, setting or command; those belong in Context and Changes. The reader is a junior sysadmin
+who approves the plan from the review digest, so every term must make sense without knowing the
+code.
+
+The review digest and the `/ifq` announcement show the Summary instead of Context. `bin/cfq lint`
+only warns (`summary-missing`) when it is absent, so an older batch still starts.
+
 ---
 
 None of this adds a new required heading. Rules 1-7 live inside a phase's existing `Changes`,
 `Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected;
-rule 8's heading is optional.
+rule 8's heading is optional; rule 9's heading is checked by a warn-only lint line.
 
 ## Phase File Structure
 
 Every phase file is a copy of `<plugin-root>/references/phase-template.md` with its placeholders
-replaced: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading, not in the template) ·
+replaced: Summary (own heading, first) · Size (`S`/`M`/`L`, own heading) · Model (optional, own heading, not in the template) ·
 Context · Affected Files (always absolute paths) · Changes (copy-ready) · Reuse · Dependencies ·
 Verification (with output filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.
