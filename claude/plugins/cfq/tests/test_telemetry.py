@@ -244,6 +244,31 @@ class TelemetryTest(CfqTestCase):
         out = proc.stdout + proc.stderr
         self.assertEqual(out.strip(), "telemetry sync: nothing new", msg=f"second sync = {out!r}")
 
+    def test_sync_reads_the_repository_tier_of_the_target(self):
+        # The target is written only to the repository's settings (the global file stays
+        # untouched, the automatic lookup is off), so the sync can only find it through the
+        # repository passed on the command line.
+        self._record(str(self.batch), "phase", "01-foo")
+        target = self._repos_dir / "target-repo-tier"
+        target.mkdir()
+        self.run_clean("git", "init", "-q", cwd=target)
+        self.run_clean("git", "config", "user.email", "test@example.com", cwd=target)
+        self.run_clean("git", "config", "user.name", "Test", cwd=target)
+        self.run_cfq("settings", "set", "--repo", str(self.repo), "telemetrySyncRepo", str(target), check=True)
+
+        proc = self.run_cfq("telemetry", "sync", str(self.repo))
+        self.assertEqual(proc.returncode, 0, msg="sync exited non-zero")
+        name = f"{self.repo.name}.jsonl"
+        lines_target = len((target / name).read_text().splitlines())
+        lines_src = len(self.jsonl.read_text().splitlines())
+        self.assertEqual(lines_target, lines_src, msg=f"sync copied {lines_target} lines, want {lines_src}")
+
+    def test_sync_without_a_target_on_either_tier_is_a_silent_no_op(self):
+        self._record(str(self.batch), "phase", "01-foo")
+        proc = self.run_cfq("telemetry", "sync", str(self.repo))
+        self.assertEqual(proc.returncode, 0, msg="sync without target must exit 0")
+        self.assertEqual(proc.stdout + proc.stderr, "", msg="sync without target must stay silent")
+
     def test_record_attaches_only_to_matching_last_phase(self):
         # routine: report.json's last entry already matches the phase being recorded -- the guard
         # is a no-op on the normal path, telemetry still attaches exactly as before.

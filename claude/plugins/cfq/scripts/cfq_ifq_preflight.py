@@ -16,6 +16,7 @@ rename would be.
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -23,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import queue as cfq_queue, render, text  # noqa: E402
+from cfq_lib import effort, queue as cfq_queue, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
@@ -112,16 +113,18 @@ def render_queue_text(selectable, blocked, planning, in_progress, chosen, review
     return "\n".join(lines)
 
 
-def model_gate_line(policy):
+def model_gate_line(policy, effort_warning=None):
     """The `Model Gate` status line's deterministic half -- which list the running model will be
     checked against. The actual substring match against the running model's name (only known to
     the session itself, from its own system prompt -- see `references/ifq-batch-start.md`'s
     **Model Gate Stop**) stays with the skill; this line is printed either way, before that check
-    runs."""
+    runs. `effort_warning`, when set, becomes the entry's one sub-line (see
+    `cfq_lib/effort.py`)."""
+    sub = [effort_warning] if effort_warning else None
     if policy["allowAnyModel"]:
-        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel")
+        return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel", sub=sub)
     list_name = "orchestratorModels" if policy["orchestratorMode"] else "implModels"
-    return text.status_entry("Model Gate", "done", f"checked against {list_name}")
+    return text.status_entry("Model Gate", "done", f"checked against {list_name}", sub=sub)
 
 
 def plugin_boundaries_line(policy):
@@ -253,6 +256,10 @@ def cmd_preflight(args):
     if not policy["orchestratorModels"]:
         policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
+    current_effort = os.environ.get("CLAUDE_EFFORT")
+    required_effort = settings["implSessionEffort"]
+    effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
+    effort_json = effort.status(current_effort, required_effort)
 
     inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
     inbox = {"count": inbox_count_from_overview(inbox_overview), "overview": inbox_overview}
@@ -306,7 +313,7 @@ def cmd_preflight(args):
     def empty_result(status, selectable, inprog, multi):
         return render.dump_json({
             "status": status, "repo": {"root": repo}, "policy": policy, "reporting": reporting,
-            "inbox": inbox,
+            "inbox": inbox, "effort": effort_json,
             "selection": {
                 "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
                 "review": review_names,
@@ -315,7 +322,7 @@ def cmd_preflight(args):
                     queue_rows, blocked_json, planning_names, inprog or "", "", review=review_names,
                 ) or None,
             },
-            "statusLines": [model_gate_line(policy), plugin_boundaries_line(policy)],
+            "statusLines": [model_gate_line(policy, effort_warning), plugin_boundaries_line(policy)],
             **EMPTY_SELECTION_TEMPLATE,
         })
 
@@ -366,7 +373,8 @@ def cmd_preflight(args):
         next_phase_json = {**next_phase, "failedAttempt": failed}
 
         gate_proc = subprocess.run(
-            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate", next_size],
+            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate", next_size,
+             "--repo", repo],
             capture_output=True, text=True,
         )
         gate_line = gate_proc.stdout.strip()
@@ -392,7 +400,7 @@ def cmd_preflight(args):
         intent, inprogress_name, next_phase["status"] if next_phase is not None else None,
     )
     status_lines = [
-        model_gate_line(policy), plugin_boundaries_line(policy),
+        model_gate_line(policy, effort_warning), plugin_boundaries_line(policy),
         batch_line(
             select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
             chosen=chosen, cand=cand, resume_only=resume_only,
@@ -409,6 +417,7 @@ def cmd_preflight(args):
         "policy": policy,
         "reporting": reporting,
         "inbox": inbox,
+        "effort": effort_json,
         "selection": {
             "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
             "review": review_names,

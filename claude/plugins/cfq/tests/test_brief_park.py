@@ -1338,20 +1338,52 @@ class ParkFromPlanTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(done_dir.is_dir())
 
-    def test_name_collision_in_plan_done_is_an_error(self):
+    def test_name_collision_in_plan_done_gets_a_suffix(self):
         done_dir = self.plan_dir / "done"
         done_dir.mkdir(parents=True)
-        collision = done_dir / self.entry.name
-        collision.write_text("already parked\n")
+        entry = self.plan_dir / "2026-01-01-x.md"
+        entry.write_text("B")
+        (done_dir / "2026-01-01-x.md").write_text("A")
 
-        proc = self._park("2026-02-04-batch", from_plan=self.entry)
-        self.assertNotEqual(proc.returncode, 0, "a name collision in plan/done/ must be an error")
-        self.assertIn(str(self.entry), proc.stderr, f"source path missing from error: {proc.stderr}")
-        self.assertIn(str(collision), proc.stderr, f"target path missing from error: {proc.stderr}")
-        self.assertTrue(self.entry.exists(), "source must be left in place on collision")
-        self.assertEqual(
-            collision.read_text(), "already parked\n", "existing plan/done/ entry must not be overwritten",
-        )
+        proc = self._park("2026-02-04-batch", from_plan=entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((done_dir / "2026-01-01-x.md").read_text(), "A")
+        self.assertEqual((done_dir / "2026-01-01-x-2.md").read_text(), "B")
+        self.assertFalse(entry.exists(), "the source must be gone")
+
+    def test_second_collision_in_plan_done_gets_suffix_3(self):
+        done_dir = self.plan_dir / "done"
+        done_dir.mkdir(parents=True)
+        entry = self.plan_dir / "2026-01-01-x.md"
+        entry.write_text("C")
+        (done_dir / "2026-01-01-x.md").write_text("A")
+        (done_dir / "2026-01-01-x-2.md").write_text("B")
+
+        proc = self._park("2026-02-04-batch", from_plan=entry)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((done_dir / "2026-01-01-x.md").read_text(), "A")
+        self.assertEqual((done_dir / "2026-01-01-x-2.md").read_text(), "B")
+        self.assertEqual((done_dir / "2026-01-01-x-3.md").read_text(), "C")
+        self.assertFalse(entry.exists())
+
+    def test_one_collision_among_three_entries_holds_none_back(self):
+        done_dir = self.plan_dir / "done"
+        done_dir.mkdir(parents=True)
+        first = self.plan_dir / "2026-01-01-a.md"
+        middle = self.plan_dir / "2026-01-02-b.md"
+        last = self.plan_dir / "2026-01-03-c.md"
+        for f, body in ((first, "1"), (middle, "2"), (last, "3")):
+            f.write_text(body)
+        (done_dir / "2026-01-02-b.md").write_text("old")
+
+        proc = self._park("2026-02-04-batch", from_plan=[first, middle, last])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for f in (first, middle, last):
+            self.assertFalse(f.exists(), f"{f.name} must be gone")
+        self.assertEqual((done_dir / "2026-01-01-a.md").read_text(), "1")
+        self.assertEqual((done_dir / "2026-01-02-b.md").read_text(), "old")
+        self.assertEqual((done_dir / "2026-01-02-b-2.md").read_text(), "2")
+        self.assertEqual((done_dir / "2026-01-03-c.md").read_text(), "3")
 
     def test_park_without_the_flag_is_unaffected(self):
         proc = self._park("2026-02-05-batch")

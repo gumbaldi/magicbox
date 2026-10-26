@@ -9,11 +9,13 @@ import contextlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
 
-from cfq_testlib import CFQ_BIN, CfqTestCase
+import cfq_settings
+from cfq_testlib import CFQ_BIN, SCRIPTS_DIR, CfqTestCase
 
 
 class SettingsTest(CfqTestCase):
@@ -298,6 +300,20 @@ class SettingsTest(CfqTestCase):
                     "settings", "get", key, home=self.home, env={env_name: values[-1]}
                 ).stdout.strip()
                 self.assertEqual(got, values[-1], msg=f"env override {key} -> got '{got}'")
+
+    # 5j. planSessionEffort / implSessionEffort: default high, every allowed value, rejection
+    def test_05j_session_effort_settings(self):
+        values = ["off", "low", "medium", "high", "xhigh", "max"]
+        for key in ("planSessionEffort", "implSessionEffort"):
+            with self.subTest(key=key):
+                listed = self.json_out(self.run_cfq("settings", "list", home=self.home))
+                self.assertEqual(listed[key], "high", msg=f"list {key} = {listed.get(key)!r}")
+                for value in values:
+                    self.run_cfq("settings", "set", key, value, home=self.home, check=True)
+                    got = self.run_cfq("settings", "get", key, home=self.home).stdout.strip()
+                    self.assertEqual(got, value, msg=f"set {key} {value} -> got '{got}'")
+                proc = self.run_cfq("settings", "set", key, "ultra", home=self.home)
+                self.assertNotEqual(proc.returncode, 0, msg=f"set {key} ultra should fail")
 
     # 5h. orchestratorModels: default, round-trip, env comma split, repo overrides global
     def test_05h_orchestrator_models(self):
@@ -1004,7 +1020,7 @@ class SettingsTest(CfqTestCase):
             "models": {
                 "planModels", "implModels", "orchestratorModels", "allowAnyModel",
                 "planExploreModel", "planExploreModelComplex", "implExploreModel",
-                "implExploreModelComplex",
+                "implExploreModelComplex", "planSessionEffort", "implSessionEffort",
             },
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
@@ -1167,11 +1183,284 @@ class SettingsTest(CfqTestCase):
         err = self.json_out_stderr(proc)
         self.assertEqual(err["status"], "UNKNOWN_GROUP", msg=f"got {err}")
 
+    # 24. A read without a tier flag answers for the repository of the working directory.
+    def _tier_fixture(self):
+        r = self.make_repo("r")
+        self.run_cfq("settings", "set", "stopUsed", "90000", check=True)
+        self.run_cfq("settings", "set", "--repo", str(r), "stopUsed", "50000", check=True)
+        return r
+
+    def _get(self, *args, cwd, lookup=True, env=None):
+        run_env = {"CFQ_SETTINGS_AUTO_REPO": "1"} if lookup else {}
+        run_env.update(env or {})
+        return self.run_cfq("settings", *args, cwd=str(cwd), env=run_env)
+
+    def test_24_effective_value_by_default(self):
+        r = self._tier_fixture()
+        r2 = self.make_repo("r2")
+        sub = r / "a" / "b"
+        sub.mkdir(parents=True)
+        cases = [
+            ("routine", ("get", "stopUsed"), r, True, None, "50000"),
+            ("sub-directory", ("get", "stopUsed"), sub, True, None, "50000"),
+            ("global flag", ("get", "--global", "stopUsed"), r, True, None, "90000"),
+            ("default flag", ("get", "--default", "stopUsed"), r, True, None, "125000"),
+            ("explicit repo wins over cwd", ("get", "--repo", str(r2), "stopUsed"), r, True, None, "90000"),
+            ("outside a repo", ("get", "stopUsed"), self.home, True, None, "90000"),
+            ("suite default", ("get", "stopUsed"), r, False, None, "90000"),
+            ("env beats repo", ("get", "stopUsed"), r, True, {"CFQ_STOP_USED": "70000"}, "70000"),
+            ("default ignores env", ("get", "--default", "stopUsed"), r, True, {"CFQ_STOP_USED": "70000"}, "125000"),
+        ]
+        for name, args, cwd, lookup, env, want in cases:
+            with self.subTest(name):
+                proc = self._get(*args, cwd=cwd, lookup=lookup, env=env)
+                self.assertEqual(proc.stdout.strip(), want, msg=proc.stderr)
+
+    def test_24b_list_scopes(self):
+        r = self._tier_fixture()
+        for args, want in ((("list",), 50000), (("list", "--global"), 90000), (("list", "--default"), 125000)):
+            with self.subTest(args):
+                out = self.json_out(self._get(*args, cwd=r))
+                self.assertEqual(out["stopUsed"], want)
+
+    def test_24c_source_follows_scope(self):
+        r = self._tier_fixture()
+        for flag, want in ((None, "repo"), ("--global", "global"), ("--default", "default")):
+            with self.subTest(flag):
+                args = ["get", "--source"] + ([flag] if flag else []) + ["stopUsed"]
+                out = self.json_out(self._get(*args, cwd=r))
+                self.assertEqual(out["source"], want)
+
+    def test_24d_conflicting_flags_fail(self):
+        r = self._tier_fixture()
+        for a, b in (("--repo", "--global"), ("--global", "--default"), ("--repo", "--default")):
+            with self.subTest((a, b)):
+                args = ["get"]
+                for flag in (a, b):
+                    args.append(flag)
+                    if flag == "--repo":
+                        args.append(str(r))
+                args.append("stopUsed")
+                proc = self._get(*args, cwd=r)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(a, proc.stderr)
+                self.assertIn(b, proc.stderr)
+
+    def test_24e_set_shadow_note(self):
+        r = self._tier_fixture()
+        repo_file = r / ".claude" / "cfq" / "settings.json"
+        proc = self._get("set", "stopUsed", "80000", cwd=r)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        glob = json.loads((self.home / ".claude" / "cfq" / "settings.json").read_text())
+        self.assertEqual(glob["stopUsed"], 80000)
+        self.assertEqual(json.loads(repo_file.read_text())["stopUsed"], 50000)
+        self.assertIn("stopUsed", proc.stderr)
+        self.assertIn(str(repo_file), proc.stderr)
+        # explicit --repo write: no note
+        proc = self._get("set", "--repo", str(r), "stopUsed", "60000", cwd=r)
+        self.assertEqual(proc.stderr, "")
+        # lookup off: no note
+        proc = self._get("set", "stopUsed", "81000", cwd=r, lookup=False)
+        self.assertEqual(proc.stderr, "")
+
+    def test_24f_unset_touches_global_only(self):
+        r = self._tier_fixture()
+        repo_file = r / ".claude" / "cfq" / "settings.json"
+        proc = self._get("unset", "stopUsed", cwd=r)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        glob = json.loads((self.home / ".claude" / "cfq" / "settings.json").read_text())
+        self.assertNotIn("stopUsed", glob)
+        self.assertEqual(json.loads(repo_file.read_text())["stopUsed"], 50000)
+
+    def test_24g_suite_switches_lookup_off(self):
+        self.assertEqual(self._base_env()["CFQ_SETTINGS_AUTO_REPO"], "0")
+
+    # 25. Nine more keys carry an env variable.
+    def test_25_env_variables_for_simple_keys(self):
+        rows = [
+            ("branchPerBatch", "CFQ_BRANCH_PER_BATCH", "0", "false"),
+            ("changelogFile", "CFQ_CHANGELOG_FILE", "docs/CHANGES.yml", "docs/CHANGES.yml"),
+            ("htmlReport", "CFQ_HTML_REPORT", "0", "false"),
+            ("planBlockedPlugins", "CFQ_PLAN_BLOCKED_PLUGINS", "a,b", "a,b"),
+            ("implBlockedPlugins", "CFQ_IMPL_BLOCKED_PLUGINS", "a,b", "a,b"),
+            ("securityTimeoutSeconds", "CFQ_SECURITY_TIMEOUT_SECONDS", "5", "5"),
+            ("securityFindingsCap", "CFQ_SECURITY_FINDINGS_CAP", "3", "3"),
+            ("gitStatePolicy", "CFQ_GIT_STATE_POLICY", "trackable", "trackable"),
+            ("i18nExcludePatterns", "CFQ_I18N_EXCLUDE_PATTERNS", "*/x/*,*/y/*", "*/x/*,*/y/*"),
+        ]
+        for key, var, value, want in rows:
+            with self.subTest(key):
+                proc = self.run_cfq("settings", "get", key, env={var: value})
+                self.assertEqual(proc.stdout.strip(), want, msg=proc.stderr)
+                src = self.json_out(self.run_cfq("settings", "get", "--source", key, env={var: value}))
+                self.assertEqual(src["source"], "env:process")
+                desc = self.json_out(self.run_cfq("settings", "describe", key))
+                self.assertEqual(desc["env"], var)
+
+    def test_25b_malformed_integer_env_keeps_tiered_value(self):
+        self.run_cfq("settings", "set", "securityFindingsCap", "7", check=True)
+        proc = self.run_cfq("settings", "get", "securityFindingsCap", env={"CFQ_SECURITY_FINDINGS_CAP": "abc"})
+        self.assertEqual(proc.stdout.strip(), "7")
+
+    def test_25c_ctx_window_limits_has_no_env_variable(self):
+        desc = self.json_out(self.run_cfq("settings", "describe", "ctxWindowLimits"))
+        self.assertIsNone(desc["env"])
+
+    # 26. Keys cfq does not know are reported, never edited.
+    def _unknown_fixture(self):
+        r = self.make_repo("unk")
+        gfile = self.home / ".claude" / "cfq" / "settings.json"
+        gfile.parent.mkdir(parents=True, exist_ok=True)
+        gfile.write_text(json.dumps({"stopPct": 0, "stopUsed": 1}))
+        rfile = r / ".claude" / "cfq" / "settings.json"
+        rfile.parent.mkdir(parents=True, exist_ok=True)
+        rfile.write_text(json.dumps({"madeUpKey": True}))
+        return r, gfile, rfile
+
+    _STOPPCT_HINT = "replaced by stopUsed (absolute tokens, not percent)"
+
+    def test_26_unknown_keys_by_scope(self):
+        r, gfile, rfile = self._unknown_fixture()
+        glob_entry = {"key": "stopPct", "tier": "global", "file": str(gfile), "hint": self._STOPPCT_HINT}
+        repo_entry = {"key": "madeUpKey", "tier": "repo", "file": str(rfile), "hint": ""}
+        out = self.json_out(self.run_cfq("settings", "unknown", "--global"))
+        self.assertEqual(out, [glob_entry])
+        out = self.json_out(self.run_cfq("settings", "unknown", "--repo", str(r)))
+        self.assertEqual(out, [glob_entry, repo_entry])
+
+    def test_26b_unknown_keys_clean_and_broken_files(self):
+        r, gfile, rfile = self._unknown_fixture()
+        cases = [
+            ("clean", '{"stopUsed": 1}', '{"docLevel": "standard"}'),
+            ("broken", "this is not json", "{"),
+            ("list", "[1, 2]", '["x"]'),
+        ]
+        for name, gtext, rtext in cases:
+            with self.subTest(name):
+                gfile.write_text(gtext)
+                rfile.write_text(rtext)
+                proc = self.run_cfq("settings", "unknown", "--repo", str(r))
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+                self.assertEqual(self.json_out(proc), [])
+
+    def test_26c_unknown_keys_flag_conflict(self):
+        r, _, _ = self._unknown_fixture()
+        proc = self.run_cfq("settings", "unknown", "--repo", str(r), "--global")
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_26d_menu_ends_with_unknown_key_lines(self):
+        r, gfile, rfile = self._unknown_fixture()
+        want_tail = (
+            f"\n\n⚠️ unknown key 'stopPct' in {gfile} — ignored ({self._STOPPCT_HINT})"
+            f"\n⚠️ unknown key 'madeUpKey' in {rfile} — ignored"
+        )
+        for extra in ((), ("--group", "limits")):
+            with self.subTest(extra):
+                out = self.run_cfq("settings", "menu", "--repo", str(r), *extra).stdout.rstrip("\n")
+                self.assertTrue(out.endswith(want_tail), msg=out)
+        data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
+        self.assertEqual([u["key"] for u in data["unknownKeys"]], ["stopPct", "madeUpKey"])
+        self.assertIn("groups", data)
+
+    def test_26e_menu_without_unknown_keys_is_unchanged(self):
+        r = self.make_repo("clean")
+        out = self.run_cfq("settings", "menu", "--repo", str(r)).stdout
+        self.assertNotIn("unknown key", out)
+        data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
+        self.assertEqual(data["unknownKeys"], [])
+
     def json_out_stderr(self, proc):
         try:
             return json.loads(proc.stderr)
         except json.JSONDecodeError:
             self.fail(f"could not parse JSON, raw stderr: {proc.stderr!r}")
+
+
+# -- guard: a script that holds a repository path must name it when it reads a setting --------
+
+_SETTINGS_READ = re.compile(r'"settings",\s*"(get|list)"')
+_STRING_LITERAL = re.compile(r'"([^"\\]*)"')
+# The two documented callers that have no repository path to pass: each may make one flagless
+# read, answered for the repository of the working directory.
+_FLAGLESS_FALLBACK_FILES = {"ctx_usage.py", "cfq_runtime.py"}
+
+
+def _enclosing_call(text, pos):
+    """The `( ... )` text of the innermost call that contains the character at `pos`."""
+    depth = 0
+    start = None
+    for i in range(pos - 1, -1, -1):
+        if text[i] == ")":
+            depth += 1
+        elif text[i] == "(":
+            if depth == 0:
+                start = i
+                break
+            depth -= 1
+    if start is None:
+        return text[pos:]
+    depth = 0
+    for j in range(start, len(text)):
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:j + 1]
+    return text[start:]
+
+
+def find_unscoped_settings_reads(name, source, fallback_used=None):
+    """Returns `(violations, total)` for one source file: every call with the adjacent literals
+    `"settings", "get"` or `"settings", "list"` is counted; a violation is one that names no
+    repository (`"--repo"`, `"--global"` or `*repo_args`), does not read a global-only key and is
+    not the single documented flagless fallback of its file. `fallback_used` is the set of file
+    names whose fallback is already spent."""
+    fallback_used = set() if fallback_used is None else fallback_used
+    global_only = {k for k, v in cfq_settings.SCHEMA.items() if v.get("scope") == ["global"]}
+    text = re.sub(r"\s+", " ", source)
+    violations = []
+    total = 0
+    for match in _SETTINGS_READ.finditer(text):
+        total += 1
+        call = _enclosing_call(text, match.start())
+        if '"--repo"' in call or '"--global"' in call or "*repo_args" in call:
+            continue
+        literals = _STRING_LITERAL.findall(call)
+        if match.group(1) == "get" and literals and literals[-1] in global_only:
+            continue
+        if name in _FLAGLESS_FALLBACK_FILES and name not in fallback_used:
+            fallback_used.add(name)
+            continue
+        violations.append(f"{name}: {call}")
+    return violations, total
+
+
+class RepoScopedReadGuardTest(unittest.TestCase):
+    def test_no_script_reads_a_repo_scoped_key_without_naming_the_repo(self):
+        files = sorted(SCRIPTS_DIR.glob("*.py")) + sorted((SCRIPTS_DIR / "cfq_lib").glob("*.py"))
+        violations = []
+        total = 0
+        fallback_used = set()
+        for path in files:
+            found, count = find_unscoped_settings_reads(path.name, path.read_text(), fallback_used)
+            violations.extend(found)
+            total += count
+        self.assertGreaterEqual(total, 10, msg=f"the scan found only {total} settings reads")
+        self.assertEqual(
+            violations, [],
+            msg="settings read without --repo/--global for a repo-scoped key:\n" + "\n".join(violations),
+        )
+
+    def test_scanner_flags_a_repo_scoped_key_and_spares_a_global_only_one(self):
+        violations, total = find_unscoped_settings_reads("x.py", 'cfq_run("settings", "get", "stopUsed")')
+        self.assertEqual((len(violations), total), (1, 1), msg=f"stopUsed not flagged: {violations}")
+        violations, total = find_unscoped_settings_reads("x.py", 'cfq_run("settings", "get", "scanRoots")')
+        self.assertEqual((violations, total), ([], 1), msg=f"scanRoots flagged: {violations}")
+        spread = 'cfq_run(\n    "settings", "list",\n    "--repo", repo)'
+        self.assertEqual(find_unscoped_settings_reads("x.py", spread), ([], 1))
+        self.assertEqual(find_unscoped_settings_reads("x.py", 'cfq_run("settings", "state", "get", "k")'), ([], 0))
 
 
 if __name__ == "__main__":

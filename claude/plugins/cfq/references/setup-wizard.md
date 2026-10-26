@@ -231,7 +231,7 @@ One `AskUserQuestion` call, up to 2 questions, first option "keep (<effective va
 <global|default>)":
 
 - **Report portal** (`htmlReport`) — on (the report portal stays synced automatically at every
-  batch-affecting mutation) / off (synced only on `/rfq` request).
+  batch-affecting mutation) / off (synced only on request: `bin/cfq portal sync <repo-root>`).
 - **Report directory** (`reportDir`) — the effective value (or "unset" when empty), free text via
   **Other** (an additional copy of this repo's report portal, mirrored outside its own
   `.claude/cfq/`).

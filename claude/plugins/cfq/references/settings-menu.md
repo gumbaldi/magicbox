@@ -26,7 +26,9 @@ One call, read once per scope choice, never re-run per navigation step:
 Returns `{groups:[{id,title,keys:[{key,value,source,marker,type,values,min,scopes,default,description}]}]}`
 — the eight fixed groups (`models`, `planning`, `implementation`, `limits`, `language`,
 `maintenance`, `reports`, `repo`), each already carrying every key's current value, source and
-marker. **Group**, **Setting** and **Value** below all read from this one payload. Applying a
+marker. The payload also carries `unknownKeys`: the keys the global or repository file holds that cfq
+does not know. The menu text ends with one warning line per such key; they are shown, never offered
+as an editable row. **Group**, **Setting** and **Value** below all read from this one payload. Applying a
 change (**Apply**) makes that one key's entry in the payload stale — re-fetch before offering the
 same key again on a second pass through **Loop**, not before every unrelated navigation step.
 

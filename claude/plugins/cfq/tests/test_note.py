@@ -565,6 +565,46 @@ class NoteCloseTest(CfqTestCase):
         self.assertNotEqual(proc.returncode, 0, "closing a missing entry must fail")
         self.assertIn("NOT_FOUND", proc.stderr)
 
+    def test_close_with_name_taken_in_plan_done_gets_a_suffix(self):
+        done_dir = self.plan_dir / "done"
+        earlier = self._write_entry("2026-01-01-x.md", "A", directory=done_dir)
+        entry = self._write_entry("2026-01-01-x.md", "# X\n\nbody\n")
+
+        out = self.json_out(
+            self.run_cfq("note", "close", str(self.repo), entry.name, "--reason", "r", check=True)
+        )
+        suffixed = done_dir / "2026-01-01-x-2.md"
+        self.assertEqual(out["closed"], [str(suffixed)])
+        self.assertFalse(entry.exists())
+        self.assertTrue(suffixed.read_text().rstrip("\n").endswith("r"))
+        self.assertIn("## Closed", suffixed.read_text())
+        self.assertEqual(earlier.read_text(), "A", "the earlier archived file must stay as it was")
+
+    def test_close_several_entries_one_colliding_closes_every_entry(self):
+        done_dir = self.plan_dir / "done"
+        earlier = self._write_entry("2026-01-02-b.md", "A", directory=done_dir)
+        one = self._write_entry("2026-01-01-a.md", "# A\n\nbody\n")
+        two = self._write_entry("2026-01-02-b.md", "# B\n\nbody\n")
+        three = self._write_entry("2026-01-03-c.md", "# C\n\nbody\n")
+
+        out = self.json_out(
+            self.run_cfq(
+                "note", "close", str(self.repo), one.name, two.name, three.name,
+                "--reason", "r", check=True,
+            )
+        )
+        self.assertEqual(
+            out["closed"],
+            [
+                str(done_dir / "2026-01-01-a.md"),
+                str(done_dir / "2026-01-02-b-2.md"),
+                str(done_dir / "2026-01-03-c.md"),
+            ],
+        )
+        for f in (one, two, three):
+            self.assertFalse(f.exists())
+        self.assertEqual(earlier.read_text(), "A")
+
     def test_close_never_touches_todo(self):
         # A close call naming only a plan/ entry must never create or touch todo/done/.
         entry = self._write_entry(f"{self.today}-plan-only.md", "# Plan only\n\nbody\n")

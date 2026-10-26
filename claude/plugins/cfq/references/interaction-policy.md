@@ -33,9 +33,31 @@ keywords), scope-creep parking, branch base (every new batch branch, with one
 confirmation when the chosen base leaves unmerged batch branches behind, plus ahead/diverged
 remote on `continue`) — this section adds a rule, not new question sites.
 
+## Challenge Duty
+
+Applies to `pfq`, from the briefing onward. What the user states is input to check, not a fact
+to build on.
+
+- **Check claims before the first question.** Anything the user states as fact about the code,
+  the tooling or the outside world (a price, a limit, "X is called without Y", "nobody uses Z")
+  is verified during **Understand** against the code or a primary source. Open the first
+  interview round with what did not hold, each point with its evidence — before any question
+  that depends on it.
+- **Say so once when a request looks like a bad idea.** Name the concern, the reason, and a
+  concrete alternative, before any plan is written. Agreeing in order to move on is the failure
+  this section exists to prevent; "yes" is only an answer when it is also the assessment.
+- **Then the user decides.** A request the user confirms after hearing the concern is planned as
+  asked — no second objection, and never the alternative planned quietly in its place. Record
+  the overruled concern as one line under `.batch-context.md`'s `## Decisions`.
+- **A change requested to an already written plan is covered too.** It is made — after the same
+  one-time objection, when there is one.
+
+One objection per point, none repeated after a decision, and none without a reason that can be
+checked.
+
 ## Active Interview Duty
 
-Before treating an open point as "routine" (`pfq`'s **Interview**) or answering the closing
+`## Challenge Duty` above applies first — read it before this section. Before treating an open point as "routine" (`pfq`'s **Interview**) or answering the closing
 "anything else open?" check (`pfq`'s **Closing Question**) as satisfied, explicitly enumerate
 every decision made autonomously
 during the session that involved a real trade-off — not a forced choice, but one where a

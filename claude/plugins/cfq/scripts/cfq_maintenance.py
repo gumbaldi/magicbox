@@ -18,14 +18,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
-from cfq_lib.proc import cfq_run, git  # noqa: E402
+from cfq_lib.proc import git, settings_get  # noqa: E402
 
 PROG = "cfq_maintenance.py"
 
 
 def cmd_due(args):
     repo = args.repo
-    every = cfq_run("settings", "get", "maintenanceEvery").stdout.strip()
+    every = settings_get(repo, "maintenanceEvery")
     if every == "0":
         print("OFF")
         return

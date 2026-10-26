@@ -14,6 +14,39 @@ import time
 import unittest
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT
+from cfq_lib import effort  # noqa: E402
+
+
+class EffortCheckTest(unittest.TestCase):
+    def test_check_table(self):
+        cases = [
+            ("high", "high", None), ("xhigh", "high", None), ("max", "high", None),
+            ("medium", "high", "warn"), ("low", "medium", "warn"), ("MEDIUM", "high", "warn"),
+            ("", "high", None), (None, "high", None), ("turbo", "high", None),
+            ("low", "off", None),
+        ]
+        for current, required, want in cases:
+            with self.subTest(current=current, required=required):
+                got = effort.check(current, required, "planSessionEffort")
+                if want is None:
+                    self.assertIsNone(got)
+                else:
+                    self.assertEqual(
+                        got,
+                        f"⚠️ effort {str(current).lower()} is below planSessionEffort {required}"
+                        f" — raise it with /effort {required}",
+                    )
+
+    def test_status(self):
+        self.assertEqual(
+            effort.status("MEDIUM", "high"), {"current": "medium", "required": "high", "ok": False}
+        )
+        self.assertEqual(
+            effort.status(None, "high"), {"current": None, "required": "high", "ok": True}
+        )
+        self.assertEqual(
+            effort.status("turbo", "high"), {"current": None, "required": "high", "ok": True}
+        )
 
 
 class PfqPreflightTest(CfqTestCase):
@@ -250,6 +283,71 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         line = next(e for e in out["statusLines"] if e["label"] == "Model Gate")
         self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
         self.assertEqual(line["detail"], "skipped · allowAnyModel", msg=f"line = {line}")
+
+    def _gate(self, out):
+        return next(e for e in out["statusLines"] if e["label"] == "Model Gate")
+
+    def _effort_repo(self, name):
+        reg = self._repos_dir / name
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+        return reg
+
+    def test_effort_too_low(self):
+        reg = self._effort_repo("effort-low")
+        out = self.json_out(self._run_pf(str(reg), env={"CLAUDE_EFFORT": "medium"}))
+        warning = (
+            "⚠️ effort medium is below planSessionEffort high — raise it with /effort high"
+        )
+        gate = self._gate(out)
+        self.assertEqual(gate["sub"], [warning], msg=f"gate = {gate}")
+        self.assertEqual(len(gate["text"].splitlines()), 2, msg=f"gate = {gate}")
+        self.assertEqual(
+            out["effort"], {"current": "medium", "required": "high", "ok": False}
+        )
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_enough(self):
+        reg = self._effort_repo("effort-ok")
+        out = self.json_out(self._run_pf(str(reg), env={"CLAUDE_EFFORT": "high"}))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"], {"current": "high", "required": "high", "ok": True})
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_unknown(self):
+        reg = self._effort_repo("effort-unknown")
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"], {"current": None, "required": "high", "ok": True})
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_check_off_per_repo(self):
+        reg = self._effort_repo("effort-off")
+        self.run_cfq("settings", "set", "--repo", str(reg), "planSessionEffort", "off",
+                     home=self.home, check=True)
+        out = self.json_out(self._run_pf(str(reg), env={"CLAUDE_EFFORT": "low"}))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assertEqual(out["effort"]["required"], "off")
+        self.assertTrue(out["effort"]["ok"])
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_lower_minimum_by_env(self):
+        reg = self._effort_repo("effort-env")
+        out = self.json_out(self._run_pf(
+            str(reg), env={"CFQ_PLAN_SESSION_EFFORT": "medium", "CLAUDE_EFFORT": "medium"},
+        ))
+        self.assertEqual(self._gate(out)["sub"], [])
+        self.assert_status_lines_shape(out["statusLines"])
+
+    def test_effort_warning_with_allow_any_model(self):
+        reg = self._effort_repo("effort-any")
+        out = self.json_out(self._run_pf(
+            str(reg), env={"CFQ_ALLOW_ANY_MODEL": "1", "CLAUDE_EFFORT": "medium"},
+        ))
+        gate = self._gate(out)
+        self.assertEqual((gate["icon"], gate["detail"]), ("skip", "skipped · allowAnyModel"))
+        self.assertEqual(len(gate["sub"]), 1, msg=f"gate = {gate}")
+        self.assert_status_lines_shape(out["statusLines"])
 
     def test_inbox_line_reflects_entry_count(self):
         reg = self._repos_dir / "inbox-reg"

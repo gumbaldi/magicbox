@@ -6,7 +6,7 @@
    planning, review} ] } ] } -- byte-identical to the no-flag output for every existing caller.
 md/tsv: one row per batch across all repos (Repo, Batch, Priority, Open/Done, Status), status
 one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
-additive per-batch-row extension, same pattern as RFQ's GREEN/RED/MIXED), sorted open-first,
+additive per-batch-row extension, same pattern as the report outcome's GREEN/RED/MIXED), sorted open-first,
 then flagged priority first, then name.
 overview: one row per repo (Repo, Plan, Todo, Batches, Status) -- Batches is open/done batch
 counts, Status the most severe status among the repo's own batches, same vocabulary as above.

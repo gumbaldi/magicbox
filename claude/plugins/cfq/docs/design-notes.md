@@ -164,7 +164,7 @@ shape, just to two different roots.
 
 Data files are `.js`, not `.json`: browsers refuse `fetch()` of a local file under `file://`
 (`CORS request not http`), which every one of these pages is opened as — no server, no build step,
-just opening a path from a file manager or `/rfq`'s own printed URL. A `<script src="…">` tag has
+just opening a path from a file manager or the link `/ifq` prints at batch end. A `<script src="…">` tag has
 no such restriction, so each data file registers its payload on `window.CFQ_DATA["<key>"]` as a
 side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
 a request for it.
@@ -353,8 +353,8 @@ condition under which it is read.
 
 The `.toml` command files were never loaded: Claude Code reads command files as Markdown only. They
 are replaced by `pfq.md` and `ifq.md`. A command with the same name as a skill also hides the
-skill's description from the session's listing and shows the command's instead, so the four
-commands (`cfq`, `pfq`, `ifq`, `rfq`) are short aliases and none repeats a skill name.
+skill's description from the session's listing and shows the command's instead, so the three
+commands (`cfq`, `pfq`, `ifq`) are short aliases and none repeats a skill name.
 
 ## cfq: why the skill prose has eval cases
 
@@ -494,3 +494,63 @@ to batch, and the drift cost tool calls in lint and in the phase announcement.
 
 Rejected: spelling the structure out in `phase-quality.md`. Every planning session reads that file
 in full, and the skeleton is only needed at the moment a phase file is written.
+
+## settings: why a read defaults to the current repo and a write does not
+
+Readers that forgot `--repo` ignored repository values (found 2026-10-07, stop thresholds in the
+atlas repository). A read that follows the working directory removes that class of mistake. A
+write keeps an explicit target, because a command that changes where it writes depending on the
+working directory would silently break existing instructions; `set` only prints a note when the
+current repository's file shadows the new global value. The test suite switches the lookup off
+(`CFQ_SETTINGS_AUTO_REPO=0`) because it runs from inside a checkout that has its own settings
+file.
+
+## Session effort: why it warns and never blocks
+
+The level comes from `CLAUDE_EFFORT`, which Claude Code sets for every command a session runs
+through its shell tool, to the level in effect at that moment. The preflight scripts read it
+themselves, so the check needs no help from the model.
+
+`high` is the default minimum because Claude Code's own default for the current models is `medium`,
+and `/pfq` and `/ifq` are long, rule-heavy procedures that lose steps more easily at lower levels.
+`planSessionEffort` and `implSessionEffort` set it per skill; `off` disables the check.
+
+The check never blocks: a forgotten `/effort` switch must not stop a batch, and the request was for
+a warning. A missing or unknown `CLAUDE_EFFORT` prints nothing.
+
+The warning is a sub-line of the `Model Gate` status entry both preflights already return. Both
+skills print that entry's `text` verbatim, so no skill or reference text had to change (and no
+`SKILL.md` had to grow).
+
+## pfq: why the planner must object once
+
+The user asked for it in the planning session of 2026-10-12: a planner that agrees in order to move
+on builds a plan on claims nobody checked. That session's own checks are the example. A price tier
+that was stated as applying per session applies per request, and the assumption that smaller phases
+are always cheaper is contradicted by the per-phase orchestrator cost. Both surfaced only because
+the claims were verified before the first question.
+
+The rule asks for exactly one objection, with a reason and an alternative, and then the user's
+decision stands. A planner that keeps arguing costs the user more turns than a wrong assumption
+would, so a repeated objection, or the alternative planned quietly in place of the request, is the
+opposite failure. The rule sits in `references/interaction-policy.md` as **Challenge Duty**, directly
+above **Active Interview Duty**, which `/pfq` already reads before its first interview round, so
+`SKILL.md` did not have to grow.
+
+## Why report-for-queue and its report verbs were removed
+
+The portal (`<repo>/.claude/cfq/reports/index.html`) shows everything the `/rfq` skill showed, and
+it is refreshed deterministically: every batch-affecting `bin/cfq` mutation syncs it. A second
+place to read reports gave no new information.
+
+The skill was never used, but it cost maintenance in every skill-wide rework: seven queued phases
+had to touch it. Keeping it meant keeping a skill text, two command files and the tests that guard
+them, all for a view the portal already covers.
+
+The three verbs `report html`, `report index` and `report detail` existed only for that skill. No
+other skill, reference file or script called them, so they went with it, together with their
+helpers and tests. The verbs `security`, `set-commit`, `skills`, `last-failure` and `summary` stay,
+because `/pfq` and `/ifq` use them.
+
+What a user does instead: open the portal file, or run `bin/cfq portal sync <repo-root>` to
+refresh it when `htmlReport` is off.

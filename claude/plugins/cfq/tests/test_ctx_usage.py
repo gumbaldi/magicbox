@@ -151,6 +151,70 @@ class TestCtxUsage(CfqTestCase):
         out = self._run(env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("WARN REASON=sevenDay", out, out)
 
+    def _repo_limits(self):
+        """Global stopUsed 100000, repository R stopUsed 60000, and a second repository R2
+        without a settings file."""
+        repo = self.make_repo("r")
+        self.make_repo("r2")
+        self.run_cfq("settings", "set", "stopUsed", "100000", check=True)
+        self.run_cfq("settings", "set", "--repo", str(repo), "stopUsed", "60000", check=True)
+        return repo
+
+    def test_repo_flag_reads_the_repository_tier(self):
+        repo = self._repo_limits()
+        r2 = self._repos_dir / "r2"
+        cases = [
+            dict(name="routine gate", args=("gate", "M", "--repo", str(repo)), used="70000",
+                 want=["LIMIT=60000", "HANDOFF REASON=capacity"]),
+            dict(name="routine post-phase", args=("--repo", str(repo)), used="70000",
+                 want=["STOP REASON=capacity", "used 70000 >= 60000"]),
+            dict(name="below the repo limit", args=("gate", "M", "--repo", str(repo)),
+                 used="50000", want=["LIMIT=60000", "START REASON=none"]),
+            dict(name="flag before the verb", args=("--repo", str(repo), "gate", "M"),
+                 used="70000", want=["LIMIT=60000", "HANDOFF REASON=capacity"]),
+            dict(name="repo without a settings file", args=("gate", "M", "--repo", str(r2)),
+                 used="70000", want=["LIMIT=100000", "START REASON=none"]),
+            dict(name="env still wins", args=("gate", "M", "--repo", str(repo)), used="70000",
+                 env={"CFQ_STOP_USED": "200000"}, want=["LIMIT=200000", "START"]),
+        ]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                env = {"CFQ_CTX_TEST_USED": case["used"], **case.get("env", {})}
+                out = self._run(*case["args"], env=env).stdout.strip()
+                for token in case["want"]:
+                    self.assertIn(token, out, f"{case['name']} -> {out}")
+
+    def test_no_repo_flag_uses_working_directory_only_when_lookup_is_on(self):
+        repo = self._repo_limits()
+        env = {"CFQ_CTX_TEST_USED": "70000"}
+        out = self.run_cfq("ctx", "gate", "M", env={"CLAUDE_CODE_SESSION_ID": SID, **env},
+                           cwd=repo).stdout.strip()
+        self.assertIn("LIMIT=100000", out, out)
+        out = self.run_cfq("ctx", "gate", "M", cwd=repo, env={
+            "CLAUDE_CODE_SESSION_ID": SID, "CFQ_SETTINGS_AUTO_REPO": "1", **env,
+        }).stdout.strip()
+        self.assertIn("LIMIT=60000", out, out)
+
+    def test_dangling_repo_flag_never_crashes_the_gate(self):
+        self._repo_limits()
+        proc = self._run("gate", "M", "--repo", env={"CFQ_CTX_TEST_USED": "50000"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertRegex(proc.stdout.strip(), GATE_LINE_RE)
+
+    def test_repo_flag_reads_repository_seven_day_threshold(self):
+        repo = self._repo_limits()
+        self.run_cfq("settings", "set", "--repo", str(repo), "stopSevenDayPct", "98", check=True)
+        self._write_payload(
+            '{"context_window":{"used_percentage":1,"context_window_size":1000000,'
+            '"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":1000,'
+            '"cache_read_input_tokens":1000}},'
+            '"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":97}}}'
+        )
+        out = self._run("gate", "M", "--repo", str(repo)).stdout.strip()
+        self.assertNotIn("REASON=sevenDay", out, out)
+        out = self._run("gate", "M").stdout.strip()
+        self.assertIn("REASON=sevenDay", out, out)
+
     def test_rate_limits_below_threshold_capacity_over_stopused_handoffs(self):
         self._write_payload(
             '{"context_window":{"used_percentage":50,"context_window_size":1000000,'

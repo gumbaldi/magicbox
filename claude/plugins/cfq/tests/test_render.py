@@ -1,7 +1,6 @@
 """Migrated from test-render.sh.
 
-Self-test for the render modes: scripts/cfq_dash.py's `render` mode and
-scripts/cfq_report.py's `index --text` mode. Both are additive terminal renders over the same
+Self-test for the render mode of scripts/cfq_dash.py: an additive terminal render over the same
 JSON the default invocation returns -- this file pins that one-code-path guarantee explicitly.
 """
 
@@ -13,7 +12,6 @@ from cfq_testlib import CfqTestCase, SCRIPTS_DIR
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-import cfq_report  # noqa: E402
 from cfq_lib import render  # noqa: E402
 
 
@@ -93,33 +91,6 @@ class TestRender(CfqTestCase):
             "dash", "render", str(pony_off_tmp), home=pony_off_home, env={"CFQ_SCAN_ROOTS": str(pony_off_tmp)},
         ).stdout
 
-    def _report_index_text_red_row(self):
-        rep_home = self._repos_dir / "rep-home"
-        rep_home.mkdir()
-        rep_tmp = self._repos_dir / "rep-root"
-        rep_batch = rep_tmp / "repo-r" / ".claude" / "cfq" / "impl" / "2026-01-01-demo"
-        rep_batch.mkdir(parents=True)
-        self._plain_repo(rep_tmp / "repo-r")
-        cfq_report.append_phase(
-            str(rep_batch),
-            '{"phase":"01-a","status":"red","finished":"2026-01-01T10:00:00+01:00","summary":"boom",'
-            '"deviations":[],"errors":["x"],"verification":"FAIL","commit":""}',
-            record_telemetry=False,
-        )
-        env = {"CFQ_SCAN_ROOTS": str(rep_tmp)}
-        rep_json = self.json_out(self.run_cfq("report", "index", home=rep_home, env=env))
-        rep_text = self.run_cfq("report", "index", "--text", home=rep_home, env=env).stdout
-        return rep_json, rep_text
-
-    def _report_index_text_empty(self):
-        empty_rep_home = self._repos_dir / "empty-rep-home"
-        empty_rep_home.mkdir()
-        empty_rep_root = self._repos_dir / "empty-rep-root"
-        empty_rep_root.mkdir()
-        return self.run_cfq(
-            "report", "index", "--text", home=empty_rep_home, env={"CFQ_SCAN_ROOTS": str(empty_rep_root)},
-        ).stdout
-
     # --- tests ---
 
     def test_dash_json_and_text_agree_on_repo_count(self):
@@ -164,35 +135,15 @@ class TestRender(CfqTestCase):
         self.assertNotIn("mode:", pony_off_text, f"mode clause should vanish when ponytailMode is off:\n{pony_off_text}")
         self.assertNotIn("cfq expects off", pony_off_text, "mode off should not carry a warning")
 
-    def test_report_index_text_red_row_zero_cost_equivalence(self):
-        rep_json, rep_text = self._report_index_text_red_row()
-
-        with self.subTest(mode="json"):
-            self.assertEqual(len(rep_json), 1, "rep_json length")
-            self.assertEqual(rep_json[0]["cost"]["outputTokens"], 0, "fixture cost not 0")
-        with self.subTest(mode="text"):
-            self.assertIn(" – |", rep_text, f"zero cost did not render as –:\n{rep_text}")
-            self.assertNotIn("0k", rep_text, "zero cost rendered as 0k")
-            # phase 06: the status column is the shape-coded glyph, not the bold word.
-            self.assertIn("❌", rep_text, f"RED row not visibly marked:\n{rep_text}")
-            self.assertNotIn("RED", rep_text, f"status word RED still present:\n{rep_text}")
-            self.assertIn("2026-01-01-demo", rep_text, "batch missing from --text output")
-
-    def test_report_index_text_empty_index_plain_sentence(self):
-        empty_rep_text = self._report_index_text_empty()
-        self.assertIn("v0.2", empty_rep_text, f"empty index sentence missing:\n{empty_rep_text}")
-
     def test_no_html_entity_in_any_rendered_terminal_output(self):
         _, text = self._dash_two_repos_json_and_text()
         empty_text = self._dash_render_empty_registry()
         mip_text = self._dash_render_multiple_in_progress()
         pony_text = self._dash_render_ponytail_full()
         pony_off_text = self._dash_render_ponytail_off()
-        _, rep_text = self._report_index_text_red_row()
-        empty_rep_text = self._report_index_text_empty()
 
         all_output = "\n".join(
-            [text, empty_text, mip_text, pony_text, pony_off_text, rep_text, empty_rep_text],
+            [text, empty_text, mip_text, pony_text, pony_off_text],
         )
         for entity in ("&nbsp;", "&amp;", "&#"):
             self.assertNotIn(entity, all_output, f"HTML entity {entity!r} found in rendered terminal output")

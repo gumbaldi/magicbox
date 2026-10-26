@@ -27,7 +27,7 @@ entry per **Follow-Up** in `queue-entries.md`, and this call passes `--batch <ba
 `Report` names the batch's own route inside the report portal (`file://<repo-root>/.claude/cfq/
 reports/index.html#/batch/<batch>`) — the portal sync itself already ran as this same `finish`
 call's own side effect (`cfq_lib/portal_hook.py`), so this line only reports where it landed, no
-separate render step to run. `htmlReport: false` renders it `➖ off · /rfq renders on demand`
+separate render step to run. `htmlReport: false` renders it `➖ off · bin/cfq portal sync renders on demand`
 instead, with no `file://` line in **Closing Reports**.
 
 ## Closing Report Fields (full format)
@@ -36,8 +36,7 @@ instead, with no `file://` line in **Closing Reports**.
 
 - `Batch` — batch and repo, phases total, green/red split, and the skipped phases next to it
   (`5 green, 1 red, 2 skipped`) when there are any.
-- `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (same call
-  `report-for-queue` already uses for its table) and render fields 9/7/8/10/11 as turns, output
+- `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` and render fields 9/7/8/10/11 as turns, output
   tokens total, models, efforts. Fields 9/7 mean the **whole batch** — session + every sub-agent,
   planning included — never only the session's own transcript; field 8 (`planning_output`) still
   names planning's own share separately. The row's last seven fields — in that order, regardless

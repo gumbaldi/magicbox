@@ -450,7 +450,7 @@ def cmd_plan(args):
     slug = re.sub(r"^[0-9]+-[0-9]{4}-[0-9]{2}-[0-9]{2}-", "", batch_name)
     slug = re.sub(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-", "", slug)
 
-    branch_per_batch = cfq_run("settings", "get", "branchPerBatch").stdout.strip()
+    branch_per_batch = proc.settings_get(repo, "branchPerBatch")
     if branch_per_batch == "false":
         print(render.dump_json({
             "mode": "off", "batch": batch_name, "batchNumber": number, "branch": None,

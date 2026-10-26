@@ -8,7 +8,6 @@ shows every queue across every repo at a glance.
 flowchart LR
   A["/pfq — expensive model<br/>interview, phase plans"] --> B["/clear<br/>/model sonnet"]
   B --> C["/ifq — cheap model<br/>one batch, phase by phase"]
-  C --> D["/rfq — reports"]
   C -->|"capacity, or rate limit by choice"| B
 ```
 
@@ -50,7 +49,6 @@ Every skill is reachable by its short command and by its skill name; both start 
 | `/pfq` | `/plan-for-queue` | Interviews you (quick, thorough grilling, or grilling with docs), resolves open questions, and parks phased plans as numbered files — it never edits code. It shows the finished plan in detail and releases the batch only after your go-ahead. |
 | `/ifq` | `/implement-for-queue` | Works off one batch from the current repo's queue, phase by phase, committing and pushing every green phase. |
 | `/cfq` | `/code-for-queue` | Handles first-time setup, the cross-repo dashboard, repo-local queue management, and settings. |
-| `/rfq` | `/report-for-queue` | Shows implementation reports for finished batches, as a compact table or in the report portal. |
 
 ## What each skill does
 
@@ -144,11 +142,6 @@ as `batchReviewFindings` decides.
 First-time setup, the cross-repo dashboard, management of the current repo's queue, and the
 settings.
 
-### `/rfq`
-
-Read-only: the compact terminal table across all repos, and the detailed HTML report for a single
-batch.
-
 ## The three queues
 
 ```
@@ -168,10 +161,10 @@ batch.
   plan/                  # planning-request inbox — ifq writes, pfq reads
     <YYYY-MM-DD>-<slug>.md
     done/
-  todo/                  # one-off follow-ups — ifq writes, cfq works off, rfq lists
+  todo/                  # one-off follow-ups — ifq writes, cfq works off
     <YYYY-MM-DD>-<slug>.md
     done/
-  reports/               # the report portal, kept current by `portal sync`
+  reports/               # the report portal (`index.html` plus `data/`)
     index.html           # fixed viewer shell
     assets/              # viewer scripts and stylesheet
     data/                # site.js, queue.js, batch/<name>.js, entry/<id>.js
@@ -209,7 +202,7 @@ still on the old layout needs an older plugin version to run the migration first
 - `todo/` — **one-off leftovers.** Everything a batch run leaves behind that still needs a manual
   look later: a language-drift finding, a check that could not be automated.
   `ifq` writes them, `/cfq` works them off for the current repo via `note sweep` (runs the `check:`
-  lines and moves the green cards into `todo/done/`), `/rfq` lists them. An entry may
+  lines and moves the green cards into `todo/done/`), An entry may
   carry a `check: <shell-command>` line — exit 0 means it is done.
 
 ```mermaid
@@ -230,8 +223,6 @@ flowchart TB
   ifq -->|writes| plan
   ifq -->|writes| todo
   todo -->|works off| cfq["/cfq"]
-  todo -->|lists| rfq["/rfq"]
-  impl -->|reads| rfq
   pfq --- reg
   ifq --- reg
   cfq --- set
@@ -271,7 +262,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
 | `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild [--migrate]` rewrites everything. |
-| `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`, plus `index`, `detail` and `html` for `/rfq`. |
+| `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
 | `scan` | Every registered/discovered repo's queues, counted live from disk. |
@@ -399,10 +390,7 @@ summary, deviations and observations is written by scripts, at zero model-token 
 lives in the batch directory, so it travels with the batch into `done/` and is covered by the same
 `.git/info/exclude` entry as the rest of the queue.
 
-Run `/rfq` for a grouped terminal listing — one section per repo, newest first, ten rows per repo
-by default (`--limit 0` for the full history) with a marker column showing which batches already
-have their data in the report portal — or drill into a single batch for the portal's own batch
-page.
+Open `<repo>/.claude/cfq/reports/index.html` for the list of batches and their reports.
 
 ## Report portal
 
@@ -432,8 +420,8 @@ The portal is kept current as a side effect of the mutating verbs that already r
 rendered by the model itself, and a resync that changes nothing writes nothing. Set `reportDir` to
 an absolute path for an additional mirror outside any one repo's own `.claude/cfq/`, gaining a
 cross-repo index across every repo that mirrors into it (`## Report collection layout` in
-`docs/configuration.md`). `htmlReport: false` turns every automatic sync off — `/rfq`'s
-`report html` verb still syncs a single batch on request even then, so the portal always stays
+`docs/configuration.md`). `htmlReport: false` turns every automatic sync off —
+`bin/cfq portal sync <repo-root>` still syncs on demand even then, so the portal always stays
 reachable, just not kept current in the background.
 
 ## Telemetry

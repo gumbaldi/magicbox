@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# Usage: cfq_settings.py list [--repo <path>] [--sources]
-#        cfq_settings.py get [--repo <path>] [--source] <key>
+# Usage: cfq_settings.py list [--repo <path> | --global | --default] [--sources]
+#        cfq_settings.py get [--repo <path> | --global | --default] [--source] <key>
 #        cfq_settings.py set [--repo <path>] <key> <value>
 #        cfq_settings.py unset [--repo <path>] <key>
 #        cfq_settings.py describe [<key>]
+#        cfq_settings.py unknown [--repo <path> | --global]
 #        cfq_settings.py menu [--repo <path>] [--group <id>] [--format text|json]
 #        cfq_settings.py migrate <repo-root>
 #        cfq_settings.py state get <key> | state set <key> <value>
@@ -12,9 +13,15 @@
 
 Ported from cfq-settings.sh — a port, not a redesign: exit codes, stdout shapes and error
 messages are the invariant this file preserves, not something it improves on.
+
+A read (`list`/`get`) without a tier flag answers for the repository the shell stands in
+(env > that repository's file > global file > default); `--repo <path>` names the repository,
+`--global` leaves the repository tier out, `--default` returns the schema default only. A write
+without `--repo` always goes to the global file.
 """
 
 import argparse
+import copy
 import json
 import os
 import pathlib
@@ -23,7 +30,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, paths, render, text  # noqa: E402
+from cfq_lib import errors, paths, proc, render, text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
 # The eight fixed settings-menu groups, in display order — `settings menu` walks this list, never
@@ -62,11 +69,11 @@ SCHEMA = {
     "docLanguages": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_DOC_LANGUAGES", "group": "language", "description": "Additional languages kept under docs/<lang>/; empty means documentation follows codeLanguage alone."},
     "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "group": "language", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "group": "maintenance", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
-    "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "group": "implementation", "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
-    "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": None, "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
-    "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": None, "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
-    "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
-    "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": None, "group": "implementation", "description": "Plugins /ifq must never call, even indirectly."},
+    "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_BRANCH_PER_BATCH", "group": "implementation", "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
+    "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": "CFQ_CHANGELOG_FILE", "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
+    "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_HTML_REPORT", "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
+    "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_PLAN_BLOCKED_PLUGINS", "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
+    "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_IMPL_BLOCKED_PLUGINS", "group": "implementation", "description": "Plugins /ifq must never call, even indirectly."},
     "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "group": "reports", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
     "frameworkRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "group": "repo", "description": "Absolute path of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
     "stopUsed": {"type": "int", "default": 125000, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_USED", "group": "limits", "description": "Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
@@ -75,14 +82,20 @@ SCHEMA = {
     "onePhasePerSession": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ONE_PHASE_PER_SESSION", "group": "implementation", "description": "When true, /ifq always hands off after one phase instead of continuing automatically while the context gate allows it."},
     "sessionStaleSeconds": {"type": "int", "default": 1800, "min": 1, "scope": ["global", "repo"], "env": "CFQ_SESSION_STALE_SECONDS", "group": "limits", "description": "Seconds since a session transcript was last touched before it is considered stale (lock takeover, resume staleness)."},
     "ctxWindowLimits": {"type": "object", "shape": {"default": "int", "large": "object"}, "default": {"default": 200000, "large": {"models": ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"], "limit": 1000000}}, "scope": ["global", "repo"], "env": None, "group": "limits", "description": "Context-window size in tokens per model, keyed by whether the model gets the large window."},
-    "securityTimeoutSeconds": {"type": "int", "default": 30, "min": 1, "scope": ["global"], "env": None, "group": "maintenance", "description": "Timeout in seconds for the batch-completion security scan."},
-    "securityFindingsCap": {"type": "int", "default": 20, "min": 1, "scope": ["global"], "env": None, "group": "maintenance", "description": "Maximum number of security findings surfaced per batch-completion scan."},
-    "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": None, "group": "repo", "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
-    "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": None, "group": "language", "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
+    "securityTimeoutSeconds": {"type": "int", "default": 30, "min": 1, "scope": ["global"], "env": "CFQ_SECURITY_TIMEOUT_SECONDS", "group": "maintenance", "description": "Timeout in seconds for the batch-completion security scan."},
+    "securityFindingsCap": {"type": "int", "default": 20, "min": 1, "scope": ["global"], "env": "CFQ_SECURITY_FINDINGS_CAP", "group": "maintenance", "description": "Maximum number of security findings surfaced per batch-completion scan."},
+    "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": "CFQ_GIT_STATE_POLICY", "group": "repo", "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
+    "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": "CFQ_I18N_EXCLUDE_PATTERNS", "group": "language", "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
     "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
     "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
     "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
+    "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
+    "implSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_IMPL_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /ifq session should run at; a lower level prints a warning and never blocks. off disables the check."},
 }
+
+# Only feeds the hint text of `unknown_keys()`: a key that was replaced by another one. A key
+# missing from here is still reported as unknown, just without a hint.
+RENAMED_KEYS = {"stopPct": "replaced by stopUsed (absolute tokens, not percent)"}
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
 
@@ -294,12 +307,52 @@ def _apply_set(key, val, repo_path):
     _write_json(target, data)
 
 
+def _detect_repo():
+    """The git toplevel of the working directory, or "" outside a repository or when
+    CFQ_SETTINGS_AUTO_REPO=0 (the test suite's switch)."""
+    if os.environ.get("CFQ_SETTINGS_AUTO_REPO") == "0":
+        return ""
+    result = proc.git(os.getcwd(), "rev-parse", "--show-toplevel")
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _read_scope(args):
+    """Resolves the tier flags of a read into `(repo_path, default_only)`. Tolerates a parser
+    that defines only some of the three flags."""
+    repo = getattr(args, "repo", None)
+    flags = [
+        name for name, on in (
+            ("--repo", repo), ("--global", getattr(args, "_global", False)),
+            ("--default", getattr(args, "default_only", False)),
+        ) if on
+    ]
+    if len(flags) > 1:
+        errors.die(f"{PROG}: --repo, --global and --default are mutually exclusive")
+    if flags == ["--default"]:
+        return "", True
+    if flags == ["--global"]:
+        return "", False
+    if repo:
+        return repo, False
+    return _detect_repo(), False
+
+
+def _read_values(args):
+    """`(repo_path, base, final)` for a read: the tier chain for the resolved scope, or the plain
+    schema defaults for `--default`."""
+    repo_path, default_only = _read_scope(args)
+    if default_only:
+        base = copy.deepcopy(DEFAULTS)
+        return repo_path, base, base
+    base = merged_tiers(repo_path)
+    return repo_path, base, with_overrides(base)
+
+
 def cmd_list(args):
     ensure()
-    base = merged_tiers(args.repo)
-    final = with_overrides(base)
+    repo_path, base, final = _read_values(args)
     if args.want_source:
-        out = {k: {"value": final.get(k), "source": key_source(k, args.repo, base, final)} for k in SCHEMA}
+        out = {k: {"value": final.get(k), "source": key_source(k, repo_path, base, final)} for k in SCHEMA}
         print(render.dump_json(out))
     else:
         print(render.dump_json(final))
@@ -307,10 +360,9 @@ def cmd_list(args):
 
 def cmd_get(args):
     ensure()
-    base = merged_tiers(args.repo)
-    final = with_overrides(base)
+    repo_path, base, final = _read_values(args)
     if args.want_source:
-        src = key_source(args.key, args.repo, base, final)
+        src = "default" if getattr(args, "default_only", False) else key_source(args.key, repo_path, base, final)
         print(render.dump_json({"value": final.get(args.key), "source": src}))
         return
     type_ = SCHEMA.get(args.key, {}).get("type", "")
@@ -325,6 +377,18 @@ def cmd_get(args):
 
 def cmd_set(args):
     _apply_set(args.key, args.value, args.repo)
+    if args.repo:
+        return
+    current = _detect_repo()
+    if not current:
+        return
+    repo_file = paths.repo_settings_file(current)
+    data = _read_json(repo_file, default={}) if os.path.isfile(repo_file) else {}
+    if isinstance(data, dict) and args.key in data:
+        print(
+            f"{PROG}: note: '{args.key}' is also set in {repo_file} — that value still wins in that repository",
+            file=sys.stderr,
+        )
 
 
 def cmd_unset(args):
@@ -396,6 +460,32 @@ def _range_str(entry):
     return ""
 
 
+def unknown_keys(repo_path):
+    """Keys the global file (and, when `repo_path` is given, that repository's file) holds that
+    SCHEMA does not know -- reported, never edited. A file that is missing, not JSON, or not a JSON
+    object contributes nothing. Global entries first, each tier in its file's own key order."""
+    sources = [("global", GLOBAL_SETTINGS_FILE)]
+    if repo_path:
+        sources.append(("repo", paths.repo_settings_file(repo_path)))
+    found = []
+    for tier, file_path in sources:
+        data = _read_json(file_path, default={}) if os.path.isfile(file_path) else {}
+        if not isinstance(data, dict):
+            continue
+        for key in data:
+            if key not in SCHEMA:
+                found.append({"key": key, "tier": tier, "file": file_path, "hint": RENAMED_KEYS.get(key, "")})
+    return found
+
+
+def _unknown_lines(unknown):
+    lines = []
+    for u in unknown:
+        hint = f" ({u['hint']})" if u["hint"] else ""
+        lines.append(f"⚠️ unknown key '{u['key']}' in {u['file']} — ignored{hint}")
+    return lines
+
+
 def _repo_label(repo_path):
     return pathlib.Path(repo_path).name or "global" if repo_path else "global"
 
@@ -433,6 +523,10 @@ def _menu_groups(args, base, final):
             })
         groups_out.append({"id": g["id"], "title": g["title"], "keys": group_keys})
     return groups_out
+
+
+def _append_unknown(rendered, unknown):
+    return "\n".join([rendered, ""] + _unknown_lines(unknown)) if unknown else rendered
 
 
 def _render_menu_overview(groups_out, repo_path):
@@ -477,19 +571,26 @@ def _render_menu_group(group_out, repo_path):
 
 def cmd_menu(args):
     ensure()
+    # The menu edits tiers, so it never uses the automatic repository lookup: its caller names the tier.
     if args.group and args.group not in GROUP_IDS:
         errors.fail("UNKNOWN_GROUP", detail=f"unknown group '{args.group}', want one of {', '.join(GROUP_IDS)}")
     base = merged_tiers(args.repo)
     final = with_overrides(base)
     groups_out = _menu_groups(args, base, final)
+    unknown = unknown_keys(args.repo)
 
     if args.format == "json":
-        print(render.dump_json({"groups": groups_out}))
+        print(render.dump_json({"groups": groups_out, "unknownKeys": unknown}))
         return
     if args.group:
-        print(_render_menu_group(groups_out[0], args.repo))
+        print(_append_unknown(_render_menu_group(groups_out[0], args.repo), unknown))
     else:
-        print(_render_menu_overview(groups_out, args.repo))
+        print(_append_unknown(_render_menu_overview(groups_out, args.repo), unknown))
+
+
+def cmd_unknown(args):
+    repo_path, _ = _read_scope(args)
+    print(render.dump_json(unknown_keys(repo_path)))
 
 
 def cmd_migrate(args):
@@ -544,12 +645,14 @@ def build_parser():
     list_p = sub.add_parser("list")
     list_p.add_argument("--repo")
     list_p.add_argument("--global", action="store_true", dest="_global")
+    list_p.add_argument("--default", action="store_true", dest="default_only")
     list_p.add_argument("--source", "--sources", action="store_true", dest="want_source")
     list_p.set_defaults(func=cmd_list)
 
     get_p = sub.add_parser("get")
     get_p.add_argument("--repo")
     get_p.add_argument("--global", action="store_true", dest="_global")
+    get_p.add_argument("--default", action="store_true", dest="default_only")
     get_p.add_argument("--source", "--sources", action="store_true", dest="want_source")
     get_p.add_argument("key")
     get_p.set_defaults(func=cmd_get)
@@ -570,6 +673,11 @@ def build_parser():
     describe_p = sub.add_parser("describe")
     describe_p.add_argument("key", nargs="?")
     describe_p.set_defaults(func=cmd_describe)
+
+    unknown_p = sub.add_parser("unknown")
+    unknown_p.add_argument("--repo")
+    unknown_p.add_argument("--global", action="store_true", dest="_global")
+    unknown_p.set_defaults(func=cmd_unknown)
 
     menu_p = sub.add_parser("menu")
     menu_p.add_argument("--repo")
@@ -603,8 +711,10 @@ def main(argv):
         errors.die(f"usage: {PROG} state get <key> | state set <key> <value>")
     if func is None:
         errors.die(
-            f"usage: {PROG} list [--repo <path>] [--sources] | get [--repo <path>] [--source] <key> | "
+            f"usage: {PROG} list [--repo <path> | --global | --default] [--sources] | "
+            f"get [--repo <path> | --global | --default] [--source] <key> | "
             f"set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | "
+            f"unknown [--repo <path> | --global] | "
             f"menu [--repo <path>] [--group <id>] [--format text|json] | "
             f"migrate <repo-root> | state get <key> | state set <key> <value>"
         )

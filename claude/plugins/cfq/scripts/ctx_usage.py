@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Usage: ctx_usage.py              # post-phase check
-#        ctx_usage.py gate <SIZE>  # pre-phase gate; SIZE kept for call-site compatibility with an
-#                                   # existing consumer, no longer affects the decision
+# Usage: ctx_usage.py [--repo <path>]              # post-phase check
+#        ctx_usage.py [gate <SIZE>] [--repo <path>]  # pre-phase gate; SIZE kept for call-site
+#                                   # compatibility with an existing consumer, no longer affects
+#                                   # the decision
 """Gate policy: three verdicts, five reasons, three independent off switches.
   - START (gate) / OK (post-phase), reason=none: nothing fired, continue normally.
   - WARN, reason=fiveHour|sevenDay|unknown: advisory only -- the caller decides whether to
@@ -25,6 +26,9 @@ phase to a warm session is worth it.
 Runtime discovery (statusline payload, transcript parsing) lives in cfq_runtime.py; this script
 only consumes its `context` subcommand's `used`/`cache`/`rateLimits` fields.
 Used by implement-for-queue after each finished phase, and in `gate` mode before a phase starts.
+The three thresholds are read for one repository: the one named by `--repo <path>` (a caller that
+holds a repository path passes it), else the one `settings get` finds for the working directory.
+`--repo` may stand anywhere in the arguments; a trailing `--repo` without a value is ignored.
 
 Ported from ctx-usage.sh -- a port, not a redesign: the CLI contract (verbs, argument order, text
 output, exit codes) is the invariant this file preserves.
@@ -36,11 +40,31 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 
-def resolved_setting(key, default):
-    value = cfq_run("settings", "get", key).stdout.strip()
+def pop_repo(argv):
+    """`(repo, rest)`: removes a `--repo <path>` pair from anywhere in `argv`. A trailing
+    `--repo` without a value is dropped and yields `repo == ""`."""
+    repo = ""
+    rest = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--repo":
+            if i + 1 < len(argv):
+                repo = argv[i + 1]
+            i += 2
+            continue
+        rest.append(argv[i])
+        i += 1
+    return repo, rest
+
+
+def resolved_setting(repo, key, default):
+    if repo:
+        value = settings_get(repo, key)
+    else:
+        value = cfq_run("settings", "get", key).stdout.strip()
     if value == "-1":
         return -1
     if value.isdigit():
@@ -49,9 +73,10 @@ def resolved_setting(key, default):
 
 
 def main(argv):
-    stop_used = resolved_setting("stopUsed", 125000)
-    stop_5h = resolved_setting("stopFiveHourPct", 70)
-    stop_7d = resolved_setting("stopSevenDayPct", 95)
+    repo, argv = pop_repo(argv)
+    stop_used = resolved_setting(repo, "stopUsed", 125000)
+    stop_5h = resolved_setting(repo, "stopFiveHourPct", 70)
+    stop_7d = resolved_setting(repo, "stopSevenDayPct", 95)
 
     gate = bool(argv) and argv[0] == "gate"
     size = ""

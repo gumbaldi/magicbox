@@ -28,7 +28,8 @@ A free-text answer is a change request. This question is exempt from `interactio
 
 Edit the phase files and `.batch-context.md` with `Write`/`Edit` — plan files only, never code.
 Adding, dropping or reordering a phase keeps the numbering gapless and updates every
-`## Dependencies` reference. A change the user asked for is made, not questioned — including
+`## Dependencies` reference. A change the user asked for is made, not questioned — after the one-time objection of
+`interaction-policy.md`'s **Challenge Duty**, when there is one — including
 dropping a phase, which is then recorded with its reason in `.batch-context.md`'s `## Non-Goals`.
 Then **Re-check**.
 
