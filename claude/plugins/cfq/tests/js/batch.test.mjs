@@ -156,6 +156,16 @@ test("tab bar lists exactly the registered tabs; unknown tab falls back to Phase
   assert.equal(byTag(unknown.root, "table").length, 1);
 });
 
+test("a phase title with backticks shows the words as code, not the backtick characters", () => {
+  const batch = fixtureBatch("done");
+  batch.phases[0].title = "`bin/cfq portal sync`: data files";
+  const { root } = draw(batch);
+  const title = byClass(root, "phase-title")[0];
+  assert.ok(byTag(title, "code").some((c) => c.textContent === "bin/cfq portal sync"));
+  assert.doesNotMatch(collectText(title), /`/);
+  assert.match(collectText(title), /data files/);
+});
+
 test("phases table: columns, one row per phase, closed by default", () => {
   const { root } = draw(fixtureBatch("done"));
   const table = byTag(root, "table")[0];

@@ -523,7 +523,9 @@
     toggle.setAttribute("type", "button");
     toggle.setAttribute("aria-expanded", "false");
     toggle.appendChild(C.el(doc, "span", "▸", "caret"));
-    toggle.appendChild(C.el(doc, "span", row.title || row.slug, "phase-title"));
+    var titleEl = C.el(doc, "span", null, "phase-title");
+    titleEl.appendChild(C.inlineCode(doc, row.title || row.slug));
+    toggle.appendChild(titleEl);
     titleCell.appendChild(toggle);
     titleCell.appendChild(C.el(doc, "div", row.slug, "sub mono"));
     tr.appendChild(titleCell);
