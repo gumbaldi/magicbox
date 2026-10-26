@@ -35,9 +35,9 @@ def reports_dir(repo):
 
 
 def portal_batch_url(repo, batch_name):
-    """`file://` route for `batch_name` inside `repo`'s report portal -- the one place both
-    `cfq_report.py`'s `html`/`index` verbs and `cfq_finish.py`'s `Report` status line compute this,
-    so all three can never disagree on the URL shape."""
+    """`file://` route for `batch_name` inside `repo`'s report portal -- the one place
+    `cfq_finish.py`'s `Report` status line and `cfq_brief.py`'s `Portal` line compute this, so
+    they can never disagree on the URL shape."""
     return f"file://{reports_dir(repo)}/index.html#/batch/{batch_name}"
 
 

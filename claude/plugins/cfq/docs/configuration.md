@@ -289,16 +289,6 @@ restate a field list inline — read the field here, then read it back from the 
   `{status: "RECORD_FAILED", sha, detail}` on the ways it can stop, each with a non-zero exit. The
   general ledger-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed
   as its own `report append` CLI verb.
-- **`bin/cfq report index [--repo <substr>] [--batch <substr>] [--any <substr>] [--text]`** —
-  `[{batch, repo, date, status, deviations, cost: {outputTokens, turns}}, …]`, sorted newest-first.
-  `status`: `GREEN`/`RED`/`MIXED`. `--any` matches a single argument against repo path or batch
-  name and dedupes internally, for when the caller doesn't know which it names; `--repo`/`--batch`
-  narrow independently (AND) when both are given. `--text` renders the same filtered rows as a
-  terminal table plus one `file://` line per row instead of JSON.
-- **`bin/cfq report detail <batch-dir>`** — `{found, batch, repo, started, status, deviationsTotal,
-  cost: {outputTokens, turns}, phases: [{phase, status, summary, deviations, errors, verification,
-  commit, telemetry}], todos: [{file, title}]}`. `found: false` (only) when the batch has no
-  `report.json`.
 - **`bin/cfq report set-commit <batch-dir> <phase-slug> <sha>`** — backfills the `commit` field of
   that phase's most recent entry. Exits non-zero when the batch has no entry for `<phase-slug>`; it
   never reports success without writing.

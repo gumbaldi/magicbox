@@ -82,15 +82,10 @@ no noun of its own, imported by `cfq_*.py` implementations (`cfq_lib/paths.py` h
 path helpers; `cfq_lib/proc.py` holds the shared `bin/cfq`/`git` subprocess helpers and `default_branch()`, the
 one default-branch resolution every script uses; `cfq_lib/text.py`
 holds the shared terminal-rendering helpers — padding, wrapping, aligned columns, icon lookup).
-Two further
-exceptions stay direct filename calls, each commented at its call site:
+One further exception stays a direct filename call, commented at its call site:
 - **Inner-loop calls** (`cfq_batch_id.py`'s per-pair rename and per-orphan reserve,
   `cfq_scan.py`'s per-repo registry-add and per-repo settings-get): a dispatcher exec resolves
   `../bin/cfq` fresh on every iteration, so the direct sibling call is the cheaper trade there.
-- **`cfq_report.py`'s internal call to `cfq_scan.py`** (used by the `index` verb): `bin/cfq`
-  resolves its `NOUN_SCRIPT` table relative to its own real location, so routing this call through
-  the dispatcher would always reach the real, unstubbed `cfq_scan.py` — breaking the test double
-  `tests/test_report.py` shadows it with. Stays a direct `SCRIPT_DIR` call for that reason.
 
 Any test double that copies `scripts/` to intercept a sibling call by filename (e.g.
 `tests/test_ifq_preflight.py`, `tests/test_pfq_preflight.py`) must copy `bin/` alongside it,
@@ -394,10 +389,9 @@ every batch-affecting `bin/cfq` mutation (`park`, `phase` `record`/`commit`/`reo
 acquire`, `finish`, `batch ready`, `trash put`/`restore`, `note`'s mutating verbs, `dash render`)
 fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect after its own mutation succeeds — first
 `telemetry settle`, then the portal sync, the latter gated on `htmlReport` and neither touching
-the triggering verb's own exit code or stdout. `cfq_report.py`'s `html` verb is a thin alias over
-`portal sync <repo> --batch <b>`, printing the batch's own portal route; `report index`'s
-`rendered`/`href` fields read the same portal data (`data/batch/<name>.js`). `portal rebuild
-<repo-root> --migrate` is the one-time cleanup for a repo that still carries the old per-batch HTML
+the triggering verb's own exit code or stdout. The portal is the only HTML cfq produces; on demand,
+`bin/cfq portal sync <repo-root>` refreshes it. `portal rebuild <repo-root> --migrate` is the
+one-time cleanup for a repo that still carries the old per-batch HTML
 files — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror directory
 under `reportDir` when set) whose name matches a batch's own shape, never touching `assets/`,
 `data/`, or the portal's own `index.html`.
@@ -464,7 +458,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
 ## Status Vocabulary
 
 Every read-only aggregator (`cfq_pfq_preflight.py`, `cfq_ifq_preflight.py`, `cfq_scan.py
---format=`, `cfq_report.py index/detail`, `cfq_runtime.py plugins`, and any future one) reports a
+--format=`, `cfq_runtime.py plugins`, and any future one) reports a
 `status` field skills react to structurally, never by parsing prose. `status` is always exactly one
 of:
 

@@ -536,3 +536,21 @@ would, so a repeated objection, or the alternative planned quietly in place of t
 opposite failure. The rule sits in `references/interaction-policy.md` as **Challenge Duty**, directly
 above **Active Interview Duty**, which `/pfq` already reads before its first interview round, so
 `SKILL.md` did not have to grow.
+
+## Why report-for-queue and its report verbs were removed
+
+The portal (`<repo>/.claude/cfq/reports/index.html`) shows everything the `/rfq` skill showed, and
+it is refreshed deterministically: every batch-affecting `bin/cfq` mutation syncs it. A second
+place to read reports gave no new information.
+
+The skill was never used, but it cost maintenance in every skill-wide rework: seven queued phases
+had to touch it. Keeping it meant keeping a skill text, two command files and the tests that guard
+them, all for a view the portal already covers.
+
+The three verbs `report html`, `report index` and `report detail` existed only for that skill. No
+other skill, reference file or script called them, so they went with it, together with their
+helpers and tests. The verbs `security`, `set-commit`, `skills`, `last-failure` and `summary` stay,
+because `/pfq` and `/ifq` use them.
+
+What a user does instead: open the portal file, or run `bin/cfq portal sync <repo-root>` to
+refresh it when `htmlReport` is off.
