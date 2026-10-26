@@ -390,6 +390,46 @@ x
         self.assertEqual(out.count("warn: model: implModels unavailable, ## Model not checked"), 1, out)
         self.assertNotIn("01-a.md: model:", out)
 
+    # ---- verification filter (batch 058 phase 03) ------------------------------------------------
+
+    def _filter_batch(self, command):
+        """A one-phase, otherwise clean batch whose Verification runs `command`."""
+        batch = self._repos_dir / "filterbatch" / "2026-01-06-filter"
+        batch.mkdir(parents=True, exist_ok=True)
+        (batch / ".batch-context.md").write_text("# Batch Context\n\n## Goal\nDoes a thing.\n")
+        target = self._repos_dir / "filter-target"
+        target.touch()
+        phase = self._valid_phase(target).replace("`bash tests/foo.sh` must exit 0", f"`{command}` must exit 0")
+        self._write(batch / "01-a.md", phase)
+        return batch
+
+    def test_unittest_k_expression_is_a_finding(self):
+        for expr in ("alpha or beta", "alpha and beta", "not alpha"):
+            with self.subTest(expr=expr):
+                batch = self._filter_batch(f'python3 -m unittest discover -s tests -k "{expr}"')
+                code, out = self._lint_out(batch)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(_rule_count(out, "verification-filter"), 1, out)
+                self.assertIn(repr(expr), out)
+
+    def test_unittest_repeated_k_is_clean(self):
+        batch = self._filter_batch("python3 -m unittest discover -s tests -k alpha -k beta")
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("verification-filter", out)
+
+    def test_unittest_quoted_names_without_expression_are_clean(self):
+        batch = self._filter_batch('python3 -m unittest discover -s tests -k "alpha" -k \'beta\'')
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("verification-filter", out)
+
+    def test_pytest_k_expression_is_clean(self):
+        batch = self._filter_batch('python3 -m pytest tests -k "alpha or beta"')
+        code, out = self._lint_out(batch)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("verification-filter", out)
+
     # ---- status.json (batch 051 phase 05) -------------------------------------------------------
 
     def _status_batch(self, repo, phases=("01-a", "02-b")):

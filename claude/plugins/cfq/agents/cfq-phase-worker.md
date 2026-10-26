@@ -38,7 +38,9 @@ is the user's decision alone, carried out by the orchestrator between phases.
 ## Implementation
 
 Identical in substance to `<plugin-root>/references/ifq-classic.md`'s **Implementation** step: implement the phase completely,
-then run its verification. A phase that touches several files, or whose scope isn't fully clear
+then run its verification. A verification run whose output reports that zero tests ran (`Ran 0
+tests`, `collected 0 items`, `no tests ran`, `# pass 0`) is red, never green; report it as red with
+that output in `errors`. A phase that touches several files, or whose scope isn't fully clear
 from the phase file alone, may send an Explore subagent to locate the relevant code first; a
 narrow, single-file phase doesn't need one. A green verification run's raw output may be filtered
 by the same kind of subagent; a red run never is — the complete, unfiltered failure comes back

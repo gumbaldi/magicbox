@@ -62,6 +62,13 @@ Any exploratory "does this work for case A, B, C" round belongs inside the test 
 one parametrized run), not as a series of separate manual shell invocations typed one at a time.
 The phase's `Verification` section names one command that runs all of them together.
 
+A test filter must select tests, not merely end in "OK". `unittest -k` matches a substring or glob
+of test method and class names; it has no `or`/`and`/`not` and never matches module names. For
+several names repeat `-k`; for one module use `discover -p "test_x*.py"` or pass the file to
+`pytest`. `pytest -k` accepts expressions. The `Expected:` line names a non-zero test count or the
+test names that must pass, never only "OK". `bin/cfq lint` reports the `unittest -k` expression
+form as `verification-filter`.
+
 ## 5. Size reflects verify-the-reuse work, not just new lines
 
 The three letters: `S` one file and one test, `M` several files or a new script, `L` a new script
@@ -104,6 +111,11 @@ that extends the file, and a phase of a batch whose `.dependsOn` names the creat
 path bare. `bin/cfq lint` accepts a bare path that is not on disk while the creating phase is
 pending, and reports `duplicate-new` when a second phase marks the same path. A bullet is never
 reworded to keep a path out of lint: `bin/cfq overlap` reads the same bullets.
+
+Bullet format: each entry is `- \`<absolute path>\`` with the path wrapped in backticks directly
+after `- `. Free text may follow the closing backtick; the literal `(new)` there marks the creating
+phase. Lint counts only this form (`files-empty` when none), and `bin/cfq overlap` reads the same
+bullets.
 
 Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
 decide whether a file is in scope, that uncertainty is a research task for the planning session,
