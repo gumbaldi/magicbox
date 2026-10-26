@@ -366,7 +366,8 @@ def cmd_preflight(args):
         next_phase_json = {**next_phase, "failedAttempt": failed}
 
         gate_proc = subprocess.run(
-            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate", next_size],
+            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate", next_size,
+             "--repo", repo],
             capture_output=True, text=True,
         )
         gate_line = gate_proc.stdout.strip()

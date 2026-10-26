@@ -629,7 +629,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         out = self.json_out(self._run_pf(str(repo9)))
         self.assertEqual(out["contextGate"]["size"], "M", msg=f"missing ## Size should default to M: {out}")
         direct_gate = self.run_clean(
-            "python3", str(self.scripts_copy / "ctx_usage.py"), "gate", "M",
+            "python3", str(self.scripts_copy / "ctx_usage.py"), "gate", "M", "--repo", str(repo9),
             env={"HOME": str(self.home)},
         ).stdout
         # The original Bash test only ever looked for START/HANDOFF here, silently missing WARN
@@ -643,6 +643,18 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["contextGate"]["verdict"], direct_verdict,
             msg="contextGate.verdict != ctx_usage.py gate's own verdict",
         )
+
+    def test_context_gate_reads_the_repository_stop_threshold(self):
+        # The preflight passes its repository to ctx_usage.py, so a stopUsed set for that
+        # repository counts even though the global value stays at the default.
+        repo = self._setup_repo("repo-stop-used")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-limit"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nM\n")
+        self.run_cfq("settings", "set", "--repo", str(repo), "stopUsed", "1", check=True)
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_CTX_TEST_USED": "5"}))
+        self.assertEqual(out["contextGate"]["limit"], 1, msg=f"repo stopUsed ignored: {out}")
+        self.assertEqual(out["contextGate"]["verdict"], "HANDOFF", msg=f"{out}")
 
     def test_deterministic_and_read_only(self):
         repo8 = self._setup_repo("failed-attempt-2")

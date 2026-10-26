@@ -197,7 +197,8 @@ whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) curren
 the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
 is resolved by `ctx_usage.py` through `bin/cfq settings get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
-point. The gate reports three verdicts and five reasons: capacity (`stopUsed`) always blocks
+point. `preflight-impl` passes its repository with `--repo`; a bare `bin/cfq ctx` relies on the
+working-directory lookup of `settings get`. The gate reports three verdicts and five reasons: capacity (`stopUsed`) always blocks
 (`HANDOFF`/`STOP`); a rate limit (`stopFiveHourPct`/`stopSevenDayPct`) or an unresolvable context
 reading only warns (`WARN`, advisory — the user decides whether to continue). All five reasons are
 resolved through the same precedence chain, with three independent `-1` off switches. The rate
