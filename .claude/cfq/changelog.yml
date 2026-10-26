@@ -6,7 +6,39 @@
   branch: cfq/056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
   base: main
   started: 2026-10-26
-  status: in-progress
+  status: done
+  finished: 2026-10-26
+  phases:
+    - phase: "01-settings-effective-value-by-default"
+      status: "green"
+      summary: "settings get/list answer with the value in effect for the current repo by default, with --global/--default/--repo scopes, a set shadow note, the suite switch CFQ_SETTINGS_AUTO_REPO=0, and matching dashboard/doc updates"
+    - phase: "02-ctx-gate-reads-repo-stop-thresholds"
+      status: "green"
+      summary: "ctx_usage.py reads the three stop thresholds for the repository named by --repo (pop_repo helper), preflight-impl passes its repository, tests and maintainer notes added"
+    - phase: "03-remaining-settings-readers-pass-repo"
+      status: "green"
+      summary: "maintenance due, branch plan, telemetry sync, lang prose/tree and runtime ctx window limit now read settings for the repository they were given; a guard test fails when a script reads a repo-scoped key without naming the repository"
+    - phase: "04-settings-env-vars-and-unknown-keys"
+      status: "green"
+      summary: "CFQ_* env variables for nine settings keys, a settings unknown verb, unknown-key warning lines in the settings menu (text and unknownKeys in JSON) and a Settings warning line in the dashboard, plus docs"
+    - phase: "05-session-effort-warning"
+      status: "green"
+      summary: "Session-effort warning: cfq_lib/effort.py, planSessionEffort/implSessionEffort settings, a sub-line on the Model Gate entry of both preflights plus a top-level effort object, docs"
+    - phase: "06-transcript-lookup-by-session-id"
+      status: "green"
+      summary: "resolve_transcript_path falls back to _find_by_session_id across all project folders when the guessed folder lacks the session file; nine new runtime tests"
+    - phase: "07-plan-entry-archive-name-collision"
+      status: "green"
+      summary: "free_archive_path() in cfq_note.py used by note close and park --from-plan so a colliding plan entry is archived as <name>-2.md, -3.md, ...; EXISTS branches removed; tests, docstrings and queue-entries.md updated"
+    - phase: "08-challenge-duty-rule"
+      status: "green"
+      summary: "Added the Challenge Duty section and pointer to interaction-policy.md, extended the plan-review.md Request Changes sentence, and wrote the design-notes rationale"
+    - phase: "09-remove-report-for-queue-skill"
+      status: "green"
+      summary: "Removed the report-for-queue skill and rfq command file and every mention of /rfq in scripts, tests, references and docs"
+    - phase: "10-remove-report-verbs-and-bump-version"
+      status: "green"
+      summary: "Removed the report verbs html, index and detail with their dead helpers and tests, reworded the comments and docs that named them, added the design-notes rationale and bumped the plugin to 0.37.0"
 - batchNumber: 55
   batch: 055-2026-10-06-drop-merge-entry-phase-template-briefing-file
   branch: cfq/055-2026-10-06-drop-merge-entry-phase-template-briefing-file
