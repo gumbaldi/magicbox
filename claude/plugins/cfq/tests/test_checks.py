@@ -832,6 +832,41 @@ class TestSecurity(CfqTestCase):
         proc = self.run_cfq("security", str(secrepo), env={"CFQ_SECURITY_DETECT_ONLY": "1"})
         self.assertEqual(proc.stdout.strip(), "unknown forge.example team/widget", f"http form -> {proc.stdout}")
 
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", "https://ghe.example/team/widget.git"], cwd=secrepo, check=True,
+        )
+        proc = self.run_cfq(
+            "security", str(secrepo),
+            env={"CFQ_SECURITY_DETECT_ONLY": "1", "CFQ_GH_LOGIN_HOSTS": "ghe.example"},
+        )
+        self.assertEqual(proc.stdout.strip(), "github ghe.example team/widget", f"gh login -> {proc.stdout}")
+        proc = self.run_cfq(
+            "security", str(secrepo),
+            env={"CFQ_SECURITY_DETECT_ONLY": "1", "CFQ_GH_LOGIN_HOSTS": "ghe.example",
+                 "CFQ_TEA_LOGIN_HOSTS": "ghe.example"},
+        )
+        self.assertEqual(proc.stdout.strip(), "github ghe.example team/widget", f"gh beats tea -> {proc.stdout}")
+
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", "git@gitlab.example:group/sub/widget.git"],
+            cwd=secrepo, check=True,
+        )
+        proc = self.run_cfq(
+            "security", str(secrepo),
+            env={"CFQ_SECURITY_DETECT_ONLY": "1", "CFQ_GLAB_LOGIN_HOSTS": "gitlab.example"},
+        )
+        self.assertEqual(
+            proc.stdout.strip(), "gitlab gitlab.example group/sub/widget", f"glab login -> {proc.stdout}",
+        )
+        proc = self.run_cfq(
+            "security", str(secrepo),
+            env={"CFQ_SECURITY_DETECT_ONLY": "1", "CFQ_GLAB_LOGIN_HOSTS": "gitlab.example",
+                 "CFQ_TEA_LOGIN_HOSTS": "gitlab.example"},
+        )
+        self.assertEqual(
+            proc.stdout.strip(), "gitlab gitlab.example group/sub/widget", f"glab beats tea -> {proc.stdout}",
+        )
+
         subprocess.run(["git", "remote", "remove", "origin"], cwd=secrepo, check=True)
         proc = self.run_cfq("security", str(secrepo), env={"CFQ_SECURITY_DETECT_ONLY": "1"})
         self.assertEqual(proc.stdout.strip(), "none - -", f"no remote -> {proc.stdout}")
@@ -878,6 +913,88 @@ exit 0
         self.assertEqual(proc.returncode, 0, f"capped security exit code = {proc.returncode}, want 0")
         out = self.json_out(proc)
         self.assertEqual(len(out["findings"]), 2, f"securityFindingsCap=2 not applied, findings = {out['findings']}")
+
+    def _stub_repo(self, name, remote, gh_script=None, glab_script=None):
+        d = self._plain_repo(name)
+        subprocess.run(["git", "remote", "add", "origin", remote], cwd=d, check=True)
+        (d / "bin").mkdir()
+        for tool, script in (("gh", gh_script), ("glab", glab_script)):
+            if script is not None:
+                stub = d / "bin" / tool
+                stub.write_text(script)
+                stub.chmod(0o755)
+        return d
+
+    def _run_stubbed(self, d, **extra_env):
+        env = {"PATH": f"{d / 'bin'}:{os.environ.get('PATH', '')}"}
+        env.update(extra_env)
+        proc = self.run_cfq("security", str(d), env=env)
+        self.assertEqual(proc.returncode, 0, f"security exit code = {proc.returncode}, want 0")
+        return self.json_out(proc)
+
+    def test_github_enterprise_host(self):
+        gh_script = """#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/gh.log"
+case "$*" in
+  *dependabot/alerts*)
+    echo '[{"dependency":{"package":{"name":"lodash"}},"security_advisory":{"severity":"high"},"security_vulnerability":{"first_patched_version":{"identifier":"4.17.21"}}}]';;
+  *code-scanning/alerts*) echo '[]';;
+  *" user") echo '{}';;
+esac
+exit 0
+"""
+        d = self._stub_repo("ghe", "https://ghe.example/team/widget.git", gh_script=gh_script)
+        out = self._run_stubbed(d, CFQ_GH_LOGIN_HOSTS="ghe.example")
+        self.assertEqual(out["forge"], "github", f"GHE output = {out}")
+        self.assertIn("dependabot", out["sources"], f"GHE output = {out}")
+        self.assertEqual(out["fixable"].get("high"), 1, f"GHE output = {out}")
+        calls = [ln for ln in (d / "bin" / "gh.log").read_text().splitlines() if ln.startswith("api")]
+        self.assertTrue(len(calls) >= 3, f"gh calls = {calls}")
+        for call in calls:
+            self.assertIn("--hostname ghe.example", call, f"gh call without the host: {call}")
+
+    def test_gitlab_host(self):
+        glab_script = """#!/usr/bin/env bash
+case "$*" in
+  *projects/group%2Fsub%2Fwidget/vulnerabilities*)
+    echo '[{"title":"A","severity":"critical"},{"title":"B","severity":"info"}]';;
+  *" user") echo '{}';;
+esac
+exit 0
+"""
+        d = self._stub_repo("gl", "git@gitlab.example:group/sub/widget.git", glab_script=glab_script)
+        out = self._run_stubbed(d, CFQ_GLAB_LOGIN_HOSTS="gitlab.example")
+        self.assertEqual(out["forge"], "gitlab", f"GitLab output = {out}")
+        self.assertIn("gitlab", out["sources"], f"GitLab output = {out}")
+        self.assertEqual(out["counts"], {"critical": 1, "info": 1}, f"GitLab output = {out}")
+        self.assertEqual(out["fixable"], {}, f"GitLab output = {out}")
+
+    def test_gitlab_without_vulnerability_api(self):
+        glab_script = """#!/usr/bin/env bash
+case "$*" in
+  *vulnerabilities*) exit 1;;
+esac
+exit 0
+"""
+        d = self._stub_repo("gl2", "git@gitlab.example:group/sub/widget.git", glab_script=glab_script)
+        out = self._run_stubbed(d, CFQ_GLAB_LOGIN_HOSTS="gitlab.example")
+        self.assertFalse(out["available"], f"GitLab without API output = {out}")
+        self.assertEqual(out["forge"], "gitlab", f"GitLab without API output = {out}")
+        self.assertIn("GitLab Ultimate", out["hint"], f"GitLab without API output = {out}")
+        self.assertIn("local audit is the only source", out["hint"], f"GitLab without API output = {out}")
+
+    def test_unknown_host_hint_names_all_logins(self):
+        d = self._stub_repo("unk", "https://nowhere.example/team/widget.git")
+        out = self._run_stubbed(d, CFQ_GH_LOGIN_HOSTS="x.invalid", CFQ_GLAB_LOGIN_HOSTS="x.invalid",
+                                CFQ_TEA_LOGIN_HOSTS="x.invalid")
+        self.assertFalse(out["available"], f"unknown host output = {out}")
+        self.assertEqual(out["forge"], "unknown", f"unknown host output = {out}")
+        for needle in (
+            "gh auth login --hostname nowhere.example",
+            "glab auth login --hostname nowhere.example",
+            "tea login add --url nowhere.example",
+        ):
+            self.assertIn(needle, out["hint"], f"unknown host hint = {out['hint']}")
 
 
 class TestLang(CfqTestCase):
