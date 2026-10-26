@@ -14,8 +14,9 @@ import subprocess
 import tempfile
 import unittest
 
-import cfq_settings
 from cfq_testlib import CFQ_BIN, SCRIPTS_DIR, CfqTestCase
+
+import cfq_settings  # noqa: E402  (cfq_testlib puts scripts/ on sys.path)
 
 
 class SettingsTest(CfqTestCase):
@@ -1025,7 +1026,7 @@ class SettingsTest(CfqTestCase):
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
                 "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
-                "batchReview", "batchReviewFindings",
+                "batchReview", "batchReviewFindings", "requiredTools",
             },
             "limits": {
                 "stopUsed", "stopFiveHourPct", "stopSevenDayPct", "ctxWindowLimits",
@@ -1369,6 +1370,23 @@ class SettingsTest(CfqTestCase):
         self.assertNotIn("unknown key", out)
         data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
         self.assertEqual(data["unknownKeys"], [])
+
+    # 27. requiredTools: default empty, settable per repo, listed.
+    def test_27_required_tools(self):
+        out = self.json_out(self.run_cfq("settings", "list", home=self.home))
+        self.assertEqual(out["requiredTools"], [], msg=f"default requiredTools = {out.get('requiredTools')}")
+
+        r = self.make_repo("required-tools")
+        self.run_cfq(
+            "settings", "set", "--repo", str(r), "requiredTools", "py:pytest", home=self.home,
+            check=True,
+        )
+        out = self.json_out(self.run_cfq("settings", "list", "--repo", str(r), home=self.home))
+        self.assertEqual(out["requiredTools"], ["py:pytest"])
+        got = self.run_cfq(
+            "settings", "get", "--repo", str(r), "requiredTools", home=self.home
+        ).stdout.strip()
+        self.assertEqual(got, "py:pytest")
 
     def json_out_stderr(self, proc):
         try:

@@ -76,7 +76,7 @@ is `true` → print `Config  ➖ known repo` instead, without reading that secti
 
 **Plugin Boundaries**: `planningPolicy.planBlockedPlugins` (no new call) — used neither directly
 nor indirectly, nor recommended in this session's phase files, from research onward. Print
-`Plugin Boundaries` as returned.
+`Plugin Boundaries` as returned, then the `Required Tools` line as returned when the preflight carries one; it never blocks.
 
 Then ask everything that belongs before research starts in one `AskUserQuestion` call, every time —
 never skip, never infer. On an unknown repo the repo setup wizard's own area/value questions

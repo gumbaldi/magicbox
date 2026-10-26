@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, queue as cfq_queue, render, text  # noqa: E402
+from cfq_lib import effort, queue as cfq_queue, render, text, tools  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
@@ -233,6 +233,8 @@ def cmd_preflight(args):
     if not policy["orchestratorModels"]:
         policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
+    required_tools = tools.check(settings["requiredTools"])
+    tools_line = tools.status_entry(required_tools, blocking=True)
     current_effort = os.environ.get("CLAUDE_EFFORT")
     required_effort = settings["implSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
@@ -299,9 +301,11 @@ def cmd_preflight(args):
                     queue_rows, blocked_json, planning_names, inprog or "", "", review=review_names,
                 ) or None,
             },
+            "requiredTools": required_tools,
             "statusLines": [
                 model_gate_line(policy, effort_warning),
                 text.plugin_boundaries_line(policy["implBlockedPlugins"]),
+                *([tools_line] if tools_line else []),
             ],
             **EMPTY_SELECTION_TEMPLATE,
         })
@@ -382,6 +386,7 @@ def cmd_preflight(args):
     status_lines = [
         model_gate_line(policy, effort_warning),
         text.plugin_boundaries_line(policy["implBlockedPlugins"]),
+        *([tools_line] if tools_line else []),
         batch_line(
             select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
             chosen=chosen, cand=cand, resume_only=resume_only,
@@ -397,6 +402,7 @@ def cmd_preflight(args):
         "repo": {"root": repo},
         "policy": policy,
         "reporting": reporting,
+        "requiredTools": required_tools,
         "inbox": inbox,
         "effort": effort_json,
         "selection": {

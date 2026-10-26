@@ -141,6 +141,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
+| `requiredTools` | `CFQ_REQUIRED_TOOLS` | empty | global, repo | tool names a repo needs (`pytest`, `py:pytest`); `ifq` stops before touching anything when one is missing, `pfq` only warns. Names are looked up on the `PATH` (or, with `py:`, as an importable Python module), never run; an entry that is not a plain name counts as missing |
 
 Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
 runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit

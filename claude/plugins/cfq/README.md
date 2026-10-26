@@ -490,6 +490,10 @@ works and still sits at the top tier:
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.
 
+A repo can list the tools it needs in `requiredTools` (for example `py:pytest`): the preflight of
+`/ifq` stops when one is missing, the one of `/pfq` only warns. Entries are names that are looked
+up, never commands that are run.
+
 ### Settings
 
 `/cfq settings` walks the same schema interactively instead — scope (global or this repo), then

@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, render, text  # noqa: E402
+from cfq_lib import effort, render, text, tools  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
@@ -108,6 +108,8 @@ def cmd_preflight(args):
     current_effort = os.environ.get("CLAUDE_EFFORT")
     required_effort = settings["planSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
+    required_tools = tools.check(settings["requiredTools"])
+    tools_line = tools.status_entry(required_tools, blocking=False)
 
     print(render.dump_json({
         "status": "OK",
@@ -134,6 +136,7 @@ def cmd_preflight(args):
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
+        "requiredTools": required_tools,
         "inbox": {
             "count": inbox_n, "imported": imported_n, "overview": inbox_overview,
             "detail": inbox_detail,
@@ -143,6 +146,7 @@ def cmd_preflight(args):
             inbox_line(inbox_n, imported_n),
             review_line(awaiting),
             text.plugin_boundaries_line(settings["planBlockedPlugins"]),
+            *([tools_line] if tools_line else []),
         ],
     }))
 

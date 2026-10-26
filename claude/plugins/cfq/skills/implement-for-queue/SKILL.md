@@ -62,6 +62,8 @@ match → stop immediately, touching nothing; a model-gate mismatch → read
 rest of the session, not even indirectly — per-phase skill recommendations on this list are
 ignored. Print `Plugin Boundaries` as returned (the preflight's own line).
 
+**Required Tools.** Print the `Required Tools` line as returned when present; `requiredTools.missing` non-empty → stop immediately, touching nothing.
+
 **Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. `status` is `OK` → print `Batch`, the preflight's own `statusLines` entry exactly as returned. Any other `status` → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules**, which words every such outcome.
 
 ## Step 4 — Batch Briefing and Start

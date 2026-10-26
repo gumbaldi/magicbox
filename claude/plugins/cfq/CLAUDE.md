@@ -46,8 +46,9 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 The test suite sets `CFQ_SETTINGS_AUTO_REPO=0` through `cfq_testlib.py`, so a settings read never
 picks up this checkout's own settings file.
 
-Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
-if you have it, and gives better failure output — it is optional, never required.
+The suite runs with `python3 -m pytest claude/plugins/cfq/tests`; this repository declares
+`py:pytest` in `requiredTools` (set by the last phase of batch 059), so `/ifq` stops here when
+pytest is missing. `python3 -m unittest discover -s claude/plugins/cfq/tests` runs the same files.
 
 ```bash
 claude plugin eval claude/plugins/cfq --case <name> --runs 1 --ablation none --scaffold --trust-plugin --no-publish

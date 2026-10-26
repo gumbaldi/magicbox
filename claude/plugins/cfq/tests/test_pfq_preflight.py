@@ -284,6 +284,35 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assertEqual(line["icon"], "skip", msg=f"line = {line}")
         self.assertEqual(line["detail"], "skipped · allowAnyModel", msg=f"line = {line}")
 
+    def test_required_tools_unset(self):
+        reg = self._effort_repo("tools-unset")
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(out["requiredTools"], {"entries": [], "missing": []})
+        self.assertNotIn("Required Tools", [e["label"] for e in out["statusLines"]])
+
+    def test_required_tools_present(self):
+        reg = self._effort_repo("tools-present")
+        out = self.json_out(self._run_pf(str(reg), env={"CFQ_REQUIRED_TOOLS": "py:json"}))
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Required Tools"), labels.index("Plugin Boundaries") + 1)
+        entry = out["statusLines"][labels.index("Required Tools")]
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "1 present"))
+
+    def test_required_tools_missing_only_warns(self):
+        reg = self._effort_repo("tools-missing")
+        out = self.json_out(
+            self._run_pf(str(reg), env={"CFQ_REQUIRED_TOOLS": "py:cfq_no_such_module"})
+        )
+        self.assertEqual(out["status"], "OK")
+        self.assertEqual(out["requiredTools"]["missing"], ["py:cfq_no_such_module"])
+        entry = next(e for e in out["statusLines"] if e["label"] == "Required Tools")
+        self.assertEqual(entry["icon"], "warn")
+        self.assertEqual(
+            entry["detail"],
+            "missing: py:cfq_no_such_module · /ifq stops until they are installed",
+        )
+        self.assert_status_lines_shape(out["statusLines"])
+
     def _gate(self, out):
         return next(e for e in out["statusLines"] if e["label"] == "Model Gate")
 
