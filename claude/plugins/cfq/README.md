@@ -437,6 +437,9 @@ agents) carries its split by model. `subagent` counts the sub-agents' own turns 
 phase worker's own `subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own;
 the two are not to be added blindly.
 
+A planning record also carries the interview depth (`interview_depth`: `quick`, `thorough` or
+`docs`) and the number of phases planned (`phase_count`), so planning cost can be compared per phase.
+
 A record is written when the phase commits and is `provisional` then, because the session goes on
 after the commit. The next cfq mutation in the repo settles it once its session has ended,
 recomputing it from the finished transcripts (`telemetry settle`); there is no hook of its own.

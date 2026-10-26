@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_telemetry.py record <batch-dir> planning|phase [<phase-slug>]
+# Usage: cfq_telemetry.py record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug>
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
 #        cfq_telemetry.py show <repo-root> [--session]
@@ -39,7 +39,8 @@ from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 PROG = "cfq_telemetry.py"
 
 USAGE = (
-    f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>] | "
+    f"usage: {PROG} record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug> | "
+    "sync [<repo-root>] | "
     "show <repo-root> [--session] | settle <repo-root>"
 )
 
@@ -492,7 +493,16 @@ def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
     print(f"telemetry: bootstrap {rec['skill']} {rec['call_count']} calls / {rec['duration_ms']} ms")
 
 
-def cmd_record_phase_or_planning(dir_, kind, phase):
+def _phase_count(dir_):
+    """Number of phases in the batch's status.json; 0 when the file is missing or unreadable."""
+    try:
+        data = json.loads(pathlib.Path(dir_, "status.json").read_text())
+        return len(data.get("phases") or {})
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
     tf, sid = session_identity()
     if not tf or not os.path.isfile(tf):
         print(f"{PROG}: no transcript found — skipped", file=sys.stderr)
@@ -507,6 +517,9 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
 
     batch = pathlib.Path(dir_).name
     rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
+    if kind == "planning":
+        rec["interview_depth"] = depth
+        rec["phase_count"] = _phase_count(dir_)
     if rec["totals"]["turns"] == 0:
         print(f"{PROG}: record for '{phase or 'planning'}' has 0 turns — transcript {tf} holds nothing in this window",
               file=sys.stderr)
@@ -561,8 +574,15 @@ def cmd_record(rest):
         cmd_record_bootstrap(dir_, rest[2], rest[3], rest[4])
         return
 
-    phase = rest[2] if len(rest) > 2 else ""
-    cmd_record_phase_or_planning(dir_, kind, phase)
+    args, depth = list(rest[2:]), ""
+    if "--depth" in args:
+        i = args.index("--depth")
+        if i + 1 >= len(args) or args[i + 1] not in ("quick", "thorough", "docs"):
+            errors.die(USAGE)
+        depth = args[i + 1]
+        del args[i:i + 2]
+    phase = args[0] if args else ""
+    cmd_record_phase_or_planning(dir_, kind, phase, depth)
 
 
 def _record_objects(data):
@@ -606,6 +626,9 @@ def _recompute(old, tf, subdir, upper):
         return None
     if not new["session_id"]:
         new["session_id"] = old.get("session_id", "")
+    for key in ("interview_depth", "phase_count"):
+        if key in old:
+            new[key] = old[key]
     return new
 
 

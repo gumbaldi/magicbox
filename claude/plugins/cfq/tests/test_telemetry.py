@@ -821,6 +821,35 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(rec["mode"], "", msg="mode is empty on planning records, like phase")
         self.assertEqual(rec["by_agent"], {})
 
+    def test_planning_record_carries_depth_and_phase_count(self):
+        phases = {f"0{i}-p": {"status": "open"} for i in (1, 2, 3)}
+        (self.batch / "status.json").write_text(json.dumps({"schema": 1, "phases": phases}))
+        self._record(str(self.batch), "planning", "--depth", "thorough")
+        rec = self._last_record()
+        self.assertEqual((rec["interview_depth"], rec["phase_count"]), ("thorough", 3))
+        planning = json.loads((self.batch / "report.json").read_text())["planning"]
+        self.assertEqual((planning["interview_depth"], planning["phase_count"]), ("thorough", 3))
+
+    def test_planning_record_without_depth(self):
+        self._record(str(self.batch), "planning")
+        rec = self._last_record()
+        self.assertEqual((rec["interview_depth"], rec["phase_count"]), ("", 0))
+
+    def test_planning_record_rejects_unknown_depth(self):
+        for args in (["planning", "--depth", "deep"], ["planning", "--depth"]):
+            proc = self.run_cfq("telemetry", "record", str(self.batch), *args,
+                                cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": "testsid"})
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn("usage:", proc.stderr)
+            self.assertIn("--depth quick|thorough|docs", proc.stderr)
+        self.assertFalse(self.jsonl.exists())
+
+    def test_phase_record_has_no_depth_keys(self):
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertNotIn("interview_depth", rec)
+        self.assertNotIn("phase_count", rec)
+
     def test_planning_record_populates_subagent_explore(self):
         # pfq delegates to Explore agents; that usage must not stay invisible just because a
         # planning session has no orchestrator `mode` to attach it to.
@@ -908,13 +937,13 @@ class TelemetrySettleTest(CfqTestCase):
             for t in stamps:
                 f.write(_sub_line(t, "Explore") + "\n")
 
-    def _record(self, kind, phase=""):
+    def _record(self, kind, phase="", *extra):
         if phase:  # the phase entry must already be report.json's last one for telemetry to attach
             cfq_report.append_phase(
                 str(self.batch), json.dumps({"phase": phase, "status": "green", "summary": "t"}),
                 record_telemetry=False,
             )
-        args = ["telemetry", "record", str(self.batch), kind] + ([phase] if phase else [])
+        args = ["telemetry", "record", str(self.batch), kind] + ([phase] if phase else []) + list(extra)
         return self.run_cfq(*args, cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": SETTLE_SESSION}, check=True)
 
     def _age(self, seconds=3600):
@@ -1015,13 +1044,15 @@ class TelemetrySettleTest(CfqTestCase):
         self.assertFalse(self._phase_tele(0)["settled"])
 
     def test_planning_record_settles_the_same_way(self):
+        (self.batch / "status.json").write_text(json.dumps({"schema": 1, "phases": {"01-a": {"status": "open"}}}))
         self._add_main(2, 0)
-        self._record("planning")
+        self._record("planning", "", "--depth", "quick")
         self._add_main(1, 5)
         self._age()
         self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
         planning = json.loads(self.report.read_text())["planning"]
         self.assertEqual((planning["settled"], planning["rev"], planning["totals"]["turns"]), (True, 2, 3))
+        self.assertEqual((planning["interview_depth"], planning["phase_count"]), ("quick", 1))
 
     def test_record_in_a_finished_batch_settles_too(self):
         self._add_main(2, 0)

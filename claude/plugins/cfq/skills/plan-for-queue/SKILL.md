@@ -219,7 +219,8 @@ Print `Review`.
 
 ## Step 16 — Telemetry and Sync
 
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry record "<batch-dir>" planning` then
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry record "<batch-dir>" planning --depth <quick|thorough|docs>`
+(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") then
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry sync "<repo-root>"`. Failures are non-fatal, one line in
 the final report. Print `Telemetry`.
 
