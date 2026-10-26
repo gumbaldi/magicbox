@@ -41,21 +41,7 @@ EMPTY_SELECTION_TEMPLATE = {
     "startGate": None,
 }
 
-INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
-
 LINT_OK_RE = re.compile(r"^OK \d+ phases$")
-
-
-def inbox_count_from_overview(overview_text):
-    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
-    entries[ · <k> framework not imported]` or `INBOX  empty`) -- the same helper
-    `cfq_pfq_preflight.py` carries, kept as its own copy here rather than a shared import since
-    `/ifq` never imports and calls `note list --overview` alone (no `note import` alongside it)."""
-    first_line = overview_text.splitlines()[0] if overview_text else ""
-    if first_line == "INBOX  empty":
-        return 0
-    m = INBOX_HEADER_RE.match(first_line)
-    return int(m.group(1)) if m else 0
 
 
 def project(batch, keys):
@@ -125,15 +111,6 @@ def model_gate_line(policy, effort_warning=None):
         return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel", sub=sub)
     list_name = "orchestratorModels" if policy["orchestratorMode"] else "implModels"
     return text.status_entry("Model Gate", "done", f"checked against {list_name}", sub=sub)
-
-
-def plugin_boundaries_line(policy):
-    blocked = policy["implBlockedPlugins"]
-    if not blocked:
-        return text.status_entry("Plugin Boundaries", "skip", "none blocked")
-    return text.status_entry(
-        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
-    )
 
 
 def lint_result(batch_dir):
@@ -262,7 +239,7 @@ def cmd_preflight(args):
     effort_json = effort.status(current_effort, required_effort)
 
     inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
-    inbox = {"count": inbox_count_from_overview(inbox_overview), "overview": inbox_overview}
+    inbox = {"count": text.inbox_count_from_overview(inbox_overview), "overview": inbox_overview}
 
     scan_data = json.loads(cfq_run("scan").stdout)
     candidates = []
@@ -322,7 +299,10 @@ def cmd_preflight(args):
                     queue_rows, blocked_json, planning_names, inprog or "", "", review=review_names,
                 ) or None,
             },
-            "statusLines": [model_gate_line(policy, effort_warning), plugin_boundaries_line(policy)],
+            "statusLines": [
+                model_gate_line(policy, effort_warning),
+                text.plugin_boundaries_line(policy["implBlockedPlugins"]),
+            ],
             **EMPTY_SELECTION_TEMPLATE,
         })
 
@@ -400,7 +380,8 @@ def cmd_preflight(args):
         intent, inprogress_name, next_phase["status"] if next_phase is not None else None,
     )
     status_lines = [
-        model_gate_line(policy, effort_warning), plugin_boundaries_line(policy),
+        model_gate_line(policy, effort_warning),
+        text.plugin_boundaries_line(policy["implBlockedPlugins"]),
         batch_line(
             select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
             chosen=chosen, cand=cand, resume_only=resume_only,

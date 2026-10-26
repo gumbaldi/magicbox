@@ -38,12 +38,11 @@ from datetime import date
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import text as cfq_text  # noqa: E402
 from cfq_lib.proc import git as proc_git  # noqa: E402
 from cfq_lib.proc import is_git_repo, settings_get  # noqa: E402
 
 PROG = "cfq_changelog.py"
-
-NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
 
 # ---- changelog file location -------------------------------------------------------------
@@ -93,8 +92,7 @@ def parse_batch_number(batch):
     """New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes
     the date); legacy names start directly with the date. Returns the plain int on a match, None
     on no match -- never guesses from a version tag or branch name."""
-    m = NUMBERED_PREFIX_RE.match(batch)
-    return int(m.group(1)) if m else None
+    return cfq_text.parse_batch_name(batch)["number"]
 
 
 # ---- block rendering --------------------------------------------------------------------------
@@ -165,13 +163,6 @@ def find_block_start(file, field, value, want_status=None):
     return None
 
 
-def write_atomic(target, text):
-    tmp = f"{target}.tmp"
-    with open(tmp, "w") as f:
-        f.write(text)
-    os.replace(tmp, target)
-
-
 def prepend_block(target, block):
     """New block goes on top, below any leading comment preamble (lines before the first
     column-0 '- ' item). A missing or empty file just becomes the block."""
@@ -181,13 +172,13 @@ def prepend_block(target, block):
     preamble = "".join(lines[:split])
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
-    write_atomic(target, preamble + block + "\n" + "".join(lines[split:]))
+    render.write_text_atomic(target, preamble + block + "\n" + "".join(lines[split:]))
 
 
 def replace_block(target, start, new_block):
     lines = read_lines(target)
     end = block_end_line(lines, start)
-    write_atomic(target, "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:]))
+    render.write_text_atomic(target, "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:]))
 
 
 DATE_PREFIX_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -227,7 +218,7 @@ def normalize_file(target):
     new = normalize_text(text)
     if new == text:
         return False
-    write_atomic(target, new)
+    render.write_text_atomic(target, new)
     return True
 
 

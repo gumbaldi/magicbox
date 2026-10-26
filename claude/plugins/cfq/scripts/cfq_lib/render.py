@@ -39,8 +39,14 @@ def now_iso():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def write_json(path, obj):
+def write_text_atomic(path, text):
+    """Writes `text` to `path` through a `<path>.tmp` sibling and `os.replace`, so a reader never
+    sees a half-written file."""
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
+        f.write(text)
     os.replace(tmp, path)
+
+
+def write_json(path, obj):
+    write_text_atomic(path, json.dumps(obj, indent=2, ensure_ascii=False) + "\n")

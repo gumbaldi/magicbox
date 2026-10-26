@@ -94,16 +94,10 @@ def do_sync_git_policy(repo):
         for entry in BLOCK_ENTRIES:
             parts.append(entry + "\n")
         parts.append(BLOCK_END + "\n")
-        tmp = f"{ef}.tmp"
-        with open(tmp, "w") as f:
-            f.write("".join(parts))
-        os.replace(tmp, ef)
+        render.write_text_atomic(ef, "".join(parts))
     elif policy == "trackable":
         if os.path.isfile(ef):
-            tmp = f"{ef}.tmp"
-            with open(tmp, "w") as f:
-                f.write(stripped + "\n")
-            os.replace(tmp, ef)
+            render.write_text_atomic(ef, stripped + "\n")
 
 
 def cmd_ensure(args):

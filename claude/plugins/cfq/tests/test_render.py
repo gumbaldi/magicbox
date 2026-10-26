@@ -4,6 +4,7 @@ Self-test for the render mode of scripts/cfq_dash.py: an additive terminal rende
 JSON the default invocation returns -- this file pins that one-code-path guarantee explicitly.
 """
 
+import pathlib
 import subprocess
 import sys
 import unittest
@@ -169,6 +170,31 @@ class TestJqAlt(unittest.TestCase):
 
     def test_two_arg_default_none_shape(self):
         self.assertIsNone(render.jq_alt(None, None))
+
+
+class WriteAtomicTest(unittest.TestCase):
+    def test_write_text_atomic_writes_overwrites_and_leaves_no_tmp(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "f.txt")
+            render.write_text_atomic(target, "one")
+            self.assertEqual(pathlib.Path(target).read_text(), "one")
+            render.write_text_atomic(target, "two\n")
+            self.assertEqual(pathlib.Path(target).read_text(), "two\n")
+            self.assertEqual(os.listdir(d), ["f.txt"])
+
+    def test_write_json_bytes_unchanged(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "f.json")
+            render.write_json(target, {"a": [1, 2], "b": "é"})
+            self.assertEqual(
+                pathlib.Path(target).read_text(encoding="utf-8"),
+                '{\n  "a": [\n    1,\n    2\n  ],\n  "b": "é"\n}\n',
+            )
+            self.assertEqual(os.listdir(d), ["f.json"])
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import render  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
 PROG = "cfq_registry.py"
@@ -44,11 +45,7 @@ def read_repos():
 
 def write_repos(repos):
     f = registry_file()
-    tmp = f"{f}.tmp"
-    with open(tmp, "w") as fh:
-        json.dump({"repos": repos}, fh, indent=2)
-        fh.write("\n")
-    os.replace(tmp, f)
+    render.write_text_atomic(f, json.dumps({"repos": repos}, indent=2) + "\n")
 
 
 def add_repo(repo):

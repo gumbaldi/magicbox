@@ -120,13 +120,6 @@ def _write_raw(path, text):
         f.write(text)
 
 
-def _write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
-
-
 def ensure():
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     if not os.path.isfile(GLOBAL_SETTINGS_FILE):
@@ -304,7 +297,7 @@ def _apply_set(key, val, repo_path):
             errors.die(f"{PROG}: '{key}' has unknown fields")
         data[key] = parsed
 
-    _write_json(target, data)
+    render.write_json(target, data)
 
 
 def _detect_repo():
@@ -405,7 +398,7 @@ def cmd_unset(args):
         target = GLOBAL_SETTINGS_FILE
         data = _read_json(target, default={})
     data.pop(key, None)
-    _write_json(target, data)
+    render.write_json(target, data)
 
 
 def cmd_describe(args):
@@ -635,7 +628,7 @@ def cmd_state_set(args):
         errors.die(f"{PROG}: state value must be valid JSON")
     data = _read_json(STATE_FILE, default={})
     data[args.key] = parsed
-    _write_json(STATE_FILE, data)
+    render.write_json(STATE_FILE, data)
 
 
 def build_parser():

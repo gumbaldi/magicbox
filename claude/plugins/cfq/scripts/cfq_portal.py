@@ -146,7 +146,7 @@ def render_data_file(key, payload):
 
 def write_if_changed(path, content):
     """True if `path` was written (didn't exist, or existed with different content), False if
-    left untouched. Tmp file + `os.replace`, same pattern as `cfq_lib.render.write_json`."""
+    left untouched. Writes through `render.write_text_atomic`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file():
         try:
@@ -154,9 +154,7 @@ def write_if_changed(path, content):
                 return False
         except OSError:
             pass
-    tmp = pathlib.Path(f"{path}.tmp")
-    tmp.write_text(content)
-    os.replace(str(tmp), str(path))
+    render.write_text_atomic(path, content)
     return True
 
 

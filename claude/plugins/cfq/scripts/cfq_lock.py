@@ -22,16 +22,10 @@ from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
+from cfq_lib.paths import mtime  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_lock.py"
-
-
-def mtime(path):
-    try:
-        return int(os.stat(path).st_mtime)
-    except OSError:
-        return 0
 
 
 def read_lock(f):
@@ -81,10 +75,7 @@ def cmd_acquire(args):
         "at": render.now_iso(),
         "epoch": int(time.time()),
     }
-    tmp = f"{f}.tmp"
-    with open(tmp, "w") as fh:
-        fh.write(json.dumps(payload))
-    os.replace(tmp, f)
+    render.write_text_atomic(f, json.dumps(payload))
     portal_hook.sync(repo, batches=[batch])
     print(f"OK {batch}")
 
