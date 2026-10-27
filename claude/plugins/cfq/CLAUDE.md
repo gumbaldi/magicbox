@@ -341,7 +341,8 @@ batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo
 <name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes into
 `<repo>/.claude/cfq/reports/data/`: `site.js` (repo, commit URL, plugin version), `queue.js` (the
 repo overview — totals, per-size baselines, calibration points, one row per batch and per entry),
-`batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags) and
+`batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags, and an
+`edit` target — see below) and
 `entry/<id>.js` (one per `todo`/`plan` entry, open and closed — the archive; `<id>` is
 `<kind>-<file stem>`). Every data file registers a JSON payload on `window.CFQ_DATA["<key>"]`
 rather than being `fetch()`-ed — a browser blocks `fetch()` of a local JSON file under `file://`,
@@ -390,7 +391,13 @@ viewer test file shares); `tests/js/e2e.test.mjs` walks every view over the file
 sync` wrote; `tests/test_portal_viewer.py` runs them. No CDN, no build step, charts are hand-written
 SVG.
 
-`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync.
+`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync. `sync()` reads the settings once (`settings list --repo`) and writes an `edit` object
+(`{"path": <OS path>, "url": <editor link>}`, `url` omitted when `editor` is `off`) into the payloads of
+editable items only: a phase not `done` (`phase_payloads()`), a batch with any phase not `done`
+(`edit.dir`, plus `edit.context` while `.batch-context.md` exists) and an open `plan/`/`todo/` entry
+(`entry/<id>.js` only, never the `queue.js` row, `entry_summary()` drops it). `edit` is computed at
+sync time from `host_paths` and the `editor` setting and always points at the repo-local files, also
+in a `reportDir` mirror; a batch read back outside a `--batch` filter keeps its stored `edit`.
 
 With `reportDir` set, `sync()` additionally mirrors every data file into
 `<reportDir>/<repo-basename>[-<hash>]/data/…`, writes `<reportDir>/data/repos.js` (the list of

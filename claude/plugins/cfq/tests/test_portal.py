@@ -367,6 +367,114 @@ class PortalTest(CfqTestCase):
         self.assertEqual(result["removed"], [])
         self.assertEqual(self._load(repo, "entry/plan-2026-09-19-idea")["state"], "done")
 
+    # ---- edit targets (editor link and OS path) ---------------------------------------------------
+
+    WSL_ENV = {"CFQ_HOST_PLATFORM": "wsl", "CFQ_WSL_DISTRO": "TestDistro"}
+
+    def _wsl_os(self, path):
+        return "\\\\wsl.localhost\\TestDistro" + str(path).replace("/", "\\")
+
+    def test_edit_targets_of_open_batch_and_phases(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env=self.WSL_ENV)
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        phases = {p["slug"]: p for p in batch["phases"]}
+        phase_file = impl / "01-first.md"
+        self.assertEqual(phases["01-first"]["edit"], {
+            "path": self._wsl_os(phase_file),
+            "url": "vscode://vscode-remote/wsl+TestDistro" + str(phase_file),
+        })
+        self.assertNotIn("edit", phases["00-setup"])
+        ctx = impl / ".batch-context.md"
+        self.assertEqual(batch["edit"]["dir"], {
+            "path": self._wsl_os(impl), "url": "vscode://vscode-remote/wsl+TestDistro" + str(impl),
+        })
+        self.assertEqual(batch["edit"]["context"], {
+            "path": self._wsl_os(ctx), "url": "vscode://vscode-remote/wsl+TestDistro" + str(ctx),
+        })
+        second = self._sync(repo, env=self.WSL_ENV)
+        self.assertEqual(second["written"], [])
+
+    def test_edit_context_only_when_the_file_exists(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        (impl / ".batch-context.md").unlink()
+        self._sync(repo, env=self.WSL_ENV)
+        edit = self._load(repo, "batch/2026-09-23-demo")["edit"]
+        self.assertIn("dir", edit)
+        self.assertNotIn("context", edit)
+
+    def test_edit_url_is_omitted_when_the_editor_is_off(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        self._write(self._cfq(repo) / "plan" / "2026-09-19-idea.md", "# An idea\n")
+        self._sync(repo, env={**self.WSL_ENV, "CFQ_EDITOR": "off"})
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        edits = [batch["edit"]["dir"], batch["edit"]["context"]]
+        edits += [p["edit"] for p in batch["phases"] if "edit" in p]
+        edits.append(self._load(repo, "entry/plan-2026-09-19-idea")["edit"])
+        self.assertEqual(len(edits), 4)
+        for e in edits:
+            self.assertIn("path", e)
+            self.assertNotIn("url", e)
+
+    def test_edit_url_uses_the_configured_editor_scheme(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env={**self.WSL_ENV, "CFQ_EDITOR": "cursor"})
+        phase = next(p for p in self._load(repo, "batch/2026-09-23-demo")["phases"] if p["slug"] == "01-first")
+        self.assertTrue(phase["edit"]["url"].startswith("cursor://vscode-remote/wsl+TestDistro/"), phase["edit"])
+
+    def test_edit_on_posix_hosts_is_the_plain_path_and_file_link(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env={"CFQ_HOST_PLATFORM": "posix"})
+        phase = next(p for p in self._load(repo, "batch/2026-09-23-demo")["phases"] if p["slug"] == "01-first")
+        phase_file = str(impl / "01-first.md")
+        self.assertEqual(phase["edit"], {"path": phase_file, "url": "vscode://file" + phase_file})
+
+    def test_finished_batch_carries_no_edit(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        (impl / "done").mkdir(exist_ok=True)
+        shutil.move(str(impl / "01-first.md"), str(impl / "done" / "01-first.md"))
+        write_status(impl, {"01-first": "done"})
+        self._sync(repo, env=self.WSL_ENV)
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        self.assertNotIn("edit", batch)
+        for p in batch["phases"]:
+            self.assertNotIn("edit", p)
+
+    def test_edit_on_error_and_skipped_phases(self):
+        repo = self.make_repo()
+        impl = self._cfq(repo) / "impl" / "2026-09-23-demo"
+        self._write(impl / "01-a.md", "# A\n\n## Size\n\nS\n")
+        self._write(impl / "02-b.md", "# B\n\n## Size\n\nS\n")
+        self._write(impl / "03-c.md", "# C\n\n## Size\n\nS\n")
+        write_status(impl, {"02-b": "error", "03-c": {"status": "skipped", "reason": "obsolete"}})
+        self._sync(repo, env=self.WSL_ENV)
+        phases = {p["slug"]: p for p in self._load(repo, "batch/2026-09-23-demo")["phases"]}
+        self.assertEqual(sorted(phases), ["01-a", "02-b", "03-c"])
+        for slug, p in phases.items():
+            self.assertIn("path", p["edit"], slug)
+
+    def test_edit_on_open_entries_only(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        cfq = self._cfq(repo)
+        idea = self._write(cfq / "plan" / "2026-09-19-idea.md", "# An idea\n")
+        self._write(cfq / "plan" / "done" / "2026-09-17-old.md", "# Old\n\n## Closed\n\nDone.\n")
+        self._write(cfq / "todo" / "2026-09-20-fix.md", "# Fix\n")
+        self._sync(repo, env=self.WSL_ENV)
+        self.assertEqual(self._load(repo, "entry/plan-2026-09-19-idea")["edit"], {
+            "path": self._wsl_os(idea), "url": "vscode://vscode-remote/wsl+TestDistro" + str(idea),
+        })
+        self.assertIn("edit", self._load(repo, "entry/todo-2026-09-20-fix"))
+        self.assertNotIn("edit", self._load(repo, "entry/plan-2026-09-17-old"))
+        for row in self._load(repo, "queue")["entries"]:
+            self.assertNotIn("edit", row)
+
     # ---- site.js ---------------------------------------------------------------------------------
 
     def test_commit_url_from_remote(self):

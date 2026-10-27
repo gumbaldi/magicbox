@@ -202,7 +202,8 @@ back to `posix` rather than failing. On Linux and macOS a path opens as it is. O
 becomes a backslash path and an editor link on the same drive path. On WSL a file under
 `/mnt/<letter>/` opens as the Windows path on that drive, and any other file opens through the
 editor's WSL remote link and as a `\\wsl.localhost\<distro>\...` path, so a Windows browser and a
-Windows editor reach it.
+Windows editor reach it. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
+next full sync (`/cfq` or `bin/cfq portal sync <repo-root>`).
 
 ### Repo & git
 

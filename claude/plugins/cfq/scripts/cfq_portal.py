@@ -78,10 +78,11 @@ from cfq_brief import parse_phase_body  # noqa: E402
 from cfq_queue_overlap import extract_affected_files  # noqa: E402
 from cfq_lib import flags as cfq_flags  # noqa: E402
 from cfq_lib import markdown as cfq_lib_markdown  # noqa: E402
+from cfq_lib import host_paths  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import render  # noqa: E402
-from cfq_lib.proc import default_branch, git, settings_get  # noqa: E402
+from cfq_lib.proc import cfq_run, default_branch, git, settings_get  # noqa: E402
 
 import cfq_changelog  # noqa: E402
 import cfq_report  # noqa: E402
@@ -634,6 +635,32 @@ def note_stem(filename):
     return name[:-3] if name.endswith(".md") else name
 
 
+def edit_target(path, host):
+    """`{"path": <OS path>, "url": <editor link>}` for an editable file or directory; `url` is
+    left out when the `editor` setting is `off`. `host` is the `sync()`-wide
+    `{"platform", "distro", "editor"}` dict."""
+    path = str(path)
+    target = {"path": host_paths.os_path(path, host["platform"], host["distro"])}
+    url = host_paths.editor_url(path, host["editor"], host["platform"], host["distro"])
+    if url is not None:
+        target["url"] = url
+    return target
+
+
+def read_host(repo_root):
+    """The host dict `edit_target()` needs, from one `settings list --repo` read; any failure
+    degrades to the defaults and `host_paths.resolve()`'s own `posix` fallback."""
+    try:
+        proc = cfq_run("settings", "list", "--repo", str(repo_root))
+        settings = json.loads(proc.stdout) if proc.returncode == 0 else {}
+        if not isinstance(settings, dict):
+            settings = {}
+    except Exception:  # noqa: BLE001 -- a settings read must never fail the sync
+        settings = {}
+    platform, distro = host_paths.resolve(repo_root, settings)
+    return {"platform": platform, "distro": distro, "editor": settings.get("editor") or "vscode"}
+
+
 def build_link_index(reports):
     """Where each entry came from and where it was parked, built once per sync from every
     batch's `notes`, `parkedPlanEntries` and `fromPlan`: `{"origin": {entry id: {batch, phase}},
@@ -657,11 +684,11 @@ def build_link_index(reports):
     return {"origin": origin, "parkedInto": parked_into}
 
 
-def build_entry_payload(kind, path, state, links):
+def build_entry_payload(kind, path, state, links, host=None):
     text = path.read_text()
     m = ENTRY_FILENAME_RE.match(path.name)
     entry_id = f"{kind}-{path.stem}"
-    return {
+    payload = {
         "id": entry_id,
         "kind": kind,
         "state": state,
@@ -673,19 +700,22 @@ def build_entry_payload(kind, path, state, links):
         "parkedInto": links["parkedInto"].get(entry_id),
         "bodyHtml": cfq_lib_markdown.md_min(text, keep_h1=False),
     }
+    if host is not None and state == "open":
+        payload["edit"] = edit_target(path, host)
+    return payload
 
 
 def entry_summary(full):
-    return {k: v for k, v in full.items() if k != "bodyHtml"}
+    return {k: v for k, v in full.items() if k not in ("bodyHtml", "edit")}
 
 
-def collect_entries(repo_root, links):
+def collect_entries(repo_root, links, host=None):
     """Every open entry, then every closed one whose id no open entry already took."""
     fulls, seen = [], set()
     for state in ("open", "done"):
         for kind in ENTRY_KINDS:
             for f in entry_files(repo_root, kind, state):
-                e = build_entry_payload(kind, f, state, links)
+                e = build_entry_payload(kind, f, state, links, host)
                 if e["id"] not in seen:
                     seen.add(e["id"])
                     fulls.append(e)
@@ -842,7 +872,7 @@ def attempt_payload(p):
     }
 
 
-def phase_payloads(bd, data):
+def phase_payloads(bd, data, host=None):
     """One object per `status.json` entry, in slug order; `[]` for a batch whose status.json is
     missing or unreadable (the sync never fails on it)."""
     try:
@@ -871,6 +901,8 @@ def phase_payloads(bd, data):
         }
         if rec["status"] == "skipped":
             phase["skipReason"] = rec["reason"] or ""
+        if host is not None and f and rec["status"] != "done":
+            phase["edit"] = edit_target(f, host)
         phases.append(phase)
     return phases
 
@@ -893,11 +925,12 @@ def note_payloads(data, entry_states):
     return notes
 
 
-def build_batch_payload(b, bd, data, row, entry_states, entry_titles):
+def build_batch_payload(b, bd, data, row, entry_states, entry_titles, host=None):
     planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
     security = data.get("security")
     sections = cfq_report.read_batch_context(str(bd))
-    return {
+    phases = phase_payloads(bd, data, host)
+    payload = {
         "name": b["name"],
         "status": row["status"],
         "priority": row["priority"],
@@ -912,7 +945,7 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles):
         "planning": None if planning is None else {
             **time_of(planning), "settled": is_settled(planning), "cost": cost_of(planning),
         },
-        "phases": phase_payloads(bd, data),
+        "phases": phases,
         "cost": batch_cost(data),
         "notes": note_payloads(data, entry_states),
         "fromPlan": [
@@ -923,6 +956,13 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles):
         "security": security[-1] if isinstance(security, list) and security else None,
         "flags": [],
     }
+    if host is not None and any(p["state"] != "done" for p in phases):
+        edit = {"dir": edit_target(bd, host)}
+        context_file = pathlib.Path(bd) / ".batch-context.md"
+        if context_file.is_file():
+            edit["context"] = edit_target(context_file, host)
+        payload["edit"] = edit
+    return payload
 
 
 # ---- sync / rebuild -------------------------------------------------------------------------
@@ -966,7 +1006,8 @@ def sync(repo_root, batch_names=None):
     dirs = {b["name"]: batch_directory(repo_root, b) for b in scan["batches"]}
     reports = {name: load_report(bd) for name, bd in dirs.items()}
     links = build_link_index(reports)
-    entry_fulls = collect_entries(repo_root, links)
+    host = read_host(repo_root)  # once per sync: platform, distro and editor for every edit link
+    entry_fulls = collect_entries(repo_root, links, host)
     entries = [entry_summary(e) for e in entry_fulls]
     entry_states = {e["id"]: e["state"] for e in entries}
     entry_titles = {e["id"]: e["title"] for e in entries}
@@ -993,7 +1034,9 @@ def sync(repo_root, batch_names=None):
                 payload = None
         if payload is None:
             fresh.add(name)
-            payload = build_batch_payload(b, dirs[name], reports[name], rows[name], entry_states, entry_titles)
+            payload = build_batch_payload(
+                b, dirs[name], reports[name], rows[name], entry_states, entry_titles, host,
+            )
         payloads[name] = payload
 
     original = {name: copy.deepcopy(p) for name, p in payloads.items() if name not in fresh}
