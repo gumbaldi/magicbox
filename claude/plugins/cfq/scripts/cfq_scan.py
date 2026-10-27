@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
-# Usage: cfq_scan.py [--format=json|md|tsv|overview|next]
+# Usage: cfq_scan.py [--format=json|next]
 """The single source of numbers for the dashboard. json (default): one JSON object on stdout:
 { "repos": [ { "path", "plan", "todo", "batches": [
   {name, priority, open, error, done, skipped, archived, report, dependsOn, blocked, unknownDeps, inProgress,
    planning, review} ] } ] } -- byte-identical to the no-flag output for every existing caller.
-md/tsv: one row per batch across all repos (Repo, Batch, Priority, Open/Done, Status), status
-one of BLOCKED/PLANNING/IN_PROGRESS/OK per CLAUDE.md's Status Vocabulary (IN_PROGRESS is an
-additive per-batch-row extension, same pattern as the report outcome's GREEN/RED/MIXED), sorted open-first,
-then flagged priority first, then name.
-overview: one row per repo (Repo, Plan, Todo, Batches, Status) -- Batches is open/done batch
-counts, Status the most severe status among the repo's own batches, same vocabulary as above.
 next: one object per repo -- { path, next, reason, blocked, planning, review } -- next is the batch name
 `/ifq` would pick (null if none selectable), reason one of inProgress/priority/order/
 multipleInProgress/null, blocked/planning/review are arrays of batch names (review is the subset of planning held at
@@ -43,7 +37,7 @@ PROG = "cfq_scan.py"
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
-FORMATS = ("json", "md", "tsv", "overview", "next")
+FORMATS = ("json", "next")
 
 
 def parse_args(argv):
@@ -237,76 +231,6 @@ def build_scan_data():
 
 # ---- format rendering ---------------------------------------------------------------------------
 
-def batch_status(b):
-    if b["blocked"]:
-        return "BLOCKED"
-    if b["planning"]:
-        return "PLANNING"
-    if b["inProgress"]:
-        return "IN_PROGRESS"
-    return "OK"
-
-
-def batch_rows(data):
-    rows = []
-    for r in data["repos"]:
-        repo_name = r["path"].rstrip("/").split("/")[-1]
-        for b in r["batches"]:
-            rows.append({
-                "repo": repo_name,
-                "name": b["name"],
-                "priority": b["priority"] if b["priority"] != "" else "-",
-                "openDone": f'{b["open"]}/{b["done"]}',
-                "archived": b["archived"],
-                "status": batch_status(b),
-            })
-    rows.sort(key=lambda row: (row["archived"], 0 if row["priority"] == "high" else 1, row["name"]))
-    return rows
-
-
-def render_md(data):
-    lines = ["| Repo | Batch | Priority | Open/Done | Status |", "|---|---|---|---|---|"]
-    for row in batch_rows(data):
-        lines.append(
-            f'| {row["repo"]} | {row["name"]} | {row["priority"]} | {row["openDone"]} | {row["status"]} |'
-        )
-    return "\n".join(lines)
-
-
-def render_tsv(data):
-    rows = batch_rows(data)
-    if not rows:
-        # jq's `.[] | @tsv` over an empty array prints nothing at all -- not even a blank line.
-        return None
-    lines = [
-        "\t".join([row["repo"], row["name"], row["priority"], row["openDone"], row["status"]])
-        for row in rows
-    ]
-    return "\n".join(lines)
-
-
-def repo_status(batches):
-    if any(b["blocked"] for b in batches):
-        return "BLOCKED"
-    if any(b["planning"] for b in batches):
-        return "PLANNING"
-    if any(b["inProgress"] for b in batches):
-        return "IN_PROGRESS"
-    return "OK"
-
-
-def render_overview(data):
-    lines = ["| Repo | Plan | Todo | Batches | Status |", "|---|---|---|---|---|"]
-    for r in data["repos"]:
-        repo_name = r["path"].rstrip("/").split("/")[-1]
-        open_n = sum(1 for b in r["batches"] if not b["archived"])
-        done_n = sum(1 for b in r["batches"] if b["archived"])
-        lines.append(
-            f'| {repo_name} | {r["plan"]} | {r["todo"]} | {open_n}/{done_n} | {repo_status(r["batches"])} |'
-        )
-    return "\n".join(lines)
-
-
 def rank_next(batches):
     candidates = [b for b in batches if not b["archived"] and (b["open"] > 0 or b["done"] > 0 or b["skipped"] > 0)]
     planning = [b["name"] for b in candidates if b["planning"]]
@@ -349,14 +273,6 @@ def main(argv):
 
     if fmt == "json":
         print(render.dump_json_pretty(data))
-    elif fmt == "md":
-        print(render_md(data))
-    elif fmt == "tsv":
-        out = render_tsv(data)
-        if out is not None:
-            print(out)
-    elif fmt == "overview":
-        print(render_overview(data))
     elif fmt == "next":
         print(render_next(data))
 

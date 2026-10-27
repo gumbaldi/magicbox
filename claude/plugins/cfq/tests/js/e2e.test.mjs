@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { fakeDoc, fakeRoot, collectText, loadPortal } from "./helpers.mjs";
+import { fakeDoc, fakeRoot, byClass, collectText, loadPortal } from "./helpers.mjs";
 
 const DIR = process.env.CFQ_PORTAL_DIR;
 const GLOBAL_DIR = process.env.CFQ_PORTAL_GLOBAL_DIR;
@@ -87,6 +87,30 @@ async function walkRepo(dir, prefix, onlyOneBatch) {
 
 test("every view renders from the files a real portal sync wrote", { skip: !DIR }, async () => {
   const failures = await walkRepo(DIR, "", false);
+  assert.deepEqual(failures, []);
+});
+
+test("the open batch's header and plan tab render edit controls from a real sync", { skip: !DIR }, async () => {
+  const failures = [];
+  const load = loaderFor(DIR, failures);
+  const queue = await load("data/queue");
+  let checked = 0;
+  for (const row of queue.batches) {
+    const batch = await load(`data/batch/${row.name}`);
+    const phase = batch.phases.find((p) => p.state !== "done");
+    if (!phase) continue;
+    checked += 1;
+    assert.ok(batch.edit && phase.edit, `${row.name}: sync wrote no edit object`);
+    const doc = fakeDoc();
+    const header = fakeRoot(doc);
+    CFQ.batch.render(doc, header, { mode: "repo", repo: "/x", site: {}, batch, route: { name: "batch", batch: row.name }, setCrumbs() {} });
+    assert.ok(byClass(header, "edit-controls").length >= 1, `${row.name}: header lacks edit controls`);
+    const plan = fakeRoot(doc);
+    CFQ.core.registered("phaseTab").find((t) => t.id === "plan").render(doc, plan, { mode: "repo", site: {} }, phase);
+    assert.equal(byClass(plan, "edit-controls").length, 1, `${row.name}/${phase.slug}: plan tab lacks edit controls`);
+    assert.ok(byClass(plan, "edit-copy")[0].textContent === "Copy path");
+  }
+  assert.ok(checked >= 1, "no batch with an open phase in the synced data");
   assert.deepEqual(failures, []);
 });
 

@@ -113,8 +113,8 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `planModels` | `CFQ_PLAN_MODELS` | `opus,fable` | global, repo | models allowed to plan; a mismatch only warns |
-| `implModels` | `CFQ_IMPL_MODELS` | `sonnet` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. With a smaller model added, set `orchestratorModels` to keep the `/ifq` session itself on the stronger one |
-| `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `""` | global, repo | models the orchestrator session itself is allowed to run under; falls back to `implModels` when empty |
+| `implModels` | `CFQ_IMPL_MODELS` | `sonnet,haiku` | global, repo | models allowed to implement; a mismatch aborts `ifq`. Also the list a phase may be planned and spawned on (`## Model`); the first entry is the default. the default `orchestratorModels` already keeps the `/ifq` session itself on Sonnet |
+| `orchestratorModels` | `CFQ_ORCHESTRATOR_MODELS` | `sonnet` | global, repo | models the orchestrator session itself is allowed to run under; an explicitly empty list falls back to `implModels` |
 | `allowAnyModel` | `CFQ_ALLOW_ANY_MODEL` | `false` | global, repo | lifts both model checks above |
 | `planExploreModel` | `CFQ_PLAN_EXPLORE_MODEL` | `haiku` | global, repo | model pfq's research subagents run on |
 | `planExploreModelComplex` | `CFQ_PLAN_EXPLORE_MODEL_COMPLEX` | `sonnet` | global, repo | model for pfq's Explore agents whose task is to judge rather than to locate |
@@ -141,6 +141,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
+| `requiredTools` | `CFQ_REQUIRED_TOOLS` | empty | global, repo | tool names a repo needs (`pytest`, `py:pytest`); `ifq` stops before touching anything when one is missing, `pfq` only warns. Names are looked up on the `PATH` (or, with `py:`, as an importable Python module), never run; an entry that is not a plain name counts as missing |
 
 Worked example for the two review settings: `batchReview: low` with `batchReviewFindings: auto`
 runs a low-effort `/code-review` over the finished batch, fixes the small findings in one commit
@@ -187,8 +188,22 @@ setting; the rule is fixed, never a judgment call.
 |---|---|---|---|---|
 | `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on request (`bin/cfq portal sync <repo-root>`) |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
+| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "open in editor" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the editor links — see below |
+| `hostPlatform` | `CFQ_HOST_PLATFORM` | `auto` | global only | which host the browser and editors run on: `auto` detects it, `wsl`, `windows` or `posix` overrides detection |
+| `wslDistro` | `CFQ_WSL_DISTRO` | `""` | global only | WSL distribution name used in links and copied paths on Windows + WSL; empty means detect |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
 | `changelogFile` | `CFQ_CHANGELOG_FILE` | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
+
+Links and copied paths are translated for the machine you look at the portal from. `hostPlatform:
+auto` treats native Windows Python as `windows`, Linux under WSL (the `WSL_DISTRO_NAME` variable or a
+`microsoft` kernel release) as `wsl` and everything else as `posix`; on WSL the distribution is
+`wslDistro`, else `WSL_DISTRO_NAME`, else the name `wslpath -w /` reports, and without one cfq falls
+back to `posix` rather than failing. On Linux and macOS a path opens as it is. On native Windows it
+becomes a backslash path and an editor link on the same drive path. On WSL a file under
+`/mnt/<letter>/` opens as the Windows path on that drive, and any other file opens through the
+editor's WSL remote link and as a `\\wsl.localhost\<distro>\...` path, so a Windows browser and a
+Windows editor reach it. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
+next full sync (`/cfq` or `bin/cfq portal sync <repo-root>`).
 
 ### Repo & git
 
@@ -266,12 +281,9 @@ restate a field list inline — read the field here, then read it back from the 
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
-- **`bin/cfq scan [--format=json|md|tsv|overview|next]`** — `json` (default): `{repos: [{path, plan,
+- **`bin/cfq scan [--format=json|next]`** — `json` (default): `{repos: [{path, plan,
   todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
-  inProgress, planning, review}]}]}`. `md`/`tsv`: one row per batch (Repo, Batch, Priority, Open/Done,
-  Status), `Status` one of `BLOCKED`/`PLANNING`/`IN_PROGRESS`/`OK`. `overview`: one row per repo
-  (Repo, Plan, Todo, Batches, Status) — `Batches` is the open/done batch counts, `Status` the most
-  severe status among the repo's own batches. `next`: one object per repo — `{path, next, reason,
+  inProgress, planning, review}]}]}`. `next`: one object per repo — `{path, next, reason,
   blocked, planning, review}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
   `reason` one of `inProgress`/`priority`/`order`/`multipleInProgress`/`null`; the one place the
   `ifq` selection ranking is decided, consumed rather than recomputed by `cfq_ifq_preflight.py`.

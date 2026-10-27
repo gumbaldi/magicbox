@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import render  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402,F401
+from cfq_lib.paths import mtime  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
 
 STALE_PAYLOAD_SECONDS = 600
@@ -39,13 +40,6 @@ PONYTAIL_MODES = ("off", "lite", "full", "ultra")
 def arg_error(message):
     print(render.dump_json({"code": "INVALID_ARGUMENT", "message": message}), file=sys.stderr)
     sys.exit(1)
-
-
-def mtime(path):
-    try:
-        return int(os.stat(path).st_mtime)
-    except OSError:
-        return 0
 
 
 def slug_for(repo_path):

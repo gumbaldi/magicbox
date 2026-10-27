@@ -13,6 +13,7 @@ import time
 import unittest
 
 from cfq_testlib import CFQ_BIN, CfqTestCase
+from cfq_lib import phase_state
 from cfq_lib import text as cfq_text
 
 
@@ -373,6 +374,8 @@ class NoteLedgerTest(CfqTestCase):
         self.batch_dir.mkdir(parents=True)
         (self.batch_dir / "02-b.md").write_text("# B\n")
         (self.batch_dir / "03-c.md").write_text("# C\n")
+        phase_state.init(self.batch_dir)
+        phase_state.sync_files(self.batch_dir)
         (self.batch_dir / "report.json").write_text(
             json.dumps({"repo": str(self.repo), "batch": self.BATCH, "phases": []})
         )
@@ -440,9 +443,30 @@ class NoteLedgerTest(CfqTestCase):
         self.assertTrue(any((self.repo / ".claude" / "cfq" / "plan").glob("*-another.md")))
 
     def test_explicit_batch_without_open_phase_has_null_phase(self):
-        (self.batch_dir / "02-b.md").unlink()
-        (self.batch_dir / "03-c.md").unlink()
+        phase_state.transition(self.batch_dir, "02-b", "done")
+        phase_state.transition(self.batch_dir, "03-c", "done")
         proc = self._note("todo", "late", "# Late\n", session=None, batch_flag=self.BATCH)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(self._notes()[0]["phase"])
+
+    def test_errored_phase_is_the_open_phase(self):
+        phase_state.transition(self.batch_dir, "02-b", "error")
+        self._lock()
+        proc = self._note("plan", "after error", "# After error\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._notes()[0]["phase"], "02-b")
+
+    def test_skipped_phase_moves_the_open_phase_on(self):
+        phase_state.transition(self.batch_dir, "02-b", "skipped", reason="not needed")
+        self._lock()
+        proc = self._note("plan", "after skip", "# After skip\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._notes()[0]["phase"], "03-c")
+
+    def test_missing_status_file_records_null_phase(self):
+        (self.batch_dir / "status.json").unlink()
+        self._lock()
+        proc = self._note("plan", "no status", "# No status\n")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsNone(self._notes()[0]["phase"])
 

@@ -24,6 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, phase_state, render, text  # noqa: E402
 from cfq_lib.proc import cfq_argv  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_report.py"
 
@@ -45,9 +46,7 @@ def ensure_report(dir_):
     path = os.path.join(dir_, "report.json")
     if os.path.isfile(path):
         return
-    repo = subprocess.run(
-        ["git", "-C", dir_, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-    ).stdout.strip()
+    repo = proc_git(dir_, "rev-parse", "--show-toplevel").stdout.strip()
     started = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
     render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
@@ -179,27 +178,23 @@ def cmd_set_commit(args):
 
 
 def cmd_skills(args):
-    """Replaces the retired `jq -c '{recommended: ..., used: ...}'` filter over
-    report.json's telemetry.skills_recommended / telemetry.by_skill (references/ifq-batch-end.md's
-    Skills Recommended vs. Used)."""
+    """Used skills per batch, from report.json's telemetry.by_skill (references/ifq-batch-end.md's
+    Skills Used)."""
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
     data = json.loads(pathlib.Path(f).read_text()) if os.path.isfile(f) else {}
     phases = data.get("phases", []) if isinstance(data, dict) else []
 
-    recommended, used = set(), set()
+    used = set()
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
         if not isinstance(tel, dict):
             continue
-        rec = render.jq_alt(tel.get("skills_recommended"), [])
-        if isinstance(rec, list):
-            recommended.update(rec)
         by_skill = render.jq_alt(tel.get("by_skill"), {})
         if isinstance(by_skill, dict):
             used.update(k for k in by_skill.keys() if k != "-")
 
-    print(render.dump_json({"recommended": sorted(recommended), "used": sorted(used)}))
+    print(render.dump_json({"used": sorted(used)}))
 
 
 def cmd_last_failure(args):
@@ -340,114 +335,97 @@ def phase_cost_entry(dir_, phase_slug):
         return None
 
 
+def phase_cost_line(dir_, phase_slug):
+    """`phase_cost_entry()` or, when that has no usable telemetry (None), the `Cost` warning entry --
+    so a caller never composes a fallback and a missing measurement never vanishes silently."""
+    entry = phase_cost_entry(dir_, phase_slug)
+    if entry is not None:
+        return entry
+    return text.status_entry("Cost", "warn", "unavailable · no usable telemetry for this phase")
+
+
+_SUMMARY_KEYS = ("turns", "output", "billable_in")
+
+
+def _layer_totals(tel, name):
+    """`{"turns", "output", "billable_in"}` of the layer `name` (one of `LAYER_NAMES`) of one
+    telemetry record, read through `phase_layer_sums`."""
+    layer = phase_layer_sums(tel)[name]
+    return {k: _totals_field(layer, k) for k in _SUMMARY_KEYS}
+
+
+def _add_totals(acc, more):
+    for k in _SUMMARY_KEYS:
+        acc[k] += more[k]
+
+
 def cmd_summary(args):
+    """Print the batch summary as one JSON object (see `references/ifq-batch-end.md`): phase
+    counts, whole-batch totals, the five disjoint cost layers (`planning`, `orchestrator`,
+    `worker`, `explorer`, `worker_explorer` -- they add up to `totals`, nothing is subtracted),
+    the models and efforts used, and the deviations de-duplicated with a count. Exits 1 with no
+    output when the batch has no report.json."""
     dir_ = args.dir
     f = os.path.join(dir_, "report.json")
     if not os.path.isfile(f):
         sys.exit(1)
     data = json.loads(pathlib.Path(f).read_text())
     phases = data.get("phases", [])
-    batch = data.get("batch")
-    total = sum(1 for p in phases if not is_skip_entry(p))
     green = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "green")
     red = sum(1 for p in phases if isinstance(p, dict) and p.get("status") == "red")
-    deviations = 0
+
+    deviation_texts = []
     for p in phases:
         d = render.jq_alt(p.get("deviations") if isinstance(p, dict) else None, [])
         if isinstance(d, list):
-            deviations += len(d)
-
-    date = batch_finished(data)
+            deviation_texts.extend(str(x).strip() for x in d)
+    counts = {}
+    for t in deviation_texts:
+        counts[t] = counts.get(t, 0) + 1
+    unique = [{"text": t, "count": n} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
     planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
-    planning_totals = planning.get("totals") if isinstance(planning, dict) else None
-    planning_output = _totals_field(planning_totals, "output")
-    planning_turns = _totals_field(planning_totals, "turns")
-    planning_billable_in = _totals_field(planning_totals, "billable_in")
-
-    model_keys, effort_keys = [], []
-
-    # Whole-batch layer sums, planning included -- the fix for the negative orchestrator_turns/
-    # orchestrator_output bug: main/main_explore/worker/worker_explore are four disjoint pools
-    # read straight from phase_layer_sums(), summed across every record, never subtracted from
-    # each other. total_turns/total_output/total_billable_in are the sum of all four; fields
-    # 12-15 read `main`/`worker` directly; the tail fields read `main_explore`/`worker_explore`.
-    main_turns = main_output = 0
-    worker_turns = worker_output = 0
-    explore_turns = explore_output = 0
-    worker_explore_turns = worker_explore_output = 0
-    total_billable_in = 0
-
-    def accumulate(tel):
-        nonlocal main_turns, main_output, worker_turns, worker_output
-        nonlocal explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        nonlocal total_billable_in
-        layers = phase_layer_sums(tel)
-        main_turns += _totals_field(layers["main"], "turns")
-        main_output += _totals_field(layers["main"], "output")
-        worker_turns += _totals_field(layers["worker"], "turns")
-        worker_output += _totals_field(layers["worker"], "output")
-        explore_turns += _totals_field(layers["main_explore"], "turns")
-        explore_output += _totals_field(layers["main_explore"], "output")
-        worker_explore_turns += _totals_field(layers["worker_explore"], "turns")
-        worker_explore_output += _totals_field(layers["worker_explore"], "output")
-        for name in LAYER_NAMES:
-            total_billable_in += _totals_field(layers[name], "billable_in")
-
+    layers = {name: dict.fromkeys(_SUMMARY_KEYS, 0) for name in
+              ("planning", "orchestrator", "worker", "explorer", "worker_explorer")}
     if planning is not None:
-        accumulate(planning)
+        for name in LAYER_NAMES:
+            _add_totals(layers["planning"], _layer_totals(planning, name))
 
+    phase_layer_names = (("orchestrator", "main"), ("explorer", "main_explore"),
+                         ("worker", "worker"), ("worker_explorer", "worker_explore"))
+    model_keys, effort_keys = [], []
     for p in phases:
         tel = p.get("telemetry") if isinstance(p, dict) else None
-        accumulate(tel)
+        for out_name, layer_name in phase_layer_names:
+            _add_totals(layers[out_name], _layer_totals(tel, layer_name))
         by_model = render.jq_alt(tel.get("by_model") if isinstance(tel, dict) else None, {})
         by_effort = render.jq_alt(tel.get("by_effort") if isinstance(tel, dict) else None, {})
         if isinstance(by_model, dict):
             model_keys.extend(by_model.keys())
         if isinstance(by_effort, dict):
             effort_keys.extend(by_effort.keys())
+    if planning is not None:
+        planning_by_model = render.jq_alt(planning.get("by_model"), {})
+        planning_by_effort = render.jq_alt(planning.get("by_effort"), {})
+        if isinstance(planning_by_model, dict):
+            model_keys.extend(planning_by_model.keys())
+        if isinstance(planning_by_effort, dict):
+            effort_keys.extend(planning_by_effort.keys())
 
-    planning_by_model = render.jq_alt(planning.get("by_model") if isinstance(planning, dict) else None, {})
-    planning_by_effort = render.jq_alt(planning.get("by_effort") if isinstance(planning, dict) else None, {})
-    if isinstance(planning_by_model, dict):
-        model_keys = list(planning_by_model.keys()) + model_keys
-    if isinstance(planning_by_effort, dict):
-        effort_keys = list(planning_by_effort.keys()) + effort_keys
-
-    total_output = main_output + explore_output + worker_output + worker_explore_output
-    total_turns = main_turns + explore_turns + worker_turns + worker_explore_turns
-    models = ",".join(sorted(set(model_keys)))
-    efforts = ",".join(sorted(set(effort_keys)))
-
-    row = [batch, total, green, red, deviations, date, total_output, planning_output, total_turns, models, efforts]
-    # Additive fields 12-15: only when a worker (subagent/orchestrator-mode phase) actually ran --
-    # an old or classic-mode report with no worker turns/output must render byte-identical to the
-    # row above, not grow a meaningless zero split. 12/13 are the `main` layer's own turns/output,
-    # 14/15 the `worker` layer's -- both read straight off phase_layer_sums(), never by
-    # subtracting one pool from another, so neither can go negative.
-    if worker_output > 0 or worker_turns > 0:
-        row += [main_turns, main_output, worker_turns, worker_output]
-    # Additive fields, always appended after the optional 12-15 block above: total_billable_in,
-    # planning_turns, planning_billable_in, explore_turns, explore_output, worker_explore_turns,
-    # worker_explore_output.
-    row += [
-        total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
-        worker_explore_turns, worker_explore_output,
-    ]
-    # Always the last field: phases currently skipped (status.json), 0 without a status.json.
-    row.append(skipped_count(dir_))
-    print("\t".join(_tsv_field(v) for v in row))
-
-
-def _tsv_field(v):
-    if v is None:
-        return ""
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
-    s = str(v)
-    return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
+    totals = {k: sum(layer[k] for layer in layers.values()) for k in _SUMMARY_KEYS}
+    print(render.dump_json({
+        "batch": render.jq_alt(data.get("batch"), ""),
+        "finished": batch_finished(data),
+        "phases": {
+            "total": sum(1 for p in phases if not is_skip_entry(p)),
+            "green": green, "red": red, "skipped": skipped_count(dir_),
+        },
+        "totals": totals,
+        "layers": layers,
+        "models": sorted(set(model_keys)),
+        "efforts": sorted(set(effort_keys)),
+        "deviations": {"count": len(deviation_texts), "unique": unique},
+    }))
 
 
 # ---- report derivations: summary, timestamps, formatting ----------------------------------

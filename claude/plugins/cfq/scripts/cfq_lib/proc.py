@@ -44,13 +44,13 @@ def cfq_run_merged(*args):
     )
 
 
-def git(repo, *args, check=False):
-    """`git -C <repo> <args>`, always capture_output/text. check=True uses subprocess's own check
+def git(repo, *args, check=False, input=None):
+    """`git -C <repo> <args>`, always capture_output/text. `input` is fed to git's stdin. check=True uses subprocess's own check
     semantics (raises CalledProcessError on a nonzero exit) -- a caller that needs the ported
     shell's `set -eu` die-on-failure behaviour instead (cfq_branch.py) keeps its own local
     wrapper on top of this one."""
     return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=check
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=check, input=input
     )
 
 

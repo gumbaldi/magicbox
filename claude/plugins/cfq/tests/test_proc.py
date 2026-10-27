@@ -49,6 +49,14 @@ class ProcTest(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             proc.git(self.repo, "no-such-cmd", check=True)
 
+    def test_git_passes_input_to_stdin(self):
+        blob = self.repo / "blob.txt"
+        blob.write_text("abc\n")
+        expected = proc.git(self.repo, "hash-object", "blob.txt")
+        result = proc.git(self.repo, "hash-object", "--stdin", input="abc\n")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, expected.stdout)
+
     def test_capture_strips_trailing_newlines_only(self):
         result = subprocess.CompletedProcess(args=[], returncode=0, stdout="  value \n\n")
         self.assertEqual(proc.capture(result), "  value ")

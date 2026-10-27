@@ -54,7 +54,7 @@ green phase. Gates hard on the running model — `implModels`, or `orchestratorM
 orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
 rather than warns. Shows the batch overview and the full queue and asks — start or cancel, plus
 pick a different batch when another one is selectable — before touching anything. The overview
-shows the full batch context, and each phase announcement lists the phase's change steps. By default
+shows the full batch context, and each phase announcement and the review digest open with the phase's plain-words Summary, followed by its change steps. By default
 (`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
@@ -154,10 +154,12 @@ Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.m
 The report portal lives at `<repo>/.claude/cfq/reports/index.html` and shows every batch with its
 phases, deviations, flags and cost; the README's [Report portal](../README.md#report-portal)
 section describes each view. `/ifq` prints the link of the finished batch at its end, and `/cfq`
-names the portal path under `view reports`.
+names the portal path under `view reports`. Open batches, their unfinished phases and open inbox
+entries carry "Open in editor" and "Copy path" controls, so a plan can be edited before `/ifq`
+picks it up.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,
-`reportDir`.
+`reportDir`, `editor`, `hostPlatform`, `wslDistro`.
 
 ## See also
 

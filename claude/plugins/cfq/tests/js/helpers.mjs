@@ -51,6 +51,18 @@ class FakeNode {
     this.firstChild = this.children[0];
     return c;
   }
+  insertBefore(c, ref) {
+    const at = ref ? this.children.indexOf(ref) : -1;
+    if (at < 0) return this.appendChild(c);
+    c.parentNode = this;
+    this.children.splice(at, 0, c);
+    this.firstChild = this.children[0];
+    return c;
+  }
+  get nextSibling() {
+    const sibs = this.parentNode ? this.parentNode.children : [];
+    return sibs[sibs.indexOf(this) + 1] || null;
+  }
   removeChild(c) {
     this.children = this.children.filter((x) => x !== c);
     this.firstChild = this.children[0] || null;
@@ -62,6 +74,7 @@ class FakeNode {
     this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== fn);
   }
   focus() { this.focused = true; this.ownerDocument.activeElement = this; }
+  select() { this.selected = true; }
   closest(sel) {
     const tags = sel.split(",").map((s) => s.trim().toLowerCase());
     for (let n = this; n; n = n.parentNode) if (tags.includes(String(n.tagName).toLowerCase())) return n;
@@ -88,6 +101,7 @@ export function fakeDoc() {
     activeElement: null,
     title: "",
     byId: {},
+    execCommand: null,
     createElement(tag) { return new FakeNode(doc, tag); },
     createElementNS(ns, tag) { return new FakeNode(doc, tag, ns); },
     createTextNode(text) { return new FakeText(doc, text); },
@@ -95,7 +109,21 @@ export function fakeDoc() {
     addEventListener(type, fn) { (doc.listeners[type] = doc.listeners[type] || []).push(fn); },
     removeEventListener(type, fn) { doc.listeners[type] = (doc.listeners[type] || []).filter((f) => f !== fn); },
   };
+  doc.body = new FakeNode(doc, "body");
   return doc;
+}
+
+// Runs `fn` with `globalThis.navigator.clipboard` replaced by `clipboard` (undefined = no clipboard
+// API at all), then restores the original property.
+export async function withClipboard(clipboard, fn) {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: clipboard === undefined ? {} : { clipboard }, configurable: true, writable: true });
+  try {
+    return await fn();
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "navigator", saved);
+    else delete globalThis.navigator;
+  }
 }
 
 export function fakeRoot(doc) {
@@ -156,6 +184,14 @@ export function loadPortal() {
 }
 
 // ---- fixtures ------------------------------------------------------------------------------
+
+// The `edit` target of an editable item as `portal sync` writes it (POSIX host, `vscode` editor).
+export const editTarget = (p) => ({ path: p, url: "vscode://file" + p });
+const BATCH_DIR = "/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo";
+const batchEdit = () => ({
+  dir: editTarget(BATCH_DIR),
+  context: editTarget(BATCH_DIR + "/.batch-context.md"),
+});
 
 const t5 = (turns, input, output, cache_read, cache_creation) => ({ turns, input, output, cache_read, cache_creation });
 const ZERO = t5(0, 0, 0, 0, 0);
@@ -306,7 +342,7 @@ function attempt(over) {
     filesTouched: ["/home/code/git/demo/scripts/a.py"], parkedPlanEntries: [],
     time: { from: "2026-10-01T08:00:00Z", until: "2026-10-01T08:30:00Z", wallclock_s: 1800 },
     settled: true, mode: "orchestrator", cost: doneCost(), tools: { Bash: 12, Edit: 8 },
-    skills: { recommended: [], used: [] },
+    skills: { used: [] },
     ...over,
   };
 }
@@ -322,19 +358,22 @@ export function fixtureBatch(kind = "done") {
     slug, num, title, size: "S", state, planHtml: `<p>Plan of ${title}.</p>`,
     affectedFiles: ["scripts/a.py"], attempts, flags: flags || [],
   });
+  const openPhase = (num, slug, title) => ({
+    ...phase(num, slug, title, "open", []), edit: editTarget(`${BATCH_DIR}/${slug}.md`),
+  });
   if (kind === "plan_only") {
     return {
-      ...base, status: "planned", started: "", finished: "", outcome: "", merged: null,
-      phases: [phase(1, "01-first", "First", "open", []), phase(2, "02-second", "Second", "open", [])],
+      ...base, status: "planned", started: "", finished: "", outcome: "", merged: null, edit: batchEdit(),
+      phases: [openPhase(1, "01-first", "First"), openPhase(2, "02-second", "Second")],
     };
   }
   if (kind === "in_progress") {
     return {
-      ...base, status: "in_progress", finished: "", outcome: "", merged: null,
+      ...base, status: "in_progress", finished: "", outcome: "", merged: null, edit: batchEdit(),
       phases: [
         phase(1, "01-first", "First", "done", [attempt({})]),
-        phase(2, "02-second", "Second", "open", []),
-        phase(3, "03-third", "Third", "open", []),
+        openPhase(2, "02-second", "Second"),
+        openPhase(3, "03-third", "Third"),
       ],
       cost: doneCost(),
     };
@@ -384,6 +423,7 @@ export function fixtureEntry(kind = "todo_open") {
     id: "todo-2026-10-01-merge-alpha", kind: "todo", state: "open", date: "2026-10-01",
     title: "Merge `cfq/045-2026-09-20-alpha-done`", check: "git branch --merged main",
     closed: null, origin: null, parkedInto: null, bodyHtml: "<p>Body of the todo card.</p>",
+    edit: editTarget("/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"),
   };
 }
 

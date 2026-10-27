@@ -85,6 +85,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import proc as cfq_lib_proc  # noqa: E402
 from cfq_lib import text as cfq_lib_text  # noqa: E402
@@ -247,7 +248,10 @@ def _record_note(repo, kind, written, framework=False, explicit=None):
         data = json.loads(report.read_text())
         if not isinstance(data, dict):
             return False
-        open_phases = sorted(p.stem for p in batch_dir.glob("[0-9][0-9]-*.md"))
+        try:
+            open_phase = phase_state.next_pending(batch_dir)
+        except phase_state.PhaseStateError:
+            open_phase = None
         notes = data.get("notes")
         if not isinstance(notes, list):
             notes = []
@@ -256,7 +260,7 @@ def _record_note(repo, kind, written, framework=False, explicit=None):
             "file": pathlib.Path(written).name,
             "title": _entry_title(written),
             "at": render.now_iso(),
-            "phase": open_phases[0] if open_phases else None,
+            "phase": open_phase,
             "framework": bool(framework),
         })
         data["notes"] = notes

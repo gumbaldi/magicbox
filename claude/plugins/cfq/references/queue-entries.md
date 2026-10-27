@@ -52,6 +52,10 @@ always state plainly that a decision on the finding is still open:
 - `## Why Not Here` — why it's out of scope for the current phase, and that a decision is still open
 - `## Origin` — batch and phase it came from
 
+A `security-findings` entry whose advisories a phase of the parked batch covers names that phase
+under `## Why Not Here` instead, says the entry can be closed once it lands, and carries no
+"decision still open" sentence.
+
 A finding is a *framework* finding when it is about cfq itself — a cfq skill's or reference file's
 behaviour, a `bin/cfq` script, the guard, the queue layout — rather than about the repo being
 worked on; it stays a framework finding even when no file can be named, since the finding is about

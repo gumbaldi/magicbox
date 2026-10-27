@@ -330,12 +330,22 @@ class TestPhase(CfqTestCase):
         msg = self._message_file(batch)
         return self.run_cfq("phase", "commit", str(batch), str(pf), str(msg), cwd=repo, env=env)
 
-    def test_commit_without_transcript_carries_only_the_commit_line(self):
+    def test_commit_without_transcript_carries_the_commit_and_warning_lines(self):
         repo, batch = self._git_batch("nocost-repo", "042-2026-03-01-nocost")
         proc = self._commit_phase_01(repo, batch)
         body = self.json_out(proc)
         self.assertEqual(body["status"], "OK")
-        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit"])
+        self.assertEqual([e["label"] for e in body["statusLines"]], ["Commit", "Cost"])
+
+    def test_commit_without_telemetry_carries_unavailable_cost(self):
+        repo, batch = self._git_batch("unavail-repo", "042-2026-03-01-unavail")
+        body = self.json_out(self._commit_phase_01(repo, batch))
+        self.assertEqual(body["status"], "OK")
+        self.assert_status_lines_shape(body["statusLines"])
+        cost = body["statusLines"][1]
+        self.assertEqual(cost["label"], "Cost")
+        self.assertEqual(cost["icon"], "warn")
+        self.assertEqual(cost["detail"], "unavailable · no usable telemetry for this phase")
 
     def test_commit_with_transcript_appends_the_cost_line(self):
         repo, batch = self._git_batch("cost-repo", "042-2026-03-01-cost")

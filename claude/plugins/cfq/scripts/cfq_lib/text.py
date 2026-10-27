@@ -31,6 +31,9 @@ LABEL_WIDTH = 16
 _NUMBERED_RE = re.compile(r"^([0-9]{3,})-([0-9]{4}-[0-9]{2}-[0-9]{2})-([a-z0-9][a-z0-9-]*)$")
 
 
+INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
+
+
 def status_line(icon, label, detail):
     """`<glyph> <label padded to LABEL_WIDTH><detail>`. `icon` accepts either an ICONS key or a
     literal glyph, so a caller that already holds a glyph does not have to reverse-map it. A
@@ -139,3 +142,23 @@ def parse_batch_name(name):
     if not m:
         return {"number": None, "date": None, "slug": name}
     return {"number": int(m.group(1)), "date": m.group(2), "slug": m.group(3)}
+
+
+def inbox_count_from_overview(overview_text):
+    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
+    entries[ · <k> framework not imported]` or `INBOX  empty`) instead of a second `note list`
+    JSON call -- one subprocess call covers both the printable block and the count, and `plan/`
+    is never parsed twice in the same preflight run."""
+    first_line = overview_text.splitlines()[0] if overview_text else ""
+    if first_line == "INBOX  empty":
+        return 0
+    m = INBOX_HEADER_RE.match(first_line)
+    return int(m.group(1)) if m else 0
+
+
+def plugin_boundaries_line(blocked):
+    if not blocked:
+        return status_entry("Plugin Boundaries", "skip", "none blocked")
+    return status_entry(
+        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
+    )

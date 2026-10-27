@@ -11,7 +11,8 @@
 bash|required|runs the bin/cfq dispatcher (Bash 3.2+; on Windows via Git Bash)
 git|required|branch, commit and diff operations in most scripts
 python3,python,py|alternative|runs every cfq implementation (3.8+)
-gh|optional|GitHub security-finding lookups (Dependabot/code-scanning) in cfq_security.py
+gh|optional|GitHub and GitHub Enterprise security-finding lookups (Dependabot/code-scanning) in cfq_security.py
+glab|optional|GitLab security-finding lookups in cfq_security.py
 tea|optional|Gitea security-finding lookups in cfq_security.py
 npm|optional|npm audit for repos with a package.json in cfq_security.py
 #

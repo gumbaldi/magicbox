@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage: cfq_lint.py <batch-dir>
 """Lints a parked batch of phase plans before pfq hands it off. Reports, never repairs, never
-aborts on soft findings (`depends` and `changes-steps` are warn-only and never affect the exit
-code).
+aborts on soft findings (`depends`, `changes-steps` and `summary-missing` are warn-only and never
+affect the exit code).
 
 Three rules resolve a file that no phase has created yet, against the plan itself: a bare absolute
 path that is not on disk is accepted while a pending phase creates it (an earlier phase of the same
@@ -12,6 +12,9 @@ for the next pending phase of a batch that has left planning (no `.planning` fil
 
 Ported from cfq-lint.sh -- a port, not a redesign: every finding string, the `warn:` prefix, the
 exit-code rule and the `## Size` degradation are carried over verbatim.
+
+`verification-filter` is a finding: a `unittest ... -k "<a> or <b>"` command treats the quoted
+text as one literal name pattern, matches no test and still ends in "OK".
 """
 
 import argparse
@@ -29,6 +32,8 @@ from cfq_lib import phase_state, proc as cfq_proc, queue as cfq_queue  # noqa: E
 PROG = "cfq_lint.py"
 
 BULLET_RE = re.compile(r"^- `([^`]*)`")
+UNITTEST_K_RE = re.compile(r"\bunittest\b.*?\s-k\s+([\"'])(.*?)\1")
+K_EXPR_RE = re.compile(r"(^|\s)(or|and|not)(\s|$)")
 
 
 def has_heading(text, heading):
@@ -147,6 +152,14 @@ def lint_open_file(f, findings, warn_findings, impl_models=None, creators=None,
             findings.append(f"{name}: verification-cmd: no runnable command in Verification")
         if not re.search(r"expect|PASS|exit 0|prints|must", verification, re.IGNORECASE):
             findings.append(f"{name}: verification-expect: no expected result stated")
+        for line in lines:
+            for match in UNITTEST_K_RE.finditer(line):
+                pattern = match.group(2)
+                if K_EXPR_RE.search(pattern):
+                    findings.append(
+                        f"{name}: verification-filter: unittest -k takes a name pattern, not an "
+                        f"expression ({pattern!r}); repeat -k per name or select a module with -p"
+                    )
 
     if has_heading(text, "Model") and impl_models is not None:
         model = parse_phase_body(text)["model"]
@@ -162,6 +175,9 @@ def lint_open_file(f, findings, warn_findings, impl_models=None, creators=None,
             findings.append(f"{name}: changes-empty: Changes section is empty")
         elif not has_numbered_steps(text):
             warn_findings.append(f"warn: {name}: changes-steps: Changes has no numbered top-level step")
+
+    if not has_heading(text, "Summary"):
+        warn_findings.append(f"warn: {name}: summary-missing: no ## Summary section")
 
     if has_heading(text, "Affected Files"):
         files_section = extract_files_section(text)

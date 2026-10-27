@@ -236,61 +236,15 @@ class ScanTest(CfqTestCase):
         out_json_flag = self._scan("--format=json")
         self.assertEqual(out_json_flag, out, msg="--format=json must be byte-identical to no-flag output")
 
-        # --format=md: valid Markdown table, one row per batch, Status reflects
-        # blocked/planning/inProgress.
-        out_md = self._scan("--format=md")
-        md_lines = out_md.splitlines()
-        md_header = md_lines[0]
-        self.assertEqual(
-            md_header, "| Repo | Batch | Priority | Open/Done | Status |", msg=f"md header = {md_header}"
-        )
-        md_rows = len(md_lines) - 2
-        total_batches = sum(len(r["batches"]) for r in data["repos"])
-        self.assertEqual(md_rows, total_batches, msg=f"md row count {md_rows} != total batches {total_batches}")
-
-        def md_status(needle):
-            for line in md_lines:
-                if needle in line:
-                    return line.split("|")[5].strip()
-            return None
-
-        self.assertEqual(
-            md_status("2026-01-01-demo"), "IN_PROGRESS",
-            msg="md status for repo-a's open+priority batch",
-        )
-        self.assertEqual(md_status("2026-01-10-b-blocked"), "BLOCKED", msg="md status for b-blocked")
-        self.assertEqual(md_status("2026-01-11-b-fresh"), "PLANNING", msg="md status for b-fresh")
-
-        # --format=tsv: same field set as md, tab-separated, one line per batch (no header).
-        out_tsv = self._scan("--format=tsv")
-        tsv_lines = out_tsv.splitlines()
-        self.assertEqual(
-            len(tsv_lines), total_batches, msg=f"tsv row count {len(tsv_lines)} != total batches {total_batches}"
-        )
-        tsv_fields = next(len(line.split("\t")) for line in tsv_lines if "2026-01-01-demo" in line)
-        self.assertEqual(tsv_fields, 5, msg=f"tsv field count = {tsv_fields}")
-
-        # --format=overview: one row per repo, Batches is open/done batch counts (not phase
-        # counts), Status the most severe status among that repo's own batches.
-        out_overview = self._scan("--format=overview")
-        ov_lines = out_overview.splitlines()
-        ov_header = ov_lines[0]
-        self.assertEqual(
-            ov_header, "| Repo | Plan | Todo | Batches | Status |", msg=f"overview header = {ov_header}"
-        )
-        ov_repo_a = next((line for line in ov_lines if line.startswith("| repo-a ")), None)
-        self.assertEqual(
-            ov_repo_a, "| repo-a | 0 | 0 | 1/0 | IN_PROGRESS |", msg=f"overview repo-a row = {ov_repo_a}"
-        )
-        ov_repo_f = next((line for line in ov_lines if line.startswith("| repo-f ")), None)
-        self.assertEqual(ov_repo_f, "| repo-f | 2 | 1 | 0/0 | OK |", msg=f"overview repo-f row = {ov_repo_f}")
-
         # Unknown --format value: clear error, exit 1.
-        proc = self.run_cfq("scan", "--format=bogus", env={"CFQ_SCAN_ROOTS": str(tmp)})
-        self.assertNotEqual(proc.returncode, 0, "unknown --format value should exit non-zero")
-        self.assertIn(
-            "unknown --format value", proc.stderr, "unknown --format value should print a clear error"
-        )
+        # The retired md/tsv/overview formats are rejected like any other bogus value.
+        for bogus in ("bogus", "md", "tsv", "overview"):
+            with self.subTest(fmt=bogus):
+                proc = self.run_cfq("scan", f"--format={bogus}", env={"CFQ_SCAN_ROOTS": str(tmp)})
+                self.assertNotEqual(proc.returncode, 0, "unknown --format value should exit non-zero")
+                self.assertIn(
+                    "unknown --format value", proc.stderr, "unknown --format value should print a clear error"
+                )
 
     def test_consistency_field(self):
         tmp = self.tmp

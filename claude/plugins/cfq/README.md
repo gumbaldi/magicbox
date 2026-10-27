@@ -72,8 +72,9 @@ a full context window genuinely can't continue. Crossing a rate-limit threshold 
 `stopSevenDayPct`) or failing to read context usage at all only produces a `WARN`: the next phase
 is offered with the warning attached, and the user decides whether to continue or hand off.
 
-At the end of a batch the closing report names the batch branch and the branch it was cut from.
-Merging is the user's own step; cfq writes no entry for it.
+At the end of a batch the closing report names the batch branch and the branch it was cut from, and states whether the
+branch is pushed, read from `origin/<branch>` as of the last push or fetch of this clone.
+Merging is the user's own step; cfq writes no entry for it. Its cost line shows the planning session apart from the orchestrator, worker and explorer layers, which add up to the total, and lists each distinct deviation once with a count; it carries no skills line.
 
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything
@@ -247,11 +248,11 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
-| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`tea`/`npm` optional). |
+| `doctor` | Host dependency check (`bash`/`git`/`python3` required, `gh`/`glab`/`tea`/`npm` optional). |
 | `finish` | Moves a finished batch into `impl/done/` and runs the closing sequence. |
 | `lang` | Scans for prose, comments and identifiers that don't match `codeLanguage`. |
 | `layout` | Owns the `.claude/cfq/` layout and the git-exclude policy. |
-| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …), plus the warn-only `changes-steps` check. |
+| `lint` | Structural lint for a batch's phase plans (`## Size`, `## Affected Files`, …), plus the `verification-filter` finding (`unittest -k` with an `or`/`and`/`not` expression) and the warn-only `changes-steps` and `summary-missing` checks. |
 | `lock` | The repo lock held by the currently running `/ifq` session. |
 | `maintenance` | Whether the periodic maintenance run is due. |
 | `note` | Writes a `plan/` or `todo/` queue entry — owns date, slug and target path; the body is a file or `-` for stdin. `close` appends a `## Closed` section and moves a `plan/` entry into `plan/done/`; `list` renders the `plan/` inbox without consuming it, `--overview` prints the one-line-per-topic block `pfq`/`ifq` show at start; `sweep` runs every `todo/` card's `check:` line, `--apply` closes the green ones. |
@@ -266,7 +267,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
 | `scan` | Every registered/discovered repo's queues, counted live from disk. |
-| `security` | Security snapshot — forge advisories (`gh`/`tea`) plus `npm audit`. |
+| `security` | Security snapshot — forge advisories (`gh`/`glab`/`tea`) plus `npm audit`. |
 | `settings` | The global/repo/env settings tiers. |
 | `telemetry` | Turns, wallclock and tokens per planning session and per implemented phase — `record`, `sync`, `show`, and `settle`, which recomputes provisional records once their session has ended. |
 | `trash` | The only sanctioned delete under `.claude/cfq/` — moves to `.trash/<timestamp>/`, never erases. |
@@ -355,7 +356,7 @@ Progress is reported as status lines — one per step, printed as it happens:
 
 ```
 PRECHECKS
-✅ Model Gate       sonnet · implModels: sonnet
+✅ Model Gate       sonnet · implModels: sonnet, haiku
 ✅ Batch            2026-08-13-cfq-plugin · 1 open phase
 ➖ Failed Attempt   none
 ⚠️ Security Diff    unavailable for this repo
@@ -424,11 +425,18 @@ cross-repo index across every repo that mirrors into it (`## Report collection l
 `bin/cfq portal sync <repo-root>` still syncs on demand even then, so the portal always stays
 reachable, just not kept current in the background.
 
+**Editing plans before `/ifq`.** Open batches, their not-yet-done phases and open `plan/` and
+`todo/` inbox entries show "Open in editor" and "Copy path". The editor is a VS Code-family editor
+chosen by `editor` (default `vscode`; `cursor`, `windsurf`, `kiro` and similar work, `off` hides the
+links). The links always point at the repo's own files, also when the page was opened from a
+`reportDir` copy. Changes show in the portal after the next sync, and `/ifq` lints the plans again
+at its start. The report link `/ifq` prints opens in the host's browser on WSL and native Windows.
+
 ## Telemetry
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens
 by kind, broken down by model, reasoning effort, skill, plugin, agent, tool, and the sub-agent
-share — plus the skills the plan recommended for that phase and a `mode` (`orchestrator` or
+share — plus a `mode` (`orchestrator` or
 `classic`, empty for a planning record) derived from what actually ran, not from the
 `orchestratorMode` setting. Usage is counted once per API response, not once per transcript line.
 Every sub-agent is its own node, attributed to the session that spawned it through the spawning
@@ -436,6 +444,9 @@ tool call, and every node and layer (session, session's Explore agents, worker, 
 agents) carries its split by model. `subagent` counts the sub-agents' own turns — read from each
 phase worker's own `subagents/agent-*.jsonl` transcripts — while `totals` stays the session's own;
 the two are not to be added blindly.
+
+A planning record also carries the interview depth (`interview_depth`: `quick`, `thorough` or
+`docs`) and the number of phases planned (`phase_count`), so planning cost can be compared per phase.
 
 A record is written when the phase commits and is `provisional` then, because the session goes on
 after the commit. The next cfq mutation in the repo settles it once its session has ended,
@@ -455,17 +466,19 @@ cfq only collects this data — it doesn't analyze it beyond the portal's own fl
 ## Security
 
 `pfq` checks in its **Security Check** step, `ifq` checks again at the end of the batch. The forge
-is detected from the origin remote; both common CLIs are supported:
+is detected from the origin remote; these CLIs are supported:
 
 | Forge | CLI | Source |
 |---|---|---|
-| GitHub | `gh` | Dependabot advisories and code-scanning alerts — SARIF results from a Checkmarx or CodeQL action land there too, so cfq needs no scanner CLI of its own |
+| GitHub and GitHub Enterprise Server | `gh` | Dependabot advisories and code-scanning alerts — SARIF results from a Checkmarx or CodeQL action land there too, so cfq needs no scanner CLI of its own |
+| GitLab | `glab` | the project's vulnerability report, which needs GitLab Ultimate; findings are counted but never marked fixable, so they do not create a `security-findings` entry |
 | Gitea / Forgejo | `tea` | the forge has no security-alerts API; `tea` only confirms login and reachability, and that's reported openly |
 | any | — | `npm audit` whenever a `package.json` exists, always in addition |
 
-The host is checked explicitly against the CLI's own login list, since `tea` otherwise silently
-falls back to a mismatched login and queries the wrong instance. A missing CLI or login produces
-a hint naming the exact fix (`gh auth login` or `tea login add --url <host>`), never a generic one.
+Any host other than `github.com` is classified by which CLI is logged in to it, in the order `gh`,
+`glab`, `tea`, and every query runs against the repository's own host. A missing CLI or login
+produces a hint naming the exact fix (`gh auth login --hostname <host>`, `glab auth login
+--hostname <host>` or `tea login add --url <host>`), never a generic one.
 
 Only `critical`/`high` findings **with** an available fix get planned as a phase — everything else
 stays a warning line.
@@ -483,6 +496,10 @@ works and still sits at the top tier:
 
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.
+
+A repo can list the tools it needs in `requiredTools` (for example `py:pytest`): the preflight of
+`/ifq` stops when one is missing, the one of `/pfq` only warns. Entries are names that are looked
+up, never commands that are run.
 
 ### Settings
 
@@ -509,7 +526,7 @@ plugin does not install any of these — it only adds the plugin's own files. `b
 reports what's missing and, for a required gap, a platform-appropriate install hint; the bundled
 `SessionStart` hook runs it automatically and stays completely silent on a healthy host, only
 warning (user and Claude both) when a required command is absent. Optional, each degrading only the
-one feature it powers rather than blocking the plugin: `gh` or `tea` for the security check
+one feature it powers rather than blocking the plugin: `gh`, `glab` or `tea` for the security check
 (whichever matches the repo's forge), `npm` for `npm audit` on repos with a `package.json`.
 
 ## Platforms

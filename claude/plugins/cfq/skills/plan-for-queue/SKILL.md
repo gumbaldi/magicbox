@@ -76,7 +76,7 @@ is `true` → print `Config  ➖ known repo` instead, without reading that secti
 
 **Plugin Boundaries**: `planningPolicy.planBlockedPlugins` (no new call) — used neither directly
 nor indirectly, nor recommended in this session's phase files, from research onward. Print
-`Plugin Boundaries` as returned.
+`Plugin Boundaries` as returned, then the `Required Tools` line as returned when the preflight carries one; it never blocks.
 
 Then ask everything that belongs before research starts in one `AskUserQuestion` call, every time —
 never skip, never infer. On an unknown repo the repo setup wizard's own area/value questions
@@ -142,8 +142,7 @@ list + S/M/L sizes); no dedicated confirmation question gates the write, that ga
 `${CLAUDE_PLUGIN_ROOT}/references/phase-template.md` as the phase-file skeleton) and
 follow it, always, before writing any phase's Changes and Verification text — it also steers the
 Size letter (rule 5). For each phase, estimate **Size** `S`/`M`/`L` and write the `## Size` heading
-— mechanics (letter placement, what parses it, the degrade-to-`M` fallback, **Recommended
-skills**) in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` rule 5. Per phase, decide the
+— mechanics (letter placement, what parses it, the degrade-to-`M` fallback) in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` rule 5. Per phase, decide the
 optional `## Model` heading per that file's rule 8, from `planningPolicy.implModels`. Print `Phases` once
 written — no phase file is written to disk yet, that's **Park**, after **Self-Critique of the
 Phase Cut**.
@@ -169,8 +168,10 @@ Read the call's JSON fields directly (no `jq`, no `/tmp` file). `available == fa
 `hint` once; findings present → state the count per severity. `fixable.critical`/`fixable.high` > 0
 and no `"<repo-root>/.claude/cfq/plan"/*-security-findings.md` exists yet → write the `plan/` entry
 via `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
-(body on stdin, never a temp file: counts per severity, the fixable advisories, a note that a
-decision is still open); one already exists → write nothing, say so in the status line. Never a
+(body on stdin, never a temp file; counts per severity and the fixable advisories, plus either of
+two closings: when a phase of this batch names every fixable critical and high advisory, the body
+names that phase and says the entry can be closed once it lands, with no sentence saying a decision
+is open; otherwise the body says a decision is still open); one already exists → write nothing, say so in the status line. Never a
 question, never a phase in this batch. Store the snapshot:
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
 
@@ -220,7 +221,8 @@ Print `Review`.
 
 ## Step 16 — Telemetry and Sync
 
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry record "<batch-dir>" planning` then
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry record "<batch-dir>" planning --depth <quick|thorough|docs>`
+(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") then
 `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry sync "<repo-root>"`. Failures are non-fatal, one line in
 the final report. Print `Telemetry`.
 

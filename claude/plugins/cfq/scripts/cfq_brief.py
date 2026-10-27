@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import host_paths  # noqa: E402
 from cfq_lib import paths as cfq_paths  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import proc as cfq_proc  # noqa: E402
@@ -49,7 +50,8 @@ def parse_phase_body(text, fallback_title=None):
     whichever comes first -- a `## Size` with no
     token before the next heading leaves `size` as `None` (callers already render that as `M`),
     and a `## Context` with fewer than two non-empty lines before the next heading leaves
-    `context` covering only what it actually captured.
+    `context` covering only what it actually captured. `summary` is the non-empty lines of `##
+    Summary` (each stripped, joined with single spaces), `""` when the section is missing or empty.
 
     A hand-edited phase file that lost its `# ` heading (or never had one) returns `title:
     fallback_title` instead of `title: None` -- callers pass the phase file's own stem (`NN-slug`)
@@ -126,6 +128,7 @@ def parse_phase_body(text, fallback_title=None):
     return {
         "title": title or fallback_title, "size": size, "model": model, "context": context, "files": files,
         "check": check, "steps": changes_steps(text),
+        "summary": " ".join(l.strip() for l in _section_lines(text, "Summary") if l.strip()),
     }
 
 
@@ -139,7 +142,8 @@ def render_phase(num, fields, model_applies=True):
         if not model_applies:
             head += " (not applied: classic mode)"
     lines = [head]
-    goal_lines = cfq_text.wrap(fields["context"], width=68, max_lines=4)
+    summary = fields.get("summary")
+    goal_lines = cfq_text.wrap(summary or fields["context"], width=68, max_lines=6 if summary else 4)
     for i, line in enumerate(goal_lines):
         prefix = "  Goal     " if i == 0 else " " * 11
         lines.append(f"{prefix}{line}")
@@ -164,7 +168,7 @@ def render_phase(num, fields, model_applies=True):
 
 
 def render_brief(num, fields):
-    goal = fields["context"][:220]
+    goal = (fields.get("summary") or fields["context"])[:220]
     return f"{num}  {fields['title']}  [{fields['size'] or 'M'}]  {goal}"
 
 
@@ -418,6 +422,11 @@ def parse_phase_review(text, fallback_title):
         context_lines.pop(0)
     while context_lines and not context_lines[-1].strip():
         context_lines.pop()
+    summary_lines = _section_lines(text, "Summary")
+    while summary_lines and not summary_lines[0].strip():
+        summary_lines.pop(0)
+    while summary_lines and not summary_lines[-1].strip():
+        summary_lines.pop()
     files = []
     for line in _section_lines(text, "Affected Files"):
         if line.startswith("- `"):
@@ -425,7 +434,7 @@ def parse_phase_review(text, fallback_title):
             files.append((path, rest.strip()))
     return {
         "title": fields["title"], "size": fields["size"], "check": fields["check"],
-        "context_lines": context_lines, "files": files,
+        "context_lines": context_lines, "summary_lines": summary_lines, "files": files,
         "steps": changes_steps(text), "fallback": changes_fallback(text),
     }
 
@@ -444,10 +453,15 @@ def render_review_phase(num, fields, phase_path, repo_root, state=""):
     head = f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"
     lines = [head + (f" · {state}" if state else "")]
 
-    ctx = _render_md_blocks(fields["context_lines"], "    ", para_gap=True)
-    if ctx:
-        lines.append("  Context")
-        lines.extend(ctx)
+    summary = _render_md_blocks(fields["summary_lines"], "    ", para_gap=True)
+    if summary:
+        lines.append("  Summary")
+        lines.extend(summary)
+    else:
+        ctx = _render_md_blocks(fields["context_lines"], "    ", para_gap=True)
+        if ctx:
+            lines.append("  Context")
+            lines.extend(ctx)
 
     if fields["files"]:
         lines.append("  Files")
@@ -480,7 +494,7 @@ def _portal_line(d):
     repo = _repo_root_from_batch_dir(d)
     if repo is None or cfq_proc.settings_get(repo, "htmlReport") != "true":
         return None
-    return f"  Portal   {cfq_paths.portal_batch_url(repo, d.name)}"
+    return f"  Portal   {host_paths.portal_batch_url(repo, d.name)}"
 
 
 def render_review(d, only=None):

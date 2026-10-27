@@ -1,6 +1,119 @@
+- batchNumber: 60
+  batch: 060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
+  branch: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
+  base: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
+  started: 2026-10-27
+  status: done
+  finished: 2026-10-27
+  phases:
+    - phase: "01-host-paths-module-and-settings"
+      status: "green"
+      summary: "cfq_lib/host_paths.py (detect, resolve, os_path, editor_url, file_url) plus the editor, hostPlatform and wslDistro settings, tests and docs"
+    - phase: "02-platform-aware-report-url"
+      status: "green"
+      summary: "host_paths.portal_batch_url builds the portal link per host platform; paths.portal_batch_url removed and both callers switched"
+    - phase: "03-sync-rebuilds-edited-batches-and-mirrors-all"
+      status: "green"
+      summary: "batch_newer_than() mtime check so a filtered portal sync rebuilds hand-edited batches, and every batch payload is recorded for the reportDir mirror"
+    - phase: "04-edit-fields-in-portal-payloads"
+      status: "green"
+      summary: "edit targets (OS path and editor link) in the phase, batch and open-entry payloads of the portal sync, with settings read once per sync"
+    - phase: "05-viewer-edit-and-copy-path-buttons"
+      status: "green"
+      summary: "Shared editControls/editControlRow builder in portal/core.js (editor link, copy button with clipboard and execCommand fallbacks, selectable path fallback, sync hint), used on the batch header, the phase Plan sub-tab and the entry page, with styles and tests"
+    - phase: "06-docs-and-plugin-version"
+      status: "green"
+      summary: "Documented portal editor links, copy-path and sync freshness in README, usage and design notes; bumped plugin version 0.40.0 to 0.41.0"
+- batchNumber: 59
+  batch: 059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
+  branch: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
+  base: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
+  started: 2026-10-26
+  status: done
+  finished: 2026-10-27
+  phases:
+    - phase: "01-report-summary-json-with-planning-split"
+      status: "green"
+      summary: "report summary now prints a named JSON object with planning as its own layer and de-duplicated deviations; the TSV is removed"
+    - phase: "02-finish-telemetry-detail-and-push-state"
+      status: "green"
+      summary: "push_state and the push suffix on the Branch line, the four-way Telemetry line, branch.push in the finish JSON, README sentence"
+    - phase: "03-closing-report-fields-and-rules"
+      status: "green"
+      summary: "Closing report fields rewritten around the JSON summary (layers incl. planning, de-duplicated deviations, no skills line) with push/merge-state rules, plus branch, worker and README wording"
+    - phase: "04-required-tools-setting-and-preflight-check"
+      status: "green"
+      summary: "requiredTools setting, cfq_lib/tools.py name-lookup checker, Required Tools line and requiredTools object in both preflights, skill prose and docs"
+    - phase: "05-security-entry-names-covering-phase"
+      status: "green"
+      summary: "Step 10 and the Plan Entry rule let a security-findings entry name the covering phase and say it can be closed once it lands, instead of a decision-still-open sentence"
+    - phase: "06-note-ledger-reads-phase-state"
+      status: "green"
+      summary: "cfq_note.py takes a note's phase from phase_state.next_pending (None when status.json is missing or unreadable) instead of globbing plan files; test_note.py batch fixture carries a status.json and covers the error, skipped and missing-status cases"
+    - phase: "07-portal-phase-title-inline-code"
+      status: "green"
+      summary: "phase titles in the batch page's phase table render backticked words as code via inlineCode"
+    - phase: "08-design-notes-version-and-repo-tool-declaration"
+      status: "green"
+      summary: "Five design-note sections appended, plugin version raised to 0.40.0, requiredTools py:pytest set for this repo"
+- batchNumber: 58
+  batch: 058-2026-10-26-prune-features-plain-summary-explore-first
+  branch: cfq/058-2026-10-26-prune-features-plain-summary-explore-first
+  base: cfq/057-2026-10-26-security-host-detection-and-model-defaults
+  started: 2026-10-26
+  status: done
+  finished: 2026-10-26
+  phases:
+    - phase: "01-remove-recommended-skills"
+      status: "green"
+      summary: "Removed the Recommended skills feature from the planning rule, worker briefing, telemetry, report, flags and portal; used skills stay."
+    - phase: "02-plain-summary-section"
+      status: "green"
+      summary: "Added a plain-words ## Summary section: parsed in cfq_brief (announcement Goal, one-line listing, review digest), warn-only summary-missing lint, template, quality rule 9, README and ifq-phase docs"
+    - phase: "03-zero-test-verification-guard"
+      status: "green"
+      summary: "lint finding verification-filter for unittest -k expressions, planner guidance in phase-quality rules 4 and 6, zero-tests-is-red rule in worker definition and classic ifq, README lint row"
+    - phase: "04-workers-never-search-themselves"
+      status: "green"
+      summary: "Code search is always delegated to an implExploreModel Explore agent in ifq-phase.md, cfq-phase-worker.md and ifq-classic.md; implementer reads only returned line ranges"
+    - phase: "05-visible-missing-cost-line"
+      status: "green"
+      summary: "phase_cost_line wrapper returning a Cost warning entry instead of dropping the line, used by worker verdict and phase commit; telemetry warns on stderr for 0-turn records; orchestrator.md updated"
+    - phase: "06-planning-telemetry-depth-and-phase-count"
+      status: "green"
+      summary: "Planning telemetry records carry interview_depth (new --depth quick|thorough|docs flag) and phase_count (from status.json), kept by settle; pfq call and README updated"
+    - phase: "07-drop-unused-scan-formats-and-dead-dispatch"
+      status: "green"
+      summary: "Removed the md/tsv/overview scan formats and their helpers, and collapsed the unreachable non-Python branches in bin/cfq"
+    - phase: "08-route-git-calls-through-proc-helper"
+      status: "green"
+      summary: "proc.git gained an input keyword and the hand-written git subprocess calls in eight scripts now go through it"
+    - phase: "09-collapse-duplicate-helpers"
+      status: "green"
+      summary: "Moved batch-number parsing, atomic writes (render.write_text_atomic), inbox count, plugin-boundaries line and mtime into cfq_lib and converted every duplicate site"
+    - phase: "10-docs-design-notes-version"
+      status: "green"
+      summary: "Five design-note sections, usage.md and CLAUDE.md updates for Summary and always-delegated code search, plugin version raised 0.38.0 to 0.39.0"
 - batchNumber: 57
   batch: 057-2026-10-26-security-host-detection-and-model-defaults
-  status: parked
+  branch: cfq/057-2026-10-26-security-host-detection-and-model-defaults
+  base: dev
+  started: 2026-10-26
+  status: done
+  finished: 2026-10-26
+  phases:
+    - phase: "01-security-check-host-detection"
+      status: "green"
+      summary: "detect_forge classifies non-github.com hosts by gh/glab/tea login (new CFQ_GH_LOGIN_HOSTS/CFQ_GLAB_LOGIN_HOSTS overrides); cmd_security queries gh with --hostname, adds a GitLab vulnerability branch (fix: false) and the new unknown-host hint; tests added"
+    - phase: "02-doctor-glab-optional"
+      status: "green"
+      summary: "glab added as an optional row in config/dependencies.txt next to gh (gh row now names GitHub Enterprise too), and the doctor tests expect glab in every minimal PATH and in the missingOptional and inventory checks"
+    - phase: "03-model-defaults"
+      status: "green"
+      summary: "implModels default is now [sonnet, haiku] and orchestratorModels default is [sonnet]; tests and configuration docs updated"
+    - phase: "04-docs-design-notes-version"
+      status: "green"
+      summary: "Updated README security section and mentions, setup and configuration docs, two design-notes sections, and bumped cfq to 0.38.0"
 - batchNumber: 56
   batch: 056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal
   branch: cfq/056-2026-10-12-settings-repo-tier-effort-warning-rfq-removal

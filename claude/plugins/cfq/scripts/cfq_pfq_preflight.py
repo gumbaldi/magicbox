@@ -18,30 +18,15 @@ import argparse
 import json
 import os
 import pathlib
-import re
 import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, render, text  # noqa: E402
+from cfq_lib import effort, render, text, tools  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
-
-INBOX_HEADER_RE = re.compile(r"^INBOX\s+(\d+) entries")
-
-
-def inbox_count_from_overview(overview_text):
-    """Derives the entry count from `note list --overview`'s own first line (`INBOX  <n>
-    entries[ · <k> framework not imported]` or `INBOX  empty`) instead of a second `note list`
-    JSON call -- one subprocess call covers both the printable block and the count, and `plan/`
-    is never parsed twice in the same preflight run."""
-    first_line = overview_text.splitlines()[0] if overview_text else ""
-    if first_line == "INBOX  empty":
-        return 0
-    m = INBOX_HEADER_RE.match(first_line)
-    return int(m.group(1)) if m else 0
 
 
 def model_check_line(allow_any_model, effort_warning=None):
@@ -54,14 +39,6 @@ def model_check_line(allow_any_model, effort_warning=None):
     if allow_any_model:
         return text.status_entry("Model Gate", "skip", "skipped · allowAnyModel", sub=sub)
     return text.status_entry("Model Gate", "done", "checked against planModels", sub=sub)
-
-
-def plugin_boundaries_line(blocked):
-    if not blocked:
-        return text.status_entry("Plugin Boundaries", "skip", "none blocked")
-    return text.status_entry(
-        "Plugin Boundaries", "done", f"{len(blocked)} blocked: {', '.join(blocked)}",
-    )
 
 
 def inbox_line(count, imported):
@@ -125,12 +102,14 @@ def cmd_preflight(args):
     import_result = json.loads(cfq_run("note", "import", repo).stdout)
     imported_n = len(import_result.get("imported", []))
     inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
-    inbox_n = inbox_count_from_overview(inbox_overview)
+    inbox_n = text.inbox_count_from_overview(inbox_overview)
     inbox_detail = cfq_run("note", "list", repo, "--detail").stdout.rstrip("\n")
 
     current_effort = os.environ.get("CLAUDE_EFFORT")
     required_effort = settings["planSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
+    required_tools = tools.check(settings["requiredTools"])
+    tools_line = tools.status_entry(required_tools, blocking=False)
 
     print(render.dump_json({
         "status": "OK",
@@ -157,6 +136,7 @@ def cmd_preflight(args):
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
+        "requiredTools": required_tools,
         "inbox": {
             "count": inbox_n, "imported": imported_n, "overview": inbox_overview,
             "detail": inbox_detail,
@@ -165,7 +145,8 @@ def cmd_preflight(args):
             model_check_line(settings["allowAnyModel"], effort_warning),
             inbox_line(inbox_n, imported_n),
             review_line(awaiting),
-            plugin_boundaries_line(settings["planBlockedPlugins"]),
+            text.plugin_boundaries_line(settings["planBlockedPlugins"]),
+            *([tools_line] if tools_line else []),
         ],
     }))
 

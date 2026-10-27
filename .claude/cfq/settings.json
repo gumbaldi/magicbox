@@ -1,3 +1,6 @@
 {
-  "stopPct": 0
+  "stopPct": 0,
+  "requiredTools": [
+    "py:pytest"
+  ]
 }

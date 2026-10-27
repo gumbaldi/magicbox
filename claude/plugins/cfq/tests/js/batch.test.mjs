@@ -156,6 +156,16 @@ test("tab bar lists exactly the registered tabs; unknown tab falls back to Phase
   assert.equal(byTag(unknown.root, "table").length, 1);
 });
 
+test("a phase title with backticks shows the words as code, not the backtick characters", () => {
+  const batch = fixtureBatch("done");
+  batch.phases[0].title = "`bin/cfq portal sync`: data files";
+  const { root } = draw(batch);
+  const title = byClass(root, "phase-title")[0];
+  assert.ok(byTag(title, "code").some((c) => c.textContent === "bin/cfq portal sync"));
+  assert.doesNotMatch(collectText(title), /`/);
+  assert.match(collectText(title), /data files/);
+});
+
 test("phases table: columns, one row per phase, closed by default", () => {
   const { root } = draw(fixtureBatch("done"));
   const table = byTag(root, "table")[0];
@@ -445,4 +455,74 @@ test("a skip attempt renders as a row labelled skipped", () => {
   assert.match(pill.className, /pill-skipped/);
   assert.match(collectText(pill), /skipped/i);
   assert.match(collectText(panel), /obsolete/);
+});
+
+// ---- edit controls --------------------------------------------------------------------------
+
+test("header: an open batch shows the folder and context controls and the hint", () => {
+  const { root } = draw(fixtureBatch("in_progress"));
+  const head = byTag(root, "header")[0];
+  const rows = byClass(head, "edit-controls");
+  assert.equal(rows.length, 1);
+  assert.deepEqual(byClass(rows[0], "edit-open").map((a) => [a.textContent, a.attrs.href]), [
+    ["Open folder", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo"],
+    ["Open context", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo/.batch-context.md"],
+  ]);
+  assert.deepEqual(byClass(rows[0], "edit-copy").map((b) => b.textContent), ["Copy folder path", "Copy context path"]);
+  assert.equal(byClass(rows[0], "edit-hint").length, 1);
+  // after the facts list
+  const kids = head.children;
+  assert.ok(kids.indexOf(rows[0]) > kids.indexOf(byClass(head, "facts")[0]));
+});
+
+test("header: no context file means no context pair; editor off means no links; a done batch has none", () => {
+  const noCtx = fixtureBatch("in_progress");
+  delete noCtx.edit.context;
+  const a = draw(noCtx).root;
+  assert.deepEqual(byClass(a, "edit-copy").filter((b) => /context/.test(b.textContent)), []);
+  assert.deepEqual(byClass(a, "edit-copy").map((b) => b.textContent), ["Copy folder path"]);
+
+  const off = fixtureBatch("in_progress");
+  delete off.edit.dir.url;
+  delete off.edit.context.url;
+  const b = draw(off).root;
+  assert.equal(byClass(b, "edit-open").length, 0);
+  assert.equal(byClass(b, "edit-copy").length, 2);
+
+  assert.equal(byClass(draw(fixtureBatch("done")).root, "edit-controls").length, 0);
+});
+
+test("Plan sub-tab: a phase with edit shows Edit plan above the plan text, also without plan text", () => {
+  const { root } = draw(fixtureBatch("plan_only"));
+  fire(rowToggles(root)[0], "click");
+  let panel = byClass(root, "phase-detail")[0];
+  fire(buttons(panel, "Plan")[0], "click");
+  panel = byClass(root, "phase-detail")[0];
+  const row = byClass(panel, "edit-controls")[0];
+  assert.deepEqual(byClass(row, "edit-open").map((a) => [a.textContent, a.attrs.href]),
+    [["Edit plan", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo/01-first.md"]]);
+  assert.deepEqual(byClass(row, "edit-copy").map((b) => b.textContent), ["Copy path"]);
+  const siblings = row.parentNode.children;
+  assert.ok(siblings.indexOf(row) < siblings.indexOf(byClass(panel, "plan-text")[0]));
+  assert.ok(collectHtml(panel).includes("<p>Plan of First.</p>"));
+
+  const empty = fixtureBatch("plan_only");
+  empty.phases[0].planHtml = "";
+  const e = draw(empty).root;
+  fire(rowToggles(e)[0], "click");
+  let p2 = byClass(e, "phase-detail")[0];
+  fire(buttons(p2, "Plan")[0], "click");
+  p2 = byClass(e, "phase-detail")[0];
+  assert.equal(byClass(p2, "edit-controls").length, 1);
+  assert.match(collectText(p2), /No plan text recorded\./);
+});
+
+test("Plan sub-tab: a phase without edit shows no controls", () => {
+  const { root } = draw(fixtureBatch("done"));
+  fire(rowToggles(root)[0], "click");
+  let panel = byClass(root, "phase-detail")[0];
+  fire(buttons(panel, "Plan")[0], "click");
+  panel = byClass(root, "phase-detail")[0];
+  assert.equal(byClass(panel, "edit-controls").length, 0);
+  assert.ok(collectHtml(panel).includes("<p>Plan of First.</p>"));
 });

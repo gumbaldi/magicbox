@@ -14,8 +14,9 @@ import subprocess
 import tempfile
 import unittest
 
-import cfq_settings
 from cfq_testlib import CFQ_BIN, SCRIPTS_DIR, CfqTestCase
+
+import cfq_settings  # noqa: E402  (cfq_testlib puts scripts/ on sys.path)
 
 
 class SettingsTest(CfqTestCase):
@@ -193,9 +194,9 @@ class SettingsTest(CfqTestCase):
         want = {
             "grillMode": "stepwise",
             "planModels": "opus,fable",
-            "implModels": "sonnet",
+            "implModels": "sonnet,haiku",
             "orchestratorMode": "true",
-            "orchestratorModels": "",
+            "orchestratorModels": "sonnet",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
             "allowAnyModel": "false",
@@ -320,7 +321,7 @@ class SettingsTest(CfqTestCase):
         got = self.run_clean(
             str(CFQ_BIN), "settings", "get", "orchestratorModels"
         ).stdout.strip()
-        self.assertEqual(got, "", msg=f"default orchestratorModels = '{got}', want empty")
+        self.assertEqual(got, "sonnet", msg=f"default orchestratorModels = '{got}', want sonnet")
 
         with tempfile.TemporaryDirectory() as fixture_s:
             fixture = pathlib.Path(fixture_s)
@@ -1014,6 +1015,65 @@ class SettingsTest(CfqTestCase):
             )
 
 
+    # 19b. editor: default, valid set, rejected values, repo scope allowed
+    def test_19b_editor(self):
+        got = self.run_cfq("settings", "get", "editor", home=self.home).stdout.strip()
+        self.assertEqual(got, "vscode", msg=f"default editor = '{got}'")
+
+        self.run_cfq("settings", "set", "editor", "cursor", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "editor", home=self.home).stdout.strip()
+        self.assertEqual(got, "cursor")
+        self.run_cfq("settings", "set", "editor", "off", home=self.home, check=True)
+
+        for bad in ("Bad Scheme", "Cursor", "1code"):
+            proc = self.run_cfq("settings", "set", "editor", bad, home=self.home)
+            self.assertNotEqual(proc.returncode, 0, msg=f"set editor '{bad}' should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            self.run_cfq(
+                "settings", "set", "--repo", fixture, "editor", "kiro", home=self.home, check=True
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", fixture, "editor", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "kiro", msg="editor is repo-scoped")
+
+    # 19c. hostPlatform: default, valid set, rejected value, global-only
+    def test_19c_host_platform(self):
+        got = self.run_cfq("settings", "get", "hostPlatform", home=self.home).stdout.strip()
+        self.assertEqual(got, "auto", msg=f"default hostPlatform = '{got}'")
+
+        self.run_cfq("settings", "set", "hostPlatform", "wsl", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "hostPlatform", home=self.home).stdout.strip()
+        self.assertEqual(got, "wsl")
+
+        proc = self.run_cfq("settings", "set", "hostPlatform", "linux", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set hostPlatform linux should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            proc = self.run_cfq(
+                "settings", "set", "--repo", fixture, "hostPlatform", "posix", home=self.home
+            )
+            self.assertNotEqual(proc.returncode, 0, msg="hostPlatform --repo should fail (global-only)")
+
+    # 19d. wslDistro: default, valid set, rejected value, global-only
+    def test_19d_wsl_distro(self):
+        got = self.run_cfq("settings", "get", "wslDistro", home=self.home).stdout.strip()
+        self.assertEqual(got, "", msg=f"default wslDistro = '{got}'")
+
+        self.run_cfq("settings", "set", "wslDistro", "AlmaLinux9", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "wslDistro", home=self.home).stdout.strip()
+        self.assertEqual(got, "AlmaLinux9")
+
+        proc = self.run_cfq("settings", "set", "wslDistro", "a/b", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set wslDistro a/b should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            proc = self.run_cfq(
+                "settings", "set", "--repo", fixture, "wslDistro", "Ubuntu", home=self.home
+            )
+            self.assertNotEqual(proc.returncode, 0, msg="wslDistro --repo should fail (global-only)")
+
     # 20. settings menu: every key in exactly one group, fixed group order and titles.
     def test_20_menu_groups_cover_every_key_once_in_fixed_order(self):
         want_group_keys = {
@@ -1025,7 +1085,7 @@ class SettingsTest(CfqTestCase):
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
                 "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
-                "batchReview", "batchReviewFindings",
+                "batchReview", "batchReviewFindings", "requiredTools",
             },
             "limits": {
                 "stopUsed", "stopFiveHourPct", "stopSevenDayPct", "ctxWindowLimits",
@@ -1036,7 +1096,10 @@ class SettingsTest(CfqTestCase):
                 "maintenanceEvery", "usePonytailAudit", "securityTimeoutSeconds",
                 "securityFindingsCap",
             },
-            "reports": {"htmlReport", "reportDir", "telemetrySyncRepo", "changelogFile"},
+            "reports": {
+                "htmlReport", "reportDir", "telemetrySyncRepo", "changelogFile", "editor",
+                "hostPlatform", "wslDistro",
+            },
             "repo": {"gitStatePolicy", "scanRoots", "frameworkRepo"},
         }
         want_order = [
@@ -1369,6 +1432,23 @@ class SettingsTest(CfqTestCase):
         self.assertNotIn("unknown key", out)
         data = self.json_out(self.run_cfq("settings", "menu", "--repo", str(r), "--format", "json"))
         self.assertEqual(data["unknownKeys"], [])
+
+    # 27. requiredTools: default empty, settable per repo, listed.
+    def test_27_required_tools(self):
+        out = self.json_out(self.run_cfq("settings", "list", home=self.home))
+        self.assertEqual(out["requiredTools"], [], msg=f"default requiredTools = {out.get('requiredTools')}")
+
+        r = self.make_repo("required-tools")
+        self.run_cfq(
+            "settings", "set", "--repo", str(r), "requiredTools", "py:pytest", home=self.home,
+            check=True,
+        )
+        out = self.json_out(self.run_cfq("settings", "list", "--repo", str(r), home=self.home))
+        self.assertEqual(out["requiredTools"], ["py:pytest"])
+        got = self.run_cfq(
+            "settings", "get", "--repo", str(r), "requiredTools", home=self.home
+        ).stdout.strip()
+        self.assertEqual(got, "py:pytest")
 
     def json_out_stderr(self, proc):
         try:

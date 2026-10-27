@@ -101,8 +101,8 @@ test("Closing tab: no closing data says so", () => {
 
 test("Closing tab: every part of the closing result is shown", () => {
   const batch = fixtureBatch("done");
-  batch.phases[0].attempts[0].skills = { recommended: ["ponytail", "tdd"], used: ["tdd"] };
-  batch.phases[1].attempts[1].skills = { recommended: ["tdd"], used: ["simplify"] };
+  batch.phases[0].attempts[0].skills = { used: ["tdd"] };
+  batch.phases[1].attempts[1].skills = { used: ["simplify"] };
   const { body } = renderTab(batch, "closing");
   const text = collectText(body);
   assert.match(text, /Docs lack a German counterpart/);
@@ -116,13 +116,13 @@ test("Closing tab: every part of the closing result is shown", () => {
   const sec = byClass(body, "notes")[0];
   assert.deepEqual(byTag(sec, "th").map((t) => t.textContent), ["Planning", "Now", "New"]);
   assert.deepEqual(byTag(sec, "td").map((t) => t.textContent), ["0", "1", "1"]);
-  // Skills across all attempts, each name once, recommended next to used.
+  // Skills across all attempts, each name once.
   const lists = byClass(byClass(body, "closing")[0], "plain-list");
   const items = lists.map((l) => byTag(l, "li").map((li) => collectText(li)));
-  assert.ok(items.some((i) => i.join() === "ponytail,tdd"));
   assert.ok(items.some((i) => i.join() === "simplify,tdd"));
+  assert.doesNotMatch(text, /Recommended/);
   const skills = CFQ.batchNotes.skillSets(batch);
-  assert.deepEqual(skills, { recommended: ["ponytail", "tdd"], used: ["simplify", "tdd"] });
+  assert.deepEqual(skills, { used: ["simplify", "tdd"] });
 });
 
 test("Closing tab: missing parts show a dash, an unmerged batch says so, the snapshot hint appears", () => {

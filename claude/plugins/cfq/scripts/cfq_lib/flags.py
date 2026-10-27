@@ -159,10 +159,6 @@ def phase_flags(phase, base, repo_root):
     triggers = sorted({t for a in attempts for t in a.get("triggers") or []})
     if triggers:
         flags.append(_flag("info", "triggers", f"triggers: {', '.join(triggers)}", slug))
-    skills = latest.get("skills") if isinstance(latest.get("skills"), dict) else {}
-    unused = sorted(set(skills.get("recommended") or []) - set(skills.get("used") or []))
-    if unused:
-        flags.append(_flag("info", "skills-unused", f"recommended skills not used: {', '.join(unused)}", slug))
     if latest.get("settled") is False:
         flags.append(_flag("info", "provisional", "telemetry not settled yet", slug))
 

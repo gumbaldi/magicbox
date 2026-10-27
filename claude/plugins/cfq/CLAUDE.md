@@ -46,8 +46,9 @@ python3 -m unittest discover -s claude/plugins/cfq/tests -k settings   # one are
 The test suite sets `CFQ_SETTINGS_AUTO_REPO=0` through `cfq_testlib.py`, so a settings read never
 picks up this checkout's own settings file.
 
-Tests are stdlib `unittest`, no installation needed. `pytest claude/plugins/cfq/tests` also works
-if you have it, and gives better failure output — it is optional, never required.
+The suite runs with `python3 -m pytest claude/plugins/cfq/tests`; this repository declares
+`py:pytest` in `requiredTools` (set by the last phase of batch 059), so `/ifq` stops here when
+pytest is missing. `python3 -m unittest discover -s claude/plugins/cfq/tests` runs the same files.
 
 ```bash
 claude plugin eval claude/plugins/cfq --case <name> --runs 1 --ablation none --scaffold --trust-plugin --no-publish
@@ -293,8 +294,10 @@ id goes through `cfq_runtime.py transcript-path|subagent-dir --session <id>`.
 
 **A subagent pays off only where the parent never needs the full raw result in its own context
 afterward.** Two shapes qualify. The first is delegation: `plan-for-queue`'s **Understand** and
-`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) both delegate multi-file or unclear-scope research to Explore agents
-(`planExploreModel` / `implExploreModel`), and `implement-for-queue` may additionally run a phase's
+`implement-for-queue`'s classic **Implementation** step (`references/ifq-classic.md`) delegate research to Explore agents: `plan-for-queue` delegates
+multi-file or unclear-scope research (`planExploreModel`), while `implement-for-queue` always
+delegates code search to an `implExploreModel` agent before the first edit and reads only the
+returned line ranges (classic and orchestrator mode alike). `implement-for-queue` may additionally run a phase's
 verification command through the same subagent to keep raw test/build log noise out of the
 expensive model's context. Research fits, since the parent gets a distilled summary and stops
 there; a **green** verification run fits the same way — pass/fail plus which command ran is
@@ -318,15 +321,18 @@ direct read-and-edit would have been one.
 That trade-off is measurable, not asserted: compare a subagent call's reported input-token count
 (`cfq_telemetry.py`'s per-turn numbers) against the token cost of the parent reading and editing
 the same files directly — for a fragment the parent must read back, the subagent path loses.
-For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (its
-additive TSV fields 12-15, populated whenever a phase actually ran as a worker) is the same
-comparison already run per batch — read it before assuming the split still favors orchestrator
-mode. Fields 12/13 are the `main` layer's own turns/output (the session itself) and 14/15 the
-`worker` layer's, both read straight off `layers` (or derived the same way for an older record)
-rather than by subtracting one pool from another; the invariant across the whole row is
-`orchestrator_turns + worker_turns + explore_turns + worker_explore_turns` == the batch's whole
-`total_turns` (and the same shape for output) — four disjoint layers summing to the total, never a
-subtraction that could go negative. Anyone tempted to delegate anything beyond exploration,
+For the ownership case, `bin/cfq report summary <batch-dir>`'s orchestrator/worker split (the
+`layers` object of its JSON output, with `worker` populated whenever a phase actually ran as a
+worker) is the same comparison already run per batch — read it before assuming the split still
+favors orchestrator mode. `layers.orchestrator` is the `main` layer's own turns/output (the session
+itself) and `layers.worker` the `worker` layer's, both read straight off each record's `layers` (or
+derived the same way for an older record) rather than by subtracting one pool from another. The
+planning session is its own layer, `layers.planning` (all four of its layers summed), apart from the
+phases'; `layers.explorer` and `layers.worker_explorer` are the phases' `main_explore` and
+`worker_explore`. The invariant across the five named layers is
+`planning + orchestrator + worker + explorer + worker_explorer` == `totals`, for `turns`, `output`
+and `billable_in` alike — five disjoint layers summing to the total, never a subtraction that could
+go negative. Anyone tempted to delegate anything beyond exploration,
 verification execution, or a whole self-committing phase should re-run the relevant comparison
 first, not take this paragraph on faith.
 
@@ -335,7 +341,8 @@ batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo
 <name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes into
 `<repo>/.claude/cfq/reports/data/`: `site.js` (repo, commit URL, plugin version), `queue.js` (the
 repo overview — totals, per-size baselines, calibration points, one row per batch and per entry),
-`batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags) and
+`batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags, and an
+`edit` target — see below) and
 `entry/<id>.js` (one per `todo`/`plan` entry, open and closed — the archive; `<id>` is
 `<kind>-<file stem>`). Every data file registers a JSON payload on `window.CFQ_DATA["<key>"]`
 rather than being `fetch()`-ed — a browser blocks `fetch()` of a local JSON file under `file://`,
@@ -360,7 +367,9 @@ deleted as dead code (batch 047 phase 03).
 `cfq_lib/flags.py` derives the portal's flags (`warn`/`info`, thresholds as module constants, not
 settings) and the per-size baselines and calibration points in `queue.js` as pure functions over the
 batch payloads; `sync()` reads a batch outside the `--batch` filter back from its data file and only
-recomputes its `flags`.
+recomputes its `flags`, unless a file in its batch directory is newer than that data file
+(`batch_newer_than()`, stat only) — then it is rebuilt, so hand edits show up. Every batch,
+written or not, is part of the `reportDir` mirror.
 
 The viewer shell is every file in the plugin's `portal/` directory: `install_shell()` globs the
 directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new
@@ -381,6 +390,14 @@ Node over a fake DOM (`tests/js/helpers.mjs`, which also holds the contract-shap
 viewer test file shares); `tests/js/e2e.test.mjs` walks every view over the files a real `portal
 sync` wrote; `tests/test_portal_viewer.py` runs them. No CDN, no build step, charts are hand-written
 SVG.
+
+`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync. `sync()` reads the settings once (`settings list --repo`) and writes an `edit` object
+(`{"path": <OS path>, "url": <editor link>}`, `url` omitted when `editor` is `off`) into the payloads of
+editable items only: a phase not `done` (`phase_payloads()`), a batch with any phase not `done`
+(`edit.dir`, plus `edit.context` while `.batch-context.md` exists) and an open `plan/`/`todo/` entry
+(`entry/<id>.js` only, never the `queue.js` row, `entry_summary()` drops it). `edit` is computed at
+sync time from `host_paths` and the `editor` setting and always points at the repo-local files, also
+in a `reportDir` mirror; a batch read back outside a `--batch` filter keeps its stored `edit`.
 
 With `reportDir` set, `sync()` additionally mirrors every data file into
 `<reportDir>/<repo-basename>[-<hash>]/data/…`, writes `<reportDir>/data/repos.js` (the list of
@@ -408,7 +425,7 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
   interview is the only part that runs in the user's language. Everything written into a repo (plan
   files, queue entries, batch directory names, commit messages, the changelog) follows `codeLanguage`,
   documentation additionally `docLanguages` — except structural markers, which are always English
-  regardless of `codeLanguage`: headings in plan and queue files (`## Size`, `## Context`, …), the
+  regardless of `codeLanguage`: headings in plan and queue files (`## Summary`, `## Size`, `## Context`, …), the
   `(new)` marker, `.priority` values. Only the prose content inside those files follows
   `codeLanguage`.
 - **Progress is reported as status lines, not prose.** The canonical `## Output Format` block

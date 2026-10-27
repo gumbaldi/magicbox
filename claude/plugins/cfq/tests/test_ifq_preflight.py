@@ -168,6 +168,46 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["policy"]["batchReviewFindings"], "park", msg=f"policy = {out['policy']}"
         )
 
+    def _tools_repo(self, name):
+        repo = self._setup_repo(name)
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        return repo
+
+    def test_required_tools_unset_gives_no_line_and_empty_lists(self):
+        repo = self._tools_repo("tools-unset")
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["requiredTools"], {"entries": [], "missing": []})
+        self.assertNotIn("Required Tools", [e["label"] for e in out["statusLines"]])
+
+        empty = self.json_out(self._run_pf(str(self._setup_repo("tools-unset-empty"))))
+        self.assertEqual(empty["status"], "NO_BATCH")
+        self.assertEqual(empty["requiredTools"], {"entries": [], "missing": []})
+
+    def test_required_tools_present_gives_done_line_after_plugin_boundaries(self):
+        repo = self._tools_repo("tools-present")
+        out = self.json_out(self._run_pf(str(repo), env={"CFQ_REQUIRED_TOOLS": "py:json"}))
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Required Tools"), labels.index("Plugin Boundaries") + 1)
+        entry = out["statusLines"][labels.index("Required Tools")]
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "1 present"))
+        self.assertEqual(out["requiredTools"], {"entries": ["py:json"], "missing": []})
+
+    def test_required_tools_missing_gives_fail_line_on_every_path(self):
+        env = {"CFQ_REQUIRED_TOOLS": "py:json,py:cfq_no_such_module"}
+        for out in (
+            self.json_out(self._run_pf(str(self._tools_repo("tools-missing")), env=env)),
+            self.json_out(self._run_pf(str(self._setup_repo("tools-missing-empty")), env=env)),
+        ):
+            self.assertEqual(out["requiredTools"]["missing"], ["py:cfq_no_such_module"])
+            entry = next(e for e in out["statusLines"] if e["label"] == "Required Tools")
+            self.assertEqual(entry["icon"], "fail")
+            self.assertEqual(
+                entry["detail"],
+                "missing: py:cfq_no_such_module · install them, then re-run /ifq",
+            )
+
     def test_orchestrator_policy_present_and_true_by_default(self):
         repo = self._setup_repo("orch-default")
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
@@ -184,11 +224,30 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        (repo / ".claude" / "cfq" / "settings.json").write_text(
+            json.dumps({"orchestratorModels": []})
+        )
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(
+            out["policy"]["orchestratorModels"], ["sonnet", "haiku"],
+            msg=f"an explicitly empty orchestratorModels should fall back to implModels: {out['policy']}",
+        )
+
+    def test_orchestrator_models_default_is_sonnet(self):
+        repo = self._setup_repo("orch-default")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
 
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(
             out["policy"]["orchestratorModels"], ["sonnet"],
-            msg=f"orchestratorModels should fall back to implModels: {out['policy']}",
+            msg=f"default orchestratorModels should be sonnet: {out['policy']}",
+        )
+        self.assertEqual(
+            out["policy"]["implModels"], ["sonnet", "haiku"],
+            msg=f"default implModels should be sonnet, haiku: {out['policy']}",
         )
 
     def test_orchestrator_models_override_leaves_impl_models_untouched(self):
@@ -202,7 +261,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
             out["policy"]["orchestratorModels"], ["opus"], msg=f"override = {out['policy']}"
         )
         self.assertEqual(
-            out["policy"]["implModels"], ["sonnet"],
+            out["policy"]["implModels"], ["sonnet", "haiku"],
             msg=f"fallback substitution must not overwrite implModels: {out['policy']}",
         )
 
@@ -211,7 +270,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
-        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": []}))
+        (repo / ".claude" / "cfq" / "settings.json").write_text(json.dumps({"implModels": [], "orchestratorModels": []}))
 
         out = self.json_out(self._run_pf(str(repo)))
         self.assertEqual(
@@ -1178,6 +1237,8 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
     def _clean_phase_body(self, target):
         return f"""# Phase A
+## Summary
+Does a thing in plain words.
 ## Size
 M
 ## Context
@@ -1293,6 +1354,8 @@ x
         batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text(f"""# Phase A
+## Summary
+Does a thing in plain words.
 ## Size
 M
 ## Context

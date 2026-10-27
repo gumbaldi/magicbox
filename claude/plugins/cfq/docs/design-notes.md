@@ -253,6 +253,25 @@ is a bug a test finds, not a mapping somebody forgot to update. The earlier mism
 loading a nested `batch/<name>/…` path while the writer produced a dotted file name beside it —
 left every batch page empty.
 
+## cfq: why the portal links to an editor instead of editing in the browser
+
+Editing a parked plan from the portal could have been an in-browser edit mode. It is not: the portal
+is a `file://` page, and a browser page cannot write files. A local edit server (`portal serve`) was
+rejected as too large for the gain — it brings a process lifecycle, write authorisation and
+conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open in
+editor" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
+user's own editor.
+
+The links target the repo-local files, never the `reportDir` mirror: a plan edited in the mirror
+would not be the plan `/ifq` reads. For the same reason the printed report link points at the
+repo-local portal.
+
+A filtered portal sync rebuilds a batch outside the filter when any file in its directory is newer
+than its data file, instead of always rebuilding everything. That is what makes a hand edit show up
+without a full sync; the user preferred the mtime check to an unconditional rebuild. Measured on 80
+batches, a full rebuild took 0.24 s against 0.19 s filtered, so the check buys little speed and
+mainly keeps the sync cheap as the number of batches grows.
+
 ## cfq: why phase state lives in `status.json` and the directories only mirror it
 
 Until now a phase's state was inferred from where its file lay: in the batch directory it was open,
@@ -554,3 +573,111 @@ because `/pfq` and `/ifq` use them.
 
 What a user does instead: open the portal file, or run `bin/cfq portal sync <repo-root>` to
 refresh it when `htmlReport` is off.
+
+## security: why hosts are classified by CLI login
+
+The old check knew only `github.com`, so a GitHub Enterprise or GitLab repository silently got no
+forge source and the report did not say why.
+
+A host other than `github.com` is classified by the CLI logins, in the order `gh`, `glab`, `tea`,
+because the origin URL alone cannot tell the forge type. A guess from the hostname would query a
+wrong instance, which is worse than no result. The first CLI that is logged in to the host wins, and
+every query runs against the repository's own host.
+
+GitLab findings are counted and listed but never marked fixable, because the API gives no
+fixed-version information; a finding without a known fix does not belong in a `security-findings`
+entry. Gitea stays reachability-only, because it has no security-alert API: `tea` confirms login and
+reachability, and `npm audit` covers the rest.
+
+## models: why orchestratorModels has its own default
+
+`orchestratorModels` used to fall back to `implModels` while it was empty. With `implModels` now
+defaulting to `sonnet` and `haiku`, that fallback would let the `/ifq` session itself run on Haiku
+on a fresh installation. The default of `orchestratorModels` is therefore `sonnet`, so only the
+phase workers may be Haiku. An explicitly empty list still falls back to `implModels`, for a user
+who wants that on purpose.
+
+The rejected alternative was to leave `orchestratorModels` empty and document the risk. That would
+have made a safe session model depend on every user reading the note before the first run.
+
+## pfq: why phase plans no longer recommend skills
+
+Recommended skills were named in 2 of 971 finished phases (magicbox and atlas), and
+`skills_recommended` was empty in all 299 telemetry records. The two halves of the feature also
+never met: the telemetry side searched for a German heading (`## Empfohlene Skills`) while the
+worker searched for `## Recommended skills`, so nothing could ever have been counted. The planning
+rule, the worker briefing, the telemetry field, the report field and the portal column are
+removed. The "skills used" half stays, because it is recorded from what actually ran.
+
+## pfq: why every phase opens with a plain-words Summary
+
+The review digest and the `/ifq` announcement used the first lines of Context, and those lines open
+with code identifiers. The user's requirement is that a junior sysadmin can follow a plan and
+approve it. Every phase therefore opens with a `## Summary` of two to four sentences without code
+identifiers, and that section replaces the Context excerpt in both places. A phase without one
+falls back to Context, and lint only warns when it is missing, so batches parked earlier keep
+working.
+
+## ifq: why the implementer never searches code itself
+
+Across 237 orchestrator phases there were 0 worker Explore runs, so every file a worker read stayed
+in its context and was paid again on each later turn. Haiku cache reads cost a tenth of Sonnet's,
+so the search belongs on the cheaper model. `implement-for-queue` now always delegates code search
+to one `implExploreModel` agent before the first edit and reads only the returned line ranges, in
+classic and orchestrator mode alike. The only self-search left is one `grep -n` for an anchor the
+phase names, in a one-file phase. There is deliberately no setting to switch back, which was the
+user's choice. The effect is measured by the existing `worker` and `worker_explore` telemetry
+layers, and rollback means reverting the wording.
+
+## ifq: why a verification run with zero tests is red
+
+Batch 056's ten phases each carried `unittest -k "a or b"`, where unittest's `-k` takes
+substring patterns, not boolean expressions: it runs 0 tests and prints `OK`, so every phase looked green without verifying
+anything. A `-k` filter with an `or`, `and` or `not` expression is now a `verification-filter` lint
+finding, and a run that reports zero tests counts as red in orchestrator and classic mode alike.
+
+## cfq: why the Claude Code advisor is not used
+
+The Claude Code advisor (`advisorModel`) was evaluated and not adopted. It can only be enabled
+globally or per session, not per skill or agent, and the model alone decides when to consult it.
+Whether its usage appears in session transcripts is undocumented, so cfq could not measure it.
+cfq's worker escalation is deterministic and measured, which is the property the advisor lacks.
+
+## cfq: why report summary prints only JSON
+
+The old tab-separated row shifted its later fields with the batch mode, and the report writer miscounted
+them. The JSON form names every value, and its five layers (`planning`, `orchestrator`, `worker`,
+`explorer`, `worker_explorer`) keep planning apart from the orchestrator and add up to the total.
+No second form is kept, because the only consumers were the closing-report reference, `CLAUDE.md` and
+the tests, all of which now read the JSON. The cost is that a shell script wanting one number has to
+parse JSON instead of cutting a column.
+
+## cfq: why the closing report has no skills line
+
+`by_skill` records only the ambient skill of the session (`cfq:ifq`, `cfq:implement-for-queue`), not
+explicit invocations, and it excludes sub-agent and planning records. Workers made no skill calls in
+batch 058, so the line carried no information, and it was composed without running the command at all.
+The line is dropped while `report skills` stays as a command. The trade-off is that the closing report
+no longer hints at skill usage; whoever wants it runs the command.
+
+## cfq: why finish reads the push state from origin/<branch> without fetching
+
+After a push, `refs/remotes/origin/<branch>` is current, so the state read from it is correct at the
+moment finish runs. The state means "as of the last push or fetch of this clone", and the `Branch` line
+says nothing stronger. A fetch would add a network call to every finish. The preflight values
+`remoteState` and `pushable` describe the base branch at session start and are never an end state. The
+cost is that a push made from another clone is not seen until this clone fetches.
+
+## cfq: why requiredTools holds names, not commands
+
+The settings file of a repository is versioned, so a command stored there would run on a freshly cloned
+repository at preflight, without the confirmation a hook gets. Names are only looked up: a `PATH` search,
+or an import search for `py:<module>`. The setting is per repository because cfq runs in repositories
+where pytest is irrelevant. The cost is that version checks are not possible.
+
+## pfq: why the security entry names its covering phase
+
+The `security-findings` entry stays when a phase of the batch fixes every fixable critical or high
+advisory, because it is the safety net if that phase fails. It names the covering phase and drops the
+"decision still open" sentence, so it says what is true: the fix is planned and the entry only records
+the finding. The trade-off is one more entry in the queue until the phase has landed.

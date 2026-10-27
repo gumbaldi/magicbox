@@ -32,18 +32,17 @@ import json
 import os
 import pathlib
 import re
-import subprocess
 import sys
 from datetime import date
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors, render  # noqa: E402
+from cfq_lib import text as cfq_text  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 from cfq_lib.proc import is_git_repo, settings_get  # noqa: E402
 
 PROG = "cfq_changelog.py"
-
-NUMBERED_PREFIX_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
 
 # ---- changelog file location -------------------------------------------------------------
@@ -93,8 +92,7 @@ def parse_batch_number(batch):
     """New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes
     the date); legacy names start directly with the date. Returns the plain int on a match, None
     on no match -- never guesses from a version tag or branch name."""
-    m = NUMBERED_PREFIX_RE.match(batch)
-    return int(m.group(1)) if m else None
+    return cfq_text.parse_batch_name(batch)["number"]
 
 
 # ---- block rendering --------------------------------------------------------------------------
@@ -165,13 +163,6 @@ def find_block_start(file, field, value, want_status=None):
     return None
 
 
-def write_atomic(target, text):
-    tmp = f"{target}.tmp"
-    with open(tmp, "w") as f:
-        f.write(text)
-    os.replace(tmp, target)
-
-
 def prepend_block(target, block):
     """New block goes on top, below any leading comment preamble (lines before the first
     column-0 '- ' item). A missing or empty file just becomes the block."""
@@ -181,13 +172,13 @@ def prepend_block(target, block):
     preamble = "".join(lines[:split])
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
-    write_atomic(target, preamble + block + "\n" + "".join(lines[split:]))
+    render.write_text_atomic(target, preamble + block + "\n" + "".join(lines[split:]))
 
 
 def replace_block(target, start, new_block):
     lines = read_lines(target)
     end = block_end_line(lines, start)
-    write_atomic(target, "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:]))
+    render.write_text_atomic(target, "".join(lines[:start - 1]) + new_block + "\n" + "".join(lines[end:]))
 
 
 DATE_PREFIX_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -227,7 +218,7 @@ def normalize_file(target):
     new = normalize_text(text)
     if new == text:
         return False
-    write_atomic(target, new)
+    render.write_text_atomic(target, new)
     return True
 
 
@@ -242,10 +233,9 @@ def scan_trailer_max(repo):
     """Highest CFQ-Batch-Number trailer reachable in repo history; 0 if none. Uses Git's own
     trailer-aware formatting, never free-text grep, so a stray "CFQ-Batch-Number" in a commit
     body/subject can't be mistaken for a real trailer."""
-    out = subprocess.run(
-        ["git", "-C", repo, "log", "--all", "--no-color",
-         "--pretty=format:%(trailers:key=CFQ-Batch-Number,valueonly)"],
-        capture_output=True, text=True,
+    out = proc_git(
+        repo, "log", "--all", "--no-color",
+        "--pretty=format:%(trailers:key=CFQ-Batch-Number,valueonly)",
     )
     m = 0
     for line in out.stdout.split("\n"):
@@ -261,19 +251,14 @@ def scan_trailer_batch_for_max(repo, max_number):
     given max CFQ-Batch-Number. Each lookup is scoped to one commit at a time (-1 <hash>), never
     combined with --all -- a history-wide scan must always key off CFQ-Batch-Number, never off
     the human-readable CFQ-Batch trailer."""
-    hashes = subprocess.run(
-        ["git", "-C", repo, "log", "--all", "--format=%H"], capture_output=True, text=True,
-    ).stdout.split()
+    hashes = proc_git(repo, "log", "--all", "--format=%H").stdout.split()
     for h in hashes:
-        val = subprocess.run(
-            ["git", "-C", repo, "log", "-1",
-             "--format=%(trailers:key=CFQ-Batch-Number,valueonly)", h],
-            capture_output=True, text=True,
+        val = proc_git(
+            repo, "log", "-1", "--format=%(trailers:key=CFQ-Batch-Number,valueonly)", h,
         ).stdout.strip()
         if val == str(max_number):
-            return subprocess.run(
-                ["git", "-C", repo, "log", "-1", "--format=%(trailers:key=CFQ-Batch,valueonly)", h],
-                capture_output=True, text=True,
+            return proc_git(
+                repo, "log", "-1", "--format=%(trailers:key=CFQ-Batch,valueonly)", h,
             ).stdout.strip()
     return ""
 
@@ -413,16 +398,14 @@ def compose_commit_message(repo, batch, phase, status, message_file):
         errors.die(f"{PROG}: commit-message: status must be 'green', got '{status}'")
     number = parse_batch_number(batch)
     if number is not None:
-        result = subprocess.run(
-            [
-                "git", "-C", repo, "interpret-trailers", "--trim-empty",
-                "--trailer", f"CFQ-Batch-Number={number}",
-                "--trailer", f"CFQ-Batch={batch}",
-                "--trailer", f"CFQ-Phase={phase}",
-                "--trailer", f"CFQ-Phase-Status={status}",
-                message_file,
-            ],
-            capture_output=True, text=True, check=True,
+        result = proc_git(
+            repo, "interpret-trailers", "--trim-empty",
+            "--trailer", f"CFQ-Batch-Number={number}",
+            "--trailer", f"CFQ-Batch={batch}",
+            "--trailer", f"CFQ-Phase={phase}",
+            "--trailer", f"CFQ-Phase-Status={status}",
+            message_file,
+            check=True,
         )
         return result.stdout
     return pathlib.Path(message_file).read_text()
@@ -446,27 +429,21 @@ def cmd_commit(args):
         return
     rel = os.path.relpath(target, repo)
     # check-ignore exits 0 only for an untracked, ignored path (a tracked file reports not-ignored).
-    ignored = subprocess.run(
-        ["git", "-C", repo, "check-ignore", "-q", "--", rel], capture_output=True, text=True,
-    ).returncode == 0
+    ignored = proc_git(repo, "check-ignore", "-q", "--", rel).returncode == 0
     if ignored:
         if not os.path.isfile(target):
             print("clean")
             return
     else:
-        status = subprocess.run(
-            ["git", "-C", repo, "status", "--porcelain", "--", rel], capture_output=True, text=True,
-        ).stdout
+        status = proc_git(repo, "status", "--porcelain", "--", rel).stdout
         if not status.strip():
             print("clean")
             return
-    add_cmd = ["git", "-C", repo, "add"] + (["-f"] if ignored else []) + ["--", rel]
-    add = subprocess.run(add_cmd, capture_output=True, text=True)
+    add_args = ["add"] + (["-f"] if ignored else []) + ["--", rel]
+    add = proc_git(repo, *add_args)
     if add.returncode != 0:
         errors.die(add.stderr, add.returncode or 1)
-    commit = subprocess.run(
-        ["git", "-C", repo, "commit", "-q", "-m", message, "--", rel], capture_output=True, text=True,
-    )
+    commit = proc_git(repo, "commit", "-q", "-m", message, "--", rel)
     if commit.returncode != 0:
         errors.die(commit.stderr, commit.returncode or 1)
     print("forced" if ignored else "committed")

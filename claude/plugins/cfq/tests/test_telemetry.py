@@ -114,17 +114,14 @@ class TelemetryTest(CfqTestCase):
     def _last_record(self):
         return json.loads(self.jsonl.read_text().splitlines()[-1])
 
-    def test_recommended_skills_found_for_a_phase_lying_in_skipped(self):
+    def test_record_has_no_skills_recommended_key(self):
         # The phase file is located through status.json's mirror directories, `skipped/` included.
         (self.batch / "skipped").mkdir()
         (self.batch / "skipped" / "02-bar.md").write_text(
-            "# Bar\n\n## Empfohlene Skills\n\n- mattpocock-skills:tdd why\n\n## Verification\n"
+            "# Bar\n\n## Recommended skills\n\n- mattpocock-skills:tdd why\n\n## Verification\n"
         )
         self._record(str(self.batch), "phase", "02-bar")
-        self.assertEqual(
-            self._last_record()["skills_recommended"], ["mattpocock-skills:tdd"],
-            msg="skills_recommended for a phase in skipped/",
-        )
+        self.assertNotIn("skills_recommended", self._last_record())
 
     def test_record_and_sync(self):
         # 1. First record call
@@ -689,7 +686,7 @@ class TelemetryTest(CfqTestCase):
         self._write_agent(subdir, "u1", "Explore", ["2026-08-13T10:00:30.000Z"])
         self._write_agent(subdir, "u2", "Explore", ["2026-08-13T10:03:30.000Z"])
         rec = cfq_telemetry.build_record(
-            str(self.transcript), "", "phase", "01-foo", "b", "r", [], upper="2026-08-13T10:02:00.000Z",
+            str(self.transcript), "", "phase", "01-foo", "b", "r", upper="2026-08-13T10:02:00.000Z",
             subagents_dir=str(subdir),
         )
         self.assertEqual(rec["totals"]["turns"], 3)
@@ -808,11 +805,50 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(t["turns"], 1)
         self.assertEqual(t["output"], 0)
 
+    def test_empty_window_warns_on_stderr(self):
+        self.transcript.write_text("")
+        proc = self._record(str(self.batch), "phase", "01-foo")
+        self.assertIn(
+            f"cfq_telemetry.py: record for '01-foo' has 0 turns — transcript {self.transcript} "
+            "holds nothing in this window", proc.stderr)
+        self.assertEqual(self._last_record()["totals"]["turns"], 0)
+        proc = self._record(str(self.batch), "planning")
+        self.assertIn("record for 'planning' has 0 turns", proc.stderr)
+
     def test_planning_record_mode_is_empty(self):
         self._record(str(self.batch), "planning")
         rec = self._last_record()
         self.assertEqual(rec["mode"], "", msg="mode is empty on planning records, like phase")
         self.assertEqual(rec["by_agent"], {})
+
+    def test_planning_record_carries_depth_and_phase_count(self):
+        phases = {f"0{i}-p": {"status": "open"} for i in (1, 2, 3)}
+        (self.batch / "status.json").write_text(json.dumps({"schema": 1, "phases": phases}))
+        self._record(str(self.batch), "planning", "--depth", "thorough")
+        rec = self._last_record()
+        self.assertEqual((rec["interview_depth"], rec["phase_count"]), ("thorough", 3))
+        planning = json.loads((self.batch / "report.json").read_text())["planning"]
+        self.assertEqual((planning["interview_depth"], planning["phase_count"]), ("thorough", 3))
+
+    def test_planning_record_without_depth(self):
+        self._record(str(self.batch), "planning")
+        rec = self._last_record()
+        self.assertEqual((rec["interview_depth"], rec["phase_count"]), ("", 0))
+
+    def test_planning_record_rejects_unknown_depth(self):
+        for args in (["planning", "--depth", "deep"], ["planning", "--depth"]):
+            proc = self.run_cfq("telemetry", "record", str(self.batch), *args,
+                                cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": "testsid"})
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn("usage:", proc.stderr)
+            self.assertIn("--depth quick|thorough|docs", proc.stderr)
+        self.assertFalse(self.jsonl.exists())
+
+    def test_phase_record_has_no_depth_keys(self):
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertNotIn("interview_depth", rec)
+        self.assertNotIn("phase_count", rec)
 
     def test_planning_record_populates_subagent_explore(self):
         # pfq delegates to Explore agents; that usage must not stay invisible just because a
@@ -901,13 +937,13 @@ class TelemetrySettleTest(CfqTestCase):
             for t in stamps:
                 f.write(_sub_line(t, "Explore") + "\n")
 
-    def _record(self, kind, phase=""):
+    def _record(self, kind, phase="", *extra):
         if phase:  # the phase entry must already be report.json's last one for telemetry to attach
             cfq_report.append_phase(
                 str(self.batch), json.dumps({"phase": phase, "status": "green", "summary": "t"}),
                 record_telemetry=False,
             )
-        args = ["telemetry", "record", str(self.batch), kind] + ([phase] if phase else [])
+        args = ["telemetry", "record", str(self.batch), kind] + ([phase] if phase else []) + list(extra)
         return self.run_cfq(*args, cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": SETTLE_SESSION}, check=True)
 
     def _age(self, seconds=3600):
@@ -1008,13 +1044,15 @@ class TelemetrySettleTest(CfqTestCase):
         self.assertFalse(self._phase_tele(0)["settled"])
 
     def test_planning_record_settles_the_same_way(self):
+        (self.batch / "status.json").write_text(json.dumps({"schema": 1, "phases": {"01-a": {"status": "open"}}}))
         self._add_main(2, 0)
-        self._record("planning")
+        self._record("planning", "", "--depth", "quick")
         self._add_main(1, 5)
         self._age()
         self.assertEqual(self._settle(), '{"status":"OK","settled":1,"pending":0}')
         planning = json.loads(self.report.read_text())["planning"]
         self.assertEqual((planning["settled"], planning["rev"], planning["totals"]["turns"]), (True, 2, 3))
+        self.assertEqual((planning["interview_depth"], planning["phase_count"]), ("quick", 1))
 
     def test_record_in_a_finished_batch_settles_too(self):
         self._add_main(2, 0)
