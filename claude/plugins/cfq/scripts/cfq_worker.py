@@ -25,17 +25,15 @@ plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_repo
 read) and is not inspected here.
 
 Every result also carries `statusLines`: for `green` and `red` the phase's `Cost` entry rendered
-from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_entry()`), a list of
-one, or `[]` when there is no telemetry to show or the report names no phase; for `question`
-always `[]`. The orchestrator prints those lines verbatim, so the cost summary costs no call of
+from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_line()`), a list of
+one -- the `⚠️ Cost` warning entry when there is no usable telemetry or the report names no phase;
+for `question` always `[]`. The orchestrator prints those lines verbatim, so the cost summary costs no call of
 its own.
 """
 
 import argparse
 import json
 import pathlib
-import re
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -44,16 +42,13 @@ import cfq_report  # noqa: E402
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_worker.py"
 
 BRIEF_FILE = ".worker-brief.json"
 
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
-HEADING_RE = re.compile(r"^## ")
-RECOMMENDED_HEADING_RE = re.compile(r"^## Recommended skills", re.IGNORECASE)
-RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 
 GREEN_TRIGGERS = ("omitted", "dependency")
 VALID_STATUSES = ("green", "red", "question", "escalate")
@@ -105,38 +100,8 @@ def find_phase_file(batch_dir, phase_num):
         return None
 
 
-def extract_recommended_skills(text, blocked_plugins):
-    lines = text.splitlines()
-    start = None
-    for i, line in enumerate(lines):
-        if RECOMMENDED_HEADING_RE.match(line):
-            start = i
-            break
-    if start is None:
-        return []
-    block = [lines[start]]
-    for line in lines[start + 1:]:
-        if HEADING_RE.match(line):
-            break
-        block.append(line)
-    blocked = set(blocked_plugins or [])
-    recommended = []
-    for line in block:
-        m = RECOMMENDED_ITEM_RE.match(line)
-        if not m:
-            continue
-        item = m.group(1)
-        if item in blocked or item.split(":", 1)[0] in blocked:
-            continue
-        recommended.append(item)
-    return recommended
-
-
 def repo_root_of(batch_dir):
-    proc = subprocess.run(
-        ["git", "-C", str(batch_dir), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True,
-    )
+    proc = proc_git(batch_dir, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
 
 
@@ -201,8 +166,6 @@ def cmd_brief(args):
         cfq_run("report", "last-failure", str(batch_dir), phase_slug).stdout
     )
 
-    recommended_skills = extract_recommended_skills(text, blocked_plugins)
-
     model, model_source = resolve_model(fields.get("model"), settings, failed_attempt.get("found"))
     handover = None
     if args.model_override:
@@ -237,7 +200,6 @@ def cmd_brief(args):
             "language": language,
             "blockedPlugins": blocked_plugins,
             "exploreModels": explore_models,
-            "recommendedSkills": recommended_skills,
             "failedAttempt": failed_attempt,
             "model": model,
             "modelSource": model_source,
@@ -278,8 +240,7 @@ def cmd_verdict(args):
 
     status_lines = []
     if status in ("green", "red"):
-        cost = cfq_report.phase_cost_entry(args.batch_dir, report.get("phase"))
-        status_lines = [cost] if cost is not None else []
+        status_lines = [cfq_report.phase_cost_line(args.batch_dir, report.get("phase"))]
 
     if status == "red":
         print(render.dump_json({

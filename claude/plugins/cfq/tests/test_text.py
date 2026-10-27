@@ -196,5 +196,36 @@ class ParseBatchNameTest(unittest.TestCase):
             )
 
 
+class InboxCountTest(unittest.TestCase):
+    def test_counts(self):
+        self.assertEqual(text.inbox_count_from_overview(""), 0)
+        self.assertEqual(text.inbox_count_from_overview("INBOX  empty"), 0)
+        self.assertEqual(text.inbox_count_from_overview("INBOX  3 entries"), 3)
+        self.assertEqual(
+            text.inbox_count_from_overview("INBOX  3 entries · 1 framework not imported"), 3,
+        )
+        self.assertEqual(text.inbox_count_from_overview("garbage"), 0)
+
+
+class PluginBoundariesLineTest(unittest.TestCase):
+    def test_none_blocked(self):
+        self.assertEqual(
+            text.plugin_boundaries_line([]),
+            text.status_entry("Plugin Boundaries", "skip", "none blocked"),
+        )
+
+    def test_blocked(self):
+        self.assertEqual(
+            text.plugin_boundaries_line(["superpowers"]),
+            text.status_entry("Plugin Boundaries", "done", "1 blocked: superpowers"),
+        )
+
+
+class ParseBatchNumberTest(unittest.TestCase):
+    def test_numbered_and_legacy(self):
+        self.assertEqual(text.parse_batch_name("057-2026-10-26-x")["number"], 57)
+        self.assertIsNone(text.parse_batch_name("2026-08-13-cfq-plugin")["number"])
+
+
 if __name__ == "__main__":
     unittest.main()

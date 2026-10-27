@@ -29,6 +29,13 @@ class TestReport(CfqTestCase):
     def _report_json(self, batch):
         return json.loads((batch / "report.json").read_text())
 
+    def _summary(self, batch):
+        return json.loads(self.run_cfq("report", "summary", str(batch), check=True).stdout)
+
+    def _assert_layers_add_up(self, out):
+        for key in ("turns", "output", "billable_in"):
+            self.assertEqual(sum(layer[key] for layer in out["layers"].values()), out["totals"][key], key)
+
     def _append_raises(self, dir_, phase_json):
         """Calls append_phase() expecting its errors.die() validation to fire (SystemExit),
         capturing what it printed to stderr the same way a subprocess call's `proc.stderr` used
@@ -153,13 +160,12 @@ class TestReport(CfqTestCase):
             "append no longer accepts a well-formed phase slug",
         )
 
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        # 1-11 as before, then the always-appended (7-field) tail (fields 12-15 are absent here
-        # since neither phase has any telemetry at all, let alone worker activity):
-        # total_billable_in, planning_turns, planning_billable_in, explore_turns, explore_output,
-        # worker_explore_turns, worker_explore_output, all zero.
-        expected = f"{batch.name}\t2\t1\t1\t1\t2026-01-01T11:00:00+01:00\t0\t0\t0\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
-        self.assertEqual(s, expected, f"summary = {s}")
+        out = self._summary(batch)
+        self.assertEqual(out["batch"], batch.name)
+        self.assertEqual(out["finished"], "2026-01-01T11:00:00+01:00")
+        self.assertEqual(out["phases"], {"total": 2, "green": 1, "red": 1, "skipped": 0})
+        self.assertEqual(out["totals"], {"turns": 0, "output": 0, "billable_in": 0})
+        self.assertEqual(out["deviations"], {"count": 1, "unique": [{"text": "Plan sagte X, gebaut Y", "count": 1}]})
 
         lf = self.json_out(self.run_cfq("report", "last-failure", str(batch), "02-b"))
         self.assertTrue(lf["found"], f"last-failure should find 02-b's red entry: {lf}")
@@ -211,26 +217,23 @@ class TestReport(CfqTestCase):
         ledger = self._report_json(d)["phases"]
         self.assertEqual([p["status"] for p in ledger], ["green", "skipped"])
         self.assertEqual(cfq_report.outcome(ledger), "GREEN")
-        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
-        self.assertEqual(fields[1:4], ["1", "1", "0"], fields)  # total, green, red: no skip entry
-        self.assertEqual(fields[-1], "1", fields)  # skipped, always the last field
+        phases = self._summary(d)["phases"]
+        self.assertEqual(phases, {"total": 1, "green": 1, "red": 0, "skipped": 1})  # no skip entry in total
 
         red = {"phase": "02-b", "status": "red", "finished": "2026-03-01T09:30:00+00:00"}
         d2 = self._skip_fixture(
             "2026-03-02-skipred", [green, red], {"01-a": "done", "02-b": "error"},
         )
         self.assertEqual(cfq_report.outcome(self._report_json(d2)["phases"]), "RED")
-        fields2 = self.run_cfq("report", "summary", str(d2)).stdout.rstrip("\n").split("\t")
-        self.assertEqual(fields2[1:4], ["2", "1", "1"], fields2)
+        phases2 = self._summary(d2)["phases"]
+        self.assertEqual((phases2["total"], phases2["green"], phases2["red"]), (2, 1, 1))
 
     def test_unskipped_entry_counts_nowhere(self):
         d = self._skip_fixture("2026-03-03-unskip", [], {"01-a": "done"})
         self.run_cfq("phase", "unskip", str(d), "03", check=True)
         ledger = self._report_json(d)["phases"]
         self.assertIn("unskipped", ledger[-1])
-        fields = self.run_cfq("report", "summary", str(d)).stdout.rstrip("\n").split("\t")
-        self.assertEqual(fields[1:4], ["0", "0", "0"], fields)
-        self.assertEqual(fields[-1], "0", fields)
+        self.assertEqual(self._summary(d)["phases"], {"total": 0, "green": 0, "red": 0, "skipped": 0})
         self.assertEqual(cfq_report.outcome(ledger), "GREEN")
 
     def test_summary_without_status_file_reports_zero_skipped(self):
@@ -239,13 +242,12 @@ class TestReport(CfqTestCase):
             "repo": "", "batch": "2026-03-04-nostatus", "started": "2026-03-04T08:00:00+00:00",
             "phases": [{"phase": "01-a", "status": "green", "finished": "2026-03-04T09:00:00+00:00"}],
         }))
-        fields = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n").split("\t")
-        self.assertEqual(fields[-1], "0", fields)
+        self.assertEqual(self._summary(batch)["phases"]["skipped"], 0)
 
-    # ---- skills (phase 04: `cfq report skills` replaces the retired `jq` filter over
-    # report.json's telemetry.skills_recommended / telemetry.by_skill) ------------------------
+    # ---- skills (`cfq report skills` lists the used skills from report.json's
+    # telemetry.by_skill) ----------------------------------------------------------------------
 
-    def test_skills_overlapping_recommendations_deduplicated_and_sorted(self):
+    def test_skills_used_deduplicated_and_sorted(self):
         batch = self._batch("2026-01-05-skills")
         (batch / "report.json").write_text(json.dumps({
             "repo": "", "batch": "2026-01-05-skills", "started": "2026-01-05T10:00:00+01:00",
@@ -253,22 +255,19 @@ class TestReport(CfqTestCase):
                 {
                     "phase": "01-a", "status": "green",
                     "telemetry": {
-                        "skills_recommended": ["tdd", "code-review"],
                         "by_skill": {"tdd": 5, "-": 2},
                     },
                 },
                 {
                     "phase": "02-b", "status": "green",
                     "telemetry": {
-                        "skills_recommended": ["code-review", "dataviz"],
                         "by_skill": {"-": 3},
                     },
                 },
             ],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], ["code-review", "dataviz", "tdd"])
-        self.assertEqual(out["used"], ["tdd"])
+        self.assertEqual(out, {"used": ["tdd"]})
 
     def test_skills_phase_without_telemetry_is_skipped_not_a_crash(self):
         batch = self._batch("2026-01-06-no-telemetry")
@@ -277,8 +276,7 @@ class TestReport(CfqTestCase):
             "phases": [{"phase": "01-a", "status": "green"}],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], [])
-        self.assertEqual(out["used"], [])
+        self.assertEqual(out, {"used": []})
 
     def test_skills_empty_phases_array_both_lists_empty(self):
         batch = self._batch("2026-01-07-empty")
@@ -287,302 +285,182 @@ class TestReport(CfqTestCase):
             "phases": [],
         }))
         out = self.json_out(self.run_cfq("report", "skills", str(batch), check=True))
-        self.assertEqual(out["recommended"], [])
-        self.assertEqual(out["used"], [])
+        self.assertEqual(out, {"used": []})
 
-    # ---- summary orchestrator/worker split (phase 05: `report summary` surfaces the subagent
-    # token split cfq_telemetry.py already computes, additive so a classic-mode report is unaffected)
+    # ---- `report summary`: one JSON object, planning kept apart from the batch's own layers ------
 
-    def test_summary_falls_back_to_collapsed_subagent_when_subagent_worker_key_is_absent(self):
-        # A report written before this phase has no `subagent_worker` key at all -- the phase's
-        # own compatibility shim, for data already on disk (never for code): fields 12-15 fall
-        # back to the old collapsed `subagent` value instead of raising or silently dropping the
-        # split.
-        batch = self._batch("2026-01-08-orchestrator")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-08-orchestrator", "started": "2026-01-08T10:00:00+01:00",
-            "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-08T11:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 10, "output": 1000},
-                        "subagent": {"turns": 6, "output": 700},
-                        "by_model": {}, "by_effort": {},
-                    },
-                },
-                {
-                    "phase": "02-b", "status": "green", "finished": "2026-01-08T12:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 5, "output": 500},
-                        "subagent": {"turns": 0, "output": 0},
-                        "by_model": {}, "by_effort": {},
-                    },
-                },
-            ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        fields = s.split("\t")
-        # existing fields (1-6) unchanged in shape
-        self.assertEqual(fields[:6], [batch.name, "2", "2", "0", "0", "2026-01-08T12:00:00+01:00"])
-        # totals are now whole-batch: main (10+5=15) + worker (6+0=6), no Explore activity here.
-        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
-        self.assertEqual((total_output, planning_output, total_turns), ("2200", "0", "21"))
-        # fields 12-15: orchestrator_turns (main), orchestrator_output (main), worker_turns,
-        # worker_output -- read straight from the layers, not `total - worker` -- then the
-        # always-appended tail (total_billable_in, planning_turns, planning_billable_in,
-        # explore_turns, explore_output, worker_explore_turns, worker_explore_output), all zero
-        # since this old-style fixture carries none of billable_in/planning/subagent_explore.
-        self.assertEqual(
-            fields[11:], ["15", "1500", "6", "700", "0", "0", "0", "0", "0", "0", "0", "0"],
-        )
-        self.assertEqual(
-            int(fields[11]) + int(fields[13]), int(total_turns),
-            "main + worker turns must add up to the whole-batch total (no Explore activity here)",
-        )
-        self.assertEqual(
-            int(fields[12]) + int(fields[14]), int(total_output),
-            "main + worker output must add up to the whole-batch total (no Explore activity here)",
-        )
+    def _write_report(self, name, report):
+        batch = self._batch(name)
+        report = dict(report, repo="", batch=name, started="2026-01-08T10:00:00+01:00")
+        (batch / "report.json").write_text(json.dumps(report))
+        return batch
 
-    def test_summary_uses_subagent_worker_and_explore_when_present(self):
-        # Post-change data: subagent_worker/subagent_explore are both populated, and a planning
-        # record is present too. Fields 12-15 must be sourced from subagent_worker only -- the
-        # Explore turns must not leak into the worker split -- and totals are now whole-batch,
-        # planning included: main (4 planning + 10 phase = 14), explore (2), worker (6).
-        batch = self._batch("2026-01-11-worker-and-explore")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-11-worker-and-explore",
-            "started": "2026-01-11T10:00:00+01:00",
+    def test_summary_orchestrator_batch_with_planning_and_all_five_layers(self):
+        batch = self._write_report("2026-01-11-five-layers", {
             "planning": {
-                "totals": {"turns": 4, "output": 400, "billable_in": 150, "cache_read": 5},
+                "totals": {"turns": 4, "output": 400, "billable_in": 150},
+                "by_model": {"opus": {}}, "by_effort": {"high": {}},
             },
-            "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-11T11:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 10, "output": 1000, "billable_in": 600},
-                        "subagent": {"turns": 8, "output": 750},
-                        "subagent_worker": {"turns": 6, "output": 700},
-                        "subagent_explore": {"turns": 2, "output": 50},
-                        "by_model": {}, "by_effort": {},
+            "phases": [{
+                "phase": "01-a", "status": "green", "finished": "2026-01-11T11:00:00+01:00",
+                "telemetry": {
+                    "schema": 3,
+                    "layers": {
+                        "main": {"turns": 3, "output": 300, "billable_in": 100},
+                        "main_explore": {"turns": 1, "output": 50, "billable_in": 10},
+                        "worker": {"turns": 6, "output": 700, "billable_in": 200},
+                        "worker_explore": {"turns": 2, "output": 150, "billable_in": 20},
                     },
+                    "by_model": {"sonnet": {}}, "by_effort": {"medium": {}},
                 },
-            ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        fields = s.split("\t")
-        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
-        # whole-batch: main(4+10=14 turns, 400+1000=1400 out) + explore(2, 50) + worker(6, 700)
-        self.assertEqual((total_output, planning_output, total_turns), ("2150", "400", "22"))
-        # 12-15: main (14/1400), worker split sourced from subagent_worker (6/700), not the
-        # collapsed subagent (8/750)
-        self.assertEqual(fields[11:15], ["14", "1400", "6", "700"])
-        # tail: total_billable_in (150 planning + 600 phase), planning_turns, planning_billable_in,
-        # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["750", "4", "150", "2", "50", "0", "0", "0"])
+            }],
+        })
+        out = self._summary(batch)
+        self.assertEqual(list(out), ["batch", "finished", "phases", "totals", "layers", "models",
+                                     "efforts", "deviations"])
+        self.assertEqual(list(out["layers"]),
+                         ["planning", "orchestrator", "worker", "explorer", "worker_explorer"])
+        self.assertEqual(out["layers"], {
+            "planning": {"turns": 4, "output": 400, "billable_in": 150},
+            "orchestrator": {"turns": 3, "output": 300, "billable_in": 100},
+            "worker": {"turns": 6, "output": 700, "billable_in": 200},
+            "explorer": {"turns": 1, "output": 50, "billable_in": 10},
+            "worker_explorer": {"turns": 2, "output": 150, "billable_in": 20},
+        })
+        self.assertEqual(out["totals"], {"turns": 16, "output": 1600, "billable_in": 480})
+        self._assert_layers_add_up(out)
+        self.assertEqual(out["models"], ["opus", "sonnet"])
+        self.assertEqual(out["efforts"], ["high", "medium"])
+        self.assertEqual(out["finished"], "2026-01-11T11:00:00+01:00")
 
-    def test_summary_explore_only_phase_is_not_counted_as_worker(self):
-        # The regression from Context, reproduced directly: a phase whose only sub-agent activity
-        # is an Explore agent must not trip the `worker_output > 0 or worker_turns > 0` gate --
-        # fields 12-15 stay absent, exactly as a phase with no sub-agent activity at all. Totals
-        # are whole-batch: main (5) + explore (3) = 8 turns, 500 + 200 = 700 output.
-        batch = self._batch("2026-01-12-explore-only")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-12-explore-only", "started": "2026-01-12T10:00:00+01:00",
+    def test_summary_classic_batch_has_no_worker_layers(self):
+        batch = self._write_report("2026-01-12-classic", {
+            "phases": [{
+                "phase": "01-a", "status": "green", "finished": "2026-01-12T11:00:00+01:00",
+                "telemetry": {"totals": {"turns": 5, "output": 500, "billable_in": 300}},
+            }],
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["layers"]["orchestrator"], {"turns": 5, "output": 500, "billable_in": 300})
+        for name in ("worker", "worker_explorer", "explorer", "planning"):
+            self.assertEqual(out["layers"][name], {"turns": 0, "output": 0, "billable_in": 0}, name)
+        self.assertEqual(out["totals"], out["layers"]["orchestrator"])
+        self.assertEqual((out["models"], out["efforts"]), ([], []))
+
+    def test_summary_without_planning_key_has_zero_planning(self):
+        batch = self._write_report("2026-01-13-no-planning", {
+            "phases": [{"phase": "01-a", "status": "green",
+                        "telemetry": {"totals": {"turns": 2, "output": 20, "billable_in": 5}}}],
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["layers"]["planning"], {"turns": 0, "output": 0, "billable_in": 0})
+        self._assert_layers_add_up(out)
+
+    def test_summary_planning_explorers_count_as_planning_not_explorer(self):
+        batch = self._write_report("2026-01-14-planning-explore", {
+            "planning": {"layers": {
+                "main": {"turns": 107, "output": 1000, "billable_in": 50},
+                "main_explore": {"turns": 9, "output": 90, "billable_in": 5},
+                "worker": {}, "worker_explore": {},
+            }},
+            "phases": [{"phase": "01-a", "status": "green",
+                        "telemetry": {"totals": {"turns": 43, "output": 430, "billable_in": 20}}}],
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["layers"]["planning"], {"turns": 116, "output": 1090, "billable_in": 55})
+        self.assertEqual(out["layers"]["orchestrator"]["turns"], 43)
+        self.assertEqual(out["layers"]["explorer"]["turns"], 0)
+        self.assertEqual(out["totals"]["turns"], 159)
+        self._assert_layers_add_up(out)
+
+    def test_summary_schema1_phase_without_layers_is_derived(self):
+        # No `layers` key: main = totals, worker = subagent_worker (or the legacy collapsed
+        # `subagent`), main_explore = subagent_explore, worker_explore = empty.
+        batch = self._write_report("2026-01-15-schema1", {
             "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-12T11:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 5, "output": 500, "billable_in": 300},
-                        "subagent": {"turns": 3, "output": 200},
-                        "subagent_worker": {"turns": 0, "output": 0},
-                        "subagent_explore": {"turns": 3, "output": 200},
-                        "by_model": {}, "by_effort": {},
-                    },
-                },
+                {"phase": "01-a", "status": "green", "telemetry": {
+                    "totals": {"turns": 10, "output": 1000},
+                    "subagent": {"turns": 6, "output": 700}}},
+                {"phase": "02-b", "status": "green", "telemetry": {
+                    "totals": {"turns": 9, "output": 900, "billable_in": 40},
+                    "subagent": {"turns": 88, "output": 8800},
+                    "subagent_worker": {"turns": 86, "output": 8600},
+                    "subagent_explore": {"turns": 2, "output": 200}}},
             ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        fields = s.split("\t")
-        # fields 1-11 as normal, no 12-15 worker block, then the always-appended (now 7-field) tail
-        self.assertEqual(len(fields), 19, f"expected no fields 12-15, got row {fields}")
-        self.assertEqual(fields[6:11], ["700", "0", "8", "", ""])
-        self.assertEqual(fields[11:], ["300", "0", "0", "3", "200", "0", "0", "0"])
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["layers"]["orchestrator"], {"turns": 19, "output": 1900, "billable_in": 40})
+        self.assertEqual(out["layers"]["worker"], {"turns": 92, "output": 9300, "billable_in": 0})
+        self.assertEqual(out["layers"]["explorer"], {"turns": 2, "output": 200, "billable_in": 0})
+        self.assertEqual(out["layers"]["worker_explorer"], {"turns": 0, "output": 0, "billable_in": 0})
+        self.assertEqual(out["totals"]["turns"], 113)
+        self._assert_layers_add_up(out)
 
-    def test_summary_orchestrator_worker_invariant_never_negative(self):
-        # The regression case from Context, asserted directly: a fixture reproducing batch 034's
-        # shape -- a classic-mode batch whose phases ran Explore agents but no phase worker --
-        # must yield orchestrator_turns >= 0. Checked over several representative fixtures so no
-        # future change can silently reintroduce a negative turn count.
-        fixtures = [
-            # batch 034's shape: heavy Explore usage, no phase worker at all.
-            {
-                "repo": "", "batch": "2026-01-13-classic-heavy-explore", "started": "2026-01-13T10:00:00+01:00",
-                "phases": [
-                    {
-                        "phase": f"0{i}-a", "status": "green", "finished": f"2026-01-13T1{i}:00:00+01:00",
-                        "telemetry": {
-                            "totals": {"turns": 5, "output": 500},
-                            "subagent": {"turns": 40, "output": 4000},
-                            "subagent_worker": {"turns": 0, "output": 0},
-                            "subagent_explore": {"turns": 40, "output": 4000},
-                            "by_model": {}, "by_effort": {},
-                        },
-                    }
-                    for i in range(1, 4)
-                ],
-            },
-            # a genuine orchestrator-mode batch.
-            {
-                "repo": "", "batch": "2026-01-14-orchestrator", "started": "2026-01-14T10:00:00+01:00",
-                "phases": [
-                    {
-                        "phase": "01-a", "status": "green", "finished": "2026-01-14T11:00:00+01:00",
-                        "telemetry": {
-                            "totals": {"turns": 10, "output": 1000},
-                            "subagent": {"turns": 6, "output": 700},
-                            "subagent_worker": {"turns": 6, "output": 700},
-                            "subagent_explore": {"turns": 0, "output": 0},
-                            "by_model": {}, "by_effort": {},
-                        },
-                    },
-                ],
-            },
-        ]
-        for report in fixtures:
-            batch = self._batch(report["batch"])
-            (batch / "report.json").write_text(json.dumps(report))
-            s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-            fields = s.split("\t")
-            total_turns = int(fields[8])
-            if len(fields) == 19:
-                # No phase worker ever ran (subagent_worker is zero on every phase) -- the
-                # heavy-Explore batch-034 shape. Fields 12-15 must be absent entirely, which is
-                # itself the fix: a negative number can never be printed for a split that isn't
-                # emitted.
-                continue
-            orchestrator_turns, worker_turns = int(fields[11]), int(fields[13])
-            self.assertGreaterEqual(orchestrator_turns, 0, f"{report['batch']}: orchestrator_turns went negative")
-            self.assertGreaterEqual(worker_turns, 0, f"{report['batch']}: worker_turns went negative")
-            self.assertEqual(
-                orchestrator_turns + worker_turns, total_turns,
-                f"{report['batch']}: orchestrator_turns + worker_turns must sum back to total_turns"
-                " (no Explore activity in this fixture)",
-            )
+    def test_summary_schema2_layers_win_over_bogus_totals(self):
+        batch = self._write_report("2026-01-16-schema2-layers", {
+            "phases": [{"phase": "01-a", "status": "green", "telemetry": {
+                "schema": 2,
+                "totals": {"turns": 999, "output": 99999, "billable_in": 99999},
+                "layers": {"main": {"turns": 3, "output": 300, "billable_in": 100},
+                           "main_explore": {}, "worker": {}, "worker_explore": {}},
+            }}],
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["totals"], {"turns": 3, "output": 300, "billable_in": 100})
 
-    def test_summary_batch_035_regression_shape_no_field_negative(self):
-        # The exact defect from Context: batch 035 printed orchestrator_turns = -401 because
-        # total_turns (main only, no worker) minus worker_turns went deeply negative. Reproduced
-        # here with the numbers named in the phase plan (totals.turns = 9, subagent_worker.turns
-        # = 86) -- a genuinely disjoint pool, main and worker never overlapping -- and asserted
-        # that no field is ever negative, the row's total is main + worker (no subtraction), and
-        # the four-layer invariant holds.
-        batch = self._batch("2026-01-15-batch-035-shape")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-15-batch-035-shape", "started": "2026-01-15T10:00:00+01:00",
+    def test_summary_deviations_are_counted_and_deduplicated(self):
+        same = "Plan sagte X, gebaut Y"
+        batch = self._write_report("2026-01-17-deviations", {
             "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-15T11:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 9, "output": 900},
-                        "subagent_worker": {"turns": 86, "output": 8600},
-                        "by_model": {}, "by_effort": {},
-                    },
-                },
+                {"phase": "01-a", "status": "green", "deviations": [same, same, "zeta", " alpha "]},
+                {"phase": "02-b", "status": "green", "deviations": [same, same, same, "alpha", "zeta"]},
+                {"phase": "03-c", "status": "green", "deviations": [same, "beta"]},
             ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        fields = s.split("\t")
-        for f in fields[6:]:
-            if f == "":
-                continue
-            self.assertGreaterEqual(int(f), 0, f"field went negative: {fields}")
-        total_output, total_turns = int(fields[6]), int(fields[8])
-        self.assertEqual(total_turns, 95, f"total_turns = {fields}")
-        self.assertEqual(total_output, 9500, f"total_output = {fields}")
-        orchestrator_turns, orchestrator_output, worker_turns, worker_output = (
-            int(fields[11]), int(fields[12]), int(fields[13]), int(fields[14]),
-        )
-        self.assertEqual(orchestrator_turns, 9, "field 12 must be the session's own (main) turns")
-        self.assertEqual(worker_turns, 86)
-        self.assertEqual(orchestrator_turns + worker_turns, total_turns)
-        self.assertEqual(orchestrator_output + worker_output, total_output)
+        })
+        dev = self._summary(batch)["deviations"]
+        self.assertEqual(dev["count"], 11)
+        self.assertEqual(dev["unique"], [
+            {"text": same, "count": 6}, {"text": "alpha", "count": 2}, {"text": "zeta", "count": 2},
+            {"text": "beta", "count": 1},
+        ])
 
-    def test_summary_schema2_layers_read_directly_worker_explore_populated(self):
-        # A schema-2 telemetry record carries its own `layers` object -- read as-is, never
-        # re-derived from the (here deliberately bogus) `totals`, and the one fixture in this
-        # class that populates `worker_explore` -- the new tail fields must carry real numbers.
-        batch = self._batch("2026-01-16-schema2-layers")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-16-schema2-layers", "started": "2026-01-16T10:00:00+01:00",
+    def test_summary_nine_deviations_seven_identical(self):
+        same = "identical complaint"
+        batch = self._write_report("2026-01-18-seven-same", {
+            "phases": [{"phase": f"0{i}-x", "status": "green", "deviations": [same]} for i in range(1, 8)]
+                      + [{"phase": "08-y", "status": "green", "deviations": ["b", "a"]}],
+        })
+        dev = self._summary(batch)["deviations"]
+        self.assertEqual(dev["count"], 9)
+        self.assertEqual(dev["unique"], [
+            {"text": same, "count": 7}, {"text": "a", "count": 1}, {"text": "b", "count": 1},
+        ])
+
+    def test_summary_without_deviations(self):
+        batch = self._write_report("2026-01-19-no-deviations", {
+            "phases": [{"phase": "01-a", "status": "green"}],
+        })
+        self.assertEqual(self._summary(batch)["deviations"], {"count": 0, "unique": []})
+
+    def test_summary_missing_report_json_exits_1_without_output(self):
+        proc = self.run_cfq("report", "summary", str(self._batch("2026-01-20-missing")))
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, "")
+
+    def test_summary_models_and_efforts_are_sorted_json_arrays(self):
+        batch = self._write_report("2026-01-21-models", {
             "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-16T11:00:00+01:00",
-                    "telemetry": {
-                        "schema": 2,
-                        "totals": {"turns": 999, "output": 99999, "billable_in": 99999},
-                        "layers": {
-                            "main": {"turns": 3, "output": 300, "billable_in": 100},
-                            "main_explore": {"turns": 1, "output": 50, "billable_in": 0},
-                            "worker": {"turns": 6, "output": 700, "billable_in": 200},
-                            "worker_explore": {"turns": 2, "output": 150, "billable_in": 0},
-                        },
-                        "by_model": {}, "by_effort": {},
-                    },
-                },
+                {"phase": "01-a", "status": "green", "telemetry": {
+                    "totals": {"turns": 10, "output": 1000},
+                    "by_model": {"sonnet": {}}, "by_effort": {"medium": {}}}},
+                {"phase": "02-b", "status": "green", "telemetry": {
+                    "totals": {"turns": 1, "output": 10},
+                    "by_model": {"haiku": {}, "sonnet": {}}, "by_effort": {"low": {}}}},
             ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        fields = s.split("\t")
-        total_output, planning_output, total_turns = fields[6], fields[7], fields[8]
-        self.assertEqual((total_output, planning_output, total_turns), ("1200", "0", "12"))
-        # 12-15: main (3/300), worker (6/700) -- straight off `layers`, ignoring the bogus `totals`
-        self.assertEqual(fields[11:15], ["3", "300", "6", "700"])
-        # tail: total_billable_in (100+0+200+0), planning_turns, planning_billable_in,
-        # explore_turns, explore_output, worker_explore_turns, worker_explore_output
-        self.assertEqual(fields[15:], ["300", "0", "0", "1", "50", "2", "150", "0"])
-
-    def test_summary_classic_mode_no_subagent_sums_is_byte_identical(self):
-        batch = self._batch("2026-01-09-classic")
-        (batch / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-09-classic", "started": "2026-01-09T10:00:00+01:00",
-            "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-09T11:00:00+01:00",
-                    "telemetry": {
-                        "totals": {"turns": 10, "output": 1000},
-                        "subagent": {"turns": 0, "output": 0},
-                        "by_model": {"sonnet": {}}, "by_effort": {"medium": {}},
-                    },
-                },
-            ],
-        }))
-        s = self.run_cfq("report", "summary", str(batch)).stdout.rstrip("\n")
-        # Fields 1-11 stay exactly as before (no Explore/worker activity, so whole-batch totals
-        # equal the old main-only totals too); fields 12-15 are still absent (no worker activity);
-        # the always-appended (now 7-field) tail is all zero since this fixture carries none of
-        # billable_in/planning/subagent_explore/subagent_worker.
-        expected = (
-            f"{batch.name}\t1\t1\t0\t0\t2026-01-09T11:00:00+01:00\t1000\t0\t10\tsonnet\tmedium"
-            "\t0\t0\t0\t0\t0\t0\t0\t0"
-        )
-        self.assertEqual(s, expected, "classic-mode report grew a worker split it must not have")
-
-        # A report predating this feature -- no `subagent` key at all -- must degrade the same way.
-        batch2 = self._batch("2026-01-10-pre-feature")
-        (batch2 / "report.json").write_text(json.dumps({
-            "repo": "", "batch": "2026-01-10-pre-feature", "started": "2026-01-10T10:00:00+01:00",
-            "phases": [
-                {
-                    "phase": "01-a", "status": "green", "finished": "2026-01-10T11:00:00+01:00",
-                    "telemetry": {"totals": {"turns": 3, "output": 300}, "by_model": {}, "by_effort": {}},
-                },
-            ],
-        }))
-        s2 = self.run_cfq("report", "summary", str(batch2)).stdout.rstrip("\n")
-        expected2 = f"{batch2.name}\t1\t1\t0\t0\t2026-01-10T11:00:00+01:00\t300\t0\t3\t\t\t0\t0\t0\t0\t0\t0\t0\t0"
-        self.assertEqual(s2, expected2, "pre-feature report (no subagent key) grew a worker split it must not have")
-
+        })
+        out = self._summary(batch)
+        self.assertEqual(out["models"], ["haiku", "sonnet"])
+        self.assertEqual(out["efforts"], ["low", "medium"])
 
 # ---- phase 01: derivation helpers cfq_report.py's summary and the portal funnel through --
 # pure functions over a phase dict, no batch directory, no subprocess.
@@ -818,6 +696,30 @@ class PhaseCostEntryTest(CfqTestCase):
         zero = {n: dict(_ZERO_LAYER) for n in cfq_report.LAYER_NAMES}
         self.assertIsNone(self._cost(self._entry(layers=zero)))
         self.assertIsNone(self._cost("not a dict"))
+
+    def test_cost_line_falls_back_to_unavailable(self):
+        expected = "unavailable · no usable telemetry for this phase"
+
+        def check(entry):
+            self.assertEqual(entry["label"], "Cost")
+            self.assertEqual(entry["icon"], "warn")
+            self.assertEqual(entry["detail"], expected)
+
+        d = self._dir("line-batch")
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        (d / "report.json").write_text("{not json")
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        d = self._dir()
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [{"phase": "02-x", "status": "green"}]}))
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry()]}))
+        check(cfq_report.phase_cost_line(str(d), "09-other"))
+        zero = {n: dict(_ZERO_LAYER) for n in cfq_report.LAYER_NAMES}
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry(layers=zero)]}))
+        check(cfq_report.phase_cost_line(str(d), "02-x"))
+        # the routine record passes through unchanged
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [self._entry()]}))
+        self.assertEqual(cfq_report.phase_cost_line(str(d), "02-x"), cfq_report.phase_cost_entry(str(d), "02-x"))
 
     def test_append_phase_stamps_finished(self):
         d = self._dir("stamp-batch")

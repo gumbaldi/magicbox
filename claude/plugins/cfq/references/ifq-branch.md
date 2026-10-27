@@ -44,7 +44,7 @@ persisted branch on `continue` — has commits `origin` doesn't and the gap can'
 relationship to its `origin` counterpart, `"unknown"` whenever `remoteChecked` is `false` or no
 comparison was possible), `pushable` (bool, true only for `remoteState: "ahead"`), and `unpushed`
 (array of `"<hash> <subject>"` lines, empty unless `pushable`) — so the caller never has to branch
-on `mode` to read any of the three.
+on `mode` to read any of the three. `remoteState` and `pushable` describe the chosen base branch when the session started and say nothing about the batch branch afterwards.
 
 - **`off`** (`branchPerBatch` is `false`) → `Branch: ➖ branchPerBatch off`, skip everything below.
 - **`continue`** (a branch for this batch already exists) → before resolving `remoteState`, its

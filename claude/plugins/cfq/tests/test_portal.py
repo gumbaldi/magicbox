@@ -5,11 +5,13 @@ payload contract in `.batch-context.md` (Portal data files).
 """
 
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR, write_status
@@ -61,7 +63,7 @@ ZERO = T(0, 0, 0, 0, 0)
 
 
 def schema3(layers, *, since, until, wallclock, agents=(), tools=None, by_skill=None,
-            recommended=(), settled=True, mode="orchestrator", kind="phase"):
+            settled=True, mode="orchestrator", kind="phase"):
     return {
         "schema": 3, "kind": kind, "mode": mode, "from": since, "until": until,
         "wallclock_s": wallclock, "since": since, "settled": settled, "rev": 2 if settled else 1,
@@ -74,7 +76,6 @@ def schema3(layers, *, since, until, wallclock, agents=(), tools=None, by_skill=
         "agents": list(agents),
         "tools": tools or {},
         "by_skill": by_skill or {"-": T(1, 1, 1, 1, 1)},
-        "skills_recommended": list(recommended),
     }
 
 
@@ -98,7 +99,7 @@ GREEN_TEL = schema3(
     },
     since="2026-09-01T12:00:00Z", until="2026-09-01T12:02:00Z", wallclock=120,
     agents=[GREEN_AGENT], tools={"Agent": 1, "Bash": 3},
-    by_skill={"-": T(2, 1, 1, 1, 1), "tdd": T(6, 1, 1, 1, 1)}, recommended=["tdd"],
+    by_skill={"-": T(2, 1, 1, 1, 1), "tdd": T(6, 1, 1, 1, 1)},
 )
 # a finished-batch phase recorded before per-model data existed: totals only, no layers
 SETUP_TEL = {
@@ -365,6 +366,114 @@ class PortalTest(CfqTestCase):
         result = self._sync(repo)
         self.assertEqual(result["removed"], [])
         self.assertEqual(self._load(repo, "entry/plan-2026-09-19-idea")["state"], "done")
+
+    # ---- edit targets (editor link and OS path) ---------------------------------------------------
+
+    WSL_ENV = {"CFQ_HOST_PLATFORM": "wsl", "CFQ_WSL_DISTRO": "TestDistro"}
+
+    def _wsl_os(self, path):
+        return "\\\\wsl.localhost\\TestDistro" + str(path).replace("/", "\\")
+
+    def test_edit_targets_of_open_batch_and_phases(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env=self.WSL_ENV)
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        phases = {p["slug"]: p for p in batch["phases"]}
+        phase_file = impl / "01-first.md"
+        self.assertEqual(phases["01-first"]["edit"], {
+            "path": self._wsl_os(phase_file),
+            "url": "vscode://vscode-remote/wsl+TestDistro" + str(phase_file),
+        })
+        self.assertNotIn("edit", phases["00-setup"])
+        ctx = impl / ".batch-context.md"
+        self.assertEqual(batch["edit"]["dir"], {
+            "path": self._wsl_os(impl), "url": "vscode://vscode-remote/wsl+TestDistro" + str(impl),
+        })
+        self.assertEqual(batch["edit"]["context"], {
+            "path": self._wsl_os(ctx), "url": "vscode://vscode-remote/wsl+TestDistro" + str(ctx),
+        })
+        second = self._sync(repo, env=self.WSL_ENV)
+        self.assertEqual(second["written"], [])
+
+    def test_edit_context_only_when_the_file_exists(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        (impl / ".batch-context.md").unlink()
+        self._sync(repo, env=self.WSL_ENV)
+        edit = self._load(repo, "batch/2026-09-23-demo")["edit"]
+        self.assertIn("dir", edit)
+        self.assertNotIn("context", edit)
+
+    def test_edit_url_is_omitted_when_the_editor_is_off(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        self._write(self._cfq(repo) / "plan" / "2026-09-19-idea.md", "# An idea\n")
+        self._sync(repo, env={**self.WSL_ENV, "CFQ_EDITOR": "off"})
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        edits = [batch["edit"]["dir"], batch["edit"]["context"]]
+        edits += [p["edit"] for p in batch["phases"] if "edit" in p]
+        edits.append(self._load(repo, "entry/plan-2026-09-19-idea")["edit"])
+        self.assertEqual(len(edits), 4)
+        for e in edits:
+            self.assertIn("path", e)
+            self.assertNotIn("url", e)
+
+    def test_edit_url_uses_the_configured_editor_scheme(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env={**self.WSL_ENV, "CFQ_EDITOR": "cursor"})
+        phase = next(p for p in self._load(repo, "batch/2026-09-23-demo")["phases"] if p["slug"] == "01-first")
+        self.assertTrue(phase["edit"]["url"].startswith("cursor://vscode-remote/wsl+TestDistro/"), phase["edit"])
+
+    def test_edit_on_posix_hosts_is_the_plain_path_and_file_link(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        self._sync(repo, env={"CFQ_HOST_PLATFORM": "posix"})
+        phase = next(p for p in self._load(repo, "batch/2026-09-23-demo")["phases"] if p["slug"] == "01-first")
+        phase_file = str(impl / "01-first.md")
+        self.assertEqual(phase["edit"], {"path": phase_file, "url": "vscode://file" + phase_file})
+
+    def test_finished_batch_carries_no_edit(self):
+        repo = self.make_repo()
+        impl = self._build_batch(repo, "2026-09-23-demo")
+        (impl / "done").mkdir(exist_ok=True)
+        shutil.move(str(impl / "01-first.md"), str(impl / "done" / "01-first.md"))
+        write_status(impl, {"01-first": "done"})
+        self._sync(repo, env=self.WSL_ENV)
+        batch = self._load(repo, "batch/2026-09-23-demo")
+        self.assertNotIn("edit", batch)
+        for p in batch["phases"]:
+            self.assertNotIn("edit", p)
+
+    def test_edit_on_error_and_skipped_phases(self):
+        repo = self.make_repo()
+        impl = self._cfq(repo) / "impl" / "2026-09-23-demo"
+        self._write(impl / "01-a.md", "# A\n\n## Size\n\nS\n")
+        self._write(impl / "02-b.md", "# B\n\n## Size\n\nS\n")
+        self._write(impl / "03-c.md", "# C\n\n## Size\n\nS\n")
+        write_status(impl, {"02-b": "error", "03-c": {"status": "skipped", "reason": "obsolete"}})
+        self._sync(repo, env=self.WSL_ENV)
+        phases = {p["slug"]: p for p in self._load(repo, "batch/2026-09-23-demo")["phases"]}
+        self.assertEqual(sorted(phases), ["01-a", "02-b", "03-c"])
+        for slug, p in phases.items():
+            self.assertIn("path", p["edit"], slug)
+
+    def test_edit_on_open_entries_only(self):
+        repo = self.make_repo()
+        self._build_batch(repo, "2026-09-23-demo")
+        cfq = self._cfq(repo)
+        idea = self._write(cfq / "plan" / "2026-09-19-idea.md", "# An idea\n")
+        self._write(cfq / "plan" / "done" / "2026-09-17-old.md", "# Old\n\n## Closed\n\nDone.\n")
+        self._write(cfq / "todo" / "2026-09-20-fix.md", "# Fix\n")
+        self._sync(repo, env=self.WSL_ENV)
+        self.assertEqual(self._load(repo, "entry/plan-2026-09-19-idea")["edit"], {
+            "path": self._wsl_os(idea), "url": "vscode://vscode-remote/wsl+TestDistro" + str(idea),
+        })
+        self.assertIn("edit", self._load(repo, "entry/todo-2026-09-20-fix"))
+        self.assertNotIn("edit", self._load(repo, "entry/plan-2026-09-17-old"))
+        for row in self._load(repo, "queue")["entries"]:
+            self.assertNotIn("edit", row)
 
     # ---- site.js ---------------------------------------------------------------------------------
 
@@ -741,7 +850,7 @@ class PortalTest(CfqTestCase):
         self.assertTrue(green["settled"])
         self.assertEqual(green["mode"], "orchestrator")
         self.assertEqual(green["tools"], {"Agent": 1, "Bash": 3})
-        self.assertEqual(green["skills"], {"recommended": ["tdd"], "used": ["tdd"]})
+        self.assertEqual(green["skills"], {"used": ["tdd"]})
 
         cost = green["cost"]
         self.assertEqual(cost["total"], T5(8, 16, 800, 5000, 110))
@@ -759,7 +868,7 @@ class PortalTest(CfqTestCase):
         # the schema-2 attempt without layers still yields its totals as the main layer, no models
         self.assertEqual(setup["attempts"][0]["cost"]["layers"]["main"]["total"], T5(2, 4, 100, 500, 20))
         self.assertEqual(setup["attempts"][0]["cost"]["byModel"], {})
-        self.assertEqual(setup["attempts"][0]["skills"], {"recommended": [], "used": []})
+        self.assertEqual(setup["attempts"][0]["skills"], {"used": []})
 
         self.assertEqual(b["cost"]["total"], T5(24, 48, 2300, 11500, 530))
         self.assertEqual(b["cost"]["layers"]["worker"]["total"], T5(5, 10, 500, 3000, 60))
@@ -1220,6 +1329,50 @@ class PortalTest(CfqTestCase):
         second = self._sync(repo_a, env=env)
         self.assertEqual(second["mirror"]["status"], "OK")
         self.assertEqual(second["mirror"]["written"], [])
+
+    def test_filtered_sync_keeps_every_batch_in_mirror(self):
+        repo = self.make_repo("alpha")
+        self._build_batch(repo, "2026-09-24-a")
+        self._build_batch(repo, "2026-09-24-b")
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+
+        self._sync(repo, env=env)
+        result = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+
+        self.assertEqual(result["mirror"]["status"], "OK")
+        self.assertEqual(result["mirror"]["removed"], [])
+        mirror_batches = report_dir / "alpha" / "data" / "batch"
+        for name in ("2026-09-24-a", "2026-09-24-b"):
+            self.assertTrue((mirror_batches / f"{name}.js").is_file(), f"mirror lost {name}")
+
+    def test_filtered_sync_rebuilds_hand_edited_batch(self):
+        repo = self.make_repo("alpha")
+        self._build_batch(repo, "2026-09-24-a")
+        impl_b = self._build_batch(repo, "2026-09-24-b")
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+        self._sync(repo, env=env)
+
+        data_b = self._data_dir(repo) / "batch" / "2026-09-24-b.js"
+        data_a = self._data_dir(repo) / "batch" / "2026-09-24-a.js"
+        future = data_b.stat().st_mtime + 3600
+        for f in (data_a, data_b):  # data files newer than every batch file -> read back
+            os.utime(f, (future, future))
+        negative = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+        self.assertNotIn("batch/2026-09-24-b.js", negative["written"])
+
+        past = time.time() - 60
+        os.utime(data_b, (past, past))
+        self._write(impl_b / "01-first.md", "# Edited title\n\n## Size\n\nM\n")
+        result = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+
+        self.assertIn("batch/2026-09-24-b.js", result["written"])
+        self.assertIn("Edited title", data_b.read_text())
+        mirror_b = report_dir / "alpha" / "data" / "batch" / "2026-09-24-b.js"
+        self.assertIn("Edited title", mirror_b.read_text())
 
     def test_reportdir_mirror_same_basename_gets_stable_distinct_directory(self):
         repo_1 = self.make_repo("dup")

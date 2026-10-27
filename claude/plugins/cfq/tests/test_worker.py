@@ -17,7 +17,7 @@ from cfq_testlib import CFQ_BIN, CfqTestCase, PhaseDirsStatus, write_status
 
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
 
-PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
+PHASE = textwrap.dedent("""\
     # Some phase
 
     ## Size
@@ -37,11 +37,6 @@ PHASE_WITH_RECOMMENDED = textwrap.dedent("""\
 
     1. First step of the phase.
     2. Second step of the phase.
-
-    ## Recommended skills
-
-    - superpowers half a sentence why (blocked, must be filtered)
-    - mattpocock-skills:tdd half a sentence why (kept)
 
     ## Verification
 
@@ -65,7 +60,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.repo = self.make_repo("workerrepo")
         self.batch_dir = self.repo / ".claude/cfq/impl/2026-01-01-workerbatch"
         self.batch_dir.mkdir(parents=True)
-        (self.batch_dir / "02-something.md").write_text(PHASE_WITH_RECOMMENDED)
+        (self.batch_dir / "02-something.md").write_text(PHASE)
         (self.batch_dir / ".batch-context.md").write_text("# Batch Context\n")
 
     def _brief(self, phase, home=None):
@@ -98,6 +93,7 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.assertIn("language", body)
         self.assertIn("codeLanguage", body["language"])
         self.assertIn("blockedPlugins", body)
+        self.assertNotIn("recommendedSkills", body)
         self.assertIn("exploreModels", body)
         self.assertIn("failedAttempt", body)
         self.assertEqual(body["failedAttempt"], {"found": False})
@@ -217,11 +213,6 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
         self.assertEqual(body["status"], "OK")
         self.assertEqual(body["size"], "M")
 
-    def test_blocked_plugin_filtered_from_recommended_skills(self):
-        body = self._brief_file()
-        self.assertNotIn("superpowers", body["recommendedSkills"], f"blocked plugin leaked: {body}")
-        self.assertIn("mattpocock-skills:tdd", body["recommendedSkills"], f"kept entry missing: {body}")
-
     def test_brief_finds_a_phase_lying_in_skipped(self):
         write_status(self.batch_dir, **{"02_something": {"status": "skipped", "reason": "obsolete"}})
         self.assertTrue((self.batch_dir / "skipped" / "02-something.md").is_file())
@@ -258,7 +249,7 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
         (self.batch_dir / ".batch-context.md").write_text("# Batch Context\n")
 
     def _phase(self, model=None):
-        text = PHASE_WITH_RECOMMENDED
+        text = PHASE
         if model:
             text = text.replace("## Context", f"## Model\n\n{model}\n\n## Context", 1)
         (self.batch_dir / "02-something.md").write_text(text)
@@ -315,8 +306,8 @@ class WorkerModelTest(PhaseDirsStatus, CfqTestCase):
         rows = [
             ("haiku", {"implModels": ["sonnet", "haiku"]}, "sonnet"),
             ("sonnet", {"implModels": ["sonnet", "haiku"]}, None),
-            ("haiku", {"implModels": ["haiku", "opus"]}, "opus"),
-            ("haiku", {"implModels": ["haiku", "mystery"]}, None),
+            ("haiku", {"implModels": ["haiku", "opus"], "orchestratorModels": []}, "opus"),
+            ("haiku", {"implModels": ["haiku", "mystery"], "orchestratorModels": []}, None),
         ]
         for phase_model, settings, expected in rows:
             with self.subTest(phase_model=phase_model, settings=settings):
@@ -462,14 +453,31 @@ class WorkerVerdictTest(CfqTestCase):
             self.assert_status_lines_shape(body["statusLines"])
             self.assertEqual([e["label"] for e in body["statusLines"]], ["Cost"])
 
-    def test_question_and_missing_batch_have_no_status_lines(self):
+    def test_green_without_usable_telemetry_carries_unavailable_cost(self):
+        d = self._repos_dir / "zero-batch"
+        d.mkdir(parents=True, exist_ok=True)
+        zero = {"turns": 0, "output": 0, "billable_in": 0, "cache_read": 0, "models": []}
+        (d / "report.json").write_text(json.dumps({"batch": "x", "phases": [{
+            "phase": "02-x", "status": "green",
+            "telemetry": {"schema": 3, "kind": "phase", "layers": {
+                n: dict(zero) for n in ("main", "main_explore", "worker", "worker_explore")}},
+        }]}))
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green"}, batch_dir=str(d)).stdout)
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(len(body["statusLines"]), 1)
+        self.assertEqual(body["statusLines"][0]["icon"], "warn")
+        self.assertEqual(body["statusLines"][0]["detail"], "unavailable · no usable telemetry for this phase")
+
+    def test_question_has_no_status_lines_missing_batch_warns(self):
         d = self._batch_with_telemetry()
         body = json.loads(self._verdict({"phase": "02-x", "status": "question", "question": "?"}, batch_dir=d).stdout)
         self.assertEqual(body["statusLines"], [])
         proc = self._verdict({"phase": "02-x", "status": "green"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         body = json.loads(proc.stdout)
-        self.assertEqual(body["statusLines"], [])
+        self.assertEqual(len(body["statusLines"]), 1)
+        self.assertEqual(body["statusLines"][0]["label"], "Cost")
+        self.assertEqual(body["statusLines"][0]["icon"], "warn")
         self.assertEqual(body["verdict"], "CONTINUE")
 
     def test_malformed_json_fails_loudly_never_silent_continue(self):

@@ -15,13 +15,13 @@ rendered text) is the invariant this file preserves. The render half in particul
 import json
 import os
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import paths, portal_hook, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_dash.py"
 
@@ -342,9 +342,7 @@ def main(argv):
     plugins_list = runtime_json["plugins"]
     pony_mode = runtime_json["ponytailMode"]
 
-    git_proc = subprocess.run(
-        ["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-    )
+    git_proc = proc_git(cwd, "rev-parse", "--show-toplevel")
     repo = git_proc.stdout.strip() if git_proc.returncode == 0 else ""
     repo_args = ["--repo", repo] if repo else []
 

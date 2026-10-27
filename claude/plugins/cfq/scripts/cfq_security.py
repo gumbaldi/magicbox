@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # Usage: cfq_security.py <repo-root>
 """Security snapshot for a target repo. Never fails: always prints one JSON object on stdout and
-exits 0, even when a forge is unreachable or unauthenticated. GitHub gets real findings via `gh`
-(Dependabot + code-scanning); Gitea has no such API (checked against its Swagger definition), so
-only reachability/login are confirmed there and the local npm audit is the actual source. A local
-audit runs in addition on every repo with a package.json, never only as a substitute.
+exits 0, even when a forge is unreachable or unauthenticated. GitHub and GitHub Enterprise get
+real findings via `gh` (Dependabot + code-scanning), GitLab via `glab` (vulnerability report, never
+marked fixable); every query runs against the repository's own host. Gitea has no such API (checked
+against its Swagger definition), so only reachability/login are confirmed there and the local npm
+audit is the actual source. A local audit runs in addition on every repo with a package.json, never
+only as a substitute.
 
 Detection-only mode (CFQ_SECURITY_DETECT_ONLY=1) prints "<forge> <host> <owner/name>" for the
 origin remote and exits -- for testing the string parsing without network or credentials.
@@ -24,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -46,11 +49,41 @@ def run_bounded(cmd, cwd=None, timeout=None):
         return subprocess.CompletedProcess(cmd, 1, "", "")
 
 
+def _cli_login_hosts(env_name, tool, host, sec_timeout):
+    """True when `host` has a login for the CLI `tool` (gh/glab). The env override
+    (whitespace-separated host list) replaces the CLI lookup for tests."""
+    env_hosts = os.environ.get(env_name, "")
+    if env_hosts:
+        return host in env_hosts.split()
+    if not shutil.which(tool):
+        return False
+    return run_bounded([tool, "auth", "status", "--hostname", host], timeout=sec_timeout).returncode == 0
+
+
+def _tea_login_hosts(sec_timeout):
+    env_hosts = os.environ.get("CFQ_TEA_LOGIN_HOSTS", "")
+    if env_hosts:
+        return env_hosts.split()
+    hosts = []
+    if shutil.which("tea"):
+        proc = run_bounded(["tea", "login", "list", "--output", "simple"], timeout=sec_timeout)
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    h = re.sub(r"^[a-zA-Z]+://", "", parts[1])
+                    h = re.sub(r"[:/].*$", "", h)
+                    hosts.append(h)
+    return hosts
+
+
 def detect_forge(repo, sec_timeout):
-    """Returns (forge, host, owner_name). forge is one of github|gitea|unknown|none. The gitea
-    branch never guesses: only a host that appears in the tea login list
-    (CFQ_TEA_LOGIN_HOSTS overrides it for tests) is trusted -- otherwise tea would silently query
-    the wrong instance."""
+    """Returns (forge, host, owner_name). forge is one of github|gitlab|gitea|unknown|none.
+    github.com is github without any lookup. Any other host is classified by the CLI logins that
+    exist for it, first match wins: gh login -> github (Enterprise), glab login -> gitlab, tea
+    login -> gitea, else unknown. CFQ_GH_LOGIN_HOSTS / CFQ_GLAB_LOGIN_HOSTS / CFQ_TEA_LOGIN_HOSTS
+    override the lookups for tests. Nothing is guessed: a host without a login is never queried,
+    otherwise a CLI would silently talk to the wrong instance."""
     url = capture(git(repo, "remote", "get-url", "origin"))
     if not url:
         return "none", "-", "-"
@@ -84,23 +117,14 @@ def detect_forge(repo, sec_timeout):
 
     if host == "github.com":
         forge = "github"
+    elif _cli_login_hosts("CFQ_GH_LOGIN_HOSTS", "gh", host, sec_timeout):
+        forge = "github"
+    elif _cli_login_hosts("CFQ_GLAB_LOGIN_HOSTS", "glab", host, sec_timeout):
+        forge = "gitlab"
+    elif host in _tea_login_hosts(sec_timeout):
+        forge = "gitea"
     else:
-        env_hosts = os.environ.get("CFQ_TEA_LOGIN_HOSTS", "")
-        if env_hosts:
-            hosts = env_hosts.split()
-        elif shutil.which("tea"):
-            proc = run_bounded(["tea", "login", "list", "--output", "simple"], timeout=sec_timeout)
-            hosts = []
-            if proc.returncode == 0:
-                for line in proc.stdout.splitlines():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        h = re.sub(r"^[a-zA-Z]+://", "", parts[1])
-                        h = re.sub(r"[:/].*$", "", h)
-                        hosts.append(h)
-        else:
-            hosts = []
-        forge = "gitea" if host in hosts else "unknown"
+        forge = "unknown"
 
     return forge, host, owner_name
 
@@ -142,7 +166,7 @@ def cmd_security(args):
     hint = ""
 
     if forge == "github" and shutil.which("gh") and run_bounded(
-        ["gh", "api", "user"], timeout=sec_timeout,
+        ["gh", "api", "--hostname", host, "user"], timeout=sec_timeout,
     ).returncode == 0:
         hint = (
             "Dependabot and code scanning return nothing for this repo (disabled or never "
@@ -150,7 +174,7 @@ def cmd_security(args):
         )
 
         dep = capture(run_bounded(
-            ["gh", "api", "--paginate", f"repos/{slug}/dependabot/alerts?state=open"],
+            ["gh", "api", "--hostname", host, "--paginate", f"repos/{slug}/dependabot/alerts?state=open"],
             timeout=sec_timeout,
         ))
         dep_json = _json_or_none(dep)
@@ -169,7 +193,7 @@ def cmd_security(args):
                 })
 
         cs = capture(run_bounded(
-            ["gh", "api", "--paginate", f"repos/{slug}/code-scanning/alerts?state=open"],
+            ["gh", "api", "--hostname", host, "--paginate", f"repos/{slug}/code-scanning/alerts?state=open"],
             timeout=sec_timeout,
         ))
         cs_json = _json_or_none(cs)
@@ -186,6 +210,31 @@ def cmd_security(args):
 
         if sources:
             hint = ""
+    elif forge == "gitlab" and shutil.which("glab"):
+        if run_bounded(["glab", "api", "--hostname", host, "user"], timeout=sec_timeout).returncode == 0:
+            hint = (
+                "GitLab returns no vulnerability data for this project (the report needs GitLab "
+                "Ultimate, or no scanner is configured) — local audit is the only source."
+            )
+            project = urllib.parse.quote(slug, safe="")
+            vul = capture(run_bounded(
+                ["glab", "api", "--hostname", host, "--paginate",
+                 f"projects/{project}/vulnerabilities?state=detected&per_page=100"],
+                timeout=sec_timeout,
+            ))
+            vul_json = _json_or_none(vul)
+            if isinstance(vul_json, list) and len(vul_json) > 0:
+                sources.append("gitlab")
+                hint = ""
+                for item in vul_json:
+                    findings.append({
+                        "id": item.get("title") or str(item.get("id", "?")),
+                        "severity": item.get("severity") or "unknown",
+                        "source": "gitlab",
+                        "fix": False,
+                    })
+        else:
+            hint = f"glab auth login --hostname {host}"
     elif forge == "gitea" and shutil.which("tea"):
         if run_bounded(["tea", "api", f"repos/{slug}"], timeout=sec_timeout).returncode == 0:
             sources.append("gitea:none")
@@ -227,9 +276,16 @@ def cmd_security(args):
     if not sources:
         if not hint:
             if forge == "github":
-                hint = "gh auth login"
+                hint = f"gh auth login --hostname {host}"
+            elif forge == "gitlab":
+                hint = f"glab auth login --hostname {host}"
             elif forge == "gitea":
                 hint = f"tea login add --url {host}"
+            elif forge == "unknown":
+                hint = (
+                    f"gh auth login --hostname {host}, glab auth login --hostname {host} "
+                    f"or tea login add --url {host}"
+                )
             else:
                 hint = "no supported manifest found"
         result = {

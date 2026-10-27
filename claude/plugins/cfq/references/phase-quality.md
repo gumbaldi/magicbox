@@ -4,12 +4,12 @@ Read unconditionally in **Language and Cut Phases**, before any phase's Changes 
 text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
-simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6 and 7 apply
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6, 7 and 9 apply
 to every phase without exception; rule 8 is optional. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The eight rules below are a standing checkpoint against runaway debugging tokens and untested
+The nine rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## Contents
@@ -22,6 +22,7 @@ verbatim moves, not a one-time lesson repeated only in a post-mortem.
 - 6. `## Affected Files` is the complete list
 - 7. `## Changes` is a numbered step list
 - 8. `## Model` names the smallest model that fits
+- 9. `## Summary` says it in plain words
 - Phase File Structure
 
 ## 1. Test-first, not shell exploration
@@ -61,6 +62,13 @@ Any exploratory "does this work for case A, B, C" round belongs inside the test 
 one parametrized run), not as a series of separate manual shell invocations typed one at a time.
 The phase's `Verification` section names one command that runs all of them together.
 
+A test filter must select tests, not merely end in "OK". `unittest -k` matches a substring or glob
+of test method and class names; it has no `or`/`and`/`not` and never matches module names. For
+several names repeat `-k`; for one module use `discover -p "test_x*.py"` or pass the file to
+`pytest`. `pytest -k` accepts expressions. The `Expected:` line names a non-zero test count or the
+test names that must pass, never only "OK". `bin/cfq lint` reports the `unittest -k` expression
+form as `verification-filter`.
+
 ## 5. Size reflects verify-the-reuse work, not just new lines
 
 The three letters: `S` one file and one test, `M` several files or a new script, `L` a new script
@@ -75,8 +83,7 @@ this applies — decide it here, at planning time, not discover it mid-`ifq` as 
 Write the estimate into that phase's file as a `## Size` heading (structural markers are always
 English, independent of `codeLanguage`) with the letter alone on the next non-empty line — this is
 what `bin/cfq brief` and `ifq`'s size gate parse; a missing or malformed heading silently degrades
-to `M`. Optionally add **Recommended skills** (half-sentence reason each, never from
-`implBlockedPlugins`; usually omitted).
+to `M`.
 
 ## 6. `## Affected Files` is the complete list
 
@@ -104,6 +111,11 @@ that extends the file, and a phase of a batch whose `.dependsOn` names the creat
 path bare. `bin/cfq lint` accepts a bare path that is not on disk while the creating phase is
 pending, and reports `duplicate-new` when a second phase marks the same path. A bullet is never
 reworded to keep a path out of lint: `bin/cfq overlap` reads the same bullets.
+
+Bullet format: each entry is `- \`<absolute path>\`` with the path wrapped in backticks directly
+after `- `. Free text may follow the closing backtick; the literal `(new)` there marks the creating
+phase. Lint counts only this form (`files-empty` when none), and `bin/cfq overlap` reads the same
+bullets.
 
 Only list what the phase demonstrably touches, never what it might touch. If the planner cannot
 decide whether a file is in scope, that uncertainty is a research task for the planning session,
@@ -145,16 +157,27 @@ One condition failing means no heading. A larger model than the default is plann
 for a phase whose `## Changes` cannot avoid a design decision. The first entry of `implModels` is
 the default; when the list has one entry, never write the heading.
 
+## 9. `## Summary` says it in plain words
+
+Every phase opens with `## Summary`, directly under the title and before `## Size`. It is 2 to 4
+sentences: what the user sees or does today and what is different afterwards. It names no file,
+function, setting or command; those belong in Context and Changes. The reader is a junior sysadmin
+who approves the plan from the review digest, so every term must make sense without knowing the
+code.
+
+The review digest and the `/ifq` announcement show the Summary instead of Context. `bin/cfq lint`
+only warns (`summary-missing`) when it is absent, so an older batch still starts.
+
 ---
 
 None of this adds a new required heading. Rules 1-7 live inside a phase's existing `Changes`,
 `Affected Files`/`Reuse`, and `Verification` prose — `bin/cfq lint`'s heading checks are unaffected;
-rule 8's heading is optional.
+rule 8's heading is optional; rule 9's heading is checked by a warn-only lint line.
 
 ## Phase File Structure
 
 Every phase file is a copy of `<plugin-root>/references/phase-template.md` with its placeholders
-replaced: Size (`S`/`M`/`L`, own heading) · Model (optional, own heading, not in the template) ·
+replaced: Summary (own heading, first) · Size (`S`/`M`/`L`, own heading) · Model (optional, own heading, not in the template) ·
 Context · Affected Files (always absolute paths) · Changes (copy-ready) · Reuse · Dependencies ·
 Verification (with output filtering). Conventions: absolute paths, no project-specific proper nouns in test data, token
 hygiene in verification, and verification must check the real path the user actually takes.

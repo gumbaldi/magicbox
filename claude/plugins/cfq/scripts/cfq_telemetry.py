@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_telemetry.py record <batch-dir> planning|phase [<phase-slug>]
+# Usage: cfq_telemetry.py record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug>
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
 #        cfq_telemetry.py show <repo-root> [--session]
@@ -32,15 +32,16 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
-from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
+from cfq_lib.proc import git as proc_git  # noqa: E402
 
 PROG = "cfq_telemetry.py"
 
 USAGE = (
-    f"usage: {PROG} record <batch-dir> planning|phase [<phase-slug>] | sync [<repo-root>] | "
+    f"usage: {PROG} record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug> | "
+    "sync [<repo-root>] | "
     "show <repo-root> [--session] | settle <repo-root>"
 )
 
@@ -56,16 +57,11 @@ SETTLE_QUIET_SECONDS = 120
 # "orchestrator" and poison the comparison mode exists for.
 WORKER_AGENT = "cfq:cfq-phase-worker"
 
-RECOMMENDED_HEADING_RE = re.compile(r"^## Empfohlene Skills")
-HEADING_RE = re.compile(r"^## ")
-RECOMMENDED_ITEM_RE = re.compile(r"^- ([A-Za-z0-9:._-]+)")
 TS_TRAILING_MS_RE = re.compile(r"\.\d+Z$")
 
 
 def git_toplevel(cwd):
-    proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True
-    )
+    proc = proc_git(cwd, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
@@ -102,38 +98,6 @@ def subagent_dir(repo="", session=""):
     # derived, never guessed here (cfq_runtime.py owns every assumption about Claude Code's
     # on-disk layout).
     return cfq_run(*_runtime_args("subagent-dir", repo, session)).stdout.strip()
-
-
-def extract_recommended_skills(dir_, phase):
-    if not phase:
-        return []
-    batch_dir = pathlib.Path(dir_)
-    try:
-        slug = phase_state.resolve_slug(batch_dir, phase)
-    except phase_state.PhaseStateError:
-        slug = phase
-    pf = phase_state.locate(batch_dir, slug)
-    if pf is None:
-        return []
-    lines = pf.read_text().splitlines()
-    start = None
-    for i, line in enumerate(lines):
-        if RECOMMENDED_HEADING_RE.match(line):
-            start = i
-            break
-    if start is None:
-        return []
-    block = [lines[start]]
-    for line in lines[start + 1:]:
-        block.append(line)
-        if HEADING_RE.match(line):
-            break
-    recommended = []
-    for line in block:
-        m = RECOMMENDED_ITEM_RE.match(line)
-        if m:
-            recommended.append(m.group(1))
-    return recommended
 
 
 def parse_transcript(tf):
@@ -401,7 +365,7 @@ def build_layers(t, nodes, turns_by_id):
     return layers
 
 
-def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", subagents_dir=""):
+def build_record(tf, since, kind, phase, batch, repo, upper="", subagents_dir=""):
     """`upper` bounds the main-transcript window like `since` bounds it from below (default
     unbounded); the same (since, upper] window decides which sub-agents belong to the record.
     `subagents_dir` is the `subagents/` directory of the session `tf` belongs to -- the caller
@@ -480,7 +444,6 @@ def build_record(tf, since, kind, phase, batch, repo, recommended, upper="", sub
         "subagent_explore": sums(explore_sub),
         "agents": agent_nodes,
         "layers": layers,
-        "skills_recommended": recommended,
     }
 
 
@@ -529,7 +492,16 @@ def cmd_record_bootstrap(dir_, skill, call_count_s, duration_ms_s):
     print(f"telemetry: bootstrap {rec['skill']} {rec['call_count']} calls / {rec['duration_ms']} ms")
 
 
-def cmd_record_phase_or_planning(dir_, kind, phase):
+def _phase_count(dir_):
+    """Number of phases in the batch's status.json; 0 when the file is missing or unreadable."""
+    try:
+        data = json.loads(pathlib.Path(dir_, "status.json").read_text())
+        return len(data.get("phases") or {})
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
     tf, sid = session_identity()
     if not tf or not os.path.isfile(tf):
         print(f"{PROG}: no transcript found — skipped", file=sys.stderr)
@@ -542,9 +514,14 @@ def cmd_record_phase_or_planning(dir_, kind, phase):
     if os.path.isfile(jsonl) and sid:
         since = last_until_for_session(jsonl, sid)
 
-    recommended = extract_recommended_skills(dir_, phase)
     batch = pathlib.Path(dir_).name
-    rec = build_record(tf, since, kind, phase, batch, repo, recommended, subagents_dir=subagent_dir())
+    rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
+    if kind == "planning":
+        rec["interview_depth"] = depth
+        rec["phase_count"] = _phase_count(dir_)
+    if rec["totals"]["turns"] == 0:
+        print(f"{PROG}: record for '{phase or 'planning'}' has 0 turns — transcript {tf} holds nothing in this window",
+              file=sys.stderr)
 
     os.makedirs(os.path.dirname(jsonl), exist_ok=True)
     with open(jsonl, "a") as f:
@@ -596,8 +573,15 @@ def cmd_record(rest):
         cmd_record_bootstrap(dir_, rest[2], rest[3], rest[4])
         return
 
-    phase = rest[2] if len(rest) > 2 else ""
-    cmd_record_phase_or_planning(dir_, kind, phase)
+    args, depth = list(rest[2:]), ""
+    if "--depth" in args:
+        i = args.index("--depth")
+        if i + 1 >= len(args) or args[i + 1] not in ("quick", "thorough", "docs"):
+            errors.die(USAGE)
+        depth = args[i + 1]
+        del args[i:i + 2]
+    phase = args[0] if args else ""
+    cmd_record_phase_or_planning(dir_, kind, phase, depth)
 
 
 def _record_objects(data):
@@ -634,13 +618,16 @@ def _recompute(old, tf, subdir, upper):
     try:
         new = build_record(
             tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
-            old.get("batch"), old.get("repo"), old.get("skills_recommended") or [],
+            old.get("batch"), old.get("repo"),
             upper=upper, subagents_dir=subdir,
         )
     except (OSError, ValueError):
         return None
     if not new["session_id"]:
         new["session_id"] = old.get("session_id", "")
+    for key in ("interview_depth", "phase_count"):
+        if key in old:
+            new[key] = old[key]
     return new
 
 
@@ -753,6 +740,7 @@ def cmd_sync(rest):
 
     added = total - n
     # Never fatal: a broken sync repo must not abort an implementation session.
+    # Deliberately not proc_git: these do not capture output, so git's own errors reach the terminal.
     ok = (
         subprocess.run(["git", "-C", target, "add", "--", name]).returncode == 0
         and subprocess.run(

@@ -73,6 +73,36 @@ class StatusLineRenderingTest(unittest.TestCase):
             line = cfq_finish.branch_line(branch, "cfq/001-a")
             self.assertEqual((line["icon"], line["detail"]), ("skip", "no branch"))
 
+    def test_branch_line_push_suffixes(self):
+        def line(state, ahead=0, behind=0):
+            return cfq_finish.branch_line(
+                "cfq/002-b", "cfq/001-a", {"state": state, "ahead": ahead, "behind": behind},
+            )
+
+        base = "cfq/002-b · from cfq/001-a"
+        for expected_icon, expected, entry in (
+            ("done", f"{base} · pushed", line("pushed")),
+            ("warn", f"{base} · ahead 2 · not pushed", line("ahead", 2)),
+            ("warn", f"{base} · behind 3", line("behind", 0, 3)),
+            ("warn", f"{base} · diverged (ahead 1, behind 2)", line("diverged", 1, 2)),
+            ("warn", f"{base} · not pushed", line("not-pushed")),
+            ("warn", f"{base} · push state unknown", line("unknown")),
+        ):
+            self.assertEqual((entry["icon"], entry["detail"]), (expected_icon, expected))
+        for branch in ("", "HEAD"):
+            entry = cfq_finish.branch_line(branch, "cfq/001-a", {"state": "pushed", "ahead": 0, "behind": 0})
+            self.assertEqual((entry["icon"], entry["detail"]), ("skip", "no branch"))
+
+    def test_telemetry_line_variants(self):
+        entry = cfq_finish.telemetry_line("", True, "")
+        self.assertEqual((entry["icon"], entry["detail"]), ("skip", "sync off · telemetrySyncRepo is empty"))
+        entry = cfq_finish.telemetry_line("", True, "/tmp/tel")
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "nothing to sync · target /tmp/tel"))
+        entry = cfq_finish.telemetry_line("synced 3 records", True, "/tmp/tel")
+        self.assertEqual((entry["icon"], entry["detail"]), ("done", "synced 3 records"))
+        entry = cfq_finish.telemetry_line("boom", False, "/tmp/tel")
+        self.assertEqual((entry["icon"], entry["detail"]), ("warn", "boom"))
+
     def test_attach_errors_creates_a_line_when_none_existed(self):
         lines = [cfq_finish.language_line({"issues": 0, "findings": []}), None]
         cfq_finish.attach_errors(lines, ["security: cfq_security.py failed"])
@@ -336,6 +366,25 @@ class FinishTest(CfqTestCase):
         self.assertIn("lang", out)
         self.assertEqual(out["lock"], "released")
 
+    def test_report_line_is_a_wsl_url_on_wsl(self):
+        home = self._repos_dir / "home5w"
+        (home / ".claude/cfq").mkdir(parents=True)
+        repo = self._new_repo("repo5w")
+        batch = self._new_batch(repo, "2026-01-01-htmlwsl")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmlwsl", home=home, check=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
+
+        proc = self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-htmlwsl", home=home,
+            env={**ON, "CFQ_HOST_PLATFORM": "wsl", "CFQ_WSL_DISTRO": "TestDistro"}, check=True,
+        )
+        report_line = next(e for e in self.json_out(proc)["statusLines"] if e["label"] == "Report")
+        self.assertEqual(
+            report_line["detail"],
+            f"file://wsl.localhost/TestDistro{repo}/.claude/cfq/reports/index.html"
+            "#/batch/2026-01-01-htmlwsl",
+        )
+
     def test_html_report_auto_renders_when_enabled(self):
         # `finish` no longer writes a `.html` file itself -- `htmlReport: true` lets the portal
         # sync it already triggers (`cfq_lib/portal_hook.py`) actually run, and this batch's own
@@ -348,7 +397,8 @@ class FinishTest(CfqTestCase):
         (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
 
         proc = self.run_cfq(
-            "finish", str(repo), str(batch), "v0.1-htmlon", home=home, env=ON, check=True,
+            "finish", str(repo), str(batch), "v0.1-htmlon", home=home,
+            env={**ON, "CFQ_HOST_PLATFORM": "posix"}, check=True,
         )
         out = self.json_out(proc)
         report_line = next(e for e in out["statusLines"] if e["label"] == "Report")
@@ -726,6 +776,121 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         _changed, _prose, out = self._lang_refs(repo, "work")
         self.assertTrue(any(e["label"] == "Language" for e in out["statusLines"]), out)
 
+    # ---- push state of the batch branch -------------------------------------------------------
+
+    def _pushed_clone(self, name):
+        """A clone on `cfq/push` whose branch is pushed to a bare `origin` and identical to it."""
+        bare = self._repos_dir / f"{name}-origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        repo = self._new_repo(name)
+        self._git(repo, "remote", "add", "origin", str(bare))
+        self._git(repo, "checkout", "-q", "-b", "cfq/push")
+        self._git(repo, "push", "-q", "-u", "origin", "cfq/push")
+        return repo
+
+    def _commit_file(self, repo, fname):
+        (repo / fname).write_text(fname + "\n")
+        self._git(repo, "add", fname)
+        self._git(repo, "commit", "-q", "-m", fname)
+
+    def test_push_state_variants(self):
+        repo = self._pushed_clone("repo-push-state")
+        self.assertEqual(
+            cfq_finish.push_state(repo, "cfq/push"), {"state": "pushed", "ahead": 0, "behind": 0},
+        )
+        self._commit_file(repo, "local.txt")
+        self.assertEqual(
+            cfq_finish.push_state(repo, "cfq/push"), {"state": "ahead", "ahead": 1, "behind": 0},
+        )
+        self.assertEqual(
+            cfq_finish.push_state(repo, "cfq/never"), {"state": "not-pushed", "ahead": 0, "behind": 0},
+        )
+
+    def test_push_state_behind_and_diverged(self):
+        repo = self._pushed_clone("repo-push-behind")
+        other = self._repos_dir / "repo-push-other"
+        subprocess.run(
+            ["git", "clone", "-q", "-b", "cfq/push",
+             str(self._repos_dir / "repo-push-behind-origin.git"), str(other)], check=True,
+        )
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            self._git(other, "config", key, value)
+        self._commit_file(other, "remote.txt")
+        self._git(other, "push", "-q")
+        self._git(repo, "fetch", "-q", "origin")
+        self.assertEqual(
+            cfq_finish.push_state(repo, "cfq/push"), {"state": "behind", "ahead": 0, "behind": 1},
+        )
+        self._commit_file(repo, "local.txt")
+        self.assertEqual(
+            cfq_finish.push_state(repo, "cfq/push"), {"state": "diverged", "ahead": 1, "behind": 1},
+        )
+
+    def test_push_state_unknown_outside_a_repository(self):
+        # The ref lookup succeeds only inside a repository; a non-repository is "not pushed", and
+        # an unreadable rev-list is "unknown" -- neither may raise.
+        with mock.patch.object(cfq_finish, "git", side_effect=OSError("no git")):
+            self.assertEqual(cfq_finish.push_state("/nowhere", "b")["state"], "unknown")
+
+    def test_finish_reports_the_push_state(self):
+        home = self._repos_dir / "home-pushstate"
+        (home / ".claude/cfq").mkdir(parents=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        repo = self._pushed_clone("repo-pushstate")
+        name = "2026-01-01-pushstate"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "cfq/push", home=home, check=True)
+        )
+        self.assertEqual(out["branch"]["push"], {"state": "pushed", "ahead": 0, "behind": 0})
+        line = next(e for e in out["statusLines"] if e["label"] == "Branch")
+        self.assertEqual((line["icon"], line["detail"]), ("done", "cfq/push · pushed"))
+        telemetry = next(e for e in out["statusLines"] if e["label"] == "Telemetry")
+        self.assertEqual(
+            (telemetry["icon"], telemetry["detail"]),
+            ("skip", "sync off · telemetrySyncRepo is empty"),
+        )
+
+    def test_finish_without_a_remote_says_not_pushed(self):
+        home = self._repos_dir / "home-nopush"
+        (home / ".claude/cfq").mkdir(parents=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"changelogFile": ""}))
+        repo = self._new_repo("repo-nopush")
+        name = "2026-01-01-nopush"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "cfq/nopush", home=home, check=True)
+        )
+        self.assertEqual(sorted(out["branch"]["push"]), ["ahead", "behind", "state"])
+        self.assertEqual(out["branch"]["push"]["state"], "not-pushed")
+        line = next(e for e in out["statusLines"] if e["label"] == "Branch")
+        self.assertEqual((line["icon"], line["detail"]), ("warn", "cfq/nopush · not pushed"))
+
+    def test_finish_with_a_configured_sync_target_and_nothing_to_sync(self):
+        home = self._repos_dir / "home-synctarget"
+        (home / ".claude/cfq").mkdir(parents=True)
+        target = self._repos_dir / "tel-target"
+        (home / ".claude/cfq/settings.json").write_text(
+            json.dumps({"changelogFile": "", "telemetrySyncRepo": str(target)})
+        )
+        repo = self._new_repo("repo-synctarget")
+        name = "2026-01-01-synctarget"
+        batch = self._new_batch(repo, name)
+        self.run_cfq("lock", "acquire", str(repo), name, home=home, check=True)
+
+        out = self.json_out(
+            self.run_cfq("finish", str(repo), str(batch), "cfq/sync", home=home, check=True)
+        )
+        telemetry = next(e for e in out["statusLines"] if e["label"] == "Telemetry")
+        self.assertEqual(
+            (telemetry["icon"], telemetry["detail"]),
+            ("done", f"nothing to sync · target {target}"),
+        )
+
     # ---- the language checks compare against the batch's own base branch --------------------
 
     def _git(self, repo, *args):
@@ -824,20 +989,25 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
     def test_branch_line_names_the_branch_and_its_base(self):
         repo = self._chain_repo("repo-branch-routine")
         entry, out = self._branch_entry(repo, "branchroutine", "cfq/001-a")
-        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b · from cfq/001-a"))
-        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": "cfq/001-a"})
+        self.assertEqual((entry["icon"], entry["detail"]), ("warn", "cfq/002-b · from cfq/001-a · not pushed"))
+        self.assertEqual(
+            out["branch"],
+            {"name": "cfq/002-b", "base": "cfq/001-a",
+             "push": {"state": "not-pushed", "ahead": 0, "behind": 0}},
+        )
 
     def test_branch_line_without_a_recorded_base_names_the_branch_alone(self):
         repo = self._chain_repo("repo-branch-nobase")
         entry, out = self._branch_entry(repo, "branchnobase", None)
-        self.assertEqual((entry["icon"], entry["detail"]), ("done", "cfq/002-b"))
-        self.assertEqual(out["branch"], {"name": "cfq/002-b", "base": ""})
+        self.assertEqual((entry["icon"], entry["detail"]), ("warn", "cfq/002-b · not pushed"))
+        self.assertEqual(out["branch"]["base"], "")
+        self.assertEqual(out["branch"]["push"]["state"], "not-pushed")
 
     def test_branch_line_for_a_detached_head_is_skipped(self):
         repo = self._chain_repo("repo-branch-detached")
         entry, out = self._branch_entry(repo, "branchdetached", "cfq/001-a", branch="HEAD")
         self.assertEqual((entry["icon"], entry["detail"]), ("skip", "no branch"))
-        self.assertEqual(out["branch"], {"name": "", "base": "cfq/001-a"})
+        self.assertEqual(out["branch"], {"name": "", "base": "cfq/001-a", "push": None})
 
     def test_batch_base_reads_the_blocks_base(self):
         repo = self._chain_repo("repo-batch-base")

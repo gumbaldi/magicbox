@@ -54,12 +54,14 @@ exception — reappears every phase by design, never a repetition bug — one `A
 
 ## Implementation
 
-Read `nextPhase`'s plan file (path from the preflight) in full — multi-file or unclear-scope phases may delegate
-that research to an `implExploreModel` subagent first; implementation itself never runs on one.
+Read `nextPhase`'s plan file (path from the preflight) in full. Code search is always delegated to an
+`implExploreModel` subagent before the first edit, and this session reads only the returned line ranges
+(`Read` with `offset`/`limit`), per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
+Delegation**; implementation itself never runs on one.
 Implement it completely, run the plan's verification with output filtered — a green run may
 delegate the filtering to the same subagent, a red run never does (full unfiltered failure back
 either way), per `<plugin-root>/references/ifq-phase.md`'s **Research and Verification
-Delegation**. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
+Delegation**. A run whose output reports zero tests (`Ran 0 tests`, `collected 0 items`, `no tests ran`, `# pass 0`) is red, never green. A phase touching `docs/<codeLanguage>/…` → write the counterparts in every
 `docLanguages` entry before it goes green, per `<plugin-root>/references/doc-style.md` or
 `<repo>/docs/STYLE.md` if present. Work found beyond this phase's scope is always parked — read `<plugin-root>/references/queue-entries.md`'s **Parking Out-of-Scope Work**.
 

@@ -362,3 +362,13 @@ table.data.repos tbody tr{cursor:pointer}
   table.data tr{break-inside:avoid}
   a{text-decoration:none;color:inherit}
 }
+
+/* ---- edit controls (open in editor / copy path) ------------------------------------------- */
+.edit-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .6rem;margin:.5rem 0 .9rem;
+  font-size:.82rem}
+.edit-open,.edit-copy{display:inline-block;padding:.2rem .65rem;border:1px solid var(--border-strong);
+  border-radius:var(--r);background:var(--surface);color:var(--accent);font-size:.82rem;
+  text-decoration:none;cursor:pointer}
+.edit-open:hover,.edit-copy:hover{background:var(--accent-bg)}
+.edit-path{overflow-wrap:anywhere;user-select:all}
+.edit-hint{font-size:.76rem}

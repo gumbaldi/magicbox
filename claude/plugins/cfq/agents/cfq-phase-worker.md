@@ -12,7 +12,8 @@ Non-Goals.
 
 `Agent` stays in the tool list on purpose: the worker sits one layer below the orchestrator, well
 inside the default spawn-depth limit, and inherits `implement-for-queue`'s two Explore delegation
-sites (research before implementing, filtering a green verification run) unchanged.
+sites: code search before implementing is always delegated, filtering a green verification run may
+be.
 
 ## Input
 
@@ -26,6 +27,8 @@ working tree holds its uncommitted edits in the files `handover.filesTouched` li
 edits against the phase file before building on them, keep what is right, redo what is not, and add
 one `deviations` entry naming the escalation (`escalated from <model>`).
 
+`priorDeviations` lists what earlier phases of this batch recorded; a cause listed there, such as a tool that is not installed here, is not rediscovered by running the failing command again, and only a new cause becomes a new deviation.
+
 ## Determinism
 
 Every mutation of `.claude/cfq/` goes through the exact `bin/cfq` invocation named in the
@@ -38,12 +41,21 @@ is the user's decision alone, carried out by the orchestrator between phases.
 ## Implementation
 
 Identical in substance to `<plugin-root>/references/ifq-classic.md`'s **Implementation** step: implement the phase completely,
-then run its verification. A phase that touches several files, or whose scope isn't fully clear
-from the phase file alone, may send an Explore subagent to locate the relevant code first; a
-narrow, single-file phase doesn't need one. A green verification run's raw output may be filtered
+then run its verification. A verification run whose output reports that zero tests ran (`Ran 0
+tests`, `collected 0 items`, `no tests ran`, `# pass 0`) is red, never green; report it as red with
+that output in `errors`. Code search is always delegated: you never search files yourself. Before the first edit, one
+Explore subagent on `exploreModels.implExploreModel` returns, for each step of the phase's
+`## Changes`, the absolute file path and line range to edit, plus any callers or existing patterns
+a step asks for. Format: one line per hit, `<path>:<start>-<end> — <what is there>`, at most one
+quoted source line per hit, no file dumps. You then read the phase file and only those ranges
+(`Read` with `offset`/`limit`), never whole files to orient yourself. The one search you may run
+yourself: a single `grep -n` for an anchor the phase file names literally, when the phase touches
+one file apart from its tests. A question that comes up later goes to another Explore call, not to
+ad-hoc `grep`/`find` or a whole-file read; a question that needs judgement (compare two
+implementations, establish that something is absent) goes to `exploreModels.implExploreModelComplex`.
+A green verification run's raw output may be filtered
 by the same kind of subagent; a red run never is — the complete, unfiltered failure comes back
-either way. Both follow `exploreModels.implExploreModel` / `.implExploreModelComplex` and
-`<plugin-root>/references/explore-escalation.md`'s locate-vs-judge rule, never a blanket "delegate
+either way. Every Explore call follows `<plugin-root>/references/explore-escalation.md`'s locate-vs-judge rule, never a blanket "delegate
 whatever seems slow". A phase touching `docs/<language.codeLanguage>/…` gets its counterpart
 written in every `language.docLanguages` entry before it goes green, per
 `<plugin-root>/references/doc-style.md` or the target repo's own `docs/STYLE.md` if one exists.

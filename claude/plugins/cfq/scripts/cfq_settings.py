@@ -56,9 +56,9 @@ SCHEMA = {
     "batchReview": {"type": "enum", "default": "off", "values": ["off", "low", "medium", "high"], "scope": ["global", "repo"], "env": "CFQ_BATCH_REVIEW", "group": "implementation", "description": "Run /code-review over the whole batch when its last phase is green: off, or the review's effort level."},
     "batchReviewFindings": {"type": "enum", "default": "auto", "values": ["park", "fix", "auto"], "scope": ["global", "repo"], "env": "CFQ_BATCH_REVIEW_FINDINGS", "group": "implementation", "description": "What the batch review does with findings: park all as a plan entry, fix all in the session, or auto (fix small ones, park the rest)."},
     "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "group": "models", "description": "Models /pfq is allowed to run under."},
-    "implModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "group": "models", "description": "Models /ifq is allowed to run under."},
+    "implModels": {"type": "array", "default": ["sonnet", "haiku"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "group": "models", "description": "Models /ifq is allowed to run under."},
     "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "group": "implementation", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
-    "orchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "group": "models", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
+    "orchestratorModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "group": "models", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
     "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "group": "models", "description": "Model used for /pfq exploratory sub-agent research."},
     "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "group": "models", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
     "allowAnyModel": {"type": "bool", "default": False, "scope": ["global", "repo"], "env": "CFQ_ALLOW_ANY_MODEL", "group": "models", "description": "Skip the implModels/planModels gate entirely."},
@@ -73,6 +73,7 @@ SCHEMA = {
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": "CFQ_CHANGELOG_FILE", "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
     "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_HTML_REPORT", "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
     "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_PLAN_BLOCKED_PLUGINS", "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
+    "requiredTools": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_REQUIRED_TOOLS", "group": "implementation", "description": "Tools a repo needs, as names (`pytest`, `py:pytest`); `/ifq` stops when one is missing, `/pfq` warns. Names are looked up, never run."},
     "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_IMPL_BLOCKED_PLUGINS", "group": "implementation", "description": "Plugins /ifq must never call, even indirectly."},
     "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "group": "reports", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
     "frameworkRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "group": "repo", "description": "Absolute path of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
@@ -87,6 +88,9 @@ SCHEMA = {
     "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": "CFQ_GIT_STATE_POLICY", "group": "repo", "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
     "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": "CFQ_I18N_EXCLUDE_PATTERNS", "group": "language", "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
     "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
+    "editor": {"type": "string", "default": "vscode", "pattern": "^(off|[a-z][a-z0-9+.-]*)$", "scope": ["global", "repo"], "env": "CFQ_EDITOR", "group": "reports", "description": "URL scheme of the VS Code-family editor the report portal's edit links open (vscode, vscode-insiders, cursor, windsurf, kiro, ...); off hides the editor links."},
+    "hostPlatform": {"type": "enum", "default": "auto", "values": ["auto", "wsl", "windows", "posix"], "scope": ["global"], "env": "CFQ_HOST_PLATFORM", "group": "reports", "description": "Which host the browser and editors run on, for portal links and copied paths: auto detects it, anything else overrides detection."},
+    "wslDistro": {"type": "string", "default": "", "pattern": "^($|[A-Za-z0-9._-]+)$", "scope": ["global"], "env": "CFQ_WSL_DISTRO", "group": "reports", "description": "WSL distribution name used in portal links on Windows + WSL; empty means detect."},
     "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
     "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
     "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
@@ -118,13 +122,6 @@ def _read_json(path, default):
 def _write_raw(path, text):
     with open(path, "w") as f:
         f.write(text)
-
-
-def _write_json(path, obj):
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, path)
 
 
 def ensure():
@@ -304,7 +301,7 @@ def _apply_set(key, val, repo_path):
             errors.die(f"{PROG}: '{key}' has unknown fields")
         data[key] = parsed
 
-    _write_json(target, data)
+    render.write_json(target, data)
 
 
 def _detect_repo():
@@ -405,7 +402,7 @@ def cmd_unset(args):
         target = GLOBAL_SETTINGS_FILE
         data = _read_json(target, default={})
     data.pop(key, None)
-    _write_json(target, data)
+    render.write_json(target, data)
 
 
 def cmd_describe(args):
@@ -635,7 +632,7 @@ def cmd_state_set(args):
         errors.die(f"{PROG}: state value must be valid JSON")
     data = _read_json(STATE_FILE, default={})
     data[args.key] = parsed
-    _write_json(STATE_FILE, data)
+    render.write_json(STATE_FILE, data)
 
 
 def build_parser():

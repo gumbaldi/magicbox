@@ -32,37 +32,28 @@ instead, with no `file://` line in **Closing Reports**.
 
 ## Closing Report Fields (full format)
 
-`RESULT · implement-for-queue` header, one label/value line per field:
+`RESULT · implement-for-queue` header, one label/value line per field. The report states no push or
+merge status other than the one on the `Branch` line, and any further git fact it names is read by a
+command run in this step; preflight values such as `remoteState` and `pushable` describe the start
+of the session, never the end.
 
 - `Batch` — batch and repo, phases total, green/red split, and the skipped phases next to it
   (`5 green, 1 red, 2 skipped`) when there are any.
-- `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` and render fields 9/7/8/10/11 as turns, output
-  tokens total, models, efforts. Fields 9/7 mean the **whole batch** — session + every sub-agent,
-  planning included — never only the session's own transcript; field 8 (`planning_output`) still
-  names planning's own share separately. The row's last seven fields — in that order, regardless
-  of whether the optional worker block below is present — are always `total_billable_in`,
-  `planning_turns`, `planning_billable_in`, `explore_turns`, `explore_output`,
-  `worker_explore_turns`, `worker_explore_output`: render `total_billable_in` as input tokens for
-  the whole batch, `planning_turns` alongside `planning_output` (field 8, already named) as
-  planning's own turn count, `planning_billable_in` alongside it as planning's own input share, and
-  the remaining two pairs as one compact clause naming the explorer's (session-spawned) and the
-  worker explorer's (worker-spawned) own share, each turns/out. A row carrying fields 12-15 (only
-  present when a phase actually ran a worker sub-agent, i.e. orchestrator mode) additionally names
-  the orchestrator's and the workers' turns and output tokens separately —
-  `orchestrator_turns`/`orchestrator_output` (the `main` layer, i.e. the session itself),
-  `worker_turns`/`worker_output` (the `worker` layer) — alongside the existing total. Four disjoint
-  layers, never a subtraction: `orchestrator_turns + worker_turns + explore_turns +
-  worker_explore_turns` always equals the total (fields 9, and the same for output against field
-  7) — orchestrator·explorer·worker·worker-explorer is the full compact clause worth naming
-  together when summarizing this line. A row without fields 12-15 (classic mode, or an older
-  report) renders without a worker line — there, `orchestrator_turns + explore_turns`
-  equals the total, since worker and worker explorer are both zero.
-- `Skills` — recommended vs. used, query in **Skills Recommended vs. Used** below.
+- `Cost` — run `"<plugin-root>/bin/cfq" report summary "<batch-dir>"` (JSON) and render
+  `totals.turns` as turns, `totals.output` as out and `totals.billable_in` as in, then `models` and
+  `efforts`. Then one clause per layer with non-zero `turns`, in this order: `planning`,
+  `orchestrator`, `worker`, `explorer`, `worker explorer` (the keys of `layers`), each as
+  `<name> <turns> turns · <out> out`. The five layers add up to `totals`; `planning` is the planning
+  session including its own explorers and is never part of `orchestrator`. A classic-mode batch has
+  no `worker` or `worker explorer` clause, because both are zero.
+- `Deviations` — from `deviations`: `<unique count> distinct · <count> total`, then one line per
+  entry of `unique` as `×<count> <text>` (omit `×1`), at most 8 lines and `(+<k> more)` for the
+  rest. Omitted when `deviations.count` is 0.
 - `Security` — the difference only, one line.
 - `Review` — the `Review` status line's detail, and the parked entry's path when there is one;
   omitted when `batchReview` is `off`.
 - `Branch` — the Batch-Done step's own `Branch` line, verbatim: the branch this batch's commits are
-  on and the branch it was cut from.
+  on, the branch it was cut from and the push state.
 - `Report` — the Batch-Done step's own `Report` line, verbatim: the portal's `file://` route to
   this batch, or omitted when `htmlReport` turned the sync off.
 
@@ -70,9 +61,3 @@ instead, with no `file://` line in **Closing Reports**.
 open, the `USED` value, `/clear` → `/ifq`. No cost breakdown, no `Branch` line. **Red case:** still the
 full format, naming the red phase; its `❌` line already appeared in **Implementation**, so this
 step only repeats the `5 green, 1 red` split in `Batch`, not the error text.
-
-## Skills Recommended vs. Used
-
-```bash
-"<plugin-root>/bin/cfq" report skills "<batch-dir>"
-```

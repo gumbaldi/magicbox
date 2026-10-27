@@ -41,6 +41,9 @@ class PortalViewerEndToEndTest(CfqTestCase):
     original defect of that batch -- a viewer requesting data files under paths the data layer
     never writes -- went unnoticed because no test did exactly this."""
 
+    # every batch fixture gets its status.json, so the open batches carry phases (and edit targets)
+    auto_status = True
+
     # the shared fixture builder of tests/test_portal.py, borrowed as plain functions
     _cfq = test_portal.PortalTest._cfq
     _write = test_portal.PortalTest._write
@@ -69,7 +72,7 @@ class PortalViewerEndToEndTest(CfqTestCase):
         out = proc.stdout + proc.stderr
         self.assertEqual(proc.returncode, 0, msg=out)
         self.assertRegex(out, r"skipped 0", msg=out)
-        self.assertRegex(out, r"pass 2\b", msg=out)
+        self.assertRegex(out, r"pass 3\b", msg=out)
 
 
 if __name__ == "__main__":

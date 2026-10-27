@@ -26,7 +26,7 @@ one documented `--classic-fallback` override.
 
 ```
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+  Goal     <## Summary, or the first two ## Context lines when there is none; wrapped word-boundary to width 68, up to 6 lines for a Summary, 4 for Context>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
@@ -56,7 +56,7 @@ language — e.g.:
 normally if you start it.
 
 PHASE 02 · ifq-per-phase-go-gate · Size L
-  Goal     <## Context, wrapped word-boundary to width 68, up to 4 lines>
+  Goal     <## Summary, or the first two ## Context lines when there is none; wrapped word-boundary to width 68, up to 6 lines for a Summary, 4 for Context>
            <each continuation line indented to align under the first>
   Files    bin/cfq, implement-for-queue/SKILL.md, ifq-phase.md, test-settings.sh
   Steps    1. <opening sentence of the first numbered ## Changes step, up to 2 lines>
@@ -247,18 +247,26 @@ everywhere, never the bare number.
 In orchestrator mode both delegations below happen inside the spawned `cfq-phase-worker`, on the
 same rules — not dropped, just relocated; see `<plugin-root>/agents/cfq-phase-worker.md`.
 
-Two, and only two, places in phase implementation may run on an Explore subagent instead of the
-implementing session's own model — never a blanket "delegate whatever seems slow". Model choice is
-a rule, not a mood — cheap model to locate, expensive to judge; read
+Two places in phase implementation run on an Explore subagent instead of the implementing
+session's own model: code search **must** (first bullet), filtering a green verification run
+**may** (second bullet) — never a blanket "delegate whatever seems slow". Model choice is a rule,
+not a mood — cheap model to locate, expensive to judge; read
 `<plugin-root>/references/explore-escalation.md` and follow it. Both keys
 (`implExploreModel`/`.implExploreModelComplex`) come from the preflight's `policy` object, no
 `bin/cfq settings get` call here:
 
-- **Pre-implementation research.** Before writing any code, a phase that touches several files or
-  whose scope isn't fully clear from the phase file alone may send an Explore subagent to locate
-  the relevant code, existing patterns, and callers, and return a distilled summary. This mirrors
-  `plan-for-queue`'s own research step exactly — same reasoning, same escalation rule. A narrow,
-  single-file phase needs no subagent; reading the phase file is enough.
+- **Code search, always delegated.** The implementing session never searches files itself.
+  Before the first edit, one Explore subagent on `implExploreModel` returns, for each step of the
+  phase's `## Changes`, the absolute file path and line range to edit, plus any callers or
+  existing patterns a step asks for. Format: one line per hit, `<path>:<start>-<end> — <what is
+  there>`, at most one quoted source line per hit, no file dumps. The implementing session then
+  reads the phase file and only those ranges (`Read` with `offset`/`limit`), never whole files to
+  orient itself. The one search it may run itself: a single `grep -n` for an anchor the phase file
+  names literally, when the phase touches one file apart from its tests. A question that comes up
+  later goes to another Explore call, not to ad-hoc `grep`/`find` or a whole-file read; a question
+  that needs judgement (compare two implementations, establish that something is absent) goes to
+  `implExploreModelComplex`, per `explore-escalation.md`. Implementation, tests and documentation
+  are never delegated.
 - **Verification output filtering, green case only.** Running the phase's verification command
   (tests, build, lint) can itself be delegated to an `implExploreModel` subagent when the raw output
   would be long — it runs the command and reports back pass/fail plus which command ran, nothing

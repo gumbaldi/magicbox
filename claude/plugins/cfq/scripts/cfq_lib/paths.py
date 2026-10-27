@@ -1,7 +1,9 @@
 """Canonical repo-local CFQ path helpers.
 
-Pure string work only, no mutation, no I/O.
+Pure string work only, no mutation; the one I/O is the read-only `mtime` stat.
 """
+
+import os
 
 # The queue's path components relative to a repo root, as a tuple rather than a string so a
 # consumer that needs to test whether some other path has ".claude/cfq" as consecutive path
@@ -34,13 +36,6 @@ def reports_dir(repo):
     return f"{repo}/{QUEUE_DIR_REL}/reports"
 
 
-def portal_batch_url(repo, batch_name):
-    """`file://` route for `batch_name` inside `repo`'s report portal -- the one place
-    `cfq_finish.py`'s `Report` status line and `cfq_brief.py`'s `Portal` line compute this, so
-    they can never disagree on the URL shape."""
-    return f"file://{reports_dir(repo)}/index.html#/batch/{batch_name}"
-
-
 def repo_settings_file(repo):
     return f"{repo}/{QUEUE_DIR_REL}/settings.json"
 
@@ -55,3 +50,11 @@ def maintenance_marker(repo):
 
 def telemetry_log(repo):
     return f"{repo}/{QUEUE_DIR_REL}/telemetry.jsonl"
+
+
+def mtime(path):
+    """Whole-second modification time of `path`, 0 when it cannot be stat'ed."""
+    try:
+        return int(os.stat(path).st_mtime)
+    except OSError:
+        return 0

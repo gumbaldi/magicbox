@@ -18,6 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import git, settings_get  # noqa: E402
 
 PROG = "cfq_maintenance.py"
@@ -58,10 +59,7 @@ def cmd_stamp(args):
     os.makedirs(os.path.dirname(f), exist_ok=True)
     proc = git(repo, "rev-parse", "HEAD")
     sha = proc.stdout.strip() if proc.returncode == 0 else ""
-    tmp = f"{f}.tmp"
-    with open(tmp, "w") as fh:
-        fh.write(f"{date.today().isoformat()} {sha}\n")
-    os.replace(tmp, f)
+    render.write_text_atomic(f, f"{date.today().isoformat()} {sha}\n")
     print(f)
 
 

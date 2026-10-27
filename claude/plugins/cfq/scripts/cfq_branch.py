@@ -56,7 +56,6 @@ PROG = "cfq_branch.py"
 
 # New-format batch directory names are <digits>-<YYYY-MM-DD>-<slug> (the number precedes the
 # date); legacy names start directly with the date and never match.
-NUMBER_RE = re.compile(r"^([0-9]+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 
 
 def git(repo, *args, check=True):
@@ -124,8 +123,7 @@ def list_unpushed_commits(repo, from_ref, to_ref):
 
 
 def parse_batch_number(name):
-    m = NUMBER_RE.match(name)
-    return int(m.group(1)) if m else None
+    return text.parse_batch_name(name)["number"]
 
 
 def compute_dirty(repo):

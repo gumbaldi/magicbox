@@ -21,13 +21,13 @@ CORE_BINS = [
 
 class TestDoctor(CfqTestCase):
     def test_healthy_path_hook_mode_is_silent(self):
-        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "tea", "npm")
+        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "glab", "tea", "npm")
         proc = self.run_cfq("doctor", "hook", env={"PATH": healthy_dir})
         self.assertEqual(proc.stdout, "", f"healthy hook mode produced output: {proc.stdout}")
         self.assertEqual(proc.returncode, 0, f"healthy hook mode exit = {proc.returncode}")
 
     def test_missing_git_names_git_in_hook_output(self):
-        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "tea", "npm")
+        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "glab", "tea", "npm")
         proc = self.run_cfq("doctor", "hook", env={"PATH": nogit_dir})
         out = self.json_out(proc)
         self.assertIn("systemMessage", out, "no systemMessage when git missing")
@@ -37,7 +37,7 @@ class TestDoctor(CfqTestCase):
         self.assertIn("git", ctx, f"additionalContext does not name git: {ctx}")
 
     def test_check_json_works_without_git_in_path(self):
-        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "tea", "npm")
+        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "glab", "tea", "npm")
         proc = self.run_cfq("doctor", "check", "--json", env={"PATH": nogit_dir})
         out = self.json_out(proc)
         self.assertIn("git", out["missingRequired"], f"check --json does not list git missing: {out}")
@@ -49,8 +49,8 @@ class TestDoctor(CfqTestCase):
         out = self.json_out(proc)
         self.assertTrue(out["ok"], f"missing only optional providers should still be ok=true: {out}")
         self.assertEqual(
-            sorted(out["missingOptional"]), ["gh", "npm", "tea"],
-            f"missingOptional should list gh,npm,tea: {out}",
+            sorted(out["missingOptional"]), ["gh", "glab", "npm", "tea"],
+            f"missingOptional should list gh,glab,npm,tea: {out}",
         )
         proc = self.run_cfq("doctor", "hook", env={"PATH": nooptional_dir})
         self.assertEqual(
@@ -68,14 +68,14 @@ class TestDoctor(CfqTestCase):
             inventory, r"(?m)^python3,python,py\|alternative\|",
             f"dependencies.txt missing the python interpreter alternative row: {inventory}",
         )
-        for opt in ("gh", "tea", "npm"):
+        for opt in ("gh", "glab", "tea", "npm"):
             self.assertRegex(
                 inventory, rf"(?m)^{re.escape(opt)}\|optional\|",
                 f"dependencies.txt missing optional entry for {opt}",
             )
 
     def test_package_manager_is_never_invoked(self):
-        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "tea", "npm")
+        nogit_dir = self.minimal_path(*CORE_BINS, "gh", "glab", "tea", "npm")
         marker = self._repos_dir / "pm-marker"
         marker.mkdir(parents=True)
         for pm in ("apt-get", "brew", "dnf", "apk"):
@@ -130,7 +130,7 @@ class TestDoctor(CfqTestCase):
         )
 
     def test_ponytail_advisory_full_mode_does_not_affect_ok(self):
-        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "tea", "npm")
+        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "glab", "tea", "npm")
         pony_home = self._new_pony_home()
         proc = self.run_cfq("doctor", "check", "--json", home=pony_home, env={"PATH": healthy_dir})
         self.assertEqual(
@@ -144,7 +144,7 @@ class TestDoctor(CfqTestCase):
         self.assertRegex(text, r"optional advisory:.*full", f"text mode missing ponytail advisory: {text}")
 
     def test_ponytail_advisory_mode_off_suppresses_advisory(self):
-        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "tea", "npm")
+        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "glab", "tea", "npm")
         pony_home = self._new_pony_home()
         (pony_home / ".config" / "ponytail").mkdir(parents=True)
         (pony_home / ".config" / "ponytail" / "config.json").write_text('{"defaultMode":"off"}')
@@ -159,7 +159,7 @@ class TestDoctor(CfqTestCase):
         )
 
     def test_ponytail_not_installed_no_advisory(self):
-        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "tea", "npm")
+        healthy_dir = self.minimal_path(*CORE_BINS, "git", "gh", "glab", "tea", "npm")
         pony_home = self._repos_dir / "pony-not-installed"
         pony_home.mkdir(parents=True)
         proc = self.run_cfq("doctor", "check", "--json", home=pony_home, env={"PATH": healthy_dir})
