@@ -927,6 +927,19 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles):
 
 # ---- sync / rebuild -------------------------------------------------------------------------
 
+def batch_newer_than(batch_dir, data_file):
+    """True when `data_file` is missing or any file under `batch_dir` (recursive, dotfiles and
+    `done/` included) has a whole-second mtime greater than the data file's. Stat only."""
+    data_mtime = cfq_lib_paths.mtime(data_file)
+    if not data_mtime:
+        return True
+    for root, _dirs, files in os.walk(batch_dir):
+        for f in files:
+            if cfq_lib_paths.mtime(os.path.join(root, f)) > data_mtime:
+                return True
+    return False
+
+
 def sync(repo_root, batch_names=None):
     repo_root = str(pathlib.Path(repo_root).resolve())
     scan = cfq_scan.scan_repo(repo_root)
@@ -937,11 +950,14 @@ def sync(repo_root, batch_names=None):
     removed = []
     written = list(install_shell(reports_dir(repo_root), removed))
     unchanged = 0
-    docs = []  # every (key, payload) pair actually considered this sync -- mirrored as-is
+    docs = []  # every (key, payload) pair of this sync, written or not -- mirrored as-is
 
     def write(key, payload):
-        nonlocal unchanged
         docs.append((key, payload))
+        write_to_disk(key, payload)
+
+    def write_to_disk(key, payload):
+        nonlocal unchanged
         if write_if_changed(out_dir / f"{key}.js", render_data_file(key, payload)):
             written.append(f"{key}.js")
         else:
@@ -970,8 +986,9 @@ def sync(repo_root, batch_names=None):
     for b in scan["batches"]:
         name = b["name"]
         payload = None
-        if batch_names is not None and name not in batch_names:
-            payload = read_data_payload(out_dir / "batch" / f"{name}.js")
+        data_file = out_dir / "batch" / f"{name}.js"
+        if batch_names is not None and name not in batch_names and not batch_newer_than(dirs[name], data_file):
+            payload = read_data_payload(data_file)
             if not (isinstance(payload, dict) and isinstance(payload.get("phases"), list) and "flags" in payload):
                 payload = None
         if payload is None:
@@ -996,6 +1013,8 @@ def sync(repo_root, batch_names=None):
     for name in sorted(payloads):
         if name in fresh or payloads[name] != original[name]:
             write(f"batch/{name}", payloads[name])
+        else:  # read back and unchanged: not rewritten, but still part of the mirror
+            docs.append((f"batch/{name}", payloads[name]))
 
     for e in entry_fulls:
         write(f"entry/{e['id']}", e)

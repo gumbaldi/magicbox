@@ -366,7 +366,9 @@ deleted as dead code (batch 047 phase 03).
 `cfq_lib/flags.py` derives the portal's flags (`warn`/`info`, thresholds as module constants, not
 settings) and the per-size baselines and calibration points in `queue.js` as pure functions over the
 batch payloads; `sync()` reads a batch outside the `--batch` filter back from its data file and only
-recomputes its `flags`.
+recomputes its `flags`, unless a file in its batch directory is newer than that data file
+(`batch_newer_than()`, stat only) — then it is rebuilt, so hand edits show up. Every batch,
+written or not, is part of the `reportDir` mirror.
 
 The viewer shell is every file in the plugin's `portal/` directory: `install_shell()` globs the
 directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new

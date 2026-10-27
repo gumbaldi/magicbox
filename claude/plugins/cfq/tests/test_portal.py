@@ -5,11 +5,13 @@ payload contract in `.batch-context.md` (Portal data files).
 """
 
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 from cfq_testlib import PLUGIN_ROOT, CfqTestCase, SCRIPTS_DIR, write_status
@@ -1219,6 +1221,50 @@ class PortalTest(CfqTestCase):
         second = self._sync(repo_a, env=env)
         self.assertEqual(second["mirror"]["status"], "OK")
         self.assertEqual(second["mirror"]["written"], [])
+
+    def test_filtered_sync_keeps_every_batch_in_mirror(self):
+        repo = self.make_repo("alpha")
+        self._build_batch(repo, "2026-09-24-a")
+        self._build_batch(repo, "2026-09-24-b")
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+
+        self._sync(repo, env=env)
+        result = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+
+        self.assertEqual(result["mirror"]["status"], "OK")
+        self.assertEqual(result["mirror"]["removed"], [])
+        mirror_batches = report_dir / "alpha" / "data" / "batch"
+        for name in ("2026-09-24-a", "2026-09-24-b"):
+            self.assertTrue((mirror_batches / f"{name}.js").is_file(), f"mirror lost {name}")
+
+    def test_filtered_sync_rebuilds_hand_edited_batch(self):
+        repo = self.make_repo("alpha")
+        self._build_batch(repo, "2026-09-24-a")
+        impl_b = self._build_batch(repo, "2026-09-24-b")
+        report_dir = self._repos_dir / "shared-reports"
+        report_dir.mkdir()
+        env = {"CFQ_REPORT_DIR": str(report_dir)}
+        self._sync(repo, env=env)
+
+        data_b = self._data_dir(repo) / "batch" / "2026-09-24-b.js"
+        data_a = self._data_dir(repo) / "batch" / "2026-09-24-a.js"
+        future = data_b.stat().st_mtime + 3600
+        for f in (data_a, data_b):  # data files newer than every batch file -> read back
+            os.utime(f, (future, future))
+        negative = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+        self.assertNotIn("batch/2026-09-24-b.js", negative["written"])
+
+        past = time.time() - 60
+        os.utime(data_b, (past, past))
+        self._write(impl_b / "01-first.md", "# Edited title\n\n## Size\n\nM\n")
+        result = self._sync(repo, "--batch", "2026-09-24-a", env=env)
+
+        self.assertIn("batch/2026-09-24-b.js", result["written"])
+        self.assertIn("Edited title", data_b.read_text())
+        mirror_b = report_dir / "alpha" / "data" / "batch" / "2026-09-24-b.js"
+        self.assertIn("Edited title", mirror_b.read_text())
 
     def test_reportdir_mirror_same_basename_gets_stable_distinct_directory(self):
         repo_1 = self.make_repo("dup")
