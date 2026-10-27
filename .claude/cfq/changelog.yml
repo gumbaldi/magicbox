@@ -1,3 +1,9 @@
+- batchNumber: 60
+  batch: 060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
+  branch: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
+  base: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
+  started: 2026-10-27
+  status: in-progress
 - batchNumber: 59
   batch: 059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
   branch: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
