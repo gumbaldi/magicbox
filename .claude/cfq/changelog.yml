@@ -3,7 +3,27 @@
   branch: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
   base: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
   started: 2026-10-27
-  status: in-progress
+  status: done
+  finished: 2026-10-27
+  phases:
+    - phase: "01-host-paths-module-and-settings"
+      status: "green"
+      summary: "cfq_lib/host_paths.py (detect, resolve, os_path, editor_url, file_url) plus the editor, hostPlatform and wslDistro settings, tests and docs"
+    - phase: "02-platform-aware-report-url"
+      status: "green"
+      summary: "host_paths.portal_batch_url builds the portal link per host platform; paths.portal_batch_url removed and both callers switched"
+    - phase: "03-sync-rebuilds-edited-batches-and-mirrors-all"
+      status: "green"
+      summary: "batch_newer_than() mtime check so a filtered portal sync rebuilds hand-edited batches, and every batch payload is recorded for the reportDir mirror"
+    - phase: "04-edit-fields-in-portal-payloads"
+      status: "green"
+      summary: "edit targets (OS path and editor link) in the phase, batch and open-entry payloads of the portal sync, with settings read once per sync"
+    - phase: "05-viewer-edit-and-copy-path-buttons"
+      status: "green"
+      summary: "Shared editControls/editControlRow builder in portal/core.js (editor link, copy button with clipboard and execCommand fallbacks, selectable path fallback, sync hint), used on the batch header, the phase Plan sub-tab and the entry page, with styles and tests"
+    - phase: "06-docs-and-plugin-version"
+      status: "green"
+      summary: "Documented portal editor links, copy-path and sync freshness in README, usage and design notes; bumped plugin version 0.40.0 to 0.41.0"
 - batchNumber: 59
   batch: 059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
   branch: cfq/059-2026-10-26-closing-report-json-push-state-required-tools-and-inbox-fixes
