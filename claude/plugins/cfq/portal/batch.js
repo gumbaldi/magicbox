@@ -269,6 +269,13 @@
     facts.appendChild(fact(doc, "Merged", factText(doc, f.merged === null ? null : f.merged ? "✔ merged" : "not merged yet")));
     head.appendChild(facts);
 
+    var edit = batch.edit;
+    var editRow = edit && C.editControlRow(doc, [
+      [edit.dir, { open: "Open folder", copy: "Copy folder path" }],
+      [edit.context, { open: "Open context", copy: "Copy context path" }],
+    ]);
+    if (editRow) head.appendChild(editRow);
+
     var flags = batch.flags || [];
     var warns = flags.filter(function (x) { return x.level === "warn"; });
     var infos = flags.filter(function (x) { return x.level === "info"; });
@@ -390,6 +397,8 @@
 
   function renderPlan(doc, root, ctx, phase) {
     var C = core();
+    var editRow = phase.edit && C.editControls(doc, phase.edit, { open: "Edit plan", copy: "Copy path" });
+    if (editRow) root.appendChild(editRow);
     if (!phase.planHtml) {
       root.appendChild(C.el(doc, "p", "No plan text recorded.", "empty"));
       return;

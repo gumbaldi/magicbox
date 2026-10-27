@@ -333,6 +333,86 @@
     return wrap;
   }
 
+  // ---- edit controls ----------------------------------------------------------------------------
+  // "Open in editor" link and "copy path" button for one editable item, driven by the `edit` object
+  // `portal sync` writes: {path: <OS path>, url: <editor link, absent when the editor is off>}.
+  // The path is only ever set as text; `url` becomes the link's href as written.
+
+  var EDIT_HINT = "Changes appear after the next sync (`bin/cfq portal sync <repo-root>`, or when /ifq starts).";
+
+  // Legacy copy: a hidden textarea plus execCommand. Returns whether the browser reported success.
+  function legacyCopy(doc, str) {
+    if (typeof doc.execCommand !== "function" || !doc.body) return false;
+    var area = doc.createElement("textarea");
+    area.value = str;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    doc.body.appendChild(area);
+    var ok = false;
+    try {
+      if (area.select) area.select();
+      ok = !!doc.execCommand("copy");
+    } catch (e) { ok = false; }
+    doc.body.removeChild(area);
+    return ok;
+  }
+
+  function copyButton(doc, str, label) {
+    var button = el(doc, "button", label, "edit-copy");
+    button.setAttribute("type", "button");
+    var shown = null;
+    function done(ok) {
+      if (ok) {
+        button.textContent = "Copied";
+        var timer = setTimeout(function () { button.textContent = label; }, 1500);
+        if (timer && timer.unref) timer.unref();
+      } else if (!shown) {
+        // Nothing could copy: show the path so it can be selected by hand.
+        shown = el(doc, "code", str, "edit-path");
+        if (button.parentNode) button.parentNode.insertBefore(shown, button.nextSibling);
+      }
+    }
+    button.addEventListener("click", function () {
+      var nav = g.navigator;
+      if (nav && nav.clipboard && typeof nav.clipboard.writeText === "function") {
+        try {
+          nav.clipboard.writeText(str).then(function () { done(true); }, function () { done(legacyCopy(doc, str)); });
+          return;
+        } catch (e) { /* fall through to the legacy path */ }
+      }
+      done(legacyCopy(doc, str));
+    });
+    return button;
+  }
+
+  // pairs: [[edit, {open, copy}], ...]; a pair without an edit object is skipped, no pair at all
+  // gives null. One row, one hint.
+  function editControlRow(doc, pairs) {
+    var row = el(doc, "div", null, "edit-controls");
+    var count = 0;
+    pairs.forEach(function (pair) {
+      var edit = pair[0], labels = pair[1] || {};
+      if (!edit || (!edit.path && !edit.url)) return;
+      count += 1;
+      if (edit.url) {
+        var a = el(doc, "a", labels.open || "Open in editor", "edit-open");
+        a.setAttribute("href", edit.url);
+        row.appendChild(a);
+      }
+      if (edit.path) row.appendChild(copyButton(doc, String(edit.path), labels.copy || "Copy path"));
+    });
+    if (!count) return null;
+    var hint = el(doc, "span", null, "edit-hint faint");
+    hint.appendChild(inlineCode(doc, EDIT_HINT));
+    row.appendChild(hint);
+    return row;
+  }
+
+  function editControls(doc, edit, labels) {
+    return editControlRow(doc, [[edit, labels]]);
+  }
+
   CFQ.core = {
     parseRoute: parseRoute,
     dataPath: dataPath,
@@ -358,5 +438,7 @@
     tokenBar: tokenBar,
     tabs: tabs,
     disclosure: disclosure,
+    editControls: editControls,
+    editControlRow: editControlRow,
   };
 })();
