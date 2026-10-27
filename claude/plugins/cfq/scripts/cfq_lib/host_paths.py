@@ -14,6 +14,7 @@ import re
 import subprocess
 import urllib.parse
 
+from cfq_lib.paths import reports_dir
 from cfq_lib.proc import cfq_run
 
 _MNT_RE = re.compile(r"^/mnt/([A-Za-z])(?:/(.*))?$")
@@ -142,3 +143,14 @@ def file_url(path, platform, distro):
             return f"file:///{_quote(f'{mnt[0]}:/{mnt[1]}')}"
         return f"file://wsl.localhost/{_quote(distro)}{_quote(path)}"
     return f"file://{_quote(path)}"
+
+
+def portal_batch_url(repo, batch_name, platform=None, distro=None):
+    """`file://` route for `batch_name` inside `repo`'s repo-local report portal, in the form the
+    host's browser opens -- the one place `cfq_finish.py`'s `Report` status line and
+    `cfq_brief.py`'s `Portal` line compute this, so they can never disagree on the URL shape.
+    `platform=None` resolves the host from the settings; the `#/batch/<name>` fragment is never
+    percent-encoded."""
+    if platform is None:
+        platform, distro = resolve(repo)
+    return file_url(f"{reports_dir(repo)}/index.html", platform, distro or "") + "#/batch/" + batch_name

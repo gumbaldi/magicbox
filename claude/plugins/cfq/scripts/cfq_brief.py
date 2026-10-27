@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from cfq_lib import host_paths  # noqa: E402
 from cfq_lib import paths as cfq_paths  # noqa: E402
 from cfq_lib import phase_state  # noqa: E402
 from cfq_lib import proc as cfq_proc  # noqa: E402
@@ -493,7 +494,7 @@ def _portal_line(d):
     repo = _repo_root_from_batch_dir(d)
     if repo is None or cfq_proc.settings_get(repo, "htmlReport") != "true":
         return None
-    return f"  Portal   {cfq_paths.portal_batch_url(repo, d.name)}"
+    return f"  Portal   {host_paths.portal_batch_url(repo, d.name)}"
 
 
 def render_review(d, only=None):

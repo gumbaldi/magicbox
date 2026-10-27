@@ -102,6 +102,45 @@ class TranslationTest(unittest.TestCase):
         self.assertEqual(b, a.replace("vscode://", "cursor://", 1))
 
 
+class PortalBatchUrlTest(unittest.TestCase):
+    BATCH = "060-2026-10-27-portal"
+
+    def test_posix_keeps_the_old_string(self):
+        self.assertEqual(
+            host_paths.portal_batch_url("/home/code/repo", self.BATCH, "posix", ""),
+            f"file:///home/code/repo/.claude/cfq/reports/index.html#/batch/{self.BATCH}",
+        )
+
+    def test_wsl_distro(self):
+        self.assertEqual(
+            host_paths.portal_batch_url("/home/code/repo", self.BATCH, "wsl", "AlmaLinux9"),
+            "file://wsl.localhost/AlmaLinux9/home/code/repo/.claude/cfq/reports/index.html"
+            f"#/batch/{self.BATCH}",
+        )
+
+    def test_wsl_repo_under_mnt(self):
+        self.assertEqual(
+            host_paths.portal_batch_url("/mnt/c/Users/Tobi/repo", self.BATCH, "wsl", "AlmaLinux9"),
+            f"file:///C:/Users/Tobi/repo/.claude/cfq/reports/index.html#/batch/{self.BATCH}",
+        )
+
+    def test_windows_forward_slashes(self):
+        self.assertEqual(
+            host_paths.portal_batch_url("C:\\Users\\Tobi\\repo", self.BATCH, "windows", ""),
+            f"file:///C:/Users/Tobi/repo/.claude/cfq/reports/index.html#/batch/{self.BATCH}",
+        )
+
+    def test_fragment_never_percent_encoded(self):
+        url = host_paths.portal_batch_url("/r", "a b#c", "posix", "")
+        self.assertTrue(url.endswith("#/batch/a b#c"), url)
+
+    def test_platform_none_resolves_the_host(self):
+        with mock.patch.object(host_paths, "resolve", return_value=("wsl", "Fedora")) as res:
+            url = host_paths.portal_batch_url("/home/r", self.BATCH)
+        res.assert_called_once_with("/home/r")
+        self.assertTrue(url.startswith("file://wsl.localhost/Fedora/home/r/"), url)
+
+
 class DetectTest(unittest.TestCase):
     def detect(self, os_name="posix", environ=None, osrelease="6.5.0-generic", wslpath=None):
         return host_paths.detect(

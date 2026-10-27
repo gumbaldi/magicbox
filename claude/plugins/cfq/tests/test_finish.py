@@ -366,6 +366,25 @@ class FinishTest(CfqTestCase):
         self.assertIn("lang", out)
         self.assertEqual(out["lock"], "released")
 
+    def test_report_line_is_a_wsl_url_on_wsl(self):
+        home = self._repos_dir / "home5w"
+        (home / ".claude/cfq").mkdir(parents=True)
+        repo = self._new_repo("repo5w")
+        batch = self._new_batch(repo, "2026-01-01-htmlwsl")
+        self.run_cfq("lock", "acquire", str(repo), "2026-01-01-htmlwsl", home=home, check=True)
+        (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
+
+        proc = self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-htmlwsl", home=home,
+            env={**ON, "CFQ_HOST_PLATFORM": "wsl", "CFQ_WSL_DISTRO": "TestDistro"}, check=True,
+        )
+        report_line = next(e for e in self.json_out(proc)["statusLines"] if e["label"] == "Report")
+        self.assertEqual(
+            report_line["detail"],
+            f"file://wsl.localhost/TestDistro{repo}/.claude/cfq/reports/index.html"
+            "#/batch/2026-01-01-htmlwsl",
+        )
+
     def test_html_report_auto_renders_when_enabled(self):
         # `finish` no longer writes a `.html` file itself -- `htmlReport: true` lets the portal
         # sync it already triggers (`cfq_lib/portal_hook.py`) actually run, and this batch's own
@@ -378,7 +397,8 @@ class FinishTest(CfqTestCase):
         (home / ".claude/cfq/settings.json").write_text(json.dumps({"htmlReport": True}))
 
         proc = self.run_cfq(
-            "finish", str(repo), str(batch), "v0.1-htmlon", home=home, env=ON, check=True,
+            "finish", str(repo), str(batch), "v0.1-htmlon", home=home,
+            env={**ON, "CFQ_HOST_PLATFORM": "posix"}, check=True,
         )
         out = self.json_out(proc)
         report_line = next(e for e in out["statusLines"] if e["label"] == "Report")

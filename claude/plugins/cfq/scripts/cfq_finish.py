@@ -28,7 +28,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import cfq_changelog  # noqa: E402
-from cfq_lib import paths, phase_state, portal_hook, render, text as cfq_text  # noqa: E402
+from cfq_lib import host_paths, paths, phase_state, portal_hook, render, text as cfq_text  # noqa: E402
 from cfq_lib.proc import (  # noqa: E402
     capture, cfq_argv, cfq_run, cfq_run_merged, default_branch, git, settings_get,
 )
@@ -196,7 +196,7 @@ def report_line(html_report, repo_root, batch_name):
     `htmlReport` turns the automatic sync off."""
     if html_report != "true":
         return cfq_text.status_entry("Report", "skip", "off · bin/cfq portal sync renders on demand")
-    return cfq_text.status_entry("Report", "done", paths.portal_batch_url(repo_root, batch_name))
+    return cfq_text.status_entry("Report", "done", host_paths.portal_batch_url(repo_root, batch_name))
 
 
 def lock_line(lock):

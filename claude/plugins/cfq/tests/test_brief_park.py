@@ -13,6 +13,8 @@ from cfq_testlib import CfqTestCase, PhaseDirsStatus, write_status
 
 from cfq_brief import parse_phase_body  # noqa: E402
 
+POSIX_HOST = {"CFQ_HOST_PLATFORM": "posix"}
+
 
 class BriefTest(PhaseDirsStatus, CfqTestCase):
     def setUp(self):
@@ -827,7 +829,7 @@ class BriefOverviewDecisionsAndPathTest(PhaseDirsStatus, CfqTestCase):
         batch.mkdir(parents=True)
         self._phase(batch, "01-first.md", "First phase")
 
-        out = self.run_cfq("brief", str(batch), "--overview", check=True).stdout.rstrip("\n")
+        out = self.run_cfq("brief", str(batch), "--overview", env=POSIX_HOST, check=True).stdout.rstrip("\n")
         lines = out.splitlines()
         self.assertEqual(lines[-2], f"  Plans    {batch.resolve()}", out)
         self.assertEqual(
@@ -891,7 +893,7 @@ class BriefReviewTest(PhaseDirsStatus, CfqTestCase):
         return path
 
     def _review(self, batch, *extra, check=True):
-        return self.run_cfq("brief", str(batch), "--review", *extra, check=check)
+        return self.run_cfq("brief", str(batch), "--review", *extra, env=POSIX_HOST, check=check)
 
     def _no_trailing_space(self, out):
         for line in out.splitlines():
