@@ -425,6 +425,13 @@ cross-repo index across every repo that mirrors into it (`## Report collection l
 `bin/cfq portal sync <repo-root>` still syncs on demand even then, so the portal always stays
 reachable, just not kept current in the background.
 
+**Editing plans before `/ifq`.** Open batches, their not-yet-done phases and open `plan/` and
+`todo/` inbox entries show "Open in editor" and "Copy path". The editor is a VS Code-family editor
+chosen by `editor` (default `vscode`; `cursor`, `windsurf`, `kiro` and similar work, `off` hides the
+links). The links always point at the repo's own files, also when the page was opened from a
+`reportDir` copy. Changes show in the portal after the next sync, and `/ifq` lints the plans again
+at its start. The report link `/ifq` prints opens in the host's browser on WSL and native Windows.
+
 ## Telemetry
 
 Every planning session and every implemented phase gets one record: turns, wallclock, and tokens

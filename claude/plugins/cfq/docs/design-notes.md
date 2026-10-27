@@ -253,6 +253,25 @@ is a bug a test finds, not a mapping somebody forgot to update. The earlier mism
 loading a nested `batch/<name>/…` path while the writer produced a dotted file name beside it —
 left every batch page empty.
 
+## cfq: why the portal links to an editor instead of editing in the browser
+
+Editing a parked plan from the portal could have been an in-browser edit mode. It is not: the portal
+is a `file://` page, and a browser page cannot write files. A local edit server (`portal serve`) was
+rejected as too large for the gain — it brings a process lifecycle, write authorisation and
+conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open in
+editor" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
+user's own editor.
+
+The links target the repo-local files, never the `reportDir` mirror: a plan edited in the mirror
+would not be the plan `/ifq` reads. For the same reason the printed report link points at the
+repo-local portal.
+
+A filtered portal sync rebuilds a batch outside the filter when any file in its directory is newer
+than its data file, instead of always rebuilding everything. That is what makes a hand edit show up
+without a full sync; the user preferred the mtime check to an unconditional rebuild. Measured on 80
+batches, a full rebuild took 0.24 s against 0.19 s filtered, so the check buys little speed and
+mainly keeps the sync cheap as the number of batches grows.
+
 ## cfq: why phase state lives in `status.json` and the directories only mirror it
 
 Until now a phase's state was inferred from where its file lay: in the batch directory it was open,
