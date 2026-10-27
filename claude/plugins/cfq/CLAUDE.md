@@ -388,6 +388,8 @@ viewer test file shares); `tests/js/e2e.test.mjs` walks every view over the file
 sync` wrote; `tests/test_portal_viewer.py` runs them. No CDN, no build step, charts are hand-written
 SVG.
 
+`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync.
+
 With `reportDir` set, `sync()` additionally mirrors every data file into
 `<reportDir>/<repo-basename>[-<hash>]/data/…`, writes `<reportDir>/data/repos.js` (the list of
 mirrored repos) and installs one global viewer shell at `reportDir` itself (batch 040 phase 03);

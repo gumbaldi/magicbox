@@ -1015,6 +1015,65 @@ class SettingsTest(CfqTestCase):
             )
 
 
+    # 19b. editor: default, valid set, rejected values, repo scope allowed
+    def test_19b_editor(self):
+        got = self.run_cfq("settings", "get", "editor", home=self.home).stdout.strip()
+        self.assertEqual(got, "vscode", msg=f"default editor = '{got}'")
+
+        self.run_cfq("settings", "set", "editor", "cursor", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "editor", home=self.home).stdout.strip()
+        self.assertEqual(got, "cursor")
+        self.run_cfq("settings", "set", "editor", "off", home=self.home, check=True)
+
+        for bad in ("Bad Scheme", "Cursor", "1code"):
+            proc = self.run_cfq("settings", "set", "editor", bad, home=self.home)
+            self.assertNotEqual(proc.returncode, 0, msg=f"set editor '{bad}' should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            self.run_cfq(
+                "settings", "set", "--repo", fixture, "editor", "kiro", home=self.home, check=True
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", fixture, "editor", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "kiro", msg="editor is repo-scoped")
+
+    # 19c. hostPlatform: default, valid set, rejected value, global-only
+    def test_19c_host_platform(self):
+        got = self.run_cfq("settings", "get", "hostPlatform", home=self.home).stdout.strip()
+        self.assertEqual(got, "auto", msg=f"default hostPlatform = '{got}'")
+
+        self.run_cfq("settings", "set", "hostPlatform", "wsl", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "hostPlatform", home=self.home).stdout.strip()
+        self.assertEqual(got, "wsl")
+
+        proc = self.run_cfq("settings", "set", "hostPlatform", "linux", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set hostPlatform linux should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            proc = self.run_cfq(
+                "settings", "set", "--repo", fixture, "hostPlatform", "posix", home=self.home
+            )
+            self.assertNotEqual(proc.returncode, 0, msg="hostPlatform --repo should fail (global-only)")
+
+    # 19d. wslDistro: default, valid set, rejected value, global-only
+    def test_19d_wsl_distro(self):
+        got = self.run_cfq("settings", "get", "wslDistro", home=self.home).stdout.strip()
+        self.assertEqual(got, "", msg=f"default wslDistro = '{got}'")
+
+        self.run_cfq("settings", "set", "wslDistro", "AlmaLinux9", home=self.home, check=True)
+        got = self.run_cfq("settings", "get", "wslDistro", home=self.home).stdout.strip()
+        self.assertEqual(got, "AlmaLinux9")
+
+        proc = self.run_cfq("settings", "set", "wslDistro", "a/b", home=self.home)
+        self.assertNotEqual(proc.returncode, 0, msg="set wslDistro a/b should fail")
+
+        with tempfile.TemporaryDirectory() as fixture:
+            proc = self.run_cfq(
+                "settings", "set", "--repo", fixture, "wslDistro", "Ubuntu", home=self.home
+            )
+            self.assertNotEqual(proc.returncode, 0, msg="wslDistro --repo should fail (global-only)")
+
     # 20. settings menu: every key in exactly one group, fixed group order and titles.
     def test_20_menu_groups_cover_every_key_once_in_fixed_order(self):
         want_group_keys = {
@@ -1037,7 +1096,10 @@ class SettingsTest(CfqTestCase):
                 "maintenanceEvery", "usePonytailAudit", "securityTimeoutSeconds",
                 "securityFindingsCap",
             },
-            "reports": {"htmlReport", "reportDir", "telemetrySyncRepo", "changelogFile"},
+            "reports": {
+                "htmlReport", "reportDir", "telemetrySyncRepo", "changelogFile", "editor",
+                "hostPlatform", "wslDistro",
+            },
             "repo": {"gitStatePolicy", "scanRoots", "frameworkRepo"},
         }
         want_order = [

@@ -188,8 +188,21 @@ setting; the rule is fixed, never a judgment call.
 |---|---|---|---|---|
 | `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on request (`bin/cfq portal sync <repo-root>`) |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
+| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "open in editor" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the editor links — see below |
+| `hostPlatform` | `CFQ_HOST_PLATFORM` | `auto` | global only | which host the browser and editors run on: `auto` detects it, `wsl`, `windows` or `posix` overrides detection |
+| `wslDistro` | `CFQ_WSL_DISTRO` | `""` | global only | WSL distribution name used in links and copied paths on Windows + WSL; empty means detect |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
 | `changelogFile` | `CFQ_CHANGELOG_FILE` | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
+
+Links and copied paths are translated for the machine you look at the portal from. `hostPlatform:
+auto` treats native Windows Python as `windows`, Linux under WSL (the `WSL_DISTRO_NAME` variable or a
+`microsoft` kernel release) as `wsl` and everything else as `posix`; on WSL the distribution is
+`wslDistro`, else `WSL_DISTRO_NAME`, else the name `wslpath -w /` reports, and without one cfq falls
+back to `posix` rather than failing. On Linux and macOS a path opens as it is. On native Windows it
+becomes a backslash path and an editor link on the same drive path. On WSL a file under
+`/mnt/<letter>/` opens as the Windows path on that drive, and any other file opens through the
+editor's WSL remote link and as a `\\wsl.localhost\<distro>\...` path, so a Windows browser and a
+Windows editor reach it.
 
 ### Repo & git
 
