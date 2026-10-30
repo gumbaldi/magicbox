@@ -34,6 +34,7 @@ its own.
 import argparse
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -61,7 +62,8 @@ MODEL_RANK = ("haiku", "sonnet", "opus", "fable")
 def default_model(settings):
     """The model a phase runs on when its heading names none: the first orchestrator model, else
     the first implementation model."""
-    for key in ("orchestratorModels", "implModels"):
+    order = ("implModels", "orchestratorModels") if harness.codex() else ("orchestratorModels", "implModels")
+    for key in order:
         models = harness.model_list(settings, key)
         if models:
             return models[0]
@@ -105,6 +107,40 @@ def find_phase_file(batch_dir, phase_num):
         return None
 
 
+def codex_phase_view(phase_file, batch_dir, body):
+    """Give Codex a phase view without Claude's model heading and its value."""
+    if not harness.codex():
+        return phase_file
+    lines, out = body.splitlines(keepends=True), []
+    fence = ""
+    skip = False
+    found = False
+    for line in lines:
+        stripped = line.lstrip()
+        marker = re.match(r"(`{3,}|~{3,})", stripped)
+        if marker:
+            token = marker.group(1)
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = ""
+        elif not fence:
+            if re.match(r"^## Model\s*(?::[^\n]*)?$", line.rstrip("\r\n"), re.I):
+                skip = True
+                found = True
+                continue
+            if skip and re.match(r"^#{1,2} \S", line):
+                skip = False
+        if not skip:
+            out.append(line)
+    if not found:
+        return phase_file
+    view = batch_dir / ".codex-views" / phase_file.name
+    view.parent.mkdir(parents=True, exist_ok=True)
+    render.write_text_atomic(str(view), "".join(out))
+    return view
+
+
 def repo_root_of(batch_dir):
     proc = proc_git(batch_dir, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
@@ -144,6 +180,7 @@ def cmd_brief(args):
     phase_slug = phase_file.stem
     text = phase_file.read_text()
     fields = parse_phase_body(text, fallback_title=phase_slug)
+    worker_phase_file = codex_phase_view(phase_file, batch_dir, text)
     size = fields["size"] or "M"
 
     ctx_path = batch_dir / ".batch-context.md"
@@ -162,6 +199,8 @@ def cmd_brief(args):
         "implExploreModel": harness.explore_model(settings, "implExploreModel"),
         "implExploreModelComplex": harness.explore_model(settings, "implExploreModelComplex"),
     }
+    worker_effort = settings["codexWorkerEffort"] if harness.codex() else None
+    explore_effort = settings["codexExplorerEffort"] if harness.codex() else None
 
     resume_json = json.loads(cfq_run("resume", repo_root, str(batch_dir)).stdout)
     branch = (resume_json.get("branch") or {}).get("branch")
@@ -198,13 +237,14 @@ def cmd_brief(args):
             "batch": batch_dir.name,
             "batchDir": str(batch_dir),
             "phase": phase_slug,
-            "phaseFile": str(phase_file),
+            "phaseFile": str(worker_phase_file),
             "size": size,
             "batchContext": batch_context,
             "branch": branch,
             "language": language,
             "blockedPlugins": blocked_plugins,
             "exploreModels": explore_models,
+            **({"effort": worker_effort, "exploreEffort": explore_effort} if harness.codex() else {}),
             "failedAttempt": failed_attempt,
             "model": model,
             "modelSource": model_source,
@@ -225,8 +265,10 @@ def cmd_brief(args):
         "briefFile": str(brief_file),
         "prompt": f"Read your briefing at {brief_file} first, then implement that phase.",
         "model": model,
+        **({"effort": worker_effort} if harness.codex() else {}),
         "escalation": {"next": next_stronger(model, settings)},
-        "announcement": render_phase(phase_num(phase_file), fields),
+        "announcement": render_phase(phase_num(phase_file),
+                                      {**fields, "model": None} if harness.codex() else fields),
     }))
 
 

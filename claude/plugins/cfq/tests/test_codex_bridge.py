@@ -1,6 +1,7 @@
 """Codex and Claude share CFQ state without sharing harness instructions."""
 
 import json
+import pathlib
 import subprocess
 import sys
 import unittest
@@ -41,6 +42,23 @@ class CodexBridgeTest(CfqTestCase):
         self.assertEqual(context["status"], "ok")
         self.assertEqual(context["used"], 120)  # Codex input_tokens already includes cached input.
         self.assertEqual(context["model"], "gpt-6.1-sol")
+        self.assertEqual(context["effort"], "high")
+
+    def test_codex_role_defaults_are_distinct_and_harness_only(self):
+        env = self._env(self._transcript())
+        values = self.json_out(self.run_cfq("settings", "list", env=env))
+        self.assertEqual(values["codexPlanModels"], ["gpt-6.1-sol"])
+        self.assertEqual(values["codexOrchestratorModels"], ["gpt-6.1-sol"])
+        self.assertEqual(values["codexImplModels"], ["gpt-6-luna"])
+        for key in ("codexPlanExploreModel", "codexPlanExploreModelComplex",
+                    "codexImplExploreModel", "codexImplExploreModelComplex"):
+            self.assertEqual(values[key], "gpt-6-luna")
+        self.assertEqual(values["codexPlanEffort"], "high")
+        self.assertEqual(values["codexOrchestratorEffort"], "medium")
+        self.assertEqual(values["codexExplorerEffort"], "high")
+        self.assertEqual(values["codexWorkerEffort"], "xhigh")
+        claude = self.json_out(self.run_cfq("settings", "list"))
+        self.assertNotIn("codexWorkerEffort", claude)
 
     def test_codex_lock_requires_binding_and_blocks_claude(self):
         repo = self.make_repo("shared-lock")
@@ -129,16 +147,39 @@ class CodexBridgeTest(CfqTestCase):
         self.assertEqual(set_models.returncode, 0, set_models.stderr)
         brief = self.json_out(self.run_cfq("worker", "brief", str(batch), "--phase", "01", env=env))
         self.assertEqual(brief["model"], "gpt-small")
+        self.assertEqual(brief["effort"], "xhigh")
         self.assertEqual(brief["escalation"]["next"], "gpt-large")
         file = json.loads((batch / ".worker-brief.json").read_text())
         self.assertEqual(file["modelSource"], "default")
         self.assertEqual(file["blockedPlugins"], [])
+        self.assertEqual(file["exploreModels"]["implExploreModel"], "gpt-6-luna")
+        self.assertEqual(file["exploreEffort"], "high")
+        self.assertNotIn("Model haiku", brief["announcement"])
+        self.assertNotIn("## Model", pathlib.Path(file["phaseFile"]).read_text())
+        self.assertIn("## Changes", pathlib.Path(file["phaseFile"]).read_text())
+
+    def test_codex_worker_default_does_not_inherit_orchestrator_model(self):
+        repo = self.make_repo("worker-default")
+        batch = repo / ".claude/cfq/impl/001-2026-10-30-default"
+        batch.mkdir(parents=True)
+        (batch / "01-work.md").write_text("# Work\n\n## Size\n\nS\n\n## Changes\n\n1. Work.\n")
+        write_status(batch)
+        brief = self.json_out(self.run_cfq("worker", "brief", str(batch), "--phase", "01",
+                                           env=self._env(self._transcript())))
+        self.assertEqual(brief["model"], "gpt-6-luna")
+        self.assertEqual(brief["effort"], "xhigh")
 
     def test_codex_plan_preflight_does_not_load_claude_plugin_policy(self):
         repo = self.make_repo("planner")
         env = self._env(self._transcript())
         out = self.json_out(self.run_cfq("preflight-plan", str(repo), env=env))
         self.assertEqual(out["status"], "OK")
+        self.assertEqual(out["planningPolicy"]["planModels"], ["gpt-6.1-sol"])
+        self.assertEqual(out["planningPolicy"]["currentModel"], "gpt-6.1-sol")
+        self.assertEqual(out["planningPolicy"]["planExploreModel"], "gpt-6-luna")
+        self.assertEqual(out["planningPolicy"]["exploreEffort"], "high")
+        self.assertEqual(out["effort"]["required"], "high")
+        self.assertEqual(out["effort"]["current"], "high")
         self.assertNotIn("planBlockedPlugins", out["planningPolicy"])
         self.assertNotIn("useMattpocockGrilling", out["planningPolicy"])
         self.assertNotIn("usePonytailAudit", out["planningPolicy"])
@@ -191,7 +232,14 @@ class CodexBridgeTest(CfqTestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = self.json_out(proc)
         self.assertIn(out["status"], ("NO_BATCH", "BLOCKED"))
-        self.assertEqual(out["policy"]["implModels"], ["gpt-6.1-sol"])
+        self.assertEqual(out["policy"]["implModels"], ["gpt-6-luna"])
+        self.assertEqual(out["policy"]["currentModel"], "gpt-6.1-sol")
+        self.assertEqual(out["policy"]["orchestratorModels"], ["gpt-6.1-sol"])
+        self.assertEqual(out["policy"]["implExploreModel"], "gpt-6-luna")
+        self.assertEqual(out["policy"]["exploreEffort"], "high")
+        self.assertEqual(out["effort"]["required"], "medium")
+        self.assertEqual(out["effort"]["current"], "high")
+        self.assertFalse(out["effort"]["ok"])
         self.assertNotIn("batchReview", out["policy"])
         self.assertNotIn("implBlockedPlugins", out["policy"])
 

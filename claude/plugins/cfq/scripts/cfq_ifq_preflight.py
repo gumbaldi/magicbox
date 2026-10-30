@@ -232,6 +232,8 @@ def cmd_preflight(args):
             "orchestratorModels": harness.model_list(settings, "orchestratorModels"),
             "implExploreModel": harness.explore_model(settings, "implExploreModel"),
             "implExploreModelComplex": harness.explore_model(settings, "implExploreModelComplex"),
+            "exploreEffort": settings["codexExplorerEffort"],
+            "currentModel": harness.current_model(),
         })
     else:
         policy.update(project(settings, [
@@ -243,10 +245,18 @@ def cmd_preflight(args):
     reporting = project(settings, ["reportDir", "htmlReport"])
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=True)
-    current_effort = None if harness.codex() else os.environ.get("CLAUDE_EFFORT")
-    required_effort = "off" if harness.codex() else settings["implSessionEffort"]
-    effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
-    effort_json = effort.status(current_effort, required_effort)
+    current_effort = (json.loads(cfq_run("runtime", "context").stdout).get("effort")
+                      if harness.codex() else os.environ.get("CLAUDE_EFFORT"))
+    required_effort = (settings["codexOrchestratorEffort"] if harness.codex()
+                       else settings["implSessionEffort"])
+    if harness.codex():
+        effort_warning = (None if current_effort == required_effort else
+                          f"⚠️ Codex effort {current_effort or 'unknown'}; select {required_effort} before implementing")
+        effort_json = {"current": current_effort, "required": required_effort,
+                       "ok": current_effort == required_effort}
+    else:
+        effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
+        effort_json = effort.status(current_effort, required_effort)
 
     inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
     inbox = {"count": text.inbox_count_from_overview(inbox_overview), "overview": inbox_overview}

@@ -25,14 +25,19 @@ Codex skills and hooks live under `codex/`. Claude Code's `skills/`, `references
 are not loaded by the Codex compatibility manifest. Both hosts execute the same `bin/cfq` CLI,
 and the neutral `<plugin-root>/references/phase-template.md` is the only shared instructional template.
 
-Model lists are separate: `codexPlanModels`, `codexImplModels`, and `codexOrchestratorModels`.
-`codexImplModels` is ordered from cheaper to stronger for escalation. Empty lists fall back to
-the running model. Repository language, branch, queue and workflow settings are shared. A
-Claude-only `## Model` phase hint is ignored by Codex workers.
+Codex defaults are `codexPlanModels: [gpt-6.1-sol]` with `codexPlanEffort: high`,
+`codexOrchestratorModels: [gpt-6.1-sol]` with `codexOrchestratorEffort: medium`, and
+`codexImplModels: [gpt-6-luna]` with `codexWorkerEffort: xhigh`. The explorer uses
+`codexExplorerEffort: high`. The four model overrides `codexPlanExploreModel`,
+`codexPlanExploreModelComplex`, `codexImplExploreModel`, and `codexImplExploreModelComplex`
+all default to `gpt-6-luna`. `codexImplModels` is ordered from cheaper to stronger for optional
+escalation. An explicitly empty Codex model list falls back to the running model.
 
-Optional explorer overrides are `codexPlanExploreModel`, `codexPlanExploreModelComplex`,
-`codexImplExploreModel`, and `codexImplExploreModelComplex`; empty values also use the running
-model.
+CFQ checks the expected model and effort of a planner or orchestrator session. Codex chooses
+those main-session values before the skill starts; a skill cannot switch them. The Codex skills
+pass the worker and explorer model and effort explicitly when spawning those subagents. Repository
+language, branch, queue and workflow settings are shared. A Claude `## Model` phase hint is
+removed from the Codex worker's phase view.
 
 The CLI works in Codex desktop and Codex CLI when the plugin is enabled and its hooks are active.
 The report portal stays at `<repo>/.claude/cfq/reports/index.html`.

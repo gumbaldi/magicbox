@@ -13,4 +13,4 @@ For a requested setting, use `CFQ settings describe <key>` and `CFQ settings get
 
 For queue changes, show the target and effect first. Use the matching `CFQ` subcommand for priority, dependencies, archive, delete or note sweep. Never mutate the queue with direct shell file operations. Report exactly what changed. Ask before deleting or archiving a batch.
 
-For a first run, check `CFQ doctor` and `CFQ settings list`; configure the desired Codex model order with `codexPlanModels`, `codexImplModels`, and `codexOrchestratorModels` as needed. Empty Codex model lists use the running model. No Claude setup wizard or Claude plugin dependencies are required.
+For a first run, check `CFQ doctor` and `CFQ settings list`. Defaults are planner `gpt-6.1-sol` high, orchestrator `gpt-6.1-sol` medium, explorer `gpt-6-luna` high, and worker `gpt-6-luna` xhigh. Configure the Codex model and effort keys as needed. An explicitly empty Codex model list falls back to the running model. No Claude setup wizard or Claude plugin dependencies are required.

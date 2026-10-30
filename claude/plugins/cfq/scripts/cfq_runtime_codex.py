@@ -56,6 +56,7 @@ def context():
                     break
     turn = _last(rows, "turn_context")
     model = os.environ.get("CFQ_MODEL") or turn.get("model")
+    active_effort = turn.get("effort")
     window = turn.get("model_context_window")
     if not isinstance(window, int) or window <= 0:
         for row in reversed(rows):
@@ -76,7 +77,8 @@ def context():
     status = "ok" if used is not None else "unavailable"
     code = None if used is not None else ("RUNTIME_UNBOUND" if not session_id() else "RUNTIME_SOURCE_MISSING")
     return {"status": status, "pct": used * 100 // window if used is not None and window else None,
-            "windowSize": window, "used": used, "model": model, "source": "codex-transcript" if rows else None,
+            "windowSize": window, "used": used, "model": model, "effort": active_effort,
+            "source": "codex-transcript" if rows else None,
             "note": f"{used}/{window or '?'}, src=codex-transcript" if used is not None else "Codex usage unavailable",
             "code": code, "diagnostic": None, "cache": cache, "rateLimits": None}
 

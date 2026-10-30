@@ -113,9 +113,17 @@ def cmd_preflight(args):
     inbox_n = text.inbox_count_from_overview(inbox_overview)
     inbox_detail = cfq_run("note", "list", repo, "--detail").stdout.rstrip("\n")
 
-    current_effort = None if harness.codex() else os.environ.get("CLAUDE_EFFORT")
-    required_effort = "off" if harness.codex() else settings["planSessionEffort"]
-    effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
+    current_effort = (json.loads(cfq_run("runtime", "context").stdout).get("effort")
+                      if harness.codex() else os.environ.get("CLAUDE_EFFORT"))
+    required_effort = settings["codexPlanEffort"] if harness.codex() else settings["planSessionEffort"]
+    if harness.codex():
+        effort_warning = (None if current_effort == required_effort else
+                          f"⚠️ Codex effort {current_effort or 'unknown'}; select {required_effort} before planning")
+        effort_json = {"current": current_effort, "required": required_effort,
+                       "ok": current_effort == required_effort}
+    else:
+        effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
+        effort_json = effort.status(current_effort, required_effort)
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=False)
 
@@ -129,6 +137,8 @@ def cmd_preflight(args):
             "allowAnyModel": settings["allowAnyModel"],
             "planExploreModel": harness.explore_model(settings, "planExploreModel"),
             "planExploreModelComplex": harness.explore_model(settings, "planExploreModelComplex"),
+            **({"exploreEffort": settings["codexExplorerEffort"],
+                "currentModel": harness.current_model()} if harness.codex() else {}),
             **({} if harness.codex() else {
                 "planBlockedPlugins": settings["planBlockedPlugins"],
                 "grillMode": settings["grillMode"],
@@ -141,7 +151,7 @@ def cmd_preflight(args):
             "docLanguages": settings["docLanguages"],
             "docLevel": settings["docLevel"],
         },
-        "effort": effort.status(current_effort, required_effort),
+        "effort": effort_json,
         "queue": {"openBatches": batches, "awaitingReview": awaiting},
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
