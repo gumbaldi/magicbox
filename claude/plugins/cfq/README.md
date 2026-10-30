@@ -18,6 +18,7 @@ flowchart LR
   with a link to its exact steps
 - [Configuration](docs/configuration.md) — every setting, how to view and change them globally
   or per repo
+- [Codex](codex/README.md) — local plugin install, separate skills, and shared queue handoff
 
 ## Installation
 

@@ -40,7 +40,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import cfq_report  # noqa: E402
 from cfq_brief import parse_phase_body, phase_num, render_phase  # noqa: E402
-from cfq_lib import errors, phase_state, render  # noqa: E402
+from cfq_lib import errors, harness, phase_state, render  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 from cfq_lib.proc import git as proc_git  # noqa: E402
 
@@ -62,7 +62,7 @@ def default_model(settings):
     """The model a phase runs on when its heading names none: the first orchestrator model, else
     the first implementation model."""
     for key in ("orchestratorModels", "implModels"):
-        models = settings.get(key) or []
+        models = harness.model_list(settings, key)
         if models:
             return models[0]
     return None
@@ -72,6 +72,8 @@ def resolve_model(phase_model, settings, failed_attempt_found):
     """(model, source) the worker is spawned on. A phase heading wins only when that model is in
     implModels and the phase has no recorded failed attempt."""
     default = default_model(settings)
+    if harness.codex():
+        return default, "default"
     if not phase_model:
         return default, "default"
     if failed_attempt_found:
@@ -83,6 +85,9 @@ def resolve_model(phase_model, settings, failed_attempt_found):
 
 def next_stronger(model, settings):
     """The lowest-ranked model above `model` among implModels plus the default, or None."""
+    if harness.codex():
+        models = harness.model_list(settings, "implModels")
+        return models[models.index(model) + 1] if model in models and models.index(model) + 1 < len(models) else None
     if model not in MODEL_RANK:
         return None
     pool = set(settings.get("implModels") or [])
@@ -147,15 +152,15 @@ def cmd_brief(args):
     repo_root = repo_root_of(batch_dir)
 
     settings = json.loads(cfq_run("settings", "list", "--repo", repo_root).stdout)
-    blocked_plugins = settings.get("implBlockedPlugins", [])
+    blocked_plugins = [] if harness.codex() else settings.get("implBlockedPlugins", [])
     language = {
         "codeLanguage": settings.get("codeLanguage"),
         "docLanguages": settings.get("docLanguages"),
         "docLevel": settings.get("docLevel"),
     }
     explore_models = {
-        "implExploreModel": settings.get("implExploreModel"),
-        "implExploreModelComplex": settings.get("implExploreModelComplex"),
+        "implExploreModel": harness.explore_model(settings, "implExploreModel"),
+        "implExploreModelComplex": harness.explore_model(settings, "implExploreModelComplex"),
     }
 
     resume_json = json.loads(cfq_run("resume", repo_root, str(batch_dir)).stdout)
@@ -169,7 +174,7 @@ def cmd_brief(args):
     model, model_source = resolve_model(fields.get("model"), settings, failed_attempt.get("found"))
     handover = None
     if args.model_override:
-        allowed = set(settings.get("implModels") or []) | {default_model(settings)}
+        allowed = set(harness.model_list(settings, "implModels")) | {default_model(settings)}
         if args.model_override not in allowed:
             errors.fail(
                 "MODEL_OVERRIDE_NOT_ALLOWED",

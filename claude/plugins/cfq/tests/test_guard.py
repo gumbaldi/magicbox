@@ -60,6 +60,10 @@ class GuardTest(CfqTestCase):
         proc = self._bash("rm -rf done/", cwd="/repo/.claude/cfq/impl/019-x")
         self.assertDenied(proc, contains="trash put")
 
+    def test_deny_rtk_wrapped_rm(self):
+        proc = self._bash("rtk proxy rm -rf done/", cwd="/repo/.claude/cfq/impl/019-x")
+        self.assertDenied(proc, contains="trash put")
+
     def test_deny_rm_rf_done_after_cd(self):
         proc = self._bash(
             "cd /repo/.claude/cfq/impl/019-x && rm -rf done/", cwd="/repo",

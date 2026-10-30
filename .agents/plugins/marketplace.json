@@ -1,0 +1,12 @@
+{
+  "name": "magicbox",
+  "interface": {"displayName": "Magicbox"},
+  "plugins": [
+    {
+      "name": "cfq",
+      "source": {"source": "local", "path": "./claude/plugins/cfq"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,14 +1,15 @@
 # magicbox
 
-gumbaldi's Claude Code plugins, plus, later, skills for other AI providers.
+gumbaldi's plugins for Claude Code and Codex.
 
 ## Installation
 
-```
-/plugin marketplace add gumbaldi/magicbox
-```
+Claude Code: `/plugin marketplace add gumbaldi/magicbox`, then install `cfq@magicbox`.
 
-Then install individual plugins from the table below.
+Codex: `codex plugin marketplace add ./` and `codex plugin add cfq@magicbox` from this checkout,
+or install `cfq` from the Magicbox marketplace in the desktop plugin directory. The repo marketplace is
+`.agents/plugins/marketplace.json`; the Codex skill and hook instructions are separate from the
+Claude Code instructions.
 
 ## Plugins
 
@@ -18,9 +19,9 @@ Then install individual plugins from the table below.
 
 ## Structure
 
-The root holds `.claude-plugin/marketplace.json` and monorepo-wide docs; below it, one directory per
-AI provider — `claude/` for Claude Code, `codex/` for Codex/GPT, `generic/` for provider-neutral
-skill sources adapted by hand when adopted for a provider. Only directories with content exist.
-Claude Code plugins live at `claude/plugins/<name>/`, each with its own `.claude-plugin/plugin.json`.
+The root holds both `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`.
+CFQ lives once at `claude/plugins/cfq/`: the shared CLI and queue format stay there, while
+`skills/` and `hooks/` serve Claude Code and `codex/skills/` and `codex/hooks/` serve Codex.
+Each host loads only its own skill and hook paths.
 
 MIT licensed.

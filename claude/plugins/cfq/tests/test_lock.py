@@ -117,12 +117,20 @@ class LockTest(CfqTestCase):
         self.assertEqual(proc.stdout.strip(), "FREE", msg="holder release = " + proc.stdout)
         self.assertFalse(self.lock.is_file(), msg="lock file still present after release")
 
-    def test_07a_batch_match_releases_despite_session_change(self):
+    def test_07a_batch_match_cannot_release_live_foreign_session(self):
         self.acquire("sidA", "b1")
         proc = self.release("sidB", batch="b1")
-        self.assertEqual(proc.stdout.strip(), "FREE", msg="batch-matched release = " + proc.stdout)
-        self.assertFalse(self.lock.is_file(), msg="lock file still present after batch-matched release")
-        self.assertIn("sidA", proc.stderr, msg="stderr should name the earlier holder = " + proc.stderr)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(self.lock.is_file(), msg="live foreign lock was removed")
+
+    def test_07aa_batch_match_releases_stale_foreign_session(self):
+        self.acquire("sidA", "b1")
+        data = json.loads(self.lock.read_text())
+        data["epoch"] -= 3000
+        self.lock.write_text(json.dumps(data))
+        proc = self.release("sidB", batch="b1")
+        self.assertEqual(proc.stdout.strip(), "FREE", msg="stale batch release = " + proc.stdout)
+        self.assertFalse(self.lock.is_file())
 
     def test_07b_batch_mismatch_still_refused(self):
         self.acquire("sidA", "b1")

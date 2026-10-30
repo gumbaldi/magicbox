@@ -18,12 +18,13 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, render, text, tools  # noqa: E402
+from cfq_lib import effort, harness, render, text, tools  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_pfq_preflight.py"
@@ -69,6 +70,13 @@ def cmd_preflight(args):
         print(render.dump_json({"status": "NO_REPO", "repo": {"root": repo, "known": False}}))
         return
     repo = resolved.stdout.strip()
+    if harness.codex():
+        sid = cfq_run("runtime", "session-id").stdout.strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]+", sid):
+            cfq_run("layout", "ensure", repo)
+            marker = pathlib.Path(repo) / ".claude/cfq/.codex-planning" / sid
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("planning\n")
 
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
     setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
@@ -105,8 +113,8 @@ def cmd_preflight(args):
     inbox_n = text.inbox_count_from_overview(inbox_overview)
     inbox_detail = cfq_run("note", "list", repo, "--detail").stdout.rstrip("\n")
 
-    current_effort = os.environ.get("CLAUDE_EFFORT")
-    required_effort = settings["planSessionEffort"]
+    current_effort = None if harness.codex() else os.environ.get("CLAUDE_EFFORT")
+    required_effort = "off" if harness.codex() else settings["planSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "planSessionEffort")
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=False)
@@ -116,15 +124,17 @@ def cmd_preflight(args):
         "repo": {"root": repo, "known": known},
         "setup": {"globalDone": setup_done},
         "planningPolicy": {
-            "planModels": settings["planModels"],
-            "implModels": settings["implModels"],
+            "planModels": harness.model_list(settings, "planModels"),
+            "implModels": harness.model_list(settings, "implModels"),
             "allowAnyModel": settings["allowAnyModel"],
-            "planExploreModel": settings["planExploreModel"],
-            "planExploreModelComplex": settings["planExploreModelComplex"],
-            "planBlockedPlugins": settings["planBlockedPlugins"],
-            "grillMode": settings["grillMode"],
-            "useMattpocockGrilling": settings["useMattpocockGrilling"],
-            "usePonytailAudit": settings["usePonytailAudit"],
+            "planExploreModel": harness.explore_model(settings, "planExploreModel"),
+            "planExploreModelComplex": harness.explore_model(settings, "planExploreModelComplex"),
+            **({} if harness.codex() else {
+                "planBlockedPlugins": settings["planBlockedPlugins"],
+                "grillMode": settings["grillMode"],
+                "useMattpocockGrilling": settings["useMattpocockGrilling"],
+                "usePonytailAudit": settings["usePonytailAudit"],
+            }),
         },
         "language": {
             "codeLanguage": settings["codeLanguage"],
@@ -145,7 +155,7 @@ def cmd_preflight(args):
             model_check_line(settings["allowAnyModel"], effort_warning),
             inbox_line(inbox_n, imported_n),
             review_line(awaiting),
-            text.plugin_boundaries_line(settings["planBlockedPlugins"]),
+            *([] if harness.codex() else [text.plugin_boundaries_line(settings["planBlockedPlugins"])]),
             *([tools_line] if tools_line else []),
         ],
     }))

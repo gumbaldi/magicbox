@@ -121,6 +121,10 @@ class StatusLineRenderingTest(unittest.TestCase):
 class FinishTest(CfqTestCase):
     auto_status = True
 
+    def run_cfq(self, *args, env=None, **kwargs):
+        # A real implementation session always has a harness session id.
+        return super().run_cfq(*args, env={"CLAUDE_CODE_SESSION_ID": "finish-test", **(env or {})}, **kwargs)
+
     def _new_repo(self, name):
         # The fixture pins the branch name so the tests do not depend on the host's
         # init.defaultBranch.
@@ -193,10 +197,8 @@ class FinishTest(CfqTestCase):
             sum(1 for k in data if k == "finish"), 1, "finish must exist exactly once",
         )
 
-    def test_lock_held_by_different_session_for_same_batch_still_releases(self):
-        # /clear mid-batch mints a new session id; finish's own `finally` release (phase 04) must
-        # still succeed via --batch matching, not only when the running session happens to be the
-        # lock's own holder.
+    def test_live_lock_held_by_different_session_blocks_finish(self):
+        # A new session must acquire the stale lock before finishing this batch.
         home = self._repos_dir / "home-lockmismatch"
         home.mkdir()
         repo = self._new_repo("repo-lockmismatch")
@@ -207,17 +209,15 @@ class FinishTest(CfqTestCase):
             env={"CLAUDE_CODE_SESSION_ID": "sidA"}, check=True,
         )
 
-        out = self.json_out(
-            self.run_cfq(
-                "finish", str(repo), str(batch), "v0.1-lockmismatch", home=home,
-                env={"CLAUDE_CODE_SESSION_ID": "sidB"}, check=True,
-            )
+        out = self.run_cfq(
+            "finish", str(repo), str(batch), "v0.1-lockmismatch", home=home,
+            env={"CLAUDE_CODE_SESSION_ID": "sidB"},
         )
-        self.assertEqual(out["lock"], "released", f"lock field: {out}")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("LOCKED", out.stderr)
+        self.assertTrue(batch.is_dir())
         lockstatus = self.run_cfq("lock", "status", str(repo), home=home).stdout.strip()
-        self.assertEqual(
-            lockstatus, "FREE", f"lock not released across a session-id change: {lockstatus}",
-        )
+        self.assertIn("ALIVE sidA", lockstatus)
 
     def test_mid_sequence_changelog_failure_still_completes(self):
         # Point changelogFile at a path inside a read-only directory -- cfq-changelog.sh finish
@@ -728,6 +728,7 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
         run_env = self._base_env()
         run_env["HOME"] = str(home)
+        run_env["CLAUDE_CODE_SESSION_ID"] = "finish-test"
         proc = subprocess.run(
             [str(bin_copy / "cfq"), "finish", str(repo), str(batch),
              "v0.1-" + tag if branch is None else branch],
@@ -1068,6 +1069,7 @@ else:
 
         run_env = self._base_env()
         run_env["HOME"] = str(home)
+        run_env["CLAUDE_CODE_SESSION_ID"] = "finish-test"
         proc = subprocess.run(
             [str(bin_copy / "cfq"), "finish", str(repo), str(batch), "v0.1-order"],
             capture_output=True, text=True, env=run_env,
@@ -1079,9 +1081,12 @@ else:
         # two direct calls (changelogFile, htmlReport) carry those exact argument tails; the
         # changelogFile read comes first, as the language checks look up the batch's base branch.
         calls = [line for line in log_file.read_text().splitlines() if line]
+        self.assertTrue(calls[0].startswith("lock status "), calls)
         first_index = {}
         for i, line in enumerate(calls):
             noun = line.split(" ", 1)[0]
+            if noun == "lock" and not line.startswith("lock release "):
+                continue
             if noun == "settings" and not line.endswith("changelogFile") \
                     and not line.endswith("htmlReport"):
                 continue

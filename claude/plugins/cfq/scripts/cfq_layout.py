@@ -36,6 +36,9 @@ BLOCK_ENTRIES = [
     ".claude/cfq/todo/",
     ".claude/cfq/reports/",
     ".claude/cfq/.lock",
+    ".claude/cfq/.lock.guard",
+    ".claude/cfq/.codex-agents/",
+    ".claude/cfq/.codex-planning/",
     ".claude/cfq/.maintenance",
     ".claude/cfq/telemetry.jsonl",
 ]

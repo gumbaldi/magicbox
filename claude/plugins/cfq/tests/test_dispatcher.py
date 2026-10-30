@@ -99,9 +99,12 @@ class DispatcherTest(CfqTestCase):
         text = CFQ_BIN.read_text()
         pattern = re.compile(r"^\s*[a-z-]+\) echo (cfq[a-z_-]+\.(?:sh|py)|ctx_usage\.py) ;;$", re.MULTILINE)
         mapped = sorted({m.group(1) for m in pattern.finditer(text)})
+        # Host adapters are imported or launched by hooks, never dispatched as CFQ nouns.
+        host_adapters = {"cfq_codex_hook.py", "cfq_runtime_codex.py", "cfq_telemetry_codex.py"}
         on_disk = sorted(
             f.name
             for f in list(SCRIPTS_DIR.glob("*.sh")) + list(SCRIPTS_DIR.glob("*.py"))
+            if f.name not in host_adapters
         )
         self.assertEqual(
             mapped, on_disk,

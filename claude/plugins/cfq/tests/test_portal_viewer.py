@@ -66,7 +66,7 @@ class PortalViewerEndToEndTest(CfqTestCase):
         env["CFQ_PORTAL_DIR"] = str(repo / ".claude" / "cfq" / "reports")
         env["CFQ_PORTAL_GLOBAL_DIR"] = str(report_dir)
         proc = subprocess.run(
-            [node, "--test", str(JS_TESTS_DIR / "e2e.test.mjs")],
+            [node, str(JS_TESTS_DIR / "e2e.test.mjs")],
             capture_output=True, text=True, env=env,
         )
         out = proc.stdout + proc.stderr

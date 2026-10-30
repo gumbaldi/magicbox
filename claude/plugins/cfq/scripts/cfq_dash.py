@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import paths, portal_hook, render, text  # noqa: E402
+from cfq_lib import harness, paths, portal_hook, render, text  # noqa: E402
 from cfq_lib.proc import cfq_run  # noqa: E402
 from cfq_lib.proc import git as proc_git  # noqa: E402
 
@@ -357,16 +357,18 @@ def main(argv):
 
     settings_json = build_settings_json(settings_src, masked_src)
 
-    use_grill = settings_src["useMattpocockGrilling"]["value"]
-    use_pony = settings_src["usePonytailAudit"]["value"]
-    has_mp = "mattpocock-skills" in plugins_list
-    has_pt = "ponytail" in plugins_list
-    plugins_obj = {
-        "mattpocock": has_mp, "ponytail": has_pt, "useMattpocockGrilling": use_grill,
-        "usePonytailAudit": use_pony, "ponytailMode": pony_mode,
-    }
-    p_icon, p_text = plugins_line(plugins_obj)
-    plugins_obj["statusLine"] = text.status_entry("Plugins", _icon_name(p_icon), p_text)
+    plugins_obj = None
+    if not harness.codex():
+        use_grill = settings_src["useMattpocockGrilling"]["value"]
+        use_pony = settings_src["usePonytailAudit"]["value"]
+        has_mp = "mattpocock-skills" in plugins_list
+        has_pt = "ponytail" in plugins_list
+        plugins_obj = {
+            "mattpocock": has_mp, "ponytail": has_pt, "useMattpocockGrilling": use_grill,
+            "usePonytailAudit": use_pony, "ponytailMode": pony_mode,
+        }
+        p_icon, p_text = plugins_line(plugins_obj)
+        plugins_obj["statusLine"] = text.status_entry("Plugins", _icon_name(p_icon), p_text)
 
     scan_json = json.loads(cfq_run("scan").stdout)
     repos_json = [repo_rollup(r) for r in scan_json["repos"]]
@@ -380,7 +382,7 @@ def main(argv):
     elif len(repos_json) == 0:
         status = "NO_REPO"
 
-    if mode != "render":
+    if mode != "render" or harness.codex():
         print(render.dump_json_pretty({
             "status": status, "plugins": plugins_obj, "repos": repos_json,
             "thisRepo": this_repo_json, "settings": settings_json,

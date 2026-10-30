@@ -5,14 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A Claude Code plugin **marketplace**, `magicbox` — not application code, not a single plugin. The
-root holds only `.claude-plugin/marketplace.json` and monorepo-wide docs; below it, one directory per
-AI provider.
+root holds both marketplace manifests and monorepo-wide docs; below it, the CFQ package keeps
+separate host instructions around one shared CLI.
 
 ## Layout rule
 
-One directory per AI provider — `claude/` for Claude Code, `codex/` for Codex/GPT, `generic/` for
-provider-neutral skill sources that are adapted by hand when they are adopted for a provider. Only
-directories that have content exist; there are no empty placeholders and no generator.
+CFQ remains one physical package under `claude/plugins/cfq/` because both hosts run its shared
+scripts against the same queue. Claude instructions live in `skills/`, `references/`, `commands/`
+and `hooks/`; Codex instructions live in `codex/`. The separate plugin manifests select those
+paths. Other provider-specific packages can use their own directory.
 
 `.github/workflows/` at the repo root holds per-plugin CI, path-filtered so each plugin's workflow
 only runs when that plugin's own files change.

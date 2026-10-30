@@ -44,7 +44,7 @@ DESTRUCTIVE_BASENAMES = {"rm", "rmdir", "mv", "cp", "truncate", "shred", "dd", "
 # Process wrappers whose own argv[0] is never the command actually run -- `check_destructive_call`/
 # `check_find` must see the wrapped command, not the wrapper, or `env rm -rf .claude/cfq` slips
 # past unchecked.
-WRAPPER_BASENAMES = {"env", "sudo", "nice", "nohup", "timeout", "command", "exec", "xargs", "time"}
+WRAPPER_BASENAMES = {"env", "sudo", "nice", "nohup", "timeout", "command", "exec", "xargs", "time", "rtk"}
 SHELL_BASENAMES = {"bash", "sh", "zsh", "dash"}
 MAX_WRAPPER_RECURSION = 3
 
@@ -351,6 +351,8 @@ def unwrap_process_wrappers(argv):
         if base == "env":
             while argv and ENV_ASSIGN_RE.match(argv[0]):
                 argv = argv[1:]
+        if base == "rtk" and argv[:1] == ["proxy"]:
+            argv = argv[1:]
         if base in ("timeout", "nice") and argv and NUMERIC_RE.match(argv[0]):
             argv = argv[1:]
     return argv

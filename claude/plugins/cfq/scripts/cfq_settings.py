@@ -30,7 +30,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import errors, paths, proc, render, text  # noqa: E402
+from cfq_lib import errors, harness, paths, proc, render, text  # noqa: E402
 from cfq_lib.env import home_dir  # noqa: E402
 
 # The eight fixed settings-menu groups, in display order — `settings menu` walks this list, never
@@ -93,6 +93,13 @@ SCHEMA = {
     "wslDistro": {"type": "string", "default": "", "pattern": "^($|[A-Za-z0-9._-]+)$", "scope": ["global"], "env": "CFQ_WSL_DISTRO", "group": "reports", "description": "WSL distribution name used in portal links on Windows + WSL; empty means detect."},
     "planExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /pfq Explore agents whose task is to judge rather than to locate."},
     "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
+    "codexPlanModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_CODEX_PLAN_MODELS", "group": "models", "description": "Codex planning models; empty uses the running Codex model."},
+    "codexImplModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_CODEX_IMPL_MODELS", "group": "models", "description": "Codex worker models ordered from cheaper to stronger; empty uses the running model."},
+    "codexOrchestratorModels": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_CODEX_ORCHESTRATOR_MODELS", "group": "models", "description": "Codex orchestrator models; empty uses codexImplModels or the running model."},
+    "codexPlanExploreModel": {"type": "string", "default": "", "scope": ["global", "repo"], "env": "CFQ_CODEX_PLAN_EXPLORE_MODEL", "group": "models", "description": "Codex planning explorer model; empty uses the running model."},
+    "codexPlanExploreModelComplex": {"type": "string", "default": "", "scope": ["global", "repo"], "env": "CFQ_CODEX_PLAN_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Codex planning explorer model for judgment tasks."},
+    "codexImplExploreModel": {"type": "string", "default": "", "scope": ["global", "repo"], "env": "CFQ_CODEX_IMPL_EXPLORE_MODEL", "group": "models", "description": "Codex implementation explorer model; empty uses the running model."},
+    "codexImplExploreModelComplex": {"type": "string", "default": "", "scope": ["global", "repo"], "env": "CFQ_CODEX_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Codex implementation explorer model for judgment tasks."},
     "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
     "implSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_IMPL_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /ifq session should run at; a lower level prints a warning and never blocks. off disables the check."},
 }
@@ -102,6 +109,20 @@ SCHEMA = {
 RENAMED_KEYS = {"stopPct": "replaced by stopUsed (absolute tokens, not percent)"}
 
 DEFAULTS = {k: v["default"] for k, v in SCHEMA.items()}
+
+CODEX_HIDDEN_KEYS = {
+    "planModels", "implModels", "orchestratorModels", "planExploreModel",
+    "implExploreModel", "planExploreModelComplex", "implExploreModelComplex",
+    "planSessionEffort", "implSessionEffort", "useMattpocockGrilling",
+    "usePonytailAudit", "planBlockedPlugins", "implBlockedPlugins", "grillMode",
+    "batchReview", "batchReviewFindings",
+    "ctxWindowLimits", "stopFiveHourPct", "stopSevenDayPct",
+}
+
+
+def visible_key(key):
+    """Keep each host's automatic settings output free of the other host's policy."""
+    return key not in CODEX_HIDDEN_KEYS if harness.codex() else not key.startswith("codex")
 
 GLOBAL_DIR = f"{home_dir()}/.claude/cfq"
 GLOBAL_SETTINGS_FILE = f"{GLOBAL_DIR}/settings.json"
@@ -349,10 +370,11 @@ def cmd_list(args):
     ensure()
     repo_path, base, final = _read_values(args)
     if args.want_source:
-        out = {k: {"value": final.get(k), "source": key_source(k, repo_path, base, final)} for k in SCHEMA}
+        out = {k: {"value": final.get(k), "source": key_source(k, repo_path, base, final)}
+               for k in SCHEMA if visible_key(k)}
         print(render.dump_json(out))
     else:
-        print(render.dump_json(final))
+        print(render.dump_json({k: v for k, v in final.items() if visible_key(k)}))
 
 
 def cmd_get(args):
@@ -411,7 +433,7 @@ def cmd_describe(args):
         entry = SCHEMA.get(args.key, {})
         print(render.dump_json({f: entry.get(f) for f in fields}))
     else:
-        out = {k: {f: v.get(f) for f in fields} for k, v in SCHEMA.items()}
+        out = {k: {f: v.get(f) for f in fields} for k, v in SCHEMA.items() if visible_key(k)}
         print(render.dump_json(out))
 
 
@@ -496,7 +518,8 @@ def _menu_groups(args, base, final):
     can never disagree about a key's value/source/marker."""
     keys_by_group = {g["id"]: [] for g in GROUPS}
     for key, entry in SCHEMA.items():
-        keys_by_group[entry["group"]].append(key)
+        if visible_key(key):
+            keys_by_group[entry["group"]].append(key)
 
     groups_out = []
     for g in GROUPS:
@@ -518,6 +541,8 @@ def _menu_groups(args, base, final):
                 "default": entry["default"],
                 "description": entry["description"],
             })
+        if harness.codex() and not group_keys and not args.group:
+            continue
         groups_out.append({"id": g["id"], "title": g["title"], "keys": group_keys})
     return groups_out
 

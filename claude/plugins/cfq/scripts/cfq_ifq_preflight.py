@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, queue as cfq_queue, render, text, tools  # noqa: E402
+from cfq_lib import effort, harness, queue as cfq_queue, render, text, tools  # noqa: E402
 from cfq_lib.proc import cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
@@ -225,18 +225,26 @@ def cmd_preflight(args):
     repo = resolved.stdout.strip()
 
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
-    policy = project(settings, [
-        "implModels", "allowAnyModel", "implBlockedPlugins", "onePhasePerSession",
-        "implExploreModel", "implExploreModelComplex", "orchestratorMode", "orchestratorModels",
-        "batchReview", "batchReviewFindings",
-    ])
+    policy = project(settings, ["allowAnyModel", "onePhasePerSession", "orchestratorMode"])
+    if harness.codex():
+        policy.update({
+            "implModels": harness.model_list(settings, "implModels"),
+            "orchestratorModels": harness.model_list(settings, "orchestratorModels"),
+            "implExploreModel": harness.explore_model(settings, "implExploreModel"),
+            "implExploreModelComplex": harness.explore_model(settings, "implExploreModelComplex"),
+        })
+    else:
+        policy.update(project(settings, [
+            "implModels", "implBlockedPlugins", "implExploreModel", "implExploreModelComplex",
+            "orchestratorModels", "batchReview", "batchReviewFindings",
+        ]))
     if not policy["orchestratorModels"]:
         policy["orchestratorModels"] = policy["implModels"]
     reporting = project(settings, ["reportDir", "htmlReport"])
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=True)
-    current_effort = os.environ.get("CLAUDE_EFFORT")
-    required_effort = settings["implSessionEffort"]
+    current_effort = None if harness.codex() else os.environ.get("CLAUDE_EFFORT")
+    required_effort = "off" if harness.codex() else settings["implSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
     effort_json = effort.status(current_effort, required_effort)
 
@@ -304,7 +312,7 @@ def cmd_preflight(args):
             "requiredTools": required_tools,
             "statusLines": [
                 model_gate_line(policy, effort_warning),
-                text.plugin_boundaries_line(policy["implBlockedPlugins"]),
+                *([] if harness.codex() else [text.plugin_boundaries_line(policy["implBlockedPlugins"])]),
                 *([tools_line] if tools_line else []),
             ],
             **EMPTY_SELECTION_TEMPLATE,
@@ -385,7 +393,7 @@ def cmd_preflight(args):
     )
     status_lines = [
         model_gate_line(policy, effort_warning),
-        text.plugin_boundaries_line(policy["implBlockedPlugins"]),
+        *([] if harness.codex() else [text.plugin_boundaries_line(policy["implBlockedPlugins"])]),
         *([tools_line] if tools_line else []),
         batch_line(
             select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,

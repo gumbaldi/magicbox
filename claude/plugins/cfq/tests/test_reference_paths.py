@@ -15,6 +15,7 @@ import unittest
 from cfq_testlib import PLUGIN_ROOT, CfqTestCase
 
 LINK_RE = re.compile(r"(\$\{CLAUDE_PLUGIN_ROOT\}|<plugin-root>)/references/([A-Za-z0-9_-]+\.md)")
+CODEX_LINK_RE = re.compile(r"<plugin-root>/codex/references/([A-Za-z0-9_-]+\.md)")
 BARE_LINK_RE = re.compile(
     r"(\$\{CLAUDE_PLUGIN_ROOT\}/|<plugin-root>/)?references/[A-Za-z0-9_-]+\.md"
 )
@@ -52,6 +53,9 @@ def check_links_resolve(root):
                 if (root / "references" / name).is_file():
                     continue
                 fails.append(f"FAIL: {f}:{lineno} dangling reference link: {m.group(0)}")
+            for m in CODEX_LINK_RE.finditer(line):
+                if not (root / "codex" / "references" / m.group(1)).is_file():
+                    fails.append(f"FAIL: {f}:{lineno} dangling Codex reference link: {m.group(0)}")
     return fails
 
 
@@ -67,7 +71,7 @@ def check_no_bare_relative(root):
                 match = m.group(0)
                 if match.startswith("${CLAUDE_PLUGIN_ROOT}/") or match.startswith(
                     "<plugin-root>/"
-                ):
+                ) or line[max(0, m.start() - len("<plugin-root>/codex/")):m.start()] == "<plugin-root>/codex/":
                     continue
                 fails.append(f"FAIL: {f}:{lineno} bare relative reference link: {match}")
     return fails
@@ -151,9 +155,12 @@ def check_settings_documented(root):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     text = config_doc.read_text()
+    codex_doc = root / "codex" / "README.md"
+    codex_text = codex_doc.read_text() if codex_doc.is_file() else ""
     for key in module.SCHEMA:
-        if key not in text:
-            fails.append(f"FAIL: {config_doc} missing settings key documented in cfq_settings.py: {key}")
+        target, body = (codex_doc, codex_text) if key.startswith("codex") else (config_doc, text)
+        if key not in body:
+            fails.append(f"FAIL: {target} missing settings key documented in cfq_settings.py: {key}")
     return fails
 
 

@@ -32,7 +32,9 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from cfq_lib import errors  # noqa: E402
+from cfq_lib import harness  # noqa: E402
 from cfq_lib import paths as cfq_lib_paths  # noqa: E402
+from cfq_lib import portal_hook  # noqa: E402
 from cfq_lib import render  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 from cfq_lib.proc import git as proc_git  # noqa: E402
@@ -90,13 +92,16 @@ def session_identity():
     call and `CLAUDE_CODE_SESSION_ID` extraction `cmd_record_phase_or_planning` needs, factored
     into one helper so `telemetry show --session` reuses it verbatim instead of re-deriving
     session identity a second time."""
-    return transcript_path(), os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    return transcript_path(), cfq_run("runtime", "session-id").stdout.strip()
 
 
 def subagent_dir(repo="", session=""):
     # Same resolution as transcript_path(), shared via the runtime adapter -- the directory is
     # derived, never guessed here (cfq_runtime.py owns every assumption about Claude Code's
     # on-disk layout).
+    if harness.codex():
+        sid = session or cfq_run("runtime", "session-id").stdout.strip()
+        return str(pathlib.Path(repo) / ".claude/cfq/.codex-agents" / sid) if repo and sid else ""
     return cfq_run(*_runtime_args("subagent-dir", repo, session)).stdout.strip()
 
 
@@ -515,7 +520,11 @@ def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
         since = last_until_for_session(jsonl, sid)
 
     batch = pathlib.Path(dir_).name
-    rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
+    if harness.codex():
+        import cfq_telemetry_codex
+        rec = cfq_telemetry_codex.build_record(tf, since, kind, phase, batch, repo, session=sid)
+    else:
+        rec = build_record(tf, since, kind, phase, batch, repo, subagents_dir=subagent_dir())
     if kind == "planning":
         rec["interview_depth"] = depth
         rec["phase_count"] = _phase_count(dir_)
@@ -534,6 +543,8 @@ def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
     if kind == "planning":
         data["planning"] = rec
         render.write_json(report_path, data)
+        if harness.codex() and sid:
+            (pathlib.Path(repo) / ".claude/cfq/.codex-planning" / sid).unlink(missing_ok=True)
     elif data.get("phases"):
         last = data["phases"][-1]
         # Only attach telemetry to the entry it actually belongs to: a phase plan naming
@@ -584,6 +595,42 @@ def cmd_record(rest):
     cmd_record_phase_or_planning(dir_, kind, phase, depth)
 
 
+def cmd_refresh(rest):
+    """Refresh the last Codex phase after its worker's SubagentStop hook has supplied its transcript."""
+    if len(rest) != 1:
+        errors.die(f"usage: {PROG} refresh <batch-dir>")
+    batch_dir = pathlib.Path(rest[0])
+    report_path = batch_dir / "report.json"
+    try:
+        report = json.loads(report_path.read_text())
+        entry = report["phases"][-1]
+        old = entry["telemetry"]
+    except (OSError, ValueError, IndexError, KeyError, TypeError):
+        print("UNAVAILABLE")
+        return
+    sid = cfq_run("runtime", "session-id").stdout.strip()
+    if old.get("harness") != "codex" or old.get("session_id") != sid or old.get("kind") != "phase":
+        print("UNAVAILABLE")
+        return
+    import cfq_runtime_codex
+    import cfq_telemetry_codex
+    path = cfq_runtime_codex.transcript_path(sid)
+    if not path:
+        print("UNAVAILABLE")
+        return
+    new = cfq_telemetry_codex.build_record(
+        path, old.get("since") or "", "phase", old.get("phase") or "",
+        old.get("batch") or batch_dir.name, old.get("repo") or "", session=sid,
+    )
+    new["rev"] = int(old.get("rev") or 1) + 1
+    entry["telemetry"] = new
+    render.write_json(report_path, report)
+    with open(cfq_lib_paths.telemetry_log(new["repo"]), "a") as stream:
+        stream.write(render.dump_json(new) + "\n")
+    portal_hook.sync(new["repo"], batches=[batch_dir.name])
+    print("OK")
+
+
 def _record_objects(data):
     """Every telemetry record embedded in one parsed report.json: the top-level `planning` object
     and each phase entry's `telemetry` object, as the live dicts so a caller can rewrite them in
@@ -616,11 +663,17 @@ def _recompute(old, tf, subdir, upper):
     """The settled replacement of `old`: same window start, bounded above by the next record of
     the same session. None when the transcript cannot be read (treated like a vanished one)."""
     try:
-        new = build_record(
-            tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
-            old.get("batch"), old.get("repo"),
-            upper=upper, subagents_dir=subdir,
-        )
+        if old.get("harness") == "codex":
+            import cfq_telemetry_codex
+            new = cfq_telemetry_codex.build_record(
+                tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
+                old.get("batch"), old.get("repo"), upper=upper, session=old.get("session_id") or "",
+            )
+        else:
+            new = build_record(
+                tf, old.get("since") or "", old.get("kind"), jqor(old.get("phase"), ""),
+                old.get("batch"), old.get("repo"), upper=upper, subagents_dir=subdir,
+            )
     except (OSError, ValueError):
         return None
     if not new["session_id"]:
@@ -660,7 +713,7 @@ def cmd_settle(rest):
             if r.get("session_id") and isinstance(r.get("since"), str):
                 sinces.setdefault(r["session_id"], set()).add(r["since"])
 
-    running = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    running = cfq_run("runtime", "session-id").stdout.strip()
     now = time.time()
     settled, pending, appended, dirty = 0, 0, [], set()
     for path, data in reports.items():
@@ -671,8 +724,13 @@ def cmd_settle(rest):
             if sid and sid == running:
                 pending += 1
                 continue
-            tf = transcript_path(repo, sid) if sid else ""
-            subdir = subagent_dir(repo, sid) if tf else ""
+            if rec.get("harness") == "codex" and sid:
+                import cfq_runtime_codex
+                tf = cfq_runtime_codex.transcript_path(sid)
+                subdir = str(pathlib.Path(repo) / ".claude/cfq/.codex-agents" / sid) if tf else ""
+            else:
+                tf = transcript_path(repo, sid) if sid else ""
+                subdir = subagent_dir(repo, sid) if tf else ""
             if tf and now - _newest_mtime(tf, subdir) < SETTLE_QUIET_SECONDS:
                 pending += 1
                 continue
@@ -887,6 +945,8 @@ def main(argv):
     rest = argv[1:]
     if cmd == "record":
         cmd_record(rest)
+    elif cmd == "refresh":
+        cmd_refresh(rest)
     elif cmd == "sync":
         cmd_sync(rest)
     elif cmd == "show":

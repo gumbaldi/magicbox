@@ -204,7 +204,7 @@ def _batch_dir(repo, name):
 
 def _lock_batch(repo):
     """The batch named by the repo lock, when the lock belongs to this session; else `None`."""
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    sid = cfq_lib_proc.cfq_run("runtime", "session-id").stdout.strip()
     if not sid:
         return None
     try:

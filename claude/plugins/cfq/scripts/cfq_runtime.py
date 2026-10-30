@@ -417,6 +417,10 @@ USAGE = (
 
 
 def main(argv):
+    if os.environ.get("CFQ_HARNESS") == "codex":
+        import cfq_runtime_codex
+        cfq_runtime_codex.main(argv)
+        return
     cmd = argv[0] if argv else ""
     rest = argv[1:]
 

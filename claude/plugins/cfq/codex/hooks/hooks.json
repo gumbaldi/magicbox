@@ -1,0 +1,17 @@
+{
+  "description": "Bind CFQ queue commands to the Codex session and capture worker usage.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [{"type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/cfq_codex_hook.py\" pretooluse"}]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "worker|explorer",
+        "hooks": [{"type": "command", "command": "python3 \"${PLUGIN_ROOT}/scripts/cfq_codex_hook.py\" subagent-stop"}]
+      }
+    ]
+  }
+}

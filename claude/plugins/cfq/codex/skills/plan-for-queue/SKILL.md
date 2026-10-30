@@ -1,0 +1,16 @@
+---
+name: plan-for-queue
+description: Interview the user and park detailed, phased plans in the shared CFQ queue for later implementation. Use for pfq, plan for queue, or planning substantial repo work.
+---
+
+# Plan for queue
+
+Reply in the user's language. This session plans and parks; it does not implement code. `CFQ` below is notation for the absolute `bin/cfq` three directories above this `SKILL.md`; put that path directly in each shell call so the hook can bind the session. The physical queue is `<repo>/.claude/cfq/` for both harnesses. A later Codex or Claude session may implement the parked batch.
+
+1. In Codex Plan Mode, research and draft the plan, then ask the user to continue in a writable session before running CFQ commands; Plan Mode cannot write the queue. In a writable session, run `CFQ preflight-plan <repo-root>` once. Use its repo root, inbox, queue, language, policy and status lines. Stop on `NO_REPO`.
+2. Read the relevant code and current plans. Interview the user about decisions that change scope or behavior. Choose routine implementation details yourself. Review other open batches for overlap and dependencies. Ask a final open question before writing: whether an important constraint, edge case or misunderstanding remains.
+3. Cut the work into individually verifiable, committable phases. Use the shared `<plugin-root>/references/phase-template.md` skeleton. Write specific absolute paths, numbered changes, reuse, dependencies and verification with a passing condition. Include `## Size` as `S`, `M` or `L`. Do not write `## Model`: Codex worker selection uses `codexImplModels`; a plan may be executed by either harness.
+4. Review the phase cut for missing migrations, tests, failure paths and cross-phase contracts. Run `CFQ security <repo-root>` and keep its JSON result for the batch report. Park unrelated findings through `CFQ note plan`, not as surprise phases.
+5. Run `CFQ batch allocate <repo-root> <YYYY-MM-DD> <topic-slug>`. Write only phase Markdown files `NN-<slug>.md` and `.batch-context.md` into that batch directory. Record the security result with `CFQ report security <batch-dir> <security-json>`. Then run `CFQ park <repo-root> <batch-name> <high|normal> [dependencies...]`, `CFQ lint <batch-dir>` and fix findings. Show the full phase outline and verification to the user. Release it with `CFQ batch ready <batch-dir>` after their plan approval.
+
+The queue commands own status files, `done/` and `skipped/`; never edit those directly. If the user has already approved the proposed plan, continue through `batch ready` in this session. A paused review leaves the batch parked and unreleased for either harness to resume.

@@ -10,6 +10,7 @@ output, exit codes) is the invariant this file preserves.
 """
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import pathlib
@@ -26,6 +27,31 @@ from cfq_lib.paths import mtime  # noqa: E402
 from cfq_lib.proc import cfq_run, settings_get  # noqa: E402
 
 PROG = "cfq_lock.py"
+
+
+def current_session():
+    return cfq_run("runtime", "session-id").stdout.strip()
+
+
+@contextmanager
+def guard(lock_path):
+    """Serialize the read/check/write transaction across local harness processes."""
+    path = str(lock_path) + ".guard"
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        if os.name == "nt":
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def read_lock(f):
@@ -47,35 +73,33 @@ def liveness(data, fallback_epoch, stale_s):
 
 def cmd_acquire(args):
     repo, batch = args.repo, args.batch
+    sid = current_session()
+    if not sid or sid == "unknown":
+        errors.die(f"{PROG}: RUNTIME_UNBOUND: no harness session id; check CFQ hook trust")
     cfq_run("layout", "ensure", repo)
     stale_s = settings_get(repo, "sessionStaleSeconds")
     f = cfq_lib_paths.lockfile(repo)
     os.makedirs(os.path.dirname(f), exist_ok=True)
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown")
     tpath = cfq_run("runtime", "transcript-path", "--repo", repo, "--exact").stdout.strip()
+    with guard(f):
+        if os.path.isfile(f):
+            data = read_lock(f)
+            holder = data.get("session_id", "")
+            hbatch = data.get("batch", "")
+            hepoch = data.get("epoch", 0)
+            if holder == sid:
+                print(f"OK {hbatch} (already held by this session)")
+                return
+            state = liveness(data, hepoch, stale_s)
+            if state == "alive":
+                print(f"LOCKED {holder} {hbatch} {data.get('at', '?')}", file=sys.stderr)
+                sys.exit(1)
+            print(f"TAKEOVER {holder} {hbatch} (stale)", file=sys.stderr)
 
-    if os.path.isfile(f):
-        data = read_lock(f)
-        holder = data.get("session_id", "")
-        hbatch = data.get("batch", "")
-        hepoch = data.get("epoch", 0)
-        if holder == sid:
-            print(f"OK {hbatch} (already held by this session)")
-            return
-        state = liveness(data, hepoch, stale_s)
-        if state == "alive":
-            print(f"LOCKED {holder} {hbatch} {data.get('at', '?')}", file=sys.stderr)
-            sys.exit(1)
-        print(f"TAKEOVER {holder} {hbatch} (stale)", file=sys.stderr)
-
-    payload = {
-        "session_id": sid,
-        "batch": batch,
-        "transcript": tpath,
-        "at": render.now_iso(),
-        "epoch": int(time.time()),
-    }
-    render.write_text_atomic(f, json.dumps(payload))
+        payload = {"session_id": sid, "batch": batch, "transcript": tpath,
+                   "harness": os.environ.get("CFQ_HARNESS") or "claude",
+                   "at": render.now_iso(), "epoch": int(time.time())}
+        render.write_text_atomic(f, json.dumps(payload))
     portal_hook.sync(repo, batches=[batch])
     print(f"OK {batch}")
 
@@ -86,21 +110,24 @@ def cmd_release(args):
     if not os.path.isfile(f):
         print("FREE")
         return
-    data = read_lock(f)
-    holder = data.get("session_id", "")
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown")
-    if holder != sid:
-        if args.batch and data.get("batch") == args.batch:
-            print(
-                f"{PROG}: releasing lock for batch {args.batch} held by earlier session {holder}",
-                file=sys.stderr,
-            )
-            os.remove(f)
+    sid = current_session()
+    if not sid or sid == "unknown":
+        errors.die(f"{PROG}: RUNTIME_UNBOUND: no harness session id; check CFQ hook trust")
+    with guard(f):
+        if not os.path.isfile(f):
             print("FREE")
             return
-        suffix = f" (lock batch {data.get('batch')}, given {args.batch})" if args.batch else ""
-        errors.die(f"{PROG}: lock held by {holder}, not releasing{suffix}")
-    os.remove(f)
+        data = read_lock(f)
+        holder = data.get("session_id", "")
+        if holder != sid:
+            stale_s = settings_get(repo, "sessionStaleSeconds")
+            stale = liveness(data, data.get("epoch", 0), stale_s) == "dead"
+            if args.batch and data.get("batch") == args.batch and stale:
+                print(f"{PROG}: releasing stale lock for batch {args.batch} held by {holder}", file=sys.stderr)
+            else:
+                suffix = f" (lock batch {data.get('batch')}, given {args.batch})" if args.batch else ""
+                errors.die(f"{PROG}: lock held by {holder}, not releasing{suffix}")
+        os.remove(f)
     print("FREE")
 
 

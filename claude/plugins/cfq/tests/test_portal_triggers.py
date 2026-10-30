@@ -13,7 +13,7 @@ from cfq_testlib import CfqTestCase, write_status
 
 import cfq_portal  # noqa: E402
 
-ON = {"CFQ_PORTAL_SYNC": "1"}
+ON = {"CFQ_PORTAL_SYNC": "1", "CLAUDE_CODE_SESSION_ID": "portal-test"}
 
 
 class PortalTriggersTest(CfqTestCase):

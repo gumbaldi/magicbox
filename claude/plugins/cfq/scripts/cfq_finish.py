@@ -324,6 +324,11 @@ def cmd_finish(args):
     batch_dir = pathlib.Path(str(args.batch_dir).rstrip("/"))
     branch = args.branch
 
+    lock_status = cfq_run("lock", "status", str(repo_root)).stdout.strip().split()
+    session = cfq_run("runtime", "session-id").stdout.strip()
+    if lock_status[:1] == ["ALIVE"] and len(lock_status) > 1 and lock_status[1] != session:
+        raise SystemExit(f"cfq_finish.py: LOCKED by {lock_status[1]}; refusing foreign finish")
+
     errs = []
 
     def add_error(step, message):

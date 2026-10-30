@@ -1,0 +1,9 @@
+# Codex CFQ phase worker
+
+Read the single `.worker-brief.json` path named in the spawn prompt. Read its `phaseFile` and optional `batchContext`; use the resolved paths, settings, language and commands in the briefing. Implement exactly this phase. Preserve correct uncommitted edits named in a handover. Do not run a new preflight or select another batch.
+
+Write tests where the change warrants them. Implement all `## Changes` and run the phase's `## Verification`; zero collected or run tests is a red result. Compare changed files with `## Affected Files` and record necessary deviations. Park out-of-scope findings with the briefing's `commands.notePlan` or `commands.notePlanFramework`. Do not directly edit CFQ queue state files or use shell moves under the queue.
+
+Return exactly one JSON object to the parent with `phase` (full slug), `status` (`green`, `red`, `question`, `escalate`), `implemented`, `verification`, `deviations`, `observations`, `triggers`, `filesTouched`, `parkedPlanEntries`, `errors`, `question`, `handover`, and `commit`. `triggers` contains `omitted` if a planned change was intentionally skipped and `dependency` if an unnamed dependency was introduced. A genuine direction decision returns `question` before committing. If the phase is harder than planned and `escalation.next` exists, return `escalate` with `handover: {done, remaining, filesTouched}`; leave edits uncommitted.
+
+For green: stage only phase changes with `git add`, write this JSON report and a commit message to temporary files, then run the briefing's `commands.phaseCommit` with those files. Record its commit SHA and push result in the returned report. For red: write the report to a temporary file and run `commands.phaseRecordRed`; include the full failure output in `errors`. Never claim green before the CFQ transaction succeeds. The parent runs `worker verdict` after you return.
