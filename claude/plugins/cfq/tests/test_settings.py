@@ -196,6 +196,8 @@ class SettingsTest(CfqTestCase):
             "planModels": "opus,fable",
             "implModels": "sonnet,haiku",
             "orchestratorMode": "true",
+            "strictWorkerReport": "true",
+            "baseBranchStrategy": "chainTip",
             "orchestratorModels": "sonnet",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
@@ -222,6 +224,61 @@ class SettingsTest(CfqTestCase):
                 self.assertEqual(
                     got, expected, msg=f"regression default {key} = '{got}', want '{expected}'"
                 )
+
+    # 5g-bis. baseBranchStrategy: default, repo round-trip, env, set rejects an unknown value
+    def test_05g_base_branch_strategy(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "baseBranchStrategy"
+        ).stdout.strip()
+        self.assertEqual(got, "chainTip", msg=f"default baseBranchStrategy = '{got}'")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "baseBranchStrategy", "newest",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "baseBranchStrategy", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "newest", msg=f"repo set baseBranchStrategy -> got '{got}'")
+
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "baseBranchStrategy", home=self.home,
+                env={"CFQ_BASE_BRANCH_STRATEGY": "chainTip"},
+            ).stdout.strip()
+            self.assertEqual(got, "chainTip", msg=f"env override -> got '{got}'")
+
+            bad = self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "baseBranchStrategy", "bogus",
+                home=self.home,
+            )
+            self.assertNotEqual(bad.returncode, 0, msg="set baseBranchStrategy bogus should fail")
+
+    # 5h. phaseCommitCommand: empty default, repo round-trip, no env override, global write refused
+    def test_05h_phase_commit_command(self):
+        got = self.run_clean(str(CFQ_BIN), "settings", "get", "phaseCommitCommand").stdout.strip()
+        self.assertEqual(got, "", msg=f"default phaseCommitCommand = '{got}'")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "phaseCommitCommand",
+                "npm run bump-buildversion", home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "phaseCommitCommand", home=self.home,
+                env={"CFQ_PHASE_COMMIT_COMMAND": "evil"},
+            ).stdout.strip()
+            self.assertEqual(got, "npm run bump-buildversion", msg=f"repo round-trip -> '{got}'")
+
+            bad = self.run_cfq("settings", "set", "phaseCommitCommand", "x", home=self.home)
+            self.assertNotEqual(bad.returncode, 0, msg="a global write of a repo-only key must fail")
+            self.assertIn("repo-only", bad.stderr)
+            got = self.run_cfq(
+                "settings", "get", "--global", "phaseCommitCommand", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "", msg="the refused write must leave the global tier empty")
 
     # 5g. orchestratorMode: default, round-trip through global and repo, env, set rejects
     def test_05g_orchestrator_mode(self):
@@ -264,6 +321,22 @@ class SettingsTest(CfqTestCase):
 
         proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
+
+    # 5g2. strictWorkerReport: default true, round-trip through global and repo, env
+    def test_05g2_strict_worker_report(self):
+        got = self.run_clean(str(CFQ_BIN), "settings", "get", "strictWorkerReport").stdout.strip()
+        self.assertEqual(got, "true")
+        with tempfile.TemporaryDirectory() as fixture_s:
+            self.run_cfq("settings", "set", "strictWorkerReport", "false", home=self.home, check=True)
+            self.assertEqual(self.run_cfq("settings", "get", "strictWorkerReport", home=self.home).stdout.strip(), "false")
+            self.run_cfq("settings", "set", "--repo", fixture_s, "strictWorkerReport", "true", home=self.home, check=True)
+            self.assertEqual(self.run_cfq(
+                "settings", "get", "--repo", fixture_s, "strictWorkerReport", home=self.home).stdout.strip(), "true")
+            got = self.run_cfq("settings", "get", "strictWorkerReport", home=self.home,
+                               env={"CFQ_STRICT_WORKER_REPORT": "1"}).stdout.strip()
+            self.assertEqual(got, "true")
+        proc = self.run_cfq("settings", "set", "strictWorkerReport", "yes", home=self.home)
+        self.assertNotEqual(proc.returncode, 0)
 
     # 5i. batchReview / batchReviewFindings: default, every allowed value (global and repo),
     # rejection outside the enum, env override
@@ -1015,6 +1088,37 @@ class SettingsTest(CfqTestCase):
             )
 
 
+    # 19a. the three absolute-path settings accept a Windows drive path, never a relative or UNC one
+    def test_absolute_path_settings_accept_drive_letters(self):
+        good = ["/abs/dir", "C:\\Users\\me\\x", "C:/Users/me/x", "d:\\x", ""]
+        bad = ["relative/dir", "C:", "C:rel", "\\\\server\\share"]
+        cases = [
+            ("reportDir", "global"),
+            ("reportDir", "repo"),
+            ("telemetrySyncRepo", "global"),
+            ("telemetrySyncRepo", "repo"),
+            ("frameworkRepo", "global"),
+        ]
+        with tempfile.TemporaryDirectory() as repo_s:
+            for key, scope in cases:
+                scope_args = ["--repo", repo_s] if scope == "repo" else []
+                for val in good:
+                    with self.subTest(key=key, scope=scope, value=val):
+                        self.run_cfq(
+                            "settings", "set", *scope_args, key, val, home=self.home, check=True
+                        )
+                        got = self.run_cfq(
+                            "settings", "get", *scope_args, key, home=self.home
+                        ).stdout.strip()
+                        self.assertEqual(got, val)
+                for val in bad:
+                    with self.subTest(key=key, scope=scope, rejected=val):
+                        proc = self.run_cfq(
+                            "settings", "set", *scope_args, key, val, home=self.home
+                        )
+                        self.assertNotEqual(proc.returncode, 0)
+                        self.assertIn("does not match the required pattern", proc.stderr)
+
     # 19b. editor: default, valid set, rejected values, repo scope allowed
     def test_19b_editor(self):
         got = self.run_cfq("settings", "get", "editor", home=self.home).stdout.strip()
@@ -1082,9 +1186,11 @@ class SettingsTest(CfqTestCase):
                 "planExploreModel", "planExploreModelComplex", "implExploreModel",
                 "implExploreModelComplex", "planSessionEffort", "implSessionEffort",
             },
-            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
+            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins", "auditBarrier"},
             "implementation": {
-                "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
+                "orchestratorMode", "strictWorkerReport", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
+                "implBlockedPlugins",
+                "phaseCommitCommand",
                 "batchReview", "batchReviewFindings", "requiredTools",
             },
             "limits": {

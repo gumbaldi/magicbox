@@ -15,22 +15,38 @@ finding becomes a `plan/` entry for a later session, never a question.
 
 ### Reviewing and editing the plan
 
-Before a batch is released, `/pfq` prints a digest of the whole plan — the batch context and, per
-phase, its context, affected files, change steps and verification command — and asks whether to
-release it, request changes, edit the files yourself, or discard it. The batch stays held until
-you answer.
+Before a batch is released, `/pfq` asks whether to release it, request changes, edit the files
+yourself, or discard it. The release question carries a compact gate in its own text: the phase list
+and one link to the batch directory. The full digest — the batch context and, per phase, its
+context, affected files, change steps and verification command — stays one command away. The batch
+stays held until you answer.
 
 The plan lives at `<repo>/.claude/cfq/impl/<batch>/NN-<slug>.md` plus `.batch-context.md`, plain
 Markdown; the same plan is readable in the report portal. You may edit these files by hand, at the
 gate and afterwards, until `/ifq` starts the phase; `/ifq` lints the batch again at its start.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review   # print the plan digest again
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review         # print the full plan digest
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review --gate  # print the compact gate
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"             # check your edits
 ```
 
 A review that was never answered keeps the batch held, with no time limit; the next `/pfq`
 offers to resume it, and `bin/cfq batch ready "<batch-dir>"` releases it without a review.
+
+### Waiting for the post-write audit
+
+After the plan files are written, `/pfq` starts an audit in the background and writes an `.audit`
+marker into the batch (`bin/cfq batch audit <batch-dir> start`). While the marker exists, `batch review` and
+`batch ready` refuse, `/ifq` never offers the batch, and `/pfq` ends its turn with a `⏳ Phase Audit`
+line instead of looking finished. When the audit result arrives, `/pfq` removes the marker
+(`bin/cfq batch audit <batch-dir> done`) and goes on to the review gate. The duration and finding count land in
+`report.json` under `audit`. `auditBarrier: false` writes no marker.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch audit "<batch-dir>" start   # hold the batch
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch audit "<batch-dir>" done    # release it again
+```
 
 ### Choosing a model per phase
 
@@ -59,6 +75,10 @@ shows the full batch context, and each phase announcement and the review digest 
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
 early.
+
+A repository that must change a file with every commit, such as a build version, sets
+`phaseCommitCommand`: `phase commit` runs that command before every phase commit, and a non-zero
+exit turns the phase red (see [configuration.md](configuration.md#settings-reference)).
 
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything
@@ -153,9 +173,15 @@ Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.m
 
 The report portal lives at `<repo>/.claude/cfq/reports/index.html` and shows every batch with its
 phases, deviations, flags and cost; the README's [Report portal](../README.md#report-portal)
-section describes each view. `/ifq` prints the link of the finished batch at its end, and `/cfq`
+section describes each view. The overview opens with **Now** (running batches and their current
+phase), **Needs attention** (warnings and batches waiting on a review or the audit) and the **Last 10
+batches**, planning and implementation side by side; the **Trends** tab holds the cost and size
+charts. A batch page opens with a result band and one card each for planning and implementation;
+its **Cost** tab splits tokens by planning and implementation, then by model, agent and phase, and
+marks a phase whose cost is far above the rolling baseline of its size with an info note. Times
+show calendar time and, where measured, active time. `/ifq` prints the link of the finished batch at its end, and `/cfq`
 names the portal path under `view reports`. Open batches, their unfinished phases and open inbox
-entries carry "Open in editor" and "Copy path" controls, so a plan can be edited before `/ifq`
+entries carry "Open folder" and "Copy path" controls, so a plan can be edited before `/ifq`
 picks it up.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,

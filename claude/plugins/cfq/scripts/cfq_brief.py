@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed]]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed|--gate [--changed]]]
 """Prints the flat batch listing the dashboard's next-batch expansion shows (default mode), or (with
 --phase <NN>) a single-phase announcement block (title, goal, files, the first 10 numbered
 `## Changes` steps at two lines each, check command), or (with --with-done) the same flat listing
@@ -9,7 +9,9 @@ phase table interleaved with each phase's own `## Context` excerpt and a `-> <fi
 closing `Plans` and (report portal on) `Portal` lines) shown at `ifq`'s start gate, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
 context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
 command and phase-file path; --review --changed prints only what changed since the `.review`
-snapshot `cfq batch review` took (read-only, never refreshes it). Batch mode (default and --with-done) prints an optional
+snapshot `cfq batch review` took (read-only, never refreshes it); --review --gate prints the compact
+review gate instead (header, count line, one `NN  title  · size` line per phase and the `Plans`
+directory line; with --changed only the changed phases), the text the release question carries. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -536,6 +538,62 @@ def render_review(d, only=None):
     return "\n\n".join("\n".join(s) for s in sections)
 
 
+def _gate_phase_line(num, title, size, state=""):
+    line = f"  {num}  {title}  · {size or 'M'}"
+    return line + (f" · {state}" if state else "")
+
+
+def render_review_gate(d, changed=False):
+    """The compact review gate: header, count line, one `  NN  <title>  · <size>[ · <state>]` line
+    per phase and the `Plans` directory line. With `changed`, only the phases whose hash differs
+    from the `.review` snapshot (or that are new) plus a `Removed` line per vanished file; the
+    output is `no changes since last review` when nothing changed. Read-only."""
+    if not changed:
+        done, skipped, pending = _phase_groups(d)
+        rows = []
+        for r in done + skipped + pending:
+            f = r["path"]
+            fields = parse_phase_review(f.read_text(), f.stem)
+            rows.append(_gate_phase_line(
+                phase_num(f), fields["title"], fields["size"],
+                "" if r["status"] in phase_state.PENDING else r["status"]))
+        _, _, done_n, skipped_n, error_n, _ = _overview_rows(d)
+        sections = [[_overview_header(d), _count_line(done_n, skipped_n, error_n, len(rows))], rows,
+                    [f"  Plans    {d.resolve()}"]]
+        return _gate_join(sections)
+
+    marker = cfq_queue.read_review(d)
+    if marker is None:
+        print(f"{PROG}: no review snapshot in {d} -- run 'cfq batch review' first", file=sys.stderr)
+        sys.exit(1)
+    old = marker.get("files") if isinstance(marker.get("files"), dict) else {}
+    new = cfq_queue.review_snapshot(d)
+    changed_names = sorted(n for n in new if old.get(n) != new[n])
+    removed = sorted(n for n in old if n not in new)
+    if not changed_names and not removed:
+        return "no changes since last review"
+
+    phase_names = [n for n in changed_names if n != ".batch-context.md"]
+    states = {r["path"].resolve(): r["status"] for g in _phase_groups(d) for r in g}
+    rows = []
+    for name in phase_names:
+        f = d / name
+        fields = parse_phase_review(f.read_text(), f.stem)
+        status = states.get(f.resolve(), "")
+        rows.append(_gate_phase_line(
+            phase_num(f), fields["title"], fields["size"],
+            "" if status in phase_state.PENDING else status))
+    if ".batch-context.md" in changed_names:
+        rows.append("  Changed  .batch-context.md")
+    rows.extend(f"  Removed  {n}" for n in removed)
+    head = [_overview_header(d), f"{len(phase_names) + len(removed)} changed since last review"]
+    return _gate_join([head, rows, [f"  Plans    {d.resolve()}"]])
+
+
+def _gate_join(sections):
+    return "\n\n".join("\n".join(s) for s in sections if s)
+
+
 def render_review_changed(d):
     """The part of the digest that changed since `cfq batch review` last snapshotted the batch:
     phase files whose hash differs or that are new, `.batch-context.md` when it changed, and a
@@ -618,6 +676,10 @@ def cmd_brief(args):
         print(render_overview(d))
         return
 
+    if args.gate:
+        print(render_review_gate(d, changed=args.changed))
+        return
+
     if args.review and args.changed:
         print(render_review_changed(d))
         return
@@ -668,6 +730,7 @@ def build_parser():
     group.add_argument("--review", action="store_true")
     parser.add_argument("--phases")
     parser.add_argument("--changed", action="store_true")
+    parser.add_argument("--gate", action="store_true")
     parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser
@@ -678,6 +741,10 @@ def main(argv):
     args = parser.parse_args(argv)
     if args.phases is not None and not args.review:
         parser.error("--phases requires --review")
+    if args.gate and not args.review:
+        parser.error("--gate requires --review")
+    if args.gate and args.phases is not None:
+        parser.error("--gate cannot be combined with --phases")
     if args.changed and not args.review:
         parser.error("--changed requires --review")
     if args.changed and args.phases is not None:

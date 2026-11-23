@@ -13,12 +13,17 @@ const svgClass = (n) => (n.attrs && n.attrs.class ? n.attrs.class.split(/\s+/) :
 const bySvg = (node, tag, cls) => findAll(node, (n) => n.tagName === tag && (!cls || svgClass(n).includes(cls)));
 const num = (n, k) => Number(n.attrs[k]);
 
-test("modelSlots: sorted names map to m0..m5, later ones share m-other, deterministic", () => {
-  const names = ["g", "b", "a", "f", "e", "d", "c", "h"];
+test("modelSlots: one colour class per model family, independent of input order", () => {
+  const names = ["gpt-x", "<synthetic>", "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-1"];
   const slots = K.modelSlots(names);
-  assert.deepEqual(slots, { a: "m0", b: "m1", c: "m2", d: "m3", e: "m4", f: "m5", g: "m-other", h: "m-other" });
+  assert.deepEqual(slots, {
+    "claude-fable-1": "m-fable", "claude-opus-5-5": "m-opus", "claude-sonnet-5-5": "m-sonnet",
+    "claude-haiku-5-5": "m-haiku", "gpt-x": "m-other", "<synthetic>": "m-other",
+  });
   assert.deepEqual(K.modelSlots([...names].reverse()), slots);
-  assert.deepEqual(K.modelSlots(["x", "x", "a"]), { a: "m0", x: "m1" });
+  assert.equal(K.modelSlots(["claude-opus-5-5"])["claude-opus-5-5"], "m-opus", "a model keeps its colour alone");
+  assert.equal(K.modelSlots(["Claude-Sonnet-4"])["Claude-Sonnet-4"], "m-sonnet");
+  assert.deepEqual(K.modelSlots(["x", "x"]), { x: "m-other" });
   assert.deepEqual(K.modelSlots([]), {});
 });
 
@@ -54,9 +59,9 @@ test("stackedBars: one group per bar, one rect per non-zero key, heights proport
   const max = K.scaleMax([800, 300]);
   const rects = bySvg(groups[0], "rect");
   const heights = rects.map((r) => num(r, "height"));
-  // sonnet (m1) has three times the height of haiku (m0); slot order puts m0 at the bottom
-  assert.deepEqual(rects.map(svgClass), [["m0"], ["m1"]]);
-  assert.ok(Math.abs(heights[1] / heights[0] - 3) < 0.05);
+  // sonnet has three times the height of haiku; family order puts sonnet at the bottom
+  assert.deepEqual(rects.map(svgClass), [["m-sonnet"], ["m-haiku"]]);
+  assert.ok(Math.abs(heights[0] / heights[1] - 3) < 0.05);
   // the bar total against the scale maximum: the top grid line is `max`, so the stack is total/max of it
   const top = bySvg(svg, "line", "grid").map((l) => num(l, "y1")).sort((a, b) => a - b)[0];
   const base = num(bySvg(svg, "line", "axis")[0], "y1");
@@ -98,8 +103,8 @@ test("hBars: one row per entry, widths proportional to the largest total", () =>
   assert.equal(groups.length, 2);
   const widths = (gr) => bySvg(gr, "rect").map((r) => num(r, "width"));
   const [bigW, smallW] = [widths(groups[0]), widths(groups[1])];
-  assert.deepEqual(bySvg(groups[0], "rect").map(svgClass), [["m0"], ["m1"]]);
-  assert.ok(Math.abs(bigW[0] / bigW[1] - 1 / 3) < 0.02);
+  assert.deepEqual(bySvg(groups[0], "rect").map(svgClass), [["m-sonnet"], ["m-haiku"]]);
+  assert.ok(Math.abs(bigW[1] / bigW[0] - 1 / 3) < 0.02);
   assert.ok(Math.abs((bigW[0] + bigW[1]) / smallW[0] - 4) < 0.05);
   assert.equal(K.hBars(doc, [], slots), null);
   assert.equal(K.hBars(doc, [{ label: "z", values: {} }], slots), null);
@@ -143,7 +148,7 @@ test("legend: every model name as text beside its swatch", () => {
   assert.match(collectText(ul), /claude-haiku-5/);
   assert.match(collectText(ul), /claude-sonnet-5-5/);
   const swatch = findAll(items[0], (n) => n.className && n.className.startsWith("swatch"))[0];
-  assert.equal(swatch.className, "swatch m0");
+  assert.equal(swatch.className, "swatch m-haiku");
   assert.equal(swatch.attrs["aria-hidden"], "true");
 });
 

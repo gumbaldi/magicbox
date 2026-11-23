@@ -1,9 +1,11 @@
-// The batch page's cost views: the Cost tab (key figures, per model, per layer, per phase, per
-// agent, and an "Exact numbers" table with a TSV export) and the per-phase Cost sub-tab. Cost is
+// The batch page's cost views: the Cost tab (where the output went, planning and implementation
+// side by side, implementation per phase against its size baseline, agents grouped by part, and an
+// "Exact numbers" table with a TSV export) and the per-phase Cost sub-tab. Cost is
 // turns and tokens only, split by model at every level -- no price table, no currency: the exact
 // numbers table is precise enough to multiply with a price list by hand later.
 //
-// The row builders (`costRows`, `layerRows`, `phaseCostRows`, `exactRows`, `toTsv`) are pure so
+// The row builders (`costRows`, `layerRows`, `phaseCostRows`, `implPhaseRows`, `outputParts`,
+// `exactRows`, `toTsv`) are pure so
 // tests/js/batch-cost.test.mjs can exercise them directly. `COST` shape: `.batch-context.md`
 // (Portal data files). Every value reaches the DOM through `textContent`.
 
@@ -94,6 +96,81 @@
     return rows;
   }
 
+  // True when the batch has attempts and every one ran as a classic session (no orchestrator).
+  function isClassic(batch) {
+    var attempts = [];
+    ((batch && batch.phases) || []).forEach(function (p) { (p.attempts || []).forEach(function (a) { attempts.push(a); }); });
+    return attempts.length > 0 && attempts.every(function (a) { return a.mode === "classic"; });
+  }
+
+  // Output of the batch by part, in display order: planning session, planning explorers, the
+  // orchestrator (the session when every attempt ran classic), its explorers, phase workers, worker
+  // explorers. `kind` is "plan" or "impl", `tone` the tint (p1/p2 planning, i1..i3 implementation).
+  // Parts without output are left out.
+  function outputParts(batch) {
+    var planning = batch && batch.planning && batch.planning.cost;
+    var impl = batch && batch.implementation && batch.implementation.cost;
+    var classic = isClassic(batch);
+    var defs = [
+      [planning, "main", "Planning session", "plan", "p1"],
+      [planning, "main_explore", "Planning explorers", "plan", "p2"],
+      [impl, "main", classic ? "Session" : "Orchestrator", "impl", "i1"],
+      [impl, "main_explore", classic ? "Session explorers" : "Orchestrator explorers", "impl", "i4"],
+      [impl, "worker", "Phase workers", "impl", "i2"],
+      [impl, "worker_explore", "Worker explorers", "impl", "i3"],
+    ];
+    var parts = [];
+    defs.forEach(function (d) {
+      var layer = d[0] && d[0].layers && d[0].layers[d[1]];
+      var total = t5(layer && layer.total);
+      if (total.output > 0) parts.push({ layer: d[1], label: d[2], kind: d[3], tone: d[4], value: total.output, turns: total.turns });
+    });
+    return parts;
+  }
+
+  // One row per phase with telemetry, summed over its attempts. `ratio` is the phase's output over
+  // its size baseline's median output (`null` without a baseline); `active` is the sum of the
+  // attempts' active seconds only when every timed attempt recorded one.
+  function implPhaseRows(batch) {
+    var rows = [];
+    ((batch && batch.phases) || []).forEach(function (phase) {
+      var s = sumCosts(phase.attempts || []);
+      if (!s) return;
+      var wall = null, active = null, activeAll = true;
+      (phase.attempts || []).forEach(function (a) {
+        var w = a.time && a.time.wallclock_s;
+        if (isNum(w)) wall = (wall || 0) + w;
+        var act = a.time && a.time.active_s;
+        if (isNum(act)) active = (active || 0) + act;
+        else if (isNum(w)) activeAll = false;
+      });
+      var base = phase.baseline;
+      var ratio = base && isNum(base.outputMedian) && base.outputMedian > 0 && s.total.output > 0
+        ? s.total.output / base.outputMedian : null;
+      var byModel = {};
+      Object.keys(s.byModel).forEach(function (m) { byModel[m] = s.byModel[m].output; });
+      rows.push({
+        slug: phase.slug, num: phase.num, title: phase.title || phase.slug, size: phase.size || "",
+        total: s.total, byModel: byModel, provisional: s.provisional,
+        active: activeAll ? active : null, wallclock: wall, ratio: ratio,
+      });
+    });
+    return rows;
+  }
+
+  // Agents in display order: every root (no parent in the list) followed by the agents it spawned.
+  function orderAgents(agents) {
+    var ids = {};
+    agents.forEach(function (a) { ids[a.id] = true; });
+    var out = [];
+    function walk(a) {
+      out.push(a);
+      agents.forEach(function (b) { if (b !== a && b.parent === a.id) walk(b); });
+    }
+    agents.forEach(function (a) { if (!a.parent || !ids[a.parent]) walk(a); });
+    return out;
+  }
+
   // One row per (scope, layer, model); scope is "planning" or a phase slug (all attempts summed),
   // numbers unrounded. Only combinations that actually have a model row are listed.
   function exactRows(batch) {
@@ -176,25 +253,6 @@
     return s;
   }
 
-  function tiles(doc, total) {
-    var C = core();
-    var wrap = C.el(doc, "div", null, "tiles");
-    [
-      ["Turns", total.turns, C.fmtInt(total.turns)],
-      ["In", C.billableIn(total), null],
-      ["Out", total.output, null],
-      ["Cache read", total.cache_read, null],
-    ].forEach(function (t) {
-      var tile = C.el(doc, "div", null, "tile");
-      tile.appendChild(C.el(doc, "div", t[0], "tile-label"));
-      var v = C.el(doc, "div", t[2] !== null ? t[2] : C.fmtTokens(t[1]), "tile-value");
-      v.setAttribute("title", C.fmtInt(t[1]));
-      tile.appendChild(v);
-      wrap.appendChild(tile);
-    });
-    return wrap;
-  }
-
   function swatchLabel(doc, model, slots) {
     var C = core();
     var span = C.el(doc, "span", null, "model-name");
@@ -209,13 +267,14 @@
 
   var MODEL_COLS = [["Model", ""], ["Turns", "n"], ["In", "n", NUM_TITLE.in], ["Out", "n"], ["Cache read", "n"]];
 
-  function modelCells(doc, tr, r, maxOut) {
+  // `plain`: the output as a number, never a bar.
+  function modelCells(doc, tr, r, maxOut, plain) {
     var C = core();
     tr.appendChild(numTd(doc, r.turns));
     var inTd = C.el(doc, "td", C.fmtInt(C.billableIn(r)), "n");
     inTd.setAttribute("title", String(C.billableIn(r)));
     tr.appendChild(inTd);
-    tr.appendChild(numTd(doc, r.output, !r.total, maxOut)); // a bar for the total row would dwarf its parts
+    tr.appendChild(numTd(doc, r.output, !plain && !r.total, maxOut)); // a bar for the total row would dwarf its parts
     tr.appendChild(numTd(doc, r.cache_read));
   }
 
@@ -289,25 +348,45 @@
     return scroll(doc, table);
   }
 
-  function agentsTable(doc, agents) {
+  function agentRow(doc, a, withPhase, phase) {
+    var C = core();
+    var tr = C.el(doc, "tr");
+    if (withPhase) tr.appendChild(C.el(doc, "td", phase || "–", "num"));
+    tr.appendChild(C.el(doc, "td", a.type || "–", "mono"));
+    tr.appendChild(C.el(doc, "td", a.description || "–", "desc"));
+    tr.appendChild(C.el(doc, "td", LAYER_NAME[a.layer] || a.layer || "–"));
+    tr.appendChild(C.el(doc, "td", modelNames(a.byModel).join(", ") || "–"));
+    var t = t5(a.total);
+    tr.appendChild(numTd(doc, t.turns));
+    var inTd = C.el(doc, "td", C.fmtInt(C.billableIn(t)), "n");
+    inTd.setAttribute("title", String(C.billableIn(t)));
+    tr.appendChild(inTd);
+    tr.appendChild(numTd(doc, t.output));
+    return tr;
+  }
+
+  // A flat list of agents, or, with `groups` ([{label, rows: [{agent, phase}]}]), a table with one
+  // group row per part and a Phase column.
+  function agentsTable(doc, agents, groups) {
     var C = core();
     var table = C.el(doc, "table", null, "data cost-table agents");
-    table.appendChild(headRow(doc, [["Type", ""], ["Description", ""], ["Layer", ""], ["Models", ""], ["Turns", "n"], ["In", "n", NUM_TITLE.in], ["Out", "n"]]));
+    var cols = [["Type", ""], ["Description", ""], ["Layer", ""], ["Models", ""], ["Turns", "n"], ["In", "n", NUM_TITLE.in], ["Out", "n"]];
+    if (groups) cols.unshift(["Phase", ""]);
+    table.appendChild(headRow(doc, cols));
     var body = C.el(doc, "tbody");
-    agents.forEach(function (a) {
-      var tr = C.el(doc, "tr");
-      tr.appendChild(C.el(doc, "td", a.type || "–", "mono"));
-      tr.appendChild(C.el(doc, "td", a.description || "–", "desc"));
-      tr.appendChild(C.el(doc, "td", LAYER_NAME[a.layer] || a.layer || "–"));
-      tr.appendChild(C.el(doc, "td", modelNames(a.byModel).join(", ") || "–"));
-      var t = t5(a.total);
-      tr.appendChild(numTd(doc, t.turns));
-      var inTd = C.el(doc, "td", C.fmtInt(C.billableIn(t)), "n");
-      inTd.setAttribute("title", String(C.billableIn(t)));
-      tr.appendChild(inTd);
-      tr.appendChild(numTd(doc, t.output));
-      body.appendChild(tr);
-    });
+    if (groups) {
+      groups.forEach(function (g) {
+        var gr = C.el(doc, "tr", null, "group-row group-" + g.kind);
+        var th = C.el(doc, "th", g.label);
+        th.setAttribute("colspan", String(cols.length));
+        th.setAttribute("scope", "colgroup");
+        gr.appendChild(th);
+        body.appendChild(gr);
+        g.rows.forEach(function (r) { body.appendChild(agentRow(doc, r.agent, true, r.phase)); });
+      });
+    } else {
+      agents.forEach(function (a) { body.appendChild(agentRow(doc, a, false)); });
+    }
     table.appendChild(body);
     return scroll(doc, table);
   }
@@ -322,48 +401,199 @@
     return core().el(doc, "p", "Some figures are provisional: their session had not ended when they were recorded, and they are recomputed once it has.", "provisional-note muted");
   }
 
-  // Per-phase output bars plus a table with every phase's figures and its provisional marker.
-  function phaseSection(doc, ctx, batch, slots) {
-    var C = core(), K = CFQ.charts;
-    var rows = phaseCostRows(batch);
-    var sec = section(doc, "By phase");
+  // ---- Where the output went, the two part tables, the phase table ------------------------------
+
+  function shortModel(name, slot) {
+    return !slot || slot === "m-other" ? name : slot.replace(/^m-/, "");
+  }
+
+  // One family dot and short name per distinct family; several dots when the models are mixed.
+  function modelCell(doc, models, slots) {
+    var C = core();
+    var td = C.el(doc, "td", null, "model");
+    var seen = {};
+    models.forEach(function (m) {
+      var label = shortModel(m, slots[m]);
+      if (seen[label]) return;
+      seen[label] = true;
+      var span = C.el(doc, "span", null, "model-name");
+      var dot = C.el(doc, "span", null, "mdot " + (slots[m] || "m-other"));
+      dot.setAttribute("aria-hidden", "true");
+      span.appendChild(dot);
+      span.appendChild(C.el(doc, "span", label));
+      td.appendChild(span);
+    });
+    return td;
+  }
+
+  function heading(doc, title, aside, kind) {
+    var C = core();
+    var head = C.el(doc, "div", null, "sec-head");
+    if (kind) head.appendChild(C.el(doc, "span", null, "swatch sw-" + kind));
+    head.appendChild(C.el(doc, "h3", title));
+    if (aside) {
+      var a = C.el(doc, "span", aside.text, "aside");
+      if (aside.title) a.setAttribute("title", aside.title);
+      head.appendChild(a);
+    }
+    return head;
+  }
+
+  function outputSection(doc, parts) {
+    var C = core();
+    var sec = C.el(doc, "section", null, "cost-section out-section");
+    var total = parts.reduce(function (n, p) { return n + p.value; }, 0);
+    var turns = parts.reduce(function (n, p) { return n + p.turns; }, 0);
+    sec.appendChild(heading(doc, "Where the output went", {
+      text: C.fmtTokens(total) + " output tokens · " + C.fmtInt(turns) + " turns", title: C.fmtInt(total) + " output tokens",
+    }));
+    if (!total) {
+      sec.appendChild(C.el(doc, "p", "No output recorded.", "empty"));
+      return sec;
+    }
+    var bar = C.el(doc, "div", null, "out-bar");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", "Output by part");
+    var legend = C.el(doc, "div", null, "out-legend");
+    parts.forEach(function (p) {
+      var seg = C.el(doc, "i", null, "out-seg " + p.tone);
+      seg.style.width = (Math.round(p.value / total * 1000) / 10) + "%";
+      seg.setAttribute("title", p.label + ": " + C.fmtInt(p.value));
+      bar.appendChild(seg);
+      var item = C.el(doc, "div", null, "out-legend-item");
+      item.appendChild(C.el(doc, "span", null, "swatch " + p.tone));
+      item.appendChild(C.el(doc, "span", p.label, "label"));
+      var v = C.el(doc, "span", C.fmtTokens(p.value), "v");
+      v.setAttribute("title", String(p.value));
+      item.appendChild(v);
+      legend.appendChild(item);
+    });
+    sec.appendChild(bar);
+    sec.appendChild(legend);
+    return sec;
+  }
+
+  // One table of a part: a row per non-empty layer (expandable into its models) and a total row.
+  function partTable(doc, cost, labels, slots) {
+    var C = core();
+    var table = C.el(doc, "table", null, "data cost-table part-table");
+    table.appendChild(headRow(doc, [["Part", ""], ["Model", ""], ["Turns", "n"], ["In new", "n", NUM_TITLE.in], ["Out", "n"], ["Cache read", "n"]]));
+    var body = C.el(doc, "tbody");
+    layerRows(cost).filter(function (r) { return !r.empty; }).forEach(function (r) {
+      var label = (labels[r.layer] || r.label) + (r.layer !== "main" && r.count > 1 ? " ×" + r.count : "");
+      var tr = C.el(doc, "tr", null, "layer-row");
+      var first = C.el(doc, "td", null, "layer");
+      var children = [];
+      if (r.models.length) {
+        var toggle = C.el(doc, "button", null, "disclosure-toggle");
+        toggle.setAttribute("type", "button");
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.appendChild(C.el(doc, "span", "▸", "caret"));
+        toggle.appendChild(C.el(doc, "span", label));
+        toggle.addEventListener("click", function () {
+          var open = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          children.forEach(function (c) { if (open) c.removeAttribute("hidden"); else c.setAttribute("hidden", ""); });
+        });
+        first.appendChild(toggle);
+      } else {
+        first.appendChild(C.el(doc, "span", label));
+      }
+      tr.appendChild(first);
+      tr.appendChild(modelCell(doc, r.models.map(function (m) { return m.model; }), slots));
+      modelCells(doc, tr, r, 0, true);
+      body.appendChild(tr);
+      r.models.forEach(function (m) {
+        var sub = C.el(doc, "tr", null, "nested");
+        sub.setAttribute("hidden", "");
+        var name = C.el(doc, "td", null, "model");
+        name.appendChild(swatchLabel(doc, m.model, slots));
+        sub.appendChild(name);
+        sub.appendChild(C.el(doc, "td", ""));
+        modelCells(doc, sub, m, 0, true);
+        children.push(sub);
+        body.appendChild(sub);
+      });
+    });
+    var total = t5(cost && cost.total);
+    var tr = C.el(doc, "tr", null, "total");
+    tr.appendChild(C.el(doc, "td", "Total"));
+    tr.appendChild(C.el(doc, "td", ""));
+    modelCells(doc, tr, total, 0, true);
+    body.appendChild(tr);
+    table.appendChild(body);
+    return scroll(doc, table);
+  }
+
+  function partSection(doc, kind, title, part, labels, slots) {
+    var C = core();
+    var sec = C.el(doc, "section", null, "cost-section part-" + kind);
+    var a = part ? C.fmtActive(part.active_s, part.wallclock_s) : null;
+    sec.appendChild(heading(doc, title, a && { text: a.text + (a.title ? " active · " + a.title + " calendar" : ""), title: "" }, kind));
+    if (!part || !part.cost) {
+      sec.appendChild(C.el(doc, "p", kind === "plan" ? "No planning telemetry recorded." : "No implementation telemetry yet.", "empty"));
+      return sec;
+    }
+    sec.appendChild(partTable(doc, part.cost, labels, slots));
+    return sec;
+  }
+
+  function ratioCell(doc, ratio) {
+    var C = core();
+    var td = C.el(doc, "td", null, "n ratio");
+    if (ratio === null) {
+      td.textContent = "–";
+      td.setAttribute("title", "no size baseline");
+      return td;
+    }
+    var text = (Math.round(ratio * 10) / 10).toFixed(1) + "×";
+    td.appendChild(ratio > 2 ? C.el(doc, "span", text, "pill neutral") : C.el(doc, "span", text));
+    td.setAttribute("title", "output compared with the median of finished phases of this size");
+    return td;
+  }
+
+  function implPhaseSection(doc, ctx, batch, slots) {
+    var C = core();
+    var rows = implPhaseRows(batch);
+    var sec = C.el(doc, "section", null, "cost-section");
+    sec.appendChild(heading(doc, "Implementation by phase", { text: "all attempts, output stacked by model" }));
     if (!rows.length) {
       sec.appendChild(C.el(doc, "p", "No phase recorded telemetry.", "empty"));
       return sec;
     }
-    var bars = rows.map(function (r) {
-      var values = {};
-      Object.keys(r.byModel).forEach(function (m) { values[m] = r.byModel[m].output; });
-      return { label: r.label, href: r.slug ? C.href(ctx, "batch/" + batch.name + "/phase/" + r.slug) : null, values: values };
-    });
-    var svg = K.hBars(doc, bars, slots);
-    if (svg) {
-      sec.appendChild(C.el(doc, "p", "Output tokens per phase, stacked by model", "caption muted"));
-      var wrap = C.el(doc, "div", null, "chart-wrap");
-      wrap.appendChild(svg);
-      sec.appendChild(wrap);
-      sec.appendChild(K.legend(doc, slots));
-    }
+    var maxOut = rows.reduce(function (m, r) { return Math.max(m, r.total.output); }, 0);
     var table = C.el(doc, "table", null, "data cost-table by-phase");
-    table.appendChild(headRow(doc, [["Phase", ""], ["Turns", "n"], ["In", "n", NUM_TITLE.in], ["Out", "n"], ["Cache read", "n"], ["", ""]]));
+    table.appendChild(headRow(doc, [["#", ""], ["Phase", ""], ["Size", ""], ["Active", "n"], ["Turns", "n"], ["Out", "n"],
+      ["Output by model", ""], ["vs. baseline", "n"], ["", ""]]));
     var body = C.el(doc, "tbody");
     rows.forEach(function (r) {
       var tr = C.el(doc, "tr");
+      tr.appendChild(C.el(doc, "td", String(r.num === undefined || r.num === null ? "" : r.num), "num"));
       var label = C.el(doc, "td", null, "phase");
-      if (r.slug) {
-        var a = C.el(doc, "a", r.label);
-        a.setAttribute("href", C.href(ctx, "batch/" + batch.name + "/phase/" + r.slug));
-        label.appendChild(a);
-      } else {
-        label.textContent = r.label;
-      }
+      var a = C.el(doc, "a", r.title);
+      a.setAttribute("href", C.href(ctx, "batch/" + batch.name + "/phase/" + r.slug));
+      a.setAttribute("title", r.slug);
+      label.appendChild(a);
       tr.appendChild(label);
+      tr.appendChild(C.el(doc, "td", r.size || "–"));
+      var act = C.fmtActive(r.active, r.wallclock);
+      var actTd = C.el(doc, "td", act.text, "n");
+      if (act.title) actTd.setAttribute("title", "calendar " + act.title);
+      tr.appendChild(actTd);
       tr.appendChild(numTd(doc, r.total.turns));
-      var inTd = C.el(doc, "td", C.fmtInt(C.billableIn(r.total)), "n");
-      inTd.setAttribute("title", String(C.billableIn(r.total)));
-      tr.appendChild(inTd);
       tr.appendChild(numTd(doc, r.total.output));
-      tr.appendChild(numTd(doc, r.total.cache_read));
+      var barTd = C.el(doc, "td");
+      var track = C.el(doc, "span", null, "stackbar");
+      Object.keys(r.byModel).sort(function (x, y) { return r.byModel[y] - r.byModel[x] || (x < y ? -1 : 1); }).forEach(function (m) {
+        if (!(r.byModel[m] > 0) || !(maxOut > 0)) return;
+        var seg = C.el(doc, "i", null, slots[m] || "m-other");
+        seg.style.width = (Math.round(r.byModel[m] / maxOut * 1000) / 10) + "%";
+        seg.setAttribute("title", m + ": " + C.fmtInt(r.byModel[m]));
+        track.appendChild(seg);
+      });
+      barTd.appendChild(track);
+      tr.appendChild(barTd);
+      tr.appendChild(ratioCell(doc, r.ratio));
       var mark = C.el(doc, "td");
       if (r.provisional) mark.appendChild(provisionalMark(doc));
       tr.appendChild(mark);
@@ -372,6 +602,29 @@
     table.appendChild(body);
     sec.appendChild(scroll(doc, table));
     return sec;
+  }
+
+  // Agents of the batch under a Planning and an Implementation group row; the implementation
+  // agents are ordered by phase, each worker followed by the explorers it spawned.
+  function agentGroups(batch) {
+    var planning = batch.planning && batch.planning.cost;
+    var groups = [];
+    var planRows = orderAgents((planning && planning.agents) || []).map(function (a) { return { agent: a, phase: "" }; });
+    if (planRows.length) groups.push({ kind: "plan", label: "Planning", rows: planRows });
+    var implRows = [];
+    (batch.phases || []).forEach(function (phase) {
+      (phase.attempts || []).forEach(function (att) {
+        orderAgents((att.cost && att.cost.agents) || []).forEach(function (a) {
+          implRows.push({ agent: a, phase: phase.num === undefined || phase.num === null ? phase.slug : String(phase.num) });
+        });
+      });
+    });
+    if (!implRows.length) {
+      var ic = batch.implementation && batch.implementation.cost;
+      orderAgents((ic && ic.agents) || []).forEach(function (a) { implRows.push({ agent: a, phase: "" }); });
+    }
+    if (implRows.length) groups.push({ kind: "impl", label: "Implementation", rows: implRows });
+    return groups;
   }
 
   // "Copy as TSV": the clipboard API when there is one; in a browser without it a read-only textarea
@@ -423,33 +676,48 @@
 
   // ---- tabs -------------------------------------------------------------------------------------
 
+  var PLAN_LABELS = {
+    main: "Planning session", main_explore: "Planning explorers",
+    worker: "Planning workers", worker_explore: "Planning worker explorers",
+  };
+
+  function implLabels(batch) {
+    var classic = isClassic(batch);
+    return {
+      main: classic ? "Session" : "Orchestrator", main_explore: classic ? "Session explorers" : "Orchestrator explorers",
+      worker: "Phase workers", worker_explore: "Worker explorers",
+    };
+  }
+
   function renderCostTab(doc, root, ctx) {
     var C = core(), K = CFQ.charts;
     var batch = ctx.batch;
+    var planning = batch && batch.planning, impl = batch && batch.implementation;
     var cost = batch && batch.cost;
-    if (!cost) {
+    if (!cost && !(planning && planning.cost) && !(impl && impl.cost)) {
       root.appendChild(C.el(doc, "p", "No telemetry recorded for this batch.", "empty"));
       return;
     }
-    var slots = K.modelSlots(Object.keys(cost.byModel || {}));
+    var names = {};
+    [cost, planning && planning.cost, impl && impl.cost].forEach(function (c) {
+      Object.keys((c && c.byModel) || {}).forEach(function (m) { names[m] = true; });
+    });
+    var slots = K.modelSlots(Object.keys(names));
     var anyProvisional = phaseCostRows(batch).some(function (r) { return r.provisional; });
     if (anyProvisional) root.appendChild(provisionalNote(doc));
 
-    root.appendChild(tiles(doc, t5(cost.total)));
+    root.appendChild(outputSection(doc, outputParts(batch)));
 
-    var byModel = section(doc, "By model");
-    byModel.appendChild(modelTable(doc, costRows(cost), slots));
-    byModel.appendChild(K.legend(doc, slots));
-    root.appendChild(byModel);
+    var two = C.el(doc, "div", null, "cost-two");
+    two.appendChild(partSection(doc, "plan", "Planning", planning, PLAN_LABELS, slots));
+    two.appendChild(partSection(doc, "impl", "Implementation", impl, implLabels(batch), slots));
+    root.appendChild(two);
 
-    var byLayer = section(doc, "By layer");
-    byLayer.appendChild(layerTable(doc, layerRows(cost), slots));
-    root.appendChild(byLayer);
-
-    root.appendChild(phaseSection(doc, ctx, batch, slots));
+    root.appendChild(implPhaseSection(doc, ctx, batch, slots));
 
     var agents = section(doc, "Agents");
-    if ((cost.agents || []).length) agents.appendChild(agentsTable(doc, cost.agents));
+    var groups = agentGroups(batch);
+    if (groups.length) agents.appendChild(agentsTable(doc, null, groups));
     else agents.appendChild(C.el(doc, "p", "No sub-agents recorded.", "empty"));
     root.appendChild(agents);
 
@@ -483,6 +751,8 @@
     costRows: costRows,
     layerRows: layerRows,
     phaseCostRows: phaseCostRows,
+    implPhaseRows: implPhaseRows,
+    outputParts: outputParts,
     exactRows: exactRows,
     toTsv: toTsv,
   };

@@ -647,6 +647,95 @@ class TestPhase(CfqTestCase):
         self.assertFalse((batch / "done").exists(), "done/ must not be created")
         self.assertEqual(self._report_json(batch)["phases"], [], "no ledger entry should be written")
 
+    # ---- phaseCommitCommand: the repo hook that runs right before the phase commit ----------
+
+    HOOK_WRITE = "printf '%s %s %s' \"$CFQ_BATCH_NUMBER\" \"$CFQ_PHASE_NUMBER\" \"$CFQ_FIRST_PHASE\" > hook.out && git add hook.out"
+
+    def _set_hook(self, repo, command):
+        self.run_cfq("settings", "set", "--repo", str(repo), "phaseCommitCommand", command, check=True)
+
+    def _commit_slug(self, repo, batch, slug):
+        pf = self._phase_file(batch, {"phase": slug, "status": "green", "summary": "ok"})
+        msg = self._message_file(batch)
+        return self.run_cfq("phase", "commit", str(batch), str(pf), str(msg))
+
+    def _committed_hook_out(self, repo):
+        return self.run_clean("git", "show", "HEAD:hook.out", cwd=repo).stdout
+
+    def test_commit_hook_first_phase_stages_its_file_with_the_markers(self):
+        repo, batch = self._git_batch("hook-first", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_phase_md(batch, "02-b")
+        self._write_report(batch, [])
+        self._set_hook(repo, self.HOOK_WRITE)
+        self._stage_change(repo)
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(self._committed_hook_out(repo), "61 01 1")
+
+    def test_commit_hook_second_phase_is_not_the_first(self):
+        repo, batch = self._git_batch("hook-second", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_phase_md(batch, "02-b")
+        self._write_report(batch, [])
+        write_status(batch, {"01-a": "done"})
+        self._set_hook(repo, self.HOOK_WRITE)
+        self._stage_change(repo)
+        proc = self._commit_slug(repo, batch, "02-b")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(self._committed_hook_out(repo), "61 02 0")
+
+    def test_commit_hook_legacy_batch_name_has_an_empty_batch_number(self):
+        repo, batch = self._git_batch("hook-legacy", "2026-03-10-legacytopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, self.HOOK_WRITE)
+        self._stage_change(repo)
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(self._committed_hook_out(repo), " 01 1")
+
+    def test_commit_hook_failure_stops_the_commit_and_keeps_the_phase_open(self):
+        repo, batch = self._git_batch("hook-fail", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, "echo first line; echo bump exploded; exit 3")
+        self._stage_change(repo)
+        before_sha = self._head_sha(repo)
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "HOOK_FAILED")
+        self.assertIn("bump exploded", body["detail"])
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(body["statusLines"][0]["icon"], "fail")
+        self.assertEqual(self._head_sha(repo), before_sha, "no commit should have been made")
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "open")
+        self.assertTrue((batch / "01-a.md").is_file())
+
+    def test_commit_hook_does_not_run_when_nothing_is_staged(self):
+        repo, batch = self._git_batch("hook-empty", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, "touch marker.out")
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(self.json_out(proc)["status"], "NOTHING_STAGED")
+        self.assertFalse((repo / "marker.out").exists(), "the hook must not run")
+
+    def test_commit_without_a_hook_is_unchanged(self):
+        repo, batch = self._git_batch("hook-off", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(self.json_out(proc)["status"], "OK")
+
+    def test_commit_status_line_renders_hook_failed_as_a_failure(self):
+        line = cfq_phase.commit_status_line({"status": "HOOK_FAILED", "detail": "boom"})
+        self.assertEqual(line["icon"], "fail")
+        self.assertEqual(line["detail"], "boom")
+
     # ---- status.json: every verb moves the phase's status and file together --------------------
 
     def _phases_status(self, batch):

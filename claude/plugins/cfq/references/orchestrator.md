@@ -38,7 +38,8 @@ This one call carries both verdicts, and capacity always wins when both fire:
   question below.
 - `WARN` (a rate-limit reason) carries the same three-option question as classic mode's
   `<plugin-root>/references/ifq-phase.md`'s **Phase Announcement** — identical wording, identical
-  options, no second variant.
+  options, no second variant. The question's text states the phase number, its title and the
+  rate-limit reason itself.
 
 The Size Gate itself does not run for the worker, and `onePhasePerSession` has no effect on this
 loop at all: every worker starts on an empty context window, so neither applies to it. Both are
@@ -49,7 +50,9 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 
 `bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase. The call writes the
 briefing to `<batch-dir>/.worker-brief.json` and prints `announcement`, `prompt`, `briefFile`, the
-worker's `model` and `escalation`. Print `announcement` verbatim, no rewording — the same rendering
+worker's `model` and `escalation`. Print `announcement` verbatim, no rewording — the text is copied
+into the assistant's own reply, never only extracted by a script inside a Bash call, because tool
+output is not reliably shown to the user. It is the same rendering
 classic mode's own phase announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase
 Announcement**), just carried in this JSON instead of printed by `bin/cfq brief` directly, since
 that call refuses while `orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent with
@@ -68,7 +71,11 @@ composed by the script (never write a fallback line yourself); empty for a `ques
 - `ASK` → resolve what can be resolved from `.batch-context.md`, the phase file and settings;
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
-  already tells them apart, the orchestrator doesn't re-classify.
+  already tells them apart, the orchestrator doesn't re-classify. The trigger `skippedCheck`
+  (a planned check the worker reported as `skipped`) is relayed as one `AskUserQuestion` whose
+  question text lists the result's `skippedChecks`, each with its check and reason, and whose
+  options are: accept as skipped · run it now · stop the batch. "Run it now" resumes the same
+  worker through section 4.
 - `ESCALATE` → the worker judged the phase harder than planned. If the brief call's
   `escalation.next` is `null`, or this phase was already escalated once in this session, handle
   it exactly as `ASK`, with the worker's `handover.remaining` as the question. Otherwise write
@@ -91,7 +98,7 @@ the fallback is visible, never silent.
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations`/`observations` map onto
-`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`, then print the verdict's `statusLines` entries
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per path in `parkedPlanEntries` — the verdict's (the worker's `outOfScope` findings it parked) and the worker's own framework entries — then print the verdict's `statusLines` entries
 below the block, each `text` exactly as returned. Batch end — `nextPhase: null` —
 follows `implement-for-queue/SKILL.md`'s **Batch Done** in full.
 

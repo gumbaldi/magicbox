@@ -68,7 +68,8 @@ The steps are the opening sentence of each numbered `## Changes` step, at most 1
 two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
 `Steps` label.
 
-Then one `AskUserQuestion`, three options: **Go** — "proceed, implement this phase now", its
+Then one `AskUserQuestion`, whose question text repeats the phase number and title and the budget
+note, so the question does not depend on the announcement block above it. Three options: **Go** — "proceed, implement this phase now", its
 description naming the budget state so the user sees what they are accepting — and **must not**
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
 reusing `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
@@ -146,8 +147,10 @@ Deviation** section below runs before every green phase closes and its result fe
 an empty array is fine only when that comparison came back empty, a glossed-over deviation is not;
 `errors` carries the actual failure output, trimmed to what identifies it. `observations`
 (optional): zero to three one-clause entries for what a reader should know that is neither a
-deviation nor an error — a flaky test, a pre-existing defect left untouched, a plan assumption that
-proved false without changing the work. Nothing stood out → leave the field out; never pad it.
+deviation nor an error and needs no action — a flaky test, a plan assumption that proved false
+without changing the work. Nothing stood out → leave the field out; never pad it. A finding to act
+on later, such as a pre-existing defect left untouched, is not an observation: it goes into
+`outOfScope` (`{"title", "body"}` entries) and `bin/cfq worker verdict` parks it as a plan entry.
 
 ## File-Scope Deviation
 
@@ -186,9 +189,12 @@ open phase in the same session. Exactly three triggers, nothing else:
 - (c) a new dependency or a new script was introduced that the plan does not name
 
 Any of the three firing → do not auto-advance; state which trigger fired and ask once
-(`AskUserQuestion`) whether to continue anyway. None firing → continue, no question.
+(`AskUserQuestion`) whether to continue anyway; the question text names the trigger that fired.
+None firing → continue, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
+In orchestrator mode "(a) not run" arrives as the verdict trigger `skippedCheck` (a `checks` entry
+the worker reported as `skipped`) and red as status `red`; no fourth trigger is added.
 
 ## Skipping a Phase
 
@@ -226,6 +232,9 @@ drive what happens next, beyond just printing the line: `status: "NOTHING_STAGED
 phase's changes and retry the same call once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` →
 treat as a red phase, don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
 `bin/cfq batch verify` to reconcile later, since the commit itself succeeded and is never undone.
+`status: "HOOK_FAILED"` → treat as a red phase too: the repository's `phaseCommitCommand` exited
+non-zero before the commit, so no commit exists and the phase stays open; its `detail` (the last
+20 output lines) names the cause.
 
 ## Phase Commit Trailers
 

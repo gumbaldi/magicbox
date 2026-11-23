@@ -18,13 +18,13 @@
   var CFQ = g.CFQ = g.CFQ || {};
 
   // ---- routes -----------------------------------------------------------------------------------
-  // Repo mode: #/  #/todos  #/inbox  #/archive  #/batch/<name>[/<tab>]  #/batch/<name>/phase/<slug>
+  // Repo mode: #/  #/trends  #/todos  #/inbox  #/archive  #/batch/<name>[/<tab>]  #/batch/<name>/phase/<slug>
   //            #/entry/<id>.  Global mode prefixes each with #/<mirror>/ and adds #/ = repo list.
   // Result: {name: "overview"|"batch"|"entry"|"repos", mirror, tab, batch, phase, id}; `tab` is the
-  // overview tab (batches|todos|inbox|archive) or the batch tab (phases|cost|context|notes|closing,
+  // overview tab (batches|trends|todos|inbox|archive) or the batch tab (phases|cost|context|notes|closing,
   // null when none is named).
 
-  var OVERVIEW_TABS = { todos: "todos", inbox: "inbox", archive: "archive" };
+  var OVERVIEW_TABS = { trends: "trends", todos: "todos", inbox: "inbox", archive: "archive" };
   var BATCH_TABS = ["phases", "cost", "context", "notes", "closing"];
 
   function decode(part) {
@@ -179,6 +179,25 @@
     return h ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec);
   }
 
+  // Short spans for the summary views: "45s", "11m", "1h 05m", "3d 4h"; "–" for a missing value.
+  function fmtSpan(s) {
+    if (!isNum(s) || s < 0) return "–";
+    var total = Math.round(s);
+    if (total < 60) return total + "s";
+    var mins = Math.floor(total / 60);
+    if (mins < 60) return mins + "m";
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + "h " + (mins % 60 < 10 ? "0" : "") + (mins % 60) + "m";
+    return Math.floor(hours / 24) + "d " + (hours % 24) + "h";
+  }
+
+  // Active working time with the calendar time beside it: {text: "≈ 11m", title: "37m"}. A record
+  // without `active_s` (older telemetry) shows the calendar time alone and no title.
+  function fmtActive(activeS, wallclockS) {
+    if (!isNum(activeS)) return { text: fmtSpan(wallclockS), title: null };
+    return { text: "≈ " + fmtSpan(activeS), title: isNum(wallclockS) ? fmtSpan(wallclockS) : null };
+  }
+
   function defaultFormatter(options) {
     try { return new Intl.DateTimeFormat(undefined, options); } catch (e) { return null; }
   }
@@ -200,6 +219,22 @@
     if (isNaN(d.getTime())) return String(iso);
     fmt = fmt || defaultFormatter({ dateStyle: "medium" });
     return fmt ? fmt.format(d) : d.toISOString().slice(0, 10);
+  }
+
+  // Local wall-clock time "HH:MM" and local date "DD.MM.YYYY" of an instant; "–" for a missing or
+  // unparsable value. Both follow the browser's timezone, like fmtDateTime.
+  function fmtClock(iso) {
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "–";
+    var pad = function (x) { return x < 10 ? "0" + x : String(x); };
+    return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function fmtDmy(iso) {
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "–";
+    var pad = function (x) { return x < 10 ? "0" + x : String(x); };
+    return pad(d.getDate()) + "." + pad(d.getMonth() + 1) + "." + d.getFullYear();
   }
 
   function billableIn(t) {
@@ -259,7 +294,7 @@
       counts.info = flags.info || 0;
     }
     var wrap = el(doc, "span", null, "flags");
-    [["warn", "⚠"], ["info", "ⓘ"]].forEach(function (pair) {
+    [["warn", "⚠"], ["info", "ℹ"]].forEach(function (pair) {
       var level = pair[0];
       if (!counts[level]) return;
       var badge = el(doc, "span", pair[1] + " " + counts[level], "flag flag-" + level);
@@ -307,6 +342,54 @@
     return nav;
   }
 
+  // One side of the planning | implementation split: a swatch, title and share in the head, a row of
+  // facts ({k, v, s, title}: label, value, optional sub line and tooltip) and one chip per model
+  // family (names with the same family collapse into one chip). `kind` is "plan" or "impl".
+  // `notes` (plain strings) follow the chips in the same row; `empty` replaces the facts with that
+  // sentence when the part has no data.
+  function partCard(doc, opts) {
+    var card = el(doc, "div", null, "part part-" + opts.kind);
+    var head = el(doc, "div", null, "part-head");
+    head.appendChild(el(doc, "span", null, "swatch sw-" + opts.kind));
+    head.appendChild(el(doc, "h3", opts.title));
+    if (opts.share) head.appendChild(el(doc, "span", opts.share, "share"));
+    card.appendChild(head);
+    if (opts.empty) {
+      card.appendChild(el(doc, "p", opts.empty, "empty-line muted"));
+      return card;
+    }
+    var facts = el(doc, "div", null, "facts");
+    (opts.facts || []).forEach(function (f) {
+      var box = el(doc, "div", null, "fact");
+      if (f.title) box.setAttribute("title", f.title);
+      box.appendChild(el(doc, "div", f.k, "k"));
+      box.appendChild(el(doc, "div", f.v, "v"));
+      if (f.s) box.appendChild(el(doc, "div", f.s, "s"));
+      facts.appendChild(box);
+    });
+    card.appendChild(facts);
+    var models = opts.models || [];
+    var notes = opts.notes || [];
+    if (models.length || notes.length) {
+      var slots = CFQ.charts && CFQ.charts.modelSlots ? CFQ.charts.modelSlots(models) : {};
+      var meta = el(doc, "div", null, "meta");
+      var seen = {};
+      models.forEach(function (m) {
+        var slot = slots[m] || "m-other";
+        var label = slot === "m-other" ? m : slot.replace(/^m-/, "");
+        if (seen[label]) return;
+        seen[label] = true;
+        var chip = el(doc, "span", null, "mchip");
+        chip.appendChild(el(doc, "span", null, "mdot " + slot));
+        chip.appendChild(text(doc, label));
+        meta.appendChild(chip);
+      });
+      notes.forEach(function (n) { meta.appendChild(el(doc, "span", n)); });
+      card.appendChild(meta);
+    }
+    return card;
+  }
+
   // A real button; the body renders on first open only.
   function disclosure(doc, labelNode, renderBody) {
     var wrap = el(doc, "div", null, "disclosure");
@@ -334,9 +417,10 @@
   }
 
   // ---- edit controls ----------------------------------------------------------------------------
-  // "Open in editor" link and "copy path" button for one editable item, driven by the `edit` object
-  // `portal sync` writes: {path: <OS path>, url: <editor link, absent when the editor is off>}.
-  // The path is only ever set as text; `url` becomes the link's href as written.
+  // "Open folder" link and "copy path" button for one editable item, driven by the `edit` object
+  // `portal sync` writes: a file's is {path: <OS path>, dir: {path, url: <editor link, absent when
+  // the editor is off>}}. The path is only ever set as text; `dir.url` becomes the link's href as
+  // written. A file-level `url` (data of an older cfq) is never used.
 
   var EDIT_HINT = "Changes appear after the next sync (`bin/cfq portal sync <repo-root>`, or when /ifq starts).";
 
@@ -409,9 +493,19 @@
     return row;
   }
 
-  function editControls(doc, edit, labels) {
-    return editControlRow(doc, [[edit, labels]]);
+  // One file item: a link to its folder and a copy button for its own path.
+  function fileEditControls(doc, edit, labels) {
+    if (!edit) return null;
+    var dir = edit.dir || {};
+    return editControlRow(doc, [
+      [{ url: dir.url }, { open: labels.open }],
+      [{ path: edit.path }, { copy: labels.copy }],
+    ]);
   }
+
+  // State the top bar and the overview share: the search text, and the overview's redraw hook
+  // (`onQuery`, set while the overview is on screen, cleared by the router for every other view).
+  CFQ.state = CFQ.state || { query: "", onQuery: null };
 
   CFQ.core = {
     parseRoute: parseRoute,
@@ -429,6 +523,10 @@
     fmtInt: fmtInt,
     fmtTokens: fmtTokens,
     fmtDuration: fmtDuration,
+    fmtSpan: fmtSpan,
+    fmtActive: fmtActive,
+    fmtClock: fmtClock,
+    fmtDmy: fmtDmy,
     fmtDateTime: fmtDateTime,
     fmtDate: fmtDate,
     billableIn: billableIn,
@@ -437,8 +535,9 @@
     flagBadges: flagBadges,
     tokenBar: tokenBar,
     tabs: tabs,
+    partCard: partCard,
     disclosure: disclosure,
-    editControls: editControls,
+    fileEditControls: fileEditControls,
     editControlRow: editControlRow,
   };
 })();

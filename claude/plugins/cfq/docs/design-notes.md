@@ -224,7 +224,8 @@ used again. The cost is that a record stays provisional until then, which the po
 Prices change, differ per plan and per cache tier, and a stale table makes a confident wrong
 number. Turns and tokens per model are facts read off the transcript, comparable across batches, and
 enough to see where a batch spent its effort. A currency figure would add a claim cfq cannot keep
-correct.
+correct. The user confirmed tokens over currency again in batch 063, when the portal's cost views
+were rebuilt around output tokens.
 
 ## cfq: why flags are computed in Python with constant thresholds
 
@@ -258,9 +259,17 @@ left every batch page empty.
 Editing a parked plan from the portal could have been an in-browser edit mode. It is not: the portal
 is a `file://` page, and a browser page cannot write files. A local edit server (`portal serve`) was
 rejected as too large for the gain — it brings a process lifecycle, write authorisation and
-conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open in
-editor" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
+conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open
+folder" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
 user's own editor.
+
+The links name folders, not files. VS Code opens a folder from
+`vscode://vscode-remote/wsl+<distro>/<path>`, but the same link for a single file opens an empty
+window on the user's host. A trailing `:line:col` is the reported way to force a file
+(microsoft/vscode#108257), and it is unreliable and was never tested there. The user chose folder
+links only: a phase links its batch folder, an entry its `plan/` or `todo/` folder, a batch its batch
+folder, and "Copy path" still copies the file's own path. The `:1:1` suffix was rejected for that
+reason.
 
 The links target the repo-local files, never the `reportDir` mirror: a plan edited in the mirror
 would not be the plan `/ifq` reads. For the same reason the printed report link points at the
@@ -681,3 +690,132 @@ The `security-findings` entry stays when a phase of the batch fixes every fixabl
 advisory, because it is the safety net if that phase fails. It names the covering phase and drops the
 "decision still open" sentence, so it says what is true: the fix is planned and the entry only records
 the finding. The trade-off is one more entry in the queue until the phase has landed.
+
+## ifq/pfq: why question context lives inside the dialog
+
+Text a skill prints before an `AskUserQuestion` call is not visible while the dialog is open, so a
+question that needed that text asked the user to decide blind. Every question now carries its context
+in the payload itself: the question text, the option descriptions and the preview. The rejected
+alternative was to end the turn after a text block and ask in the next turn; it costs a round trip per
+question and breaks the flow of a phase loop. There is no switch; the rule is part of the skill text.
+
+## pfq: why the release question shows a compact review gate
+
+The full plan digest printed before the release question flooded the terminal on large batches, and the
+question itself then scrolled out of view. The release question now carries the phase list plus one
+directory link inside its own text (`bin/cfq brief --review --gate [--changed]`); the full digest stays
+available as `bin/cfq brief --review`. Per-file links are left out because they do not open in the
+report HTML. The rejected alternative was a threshold, the full digest below N phases and a short one
+above it: two shapes of the same step are harder to follow than one, and the threshold is arbitrary.
+
+## ifq: why the base branch recommendation follows the batch-branch chain tip
+
+Batches build on one another, so the right base for a new batch branch is the tip of the batch-branch
+chain, found by ancestry: the batch branch that contains all other batch branches. Recommending the
+newest branch by commit date picked `main` or a side branch whenever one of them had a newer commit.
+While a batch branch exists, a non-batch branch is never recommended; when the batch branches have
+diverged, the result is flagged instead of guessed. The setting `baseBranchStrategy` is the rollback:
+`chainTip` is the default, `newest` restores the old rule. The rejected alternative was a "never offer
+the default branch" setting, which fixes one wrong answer and leaves the recommendation date-based.
+
+## ifq: why one phase-commit hook, repo scope only
+
+Projects bump a build version or regenerate a file with every commit, and a worker could not be relied
+on to remember it. `phaseCommitCommand` runs one shell command in the repository root before every
+`phase commit`, after the nothing-staged check. The command stages its own changes and cfq stages
+nothing for it, so the hook stays a plain command with no cfq-specific contract. A non-zero exit stops
+the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output
+lines; the phase turns red. `CFQ_FIRST_PHASE` lets a bump that belongs to the batch start tell the
+first phase from the others. The setting is repo scope only and has no environment override, because a
+command from a global file or an environment variable would run in every repository. Rejected: a
+separate batch-start hook, since `CFQ_FIRST_PHASE` covers it, and cfq staging the hook's changes, since
+that needs a list of paths cfq cannot know. Commits made outside `phase commit` are not covered.
+
+## ifq: why the worker report has structured out-of-scope and check fields
+
+Findings and skipped checks lived as free text in `observations` and `deviations`, where they were
+lost: nobody read them again, and a planned check reported as not run looked like a green phase. The
+report now carries `outOfScope` (entries with slug and body) and `checks` (planned checks with their
+outcome); `verification` stays a string because the report portal reads it as one. `worker verdict`
+parks each `outOfScope` finding as a `plan/` entry and gives the verdict `ASK` with the trigger
+`skippedCheck` when a planned check was not run. The rejected alternative was keyword matching in
+`observations` and `deviations`: it misses what is worded differently and flags what is not a finding.
+`strictWorkerReport` (default on) is the rollback; off, the fields are read and nothing is acted on.
+The flags counter reports two numbers, the findings parked by the verdict and the skipped checks of the
+latest attempt.
+
+## ifq: why a pre-existing failure is proven at the batch base commit
+
+A worker could call a failing check pre-existing without evidence, and the claim then hid a regression.
+The briefing now carries `baseCommit`, the commit the batch branch started from, and the worker calls a
+failure pre-existing only when the same check also fails in a temporary git worktree at that commit.
+Without that proof the failure is the phase's own. A counter for rejected claims was planned and left
+out: the parked findings and the skipped checks already show the behaviour that matters.
+
+## cfq: why path settings accept drive letters and not UNC paths
+
+`reportDir`, `telemetrySyncRepo` and `frameworkRepo` required a POSIX absolute path, which locked out
+Windows users. The patterns now also accept `C:\dir` and `C:/dir`. UNC paths (`\\host\share`) stay
+rejected: they depend on network state and credentials at the time of the call, and no one has asked for
+them. The cost is that a UNC user mounts the share to a drive letter first.
+
+## cfq: why the review gate waits for the post-write audit
+
+`/pfq` runs its audit of the written plan files in background subagents, so its turn used to end
+with the batch looking finished while the audit was still producing findings; the release question
+could then be answered, and `/ifq` could pick the batch up, before the findings landed. A `.audit`
+marker closes the gap: `batch audit start` writes it, `batch review` and `batch ready` refuse while
+it exists, scan and the preflights treat the batch like one held by `.review`, and the skill ends its
+turn with a `⏳ Phase Audit` line until `batch audit done` removes it. Because a held batch is a
+behaviour change that could misfire, the `auditBarrier` setting (default `true`) is the rollback:
+`false` writes no marker and ignores an existing one. The comparison metric is the `audit` list in
+`report.json`, one `{started, finished, findings}` entry per run, which shows what the wait costs and
+what it catches.
+
+## cfq: why size baselines are rolling
+
+The portal compared a phase with the median of every finished phase of its size, ordered by batch
+name. Two things made that wrong. Orchestrator mode changed what a phase costs (a worker plus its
+explorers instead of one long session), so the all-time median described a workflow that no longer
+runs. And the name sort put batches in lexical order, so `99-…` sorted after `100-…` and the
+"recent" phases were not the recent ones. The baseline now takes the last `BASELINE_WINDOW` (50)
+finished phases of a size, ordered by finish time, and keeps the all-time median beside it for
+comparison. 50 is large enough for a stable median and small enough that a workflow change shows
+within a few batches; like the other thresholds it is a constant, not a setting.
+
+## cfq: why cost outliers are notes
+
+A phase that costs more than twice its size's median is a fact worth seeing, not a defect: a phase
+may be larger than its label, may include a long browser check, or may have retried. Raised as a
+`warn`, the flag filled the needs-attention list with phases that were fine. It is an `info` note on
+the phase and the cost tab now, which keeps the signal and keeps the attention list for what needs a
+decision. The flag needs `BASELINE_MIN_SAMPLES` finished phases of the size, so a new size does not
+flag every phase.
+
+## cfq: how active time is measured
+
+Calendar time from a batch's first to last response includes every hour the user was away, so it
+says little about how long the work took. `active_s` sums the gaps between neighbouring responses of
+the session and of every attributed sub-agent, counting only gaps of at most five minutes
+(`ACTIVE_GAP_S`); a longer gap is a wait, not work. Sub-agents are included because they run while
+the main session waits for them. The number comes from transcript timestamps alone, so it costs no
+model tokens, which was the user's condition for adding it. Older records have no `active_s`, and
+the portal shows their calendar time only rather than a zero.
+
+## cfq: what the S/M/L anchors are based on
+
+The size rule counted nothing ("one file and one test"), and practice contradicted it: the median `S`
+phase touched three files, and two thirds of all phases ended up `M`. The anchors come from 142
+green phases of the atlas repository (batch 100 and later), read from its portal data:
+
+| | phases | output median | turns median | affected files median |
+|---|---|---|---|---|
+| S | 14 | 10.2k | 23 | 3 |
+| M | 95 | 24.8k | 33 | 8 |
+| L | 33 | 39.5k | 53 | 10 |
+
+By affected-file count the output median is 7.2k for 0–2 files, 11.8k for 3–4, 22.5k for 5–7 and
+27.9k for 8 or more. Phases whose plan names a browser or Playwright check have a median of 27.9k
+against 22.3k without. The rule therefore reads `S` up to 3 files, `M` for 4–8, `L` for 9 or more, and
+a step up when the phase adds a real-browser check. The portal's size calibration view on the Trends
+tab shows whether the anchors still hold.

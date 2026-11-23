@@ -47,6 +47,9 @@ GROUPS = [
 ]
 GROUP_IDS = [g["id"] for g in GROUPS]
 
+# Empty, a POSIX absolute path or a Windows drive path (`C:\dir`, `C:/dir`); UNC paths stay rejected.
+ABS_PATH_PATTERN = r"^($|/.*|[A-Za-z]:[\\/].*)$"
+
 # Single source of truth for every key: type, default, scope, env mapping, description, group,
 # plus type-specific validation data (min/max for int, values for enum, pattern for string, shape
 # for object). list/get/set/unset/describe/menu and env overrides all walk this generically — a
@@ -58,6 +61,7 @@ SCHEMA = {
     "planModels": {"type": "array", "default": ["opus", "fable"], "scope": ["global", "repo"], "env": "CFQ_PLAN_MODELS", "group": "models", "description": "Models /pfq is allowed to run under."},
     "implModels": {"type": "array", "default": ["sonnet", "haiku"], "scope": ["global", "repo"], "env": "CFQ_IMPL_MODELS", "group": "models", "description": "Models /ifq is allowed to run under."},
     "orchestratorMode": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODE", "group": "implementation", "description": "/ifq runs each phase in its own sub-agent instead of implementing in the session itself."},
+    "strictWorkerReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_STRICT_WORKER_REPORT", "group": "implementation", "description": "The worker verdict parks the report's outOfScope findings as plan entries and holds the report to its strict shape; false reads the new fields but acts on none of them."},
     "orchestratorModels": {"type": "array", "default": ["sonnet"], "scope": ["global", "repo"], "env": "CFQ_ORCHESTRATOR_MODELS", "group": "models", "description": "Models the orchestrator session itself is allowed to run under; falls back to implModels when empty."},
     "planExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_PLAN_EXPLORE_MODEL", "group": "models", "description": "Model used for /pfq exploratory sub-agent research."},
     "implExploreModel": {"type": "string", "default": "haiku", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL", "group": "models", "description": "Model used for /ifq exploratory sub-agent research and mechanical test-run delegation."},
@@ -70,13 +74,15 @@ SCHEMA = {
     "docLevel": {"type": "enum", "default": "minimal", "values": ["minimal", "standard"], "scope": ["global", "repo"], "env": "CFQ_DOC_LEVEL", "group": "language", "description": "How much documentation a repo keeps: minimal (README only) or standard."},
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "group": "maintenance", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
     "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_BRANCH_PER_BATCH", "group": "implementation", "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
+    "baseBranchStrategy": {"type": "enum", "default": "chainTip", "values": ["chainTip", "newest"], "scope": ["global", "repo"], "env": "CFQ_BASE_BRANCH_STRATEGY", "group": "implementation", "description": "Which branch /ifq recommends as the base of a new batch branch: chainTip (the batch branch that contains all other batch branches) or newest (the newest branch by commit date)."},
+    "phaseCommitCommand": {"type": "string", "default": "", "scope": ["repo"], "env": None, "group": "implementation", "description": "Shell command `phase commit` runs in the repository root right before every phase commit (for example `npm run bump-buildversion`); it stages its own changes, and a non-zero exit stops the commit. Environment: CFQ_BATCH_NUMBER, CFQ_PHASE_NUMBER, CFQ_FIRST_PHASE. Empty turns the hook off; repo scope only."},
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": "CFQ_CHANGELOG_FILE", "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
     "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_HTML_REPORT", "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
     "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_PLAN_BLOCKED_PLUGINS", "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
     "requiredTools": {"type": "array", "default": [], "scope": ["global", "repo"], "env": "CFQ_REQUIRED_TOOLS", "group": "implementation", "description": "Tools a repo needs, as names (`pytest`, `py:pytest`); `/ifq` stops when one is missing, `/pfq` warns. Names are looked up, never run."},
     "implBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_IMPL_BLOCKED_PLUGINS", "group": "implementation", "description": "Plugins /ifq must never call, even indirectly."},
-    "telemetrySyncRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "group": "reports", "description": "Absolute path of a repo telemetry is additionally synced to; empty disables sync."},
-    "frameworkRepo": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "group": "repo", "description": "Absolute path of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
+    "telemetrySyncRepo": {"type": "string", "default": "", "pattern": ABS_PATH_PATTERN, "scope": ["global", "repo"], "env": "CFQ_TELEMETRY_SYNC_REPO", "group": "reports", "description": "Absolute path (or a Windows drive path such as C:\\dir; UNC paths are not accepted) of a repo telemetry is additionally synced to; empty disables sync."},
+    "frameworkRepo": {"type": "string", "default": "", "pattern": ABS_PATH_PATTERN, "scope": ["global"], "env": "CFQ_FRAMEWORK_REPO", "group": "repo", "description": "Absolute path (or a Windows drive path such as C:\\dir; UNC paths are not accepted) of the local cfq source repo; findings about cfq itself are parked there instead of in the repo being worked on. Empty means they collect in the global framework inbox."},
     "stopUsed": {"type": "int", "default": 125000, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_USED", "group": "limits", "description": "Absolute context tokens (input+cache_read+cache_creation) at which /ifq hands off instead of starting another phase; 0 means hand off after every phase, -1 means never stop for this reason."},
     "stopFiveHourPct": {"type": "int", "default": 70, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_FIVE_HOUR_PCT", "group": "limits", "description": "Five-hour rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
     "stopSevenDayPct": {"type": "int", "default": 95, "min": -1, "scope": ["global", "repo"], "env": "CFQ_STOP_SEVEN_DAY_PCT", "group": "limits", "description": "Seven-day rate-limit usage in percent at which /ifq hands off instead of starting another phase; -1 disables the check."},
@@ -87,7 +93,7 @@ SCHEMA = {
     "securityFindingsCap": {"type": "int", "default": 20, "min": 1, "scope": ["global"], "env": "CFQ_SECURITY_FINDINGS_CAP", "group": "maintenance", "description": "Maximum number of security findings surfaced per batch-completion scan."},
     "gitStatePolicy": {"type": "enum", "default": "local", "values": ["local", "trackable"], "scope": ["global", "repo"], "env": "CFQ_GIT_STATE_POLICY", "group": "repo", "description": "Whether repo-local cfq workflow state is Git-excluded locally (local) or left to normal repository tracking (trackable)."},
     "i18nExcludePatterns": {"type": "array", "default": ["*/locales/*", "*/locale/*", "*/i18n/*", "*/lang/*", "*/translations/*"], "scope": ["global", "repo"], "env": "CFQ_I18N_EXCLUDE_PATTERNS", "group": "language", "description": "Git pathspec exclusions applied to the /ifq language-prose sample — directories that intentionally hold multiple languages (i18n/locale resource files), never judged as a codeLanguage violation."},
-    "reportDir": {"type": "string", "default": "", "pattern": "^($|/.*)$", "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only."},
+    "reportDir": {"type": "string", "default": "", "pattern": ABS_PATH_PATTERN, "scope": ["global", "repo"], "env": "CFQ_REPORT_DIR", "group": "reports", "description": "Additional copy of every repo's report portal plus a cross-repo index, given as an absolute path or a Windows drive path such as C:\\dir (no UNC paths); empty = repo-local only."},
     "editor": {"type": "string", "default": "vscode", "pattern": "^(off|[a-z][a-z0-9+.-]*)$", "scope": ["global", "repo"], "env": "CFQ_EDITOR", "group": "reports", "description": "URL scheme of the VS Code-family editor the report portal's edit links open (vscode, vscode-insiders, cursor, windsurf, kiro, ...); off hides the editor links."},
     "hostPlatform": {"type": "enum", "default": "auto", "values": ["auto", "wsl", "windows", "posix"], "scope": ["global"], "env": "CFQ_HOST_PLATFORM", "group": "reports", "description": "Which host the browser and editors run on, for portal links and copied paths: auto detects it, anything else overrides detection."},
     "wslDistro": {"type": "string", "default": "", "pattern": "^($|[A-Za-z0-9._-]+)$", "scope": ["global"], "env": "CFQ_WSL_DISTRO", "group": "reports", "description": "WSL distribution name used in portal links on Windows + WSL; empty means detect."},
@@ -95,6 +101,7 @@ SCHEMA = {
     "implExploreModelComplex": {"type": "string", "default": "sonnet", "scope": ["global", "repo"], "env": "CFQ_IMPL_EXPLORE_MODEL_COMPLEX", "group": "models", "description": "Model for /ifq Explore agents whose task is to judge rather than to locate."},
     "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
     "implSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_IMPL_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /ifq session should run at; a lower level prints a warning and never blocks. off disables the check."},
+    "auditBarrier": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_AUDIT_BARRIER", "group": "planning", "description": "While the post-write audit of a batch runs, `batch review` and `batch ready` refuse and /ifq never offers the batch; false restores the earlier behaviour (no marker, no refusal)."},
 }
 
 # Only feeds the hint text of `unknown_keys()`: a key that was replaced by another one. A key
@@ -172,6 +179,9 @@ def merged_tiers(repo_path):
     """Three tiers below env, highest wins: <repo>/.claude/cfq/settings.json (if repo_path
     given) > $HOME/.claude/cfq/settings.json > schema default."""
     base = merge_tier_file(DEFAULTS, GLOBAL_SETTINGS_FILE)
+    for key, entry in SCHEMA.items():
+        if "global" not in entry["scope"]:
+            base[key] = DEFAULTS[key]  # a repo-only key is never read from the global file
     if repo_path:
         base = merge_tier_file(base, paths.repo_settings_file(repo_path))
     if base.get("docLevel") == "full":
@@ -242,7 +252,7 @@ def key_source(key, repo_path, base_json, final_json):
                 return "repo"
     if os.path.isfile(GLOBAL_SETTINGS_FILE):
         global_data = _read_json(GLOBAL_SETTINGS_FILE, default={})
-        if isinstance(global_data, dict) and key in global_data:
+        if isinstance(global_data, dict) and key in global_data and "global" in SCHEMA[key]["scope"]:
             return "global"
     return "default"
 
@@ -261,6 +271,8 @@ def _apply_set(key, val, repo_path):
             _write_raw(target, "{}\n")
         data = _read_json(target, default={})
     else:
+        if "global" not in entry["scope"]:
+            errors.die(f"{PROG}: '{key}' cannot be set globally (scope is repo-only); use --repo")
         ensure()
         target = GLOBAL_SETTINGS_FILE
         data = _read_json(target, default={})
@@ -552,6 +564,8 @@ def _render_menu_group(group_out, repo_path):
         notes = []
         if "repo" not in entry["scope"]:
             notes.append("global only")
+        if "global" not in entry["scope"]:
+            notes.append("repo only")
         if k["source"] == "env:repo-legacy":
             notes.append("(legacy env)")
         rows.append([

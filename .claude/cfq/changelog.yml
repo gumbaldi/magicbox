@@ -1,3 +1,102 @@
+- batchNumber: 63
+  batch: 063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
+  branch: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
+  base: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
+  started: 2026-11-23
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-hold-the-review-gate-while-the-audit-runs"
+      status: "green"
+      summary: "batch audit start|done with a .audit marker, review/ready refusals, auditBarrier setting, scan and preflight awareness of .audit"
+    - phase: "02-wait-for-the-audit-in-plan-for-queue"
+      status: "green"
+      summary: "Post-Write Audit four-step wait procedure with the hourglass Phase Audit line, Re-check and Resuming a Review routing, run icon in ICONS and output-format, with tests"
+    - phase: "03-anchor-phase-sizes-on-affected-files"
+      status: "green"
+      summary: "Rule 5 of phase-quality.md now defines S/M/L by affected-file counts with a step up for real-browser checks"
+    - phase: "04-measure-active-time-in-telemetry"
+      status: "green"
+      summary: "Added ACTIVE_GAP_S, active_seconds() and the active_s field in build_record(), with unit and record-level tests and the whitelist entry"
+    - phase: "05-split-planning-and-implementation-in-portal-data"
+      status: "green"
+      summary: "time_of active_s, implementation_part, planning interviewDepth/phaseCount/audit, queue row cost.planning/implementation and time, recent_summary with RECENT_BATCHES, extended JS fixtures"
+    - phase: "06-rolling-baselines-cost-notes-and-attention-lists"
+      status: "green"
+      summary: "Rolling 50-phase size baselines ordered by finish time, cost outliers demoted to info notes, attention_items() and now_items() wired into queue.js as attention, attentionCounts and now"
+    - phase: "07-new-visual-system-and-top-bar"
+      status: "green"
+      summary: "New token-based portal stylesheet, top bar with repo switcher, breadcrumbs and shared search (/ handler moved to app.js), family-based model colours, fmtSpan and fmtActive"
+    - phase: "08-overview-now-attention-and-trends"
+      status: "green"
+      summary: "Overview rebuilt as Now, Needs attention, Last 10 batches (planning | implementation part cards and share bar), then tabs Batches (new Planning/Implementation columns), Trends (cost chart with planning/implementation grouping switch, calibration with baseline table), Todos, Plan inbox, Archive; KPI strip removed"
+    - phase: "09-batch-page-result-band-and-timeline"
+      status: "green"
+      summary: "Batch page header with result line, planning and implementation part cards, collapsed info notices and a new phase table (Time, Active, Notes); timeline with a local-time axis, date caption and plan/impl bar colours"
+    - phase: "10-cost-tab-split-by-planning-and-implementation"
+      status: "green"
+      summary: "The batch cost tab now opens with an output-by-part bar, shows planning and implementation tables side by side, then implementation by phase against the size baseline and agents grouped by part; sync() attaches phase.baseline"
+    - phase: "11-cross-repo-index-with-now-summaries"
+      status: "green"
+      summary: "repo_counts() gained now, attention and lastActivity; repos.js renders one Now/attention row per repo sorted by last activity, with styles and tests"
+    - phase: "12-document-check-in-browser-and-bump-version"
+      status: "green"
+      summary: "Documented the redesign (CLAUDE.md, README.md, usage.md, five new design-notes sections plus the price-table sentence), removed three unused CSS rules, replaced the info flag glyph, raised the plugin version to 0.44.0 and ran the real-browser check"
+- batchNumber: 62
+  batch: 062-2026-11-22-portal-folder-links-and-report-timestamps
+  branch: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
+  base: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
+  started: 2026-11-23
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-write-folder-targets-into-the-portal-payloads"
+      status: "green"
+      summary: "Portal phase, entry and batch payloads now carry folder targets (dir_target/file_target); file-level editor URLs removed, batch context keeps only its path"
+    - phase: "02-show-open-folder-and-copy-path-in-the-portal"
+      status: "green"
+      summary: "Portal renders 'Open folder' (edit.dir.url) and 'Copy path' for phases and entries via the new fileEditControls; batch header keeps folder pair and context is copy-only; editControls removed; fixtures and tests updated"
+    - phase: "03-take-report-timestamps-from-the-shared-helper"
+      status: "green"
+      summary: "ensure_report() and cmd_security() take their timestamps from render.now_iso() instead of starting `date -Iseconds`; new test test_timestamps_do_not_start_date guards the call and checks both stored timestamps against the ISO pattern."
+    - phase: "04-document-the-folder-links-and-raise-the-plugin-version"
+      status: "green"
+      summary: "Documented the folder links and copy-path control in design notes, README, configuration, usage and CLAUDE.md, and raised the cfq plugin version 0.42.0 to 0.43.0"
+- batchNumber: 61
+  batch: 061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
+  branch: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
+  base: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
+  started: 2026-11-23
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-show-question-context-inside-the-dialog"
+      status: "green"
+      summary: "Decision question context moved into the AskUserQuestion payload across the policy, grilling, orchestrator, ifq-phase and plan-for-queue prose, guarded by a new structural check"
+    - phase: "02-print-a-compact-review-gate"
+      status: "green"
+      summary: "Added brief --review --gate [--changed] (render_review_gate), six tests, and rewrote plan-review.md, plan-park.md and plan-for-queue SKILL.md Step 15 to put the compact gate into the release question text"
+    - phase: "03-recommend-the-chain-tip-as-base-branch"
+      status: "green"
+      summary: "chainTip base-branch recommendation by ancestry, diverged flag, baseBranchStrategy setting (chainTip|newest) with docs, tests and ifq-branch.md update"
+    - phase: "04-accept-drive-letter-paths-in-path-settings"
+      status: "green"
+      summary: "One shared ABS_PATH_PATTERN accepting empty, /abs, C:\\ and C:/ paths for reportDir, telemetrySyncRepo and frameworkRepo, with descriptions, docs and a table-driven test"
+    - phase: "05-run-a-repo-command-before-every-phase-commit"
+      status: "green"
+      summary: "phaseCommitCommand setting (repo-only) and its execution in phase commit before git commit, HOOK_FAILED status, docs and worker/reference prose"
+    - phase: "06-park-out-of-scope-findings-in-the-worker-verdict"
+      status: "green"
+      summary: "The worker verdict parks structured outOfScope findings as plan entries, normalizes commit to a sha string, and the strictWorkerReport setting (default true) switches it off; flags count the parked findings"
+    - phase: "07-ask-when-a-planned-check-was-not-run"
+      status: "green"
+      summary: "Worker report gains a checks list; verdict derives the skippedCheck trigger and skippedChecks, flags warn on skipped checks, docs for worker, orchestrator and stop rule"
+    - phase: "08-prove-pre-existing-failures-at-the-batch-base"
+      status: "green"
+      summary: "The briefing carries baseCommit (parent of the oldest CFQ-Batch phase commit, HEAD without one, null on failure); the worker agent gets a Verification baseline section and a background-process rule; phase-quality.md gets rule 10"
+    - phase: "09-document-the-batch-and-bump-the-plugin-version"
+      status: "green"
+      summary: "Seven design-note sections, configuration/usage/CLAUDE.md updates for the compact gate, phase commit hook, verdict parking and baseCommit, and plugin version 0.42.0"
 - batchNumber: 60
   batch: 060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
   branch: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness

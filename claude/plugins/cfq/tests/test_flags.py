@@ -52,7 +52,9 @@ class SizePointsTest(unittest.TestCase):
     def test_point_sums_all_attempts_of_a_green_costed_phase(self):
         p = phase(attempts=[attempt("red", turns=4, output=400), attempt("green", turns=6, output=600)])
         pts = F.size_points([batch([p])])
-        self.assertEqual(pts, [{"batch": "001-b", "phase": "01-a", "size": "M", "turns": 10, "output": 1000}])
+        self.assertEqual(pts, [
+            {"batch": "001-b", "phase": "01-a", "size": "M", "turns": 10, "output": 1000, "finished": ""},
+        ])
 
     def test_no_cost_open_empty_size_or_non_green_make_no_point(self):
         phases = [
@@ -72,9 +74,44 @@ class SizePointsTest(unittest.TestCase):
             {"batch": "b", "phase": f"1{i}", "size": "L", "turns": t, "output": 0} for i, t in enumerate([10, 20])
         ]
         self.assertEqual(F.baselines(pts), {
-            "L": {"n": 2, "turnsMedian": 15, "outputMedian": 0},
-            "S": {"n": 3, "turnsMedian": 4, "outputMedian": 20},
+            "L": {"n": 2, "nAll": 2, "turnsMedian": 15, "outputMedian": 0,
+                  "allTimeTurnsMedian": 15, "allTimeOutputMedian": 0},
+            "S": {"n": 3, "nAll": 3, "turnsMedian": 4, "outputMedian": 20,
+                  "allTimeTurnsMedian": 4, "allTimeOutputMedian": 20},
         })
+
+    def test_points_sort_by_finish_time_not_by_batch_name(self):
+        def done(name, until, output):
+            return batch([phase("01-a", attempts=[attempt(output=output, time={"until": until})])], name=name)
+
+        batches = [
+            done("2026-08-17-legacy", "2026-08-17T10:00:00Z", 1),
+            done("115-2026-11-01-new", "2026-11-01T10:00:00Z", 2),
+            done("116-2026-11-02-newer", "2026-11-02T10:00:00Z", 3),
+        ]
+        pts = F.size_points(batches)
+        self.assertEqual([pt["output"] for pt in pts], [1, 2, 3])
+        self.assertEqual(pts[0]["finished"], "2026-08-17T10:00:00Z")
+        old = F.BASELINE_WINDOW
+        F.BASELINE_WINDOW = 2
+        try:
+            base = F.baselines(pts)["M"]
+        finally:
+            F.BASELINE_WINDOW = old
+        self.assertEqual((base["n"], base["nAll"], base["outputMedian"], base["allTimeOutputMedian"]),
+                         (2, 3, 2.5, 2))
+
+    def test_rolling_baseline_covers_the_last_window_only(self):
+        pts = [
+            {"batch": "b", "phase": f"{i:02d}", "size": "M", "turns": 5, "output": 1000 if i < 30 else 10000,
+             "finished": f"2026-01-01T00:{i:02d}:00Z"}
+            for i in range(60)
+        ]
+        base = F.baselines(pts)["M"]
+        self.assertEqual(F.BASELINE_WINDOW, 50)
+        self.assertEqual((base["n"], base["nAll"]), (50, 60))
+        self.assertEqual(base["outputMedian"], 10000)
+        self.assertEqual(base["allTimeOutputMedian"], 5500)
 
     def test_baselines_only_for_sizes_with_points(self):
         self.assertEqual(F.baselines([]), {})
@@ -97,6 +134,16 @@ class PhaseFlagsTest(unittest.TestCase):
         self.assertEqual(earlier[0]["phase"], "01-a")
         latest = self.flags(phase(state="open", attempts=[attempt("red"), attempt("red")]))
         self.assertEqual(latest[0]["text"], "phase is red after 2 red attempts")
+
+    def test_skipped_checks_warn(self):
+        checks = [{"check": "pytest", "status": "ran", "result": "ok"},
+                  {"check": "browser", "status": "skipped", "reason": "no browser"},
+                  {"check": "playwright", "status": "skipped", "reason": "not started"}]
+        found = self.flags(phase(attempts=[attempt(checks=checks)]))
+        self.assertIn(("warn", "checks-skipped"), codes(found))
+        flag = [f for f in found if f["code"] == "checks-skipped"][0]
+        self.assertEqual(flag["text"], "2 planned checks not run")
+        self.assertNotIn(("warn", "checks-skipped"), codes(self.flags(phase())))
 
     def test_question(self):
         self.assertIn(("warn", "question"), codes(self.flags(phase(state="open", attempts=[attempt("question")]))))
@@ -155,6 +202,7 @@ class PhaseFlagsTest(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertIn("turns 3.0x", found[0]["text"])
         self.assertNotIn("output", found[0]["text"])
+        self.assertEqual(found[0]["level"], "info")
 
     def test_cost_outlier_not_raised_at_or_under_the_factor(self):
         p = phase(attempts=[attempt(turns=20, output=2000)])
@@ -167,6 +215,12 @@ class PhaseFlagsTest(unittest.TestCase):
         text = next(f["text"] for f in self.flags(p, base) if f["code"] == "cost-outlier")
         self.assertIn("output 5.0x", text)
 
+    def test_cost_outlier_is_an_info_note_naming_the_size_baseline(self):
+        p = phase(attempts=[attempt(turns=5, output=3500)])
+        base = {"M": {"n": 9, "turnsMedian": 10, "outputMedian": 1000}}
+        found = [f for f in self.flags(p, base) if f["code"] == "cost-outlier"]
+        self.assertEqual([(f["level"], f["text"]) for f in found], [("info", "output 3.5x the M baseline")])
+
     def test_info_flags(self):
         p = phase(attempts=[attempt(
             observations=["a", "b"], parkedPlanEntries=["plan/x.md"], triggers=["omitted"],
@@ -176,6 +230,12 @@ class PhaseFlagsTest(unittest.TestCase):
         self.assertEqual(sorted(got), ["observations", "parked-entries", "provisional", "triggers"])
         self.assertTrue(all(f["level"] == "info" for f in got.values()))
         self.assertEqual(got["observations"]["text"], "2 observations")
+
+    def test_out_of_scope_findings_counter(self):
+        p = phase(attempts=[attempt(outOfScope=[{"title": "a", "body": "x"}, {"title": "b", "body": "y"}])])
+        got = {f["code"]: f for f in self.flags(p)}
+        self.assertEqual(got["out-of-scope"]["level"], "info")
+        self.assertEqual(got["out-of-scope"]["text"], "2 out-of-scope findings parked")
 
     def test_info_flags_negatives(self):
         p = phase(attempts=[attempt(skills={"used": ["tdd"]})])
@@ -218,6 +278,66 @@ class BatchFlagsTest(unittest.TestCase):
         b = batch([phase("02-b", attempts=[attempt("red")]), phase("01-a", attempts=[attempt("red")])])
         self.assertEqual(F.batch_flags(b, {}, ROOT), F.batch_flags(b, {}, ROOT))
         self.assertEqual([f["phase"] for f in F.batch_flags(b, {}, ROOT)], ["01-a", "02-b"])
+
+
+def ab(name, status="in_progress", flags=(), **extra):
+    b = {"name": name, "status": status, "flags": list(flags), "unknownDeps": [], "audit": False}
+    b.update(extra)
+    return b
+
+
+def wflag(code="red-attempt", phase_slug="01-a", level="warn"):
+    return {"level": level, "code": code, "text": f"{code} text", "phase": phase_slug}
+
+
+class AttentionItemsTest(unittest.TestCase):
+    def test_done_batch_counts_only_inside_recent_names(self):
+        done = ab("001-b", "done", [wflag()])
+        self.assertEqual(F.attention_items([done], []), [])
+        got = F.attention_items([done], ["001-b"])
+        self.assertEqual(got, [{"level": "warn", "code": "red-attempt", "batch": "001-b",
+                                "phase": "01-a", "text": "red-attempt text"}])
+
+    def test_info_flags_are_not_listed(self):
+        self.assertEqual(F.attention_items([ab("001-b", flags=[wflag("cost-outlier", level="info")])], []), [])
+
+    def test_open_batch_lists_its_warnings(self):
+        got = F.attention_items([ab("001-b", flags=[wflag(), wflag("question", None)])], [])
+        self.assertEqual([(i["code"], i["phase"]) for i in got], [("question", None), ("red-attempt", "01-a")])
+
+    def test_waiting_batches(self):
+        got = F.attention_items([
+            ab("001-a", "awaiting_review"),
+            ab("002-b", "planned", unknownDeps=["x-batch"]),
+            ab("003-c", "planning", audit=True),
+        ], [])
+        self.assertEqual([(i["level"], i["code"], i["batch"]) for i in got], [
+            ("warn", "unknown-dependency", "002-b"),
+            ("plan", "audit-running", "003-c"),
+            ("plan", "review", "001-a"),
+        ])
+        by_code = {i["code"]: i["text"] for i in got}
+        self.assertEqual(by_code["review"], "plan review open")
+        self.assertEqual(by_code["audit-running"], "post-write audit still running")
+
+    def test_sorted_warn_first_then_batch_descending_then_phase(self):
+        got = F.attention_items([
+            ab("001-a", "awaiting_review", [wflag(phase_slug="02-b"), wflag(phase_slug="01-a")]),
+            ab("002-b", flags=[wflag()]),
+        ], [])
+        self.assertEqual([(i["level"], i["batch"], i["phase"]) for i in got], [
+            ("warn", "002-b", "01-a"), ("warn", "001-a", "01-a"), ("warn", "001-a", "02-b"),
+            ("plan", "001-a", None),
+        ])
+
+    def test_cap_adds_a_more_item_and_none_returns_everything(self):
+        batches = [ab(f"{i:03d}-b", flags=[wflag()]) for i in range(25)]
+        capped = F.attention_items(batches, [])
+        self.assertEqual(F.ATTENTION_CAP, 20)
+        self.assertEqual(len(capped), 21)
+        self.assertEqual(capped[-1], {"code": "more", "text": "5 more"})
+        self.assertEqual(len(F.attention_items(batches, [], cap=None)), 25)
+        self.assertEqual(len(F.attention_items(batches[:20], [])), 20)
 
 
 if __name__ == "__main__":

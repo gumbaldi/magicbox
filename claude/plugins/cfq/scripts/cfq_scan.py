@@ -3,7 +3,7 @@
 """The single source of numbers for the dashboard. json (default): one JSON object on stdout:
 { "repos": [ { "path", "plan", "todo", "batches": [
   {name, priority, open, error, done, skipped, archived, report, dependsOn, blocked, unknownDeps, inProgress,
-   planning, review} ] } ] } -- byte-identical to the no-flag output for every existing caller.
+   planning, review, audit} ] } ] } -- byte-identical to the no-flag output for every existing caller.
 next: one object per repo -- { path, next, reason, blocked, planning, review } -- next is the batch name
 `/ifq` would pick (null if none selectable), reason one of inProgress/priority/order/
 multipleInProgress/null, blocked/planning/review are arrays of batch names (review is the subset of planning held at
@@ -152,6 +152,7 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
         age = time.time() - marker.stat().st_mtime
         planning = age < stale_s
     review = (batch_dir / ".review").is_file()
+    audit = (batch_dir / ".audit").is_file()
 
     return {
         "name": batch_dir.name,
@@ -167,8 +168,9 @@ def open_batch_record(batch_dir, impl_dir, stale_s):
         "blocked": blocked,
         "unknownDeps": unknown,
         "inProgress": c["done"] > 0 or c["error"] > 0,
-        "planning": planning or review,
+        "planning": planning or review or audit,
         "review": review,
+        "audit": audit,
         "consistency": cfq_lib_consistency.scan_consistency(batch_dir) if readable else "unknown",
     }
 
@@ -193,6 +195,7 @@ def archived_batch_record(batch_dir):
         "inProgress": False,
         "planning": False,
         "review": False,
+        "audit": False,
     }
     if not readable:
         rec["consistency"] = "unknown"

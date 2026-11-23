@@ -152,3 +152,64 @@ test("labels containing markup never reach innerHTML", () => {
   assert.ok(doc.innerHtmlWrites.every((w) => !w.value.includes("<script>")));
   assert.equal(byTag(root, "script").length, 0);
 });
+
+// ---- time axis and colours -----------------------------------------------------------------
+
+const local = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).toISOString();
+
+test("axisTicks: a batch from 23:37 to 00:35 labels both ends, at most six labels, x strictly increasing", () => {
+  const layout = T.timelineLayout([{ label: "a", from: local(2026, 11, 17, 23, 37), until: local(2026, 11, 18, 0, 35) }], 1000);
+  const ticks = T.axisTicks(layout);
+  const labels = ticks.map((t) => t.label);
+  assert.ok(labels.includes("23:37"));
+  assert.ok(labels.includes("00:35"));
+  assert.ok(ticks.length <= 6);
+  for (let i = 1; i < ticks.length; i++) assert.ok(ticks[i].x > ticks[i - 1].x);
+  // no two labels closer than the minimum distance
+  for (let i = 1; i < ticks.length; i++) assert.ok(ticks[i].x - ticks[i - 1].x >= 90);
+  assert.equal(ticks[0].x, 0);
+  assert.equal(ticks[ticks.length - 1].x, 1000);
+});
+
+test("axisTicks: a long batch with breaks stays within six labels and keeps the stretch starts", () => {
+  const layout = T.timelineLayout([
+    { label: "a", from: local(2026, 11, 17, 8, 0), until: local(2026, 11, 17, 9, 0) },
+    { label: "b", from: local(2026, 11, 17, 17, 0), until: local(2026, 11, 17, 17, 30) },
+    { label: "c", from: local(2026, 11, 19, 10, 0), until: local(2026, 11, 19, 11, 0) },
+  ], 1000);
+  const ticks = T.axisTicks(layout);
+  assert.ok(ticks.length <= 6);
+  const labels = ticks.map((t) => t.label);
+  ["08:00", "17:00", "10:00"].forEach((l) => assert.ok(labels.includes(l), l));
+  for (let i = 1; i < ticks.length; i++) assert.ok(ticks[i].x > ticks[i - 1].x);
+  assert.deepEqual(T.axisTicks(null), []);
+});
+
+test("axisCaption: one date for a same-day batch, a date range across days", () => {
+  const same = T.timelineLayout([{ label: "a", from: local(2026, 11, 17, 8, 0), until: local(2026, 11, 17, 9, 0) }]);
+  assert.equal(T.axisCaption(same), "17.11.2026 · local time");
+  const two = T.timelineLayout([
+    { label: "a", from: local(2026, 11, 17, 22, 0), until: local(2026, 11, 17, 23, 0) },
+    { label: "b", from: local(2026, 11, 18, 9, 0), until: local(2026, 11, 18, 10, 0) },
+  ]);
+  assert.equal(T.axisCaption(two), "17.11.2026 – 18.11.2026 · local time");
+});
+
+test("timeline: the DOM carries the axis labels and the caption", () => {
+  const layout = T.timelineLayout([{ label: "a", from: local(2026, 11, 17, 23, 37), until: local(2026, 11, 17, 23, 55) }], 1000);
+  const node = T.timeline(fakeDoc(), layout);
+  const ticks = byClass(node, "tl-tick").map((n) => n.textContent);
+  assert.ok(ticks.includes("23:37") && ticks.includes("23:55"));
+  assert.match(collectText(byClass(node, "tl-caption")[0]), /^17\.11\.2026 · local time$/);
+});
+
+test("planning bar carries the planning class, phase bars the implementation class", () => {
+  const { root } = renderBatch(fixtureBatch("done"));
+  const host = byClass(root, "top-timeline")[0];
+  const bars = byClass(host, "tl-bar");
+  assert.match(bars[0].className, /tl-plan/);
+  assert.doesNotMatch(bars[0].className, /tl-impl/);
+  assert.match(bars[1].className, /tl-impl/);
+  assert.match(bars[2].className, /tl-impl/);
+  assert.equal(T.batchRows(fixtureBatch("done"))[0].kind, "plan");
+});

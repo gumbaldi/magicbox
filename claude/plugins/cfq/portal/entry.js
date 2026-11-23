@@ -95,7 +95,7 @@
     if (entry.closed) fact(doc, facts, "Closed", C.text(doc, entry.closed));
     page.appendChild(facts);
 
-    var editRow = entry.edit && C.editControls(doc, entry.edit, { open: "Edit entry", copy: "Copy path" });
+    var editRow = entry.edit && C.fileEditControls(doc, entry.edit, { open: "Open folder", copy: "Copy path" });
     if (editRow) page.appendChild(editRow);
 
     if (entry.bodyHtml) page.appendChild(C.html(doc, "div", entry.bodyHtml, "prose"));

@@ -5,8 +5,13 @@
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
 #        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
+#        cfq_batch_id.py audit         <batch-dir> start|done [--findings N]
 #        cfq_batch_id.py review        <batch-dir>
 #        cfq_batch_id.py ready         <batch-dir>
+#
+# `audit` holds the review gate while the post-write audit runs: `start` writes `.audit`
+# (`started`, `runs`), `done` removes it and appends the run to report.json's `audit` list. While
+# `.audit` exists `review` and `ready` refuse, unless the `auditBarrier` setting is false.
 #
 # `.planning` is written here, by `allocate`, the moment the batch directory is created --
 # `park` only refreshes it (heartbeat) while it exists, and never re-creates it once `ready`
@@ -38,6 +43,7 @@ JSON shapes, exit codes) is the invariant this file preserves.
 """
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -47,6 +53,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import cfq_report  # noqa: E402
 from cfq_lib import consistency  # noqa: E402
 from cfq_lib import errors, phase_state, render  # noqa: E402
 from cfq_lib import paths  # noqa: E402
@@ -561,8 +568,62 @@ def cmd_reconcile(args):
 
 # ---- review / ready ----------------------------------------------------------------------------------
 
+def audit_barrier_on(batch_dir):
+    """The `auditBarrier` setting for the repository `batch_dir` lives in (env > repo > global >
+    default). Outside a Git repository the repo root is the batch directory's own position,
+    `<repo>/.claude/cfq/impl/<batch>`."""
+    repo = portal_hook.repo_root_from_batch_dir(batch_dir) or str(batch_dir.resolve().parents[3])
+    return settings_get(repo, "auditBarrier") != "false"
+
+
+def refuse_while_auditing(batch_dir, verb):
+    if (batch_dir / ".audit").exists() and audit_barrier_on(batch_dir):
+        errors.die(f"{PROG} {verb}: {batch_dir.name} has a running post-write audit -- wait for it, "
+                   f"or end it with: bin/cfq batch audit {batch_dir} done")
+
+
+def cmd_audit(args):
+    batch_dir = pathlib.Path(args.batch_dir)
+    marker = batch_dir / ".audit"
+    if args.action == "start":
+        if not audit_barrier_on(batch_dir):
+            print("audit barrier off")
+            return
+        previous = {}
+        if marker.is_file():
+            try:
+                previous = json.loads(marker.read_text())
+            except ValueError:
+                previous = {}
+        render.write_json(str(marker), {
+            "started": previous.get("started") or render.now_iso(),
+            "runs": int(previous.get("runs") or 0) + 1,
+        })
+        portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
+        print(f"audit started {marker}")
+        return
+    if not marker.is_file():
+        print("no audit running")
+        return
+    try:
+        started = json.loads(marker.read_text()).get("started")
+    except (ValueError, AttributeError):
+        started = None
+    findings = args.findings or 0
+    cfq_report.ensure_report(str(batch_dir))
+    report_path = batch_dir / "report.json"
+    data = json.loads(report_path.read_text())
+    data.setdefault("audit", []).append(
+        {"started": started or render.now_iso(), "finished": render.now_iso(), "findings": findings})
+    render.write_json(str(report_path), data)
+    marker.unlink()
+    portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
+    print(f"audit done {findings} findings")
+
+
 def cmd_review(args):
     batch_dir = pathlib.Path(args.batch_dir)
+    refuse_while_auditing(batch_dir, "review")
     if any(p.is_file() for p in (batch_dir / "done").glob("[0-9][0-9]-*.md")):
         errors.die(f"{PROG} review: {batch_dir.name} already has finished phases -- "
                    "a started batch never goes back into review")
@@ -581,6 +642,7 @@ def cmd_review(args):
 
 def cmd_ready(args):
     batch_dir = pathlib.Path(args.batch_dir)
+    refuse_while_auditing(batch_dir, "ready")
     # Sync first, so it also runs on the `already ready` path; a status.json that cannot be
     # read stops the verb before any marker is touched.
     try:
@@ -684,6 +746,12 @@ def build_parser():
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
     p.set_defaults(func=cmd_recover)
 
+    p = sub.add_parser("audit")
+    p.add_argument("batch_dir")
+    p.add_argument("action", choices=["start", "done"])
+    p.add_argument("--findings", type=int, default=0)
+    p.set_defaults(func=cmd_audit)
+
     p = sub.add_parser("review")
     p.add_argument("batch_dir")
     p.set_defaults(func=cmd_review)
@@ -706,7 +774,7 @@ def main(argv):
             "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
             "verify <repo-root> [--batch <name>] [--json] | "
             "recover <repo-root> --batch <name> [--dry-run] | "
-            "review <batch-dir> | ready <batch-dir>"
+            "audit <batch-dir> start|done [--findings N] | review <batch-dir> | ready <batch-dir>"
         )
     func(args)
 

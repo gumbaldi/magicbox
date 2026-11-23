@@ -110,7 +110,7 @@ test("an open entry with edit shows the controls after the facts; a closed one s
   const row = byClass(root, "edit-controls");
   assert.equal(row.length, 1);
   assert.deepEqual(byClass(row[0], "edit-open").map((a) => [a.textContent, a.attrs.href]),
-    [["Edit entry", "vscode://file/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"]]);
+    [["Open folder", "vscode://file/home/code/git/demo/.claude/cfq/todo"]]);
   assert.deepEqual(byClass(row[0], "edit-copy").map((b) => b.textContent), ["Copy path"]);
   const page = byClass(root, "entry-page")[0];
   assert.ok(page.children.indexOf(row[0]) > page.children.indexOf(byClass(page, "facts")[0]));

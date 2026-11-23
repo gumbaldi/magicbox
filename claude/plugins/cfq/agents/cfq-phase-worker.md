@@ -38,6 +38,14 @@ phase's own changes happens directly, since `commands.phaseCommit` commits whate
 staged and never runs `git add` itself. A worker never calls `phase skip` or `phase unskip` — a skip
 is the user's decision alone, carried out by the orchestrator between phases.
 
+## Verification baseline
+
+A failing check is "pre-existing" only with proof: the same check, run in a temporary
+`git worktree add --detach <temporary directory> <baseCommit>` (remove the worktree afterwards),
+also fails there. `git stash`, or a comparison with the previous phase's commit, is never proof. With
+`baseCommit` `null`, or without proof, the failure is a failure of this phase (`red` or a
+`question`).
+
 ## Implementation
 
 Identical in substance to `<plugin-root>/references/ifq-classic.md`'s **Implementation** step: implement the phase completely,
@@ -71,12 +79,14 @@ question.
 
 ## Out-of-scope findings
 
-Park each one without asking: one `plan/<YYYY-MM-DD>-<slug>.md` entry per finding, written through
-`commands.notePlan` — or `commands.notePlanFramework` for a finding about cfq itself, rule in
-`<plugin-root>/references/queue-entries.md` — noting plainly that a decision is still open on it.
-List every entry written this way in the report's `parkedPlanEntries` so the orchestrator can name
-them in the phase summary. Nothing is dropped, and nothing interrupts the implementation to ask
-about it.
+Park each one without asking: list it in the report's `outOfScope` as `{"title": "...", "body":
+"..."}` and `bin/cfq worker verdict` writes the `plan/<YYYY-MM-DD>-<slug>.md` entry itself, so the
+worker never calls `commands.notePlan` for it. The `body` follows
+`<plugin-root>/references/queue-entries.md`'s **Parking Out-of-Scope Work**: `## Finding`,
+`## Location` with absolute paths and `## Why Not Here`, which states plainly that a decision is
+still open on it. A finding about cfq itself is the exception: it goes through
+`commands.notePlanFramework` and its path into `parkedPlanEntries`. Nothing is dropped, and nothing
+interrupts the implementation to ask about it.
 
 ## When the worker may stop and ask
 
@@ -113,8 +123,10 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
   "status": "green" | "red" | "question" | "escalate",
   "implemented": "<one clause: what was built>",
   "verification": "<command run, and its result>",
+  "checks": [{"check": "<command or name>", "status": "ran" | "skipped", "result": "<one clause>", "reason": "<why not, when skipped>"}],
   "deviations": ["..."],
   "observations": ["..."],
+  "outOfScope": [{"title": "...", "body": "..."}],
   "triggers": ["omitted", "dependency"],
   "filesTouched": ["<absolute path>", "..."],
   "parkedPlanEntries": ["plan/<date>-<slug>.md", "..."],
@@ -137,7 +149,20 @@ ever called for it. This is the exact object `bin/cfq worker verdict` accepts on
 orchestrator pipes it there, not the worker itself) and, for `green`/`red`, the same object written
 to the temp file handed to `commands.phaseCommit`/`commands.phaseRecordRed` — one shape, two
 consumers, never worded or shaped differently for either. `observations`: zero to three one-clause
-entries per ifq-phase.md's rule, omitted when nothing stood out.
+notes with nothing to act on, omitted when nothing stood out; anything actionable goes into
+`outOfScope`, which the verdict parks (the entries' paths come back as the verdict's
+`parkedPlanEntries`). `parkedPlanEntries` in the report holds only the worker's own framework
+entries.
+
+`verification` stays the one-line summary string. `checks` holds the detail: every command or live
+check named in the phase's `## Verification` (browser and Playwright checks included) is one entry. A
+check that was not run is `skipped` with a `reason`, never only a `deviations` line; do not report
+`green` for a phase whose named live or browser check is `skipped` unless the environment truly
+cannot run it. The verdict turns any `skipped` entry into the trigger `skippedCheck` and the
+orchestrator asks the user before the next phase starts.
+
+The worker returns its report only when none of its own background processes is still running; it
+stops them first.
 
 ## Commit
 
@@ -156,6 +181,8 @@ On `green`, mandatory, not optional — the orchestrator's next step pipes this 
    or `RECORD_FAILED` means treat this run as `red` in the returned report instead — a
    `RECORD_FAILED` result still carries the commit `sha`, which the report should include so
    `bin/cfq batch verify` can reconcile it later; the commit itself is never undone.
+   `HOOK_FAILED` means the repository's `phaseCommitCommand` exited non-zero before the commit:
+   report `red` with the result's `detail` in `errors` — no commit exists and the phase stays open.
 
 On `red`, call `commands.phaseRecordRed` with the report (status `red`, `errors` populated) — this
 appends the ledger entry without moving the file — and stop; no commit, no push.

@@ -11,13 +11,14 @@ import re
 import textwrap
 import unicodedata
 
-# The four semantic status glyphs `references/output-format.md` fixes. A single place to read
+# The five semantic status glyphs `references/output-format.md` fixes. A single place to read
 # them from -- no caller hardcodes a glyph afterwards.
 ICONS = {
     "done": "✅",
     "warn": "⚠️",
     "fail": "❌",
     "skip": "➖",
+    "run": "⏳",
 }
 
 # The padding width `references/output-format.md` documents.

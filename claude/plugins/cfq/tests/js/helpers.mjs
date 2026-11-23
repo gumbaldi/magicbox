@@ -187,15 +187,39 @@ export function loadPortal() {
 
 // The `edit` target of an editable item as `portal sync` writes it (POSIX host, `vscode` editor).
 export const editTarget = (p) => ({ path: p, url: "vscode://file" + p });
+// A file's `edit`: the file path plus the folder that holds it (the only part that gets a link).
+export const fileEdit = (p) => ({ path: p, dir: editTarget(p.slice(0, p.lastIndexOf("/"))) });
 const BATCH_DIR = "/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo";
 const batchEdit = () => ({
   dir: editTarget(BATCH_DIR),
-  context: editTarget(BATCH_DIR + "/.batch-context.md"),
+  context: { path: BATCH_DIR + "/.batch-context.md" },
 });
 
 const t5 = (turns, input, output, cache_read, cache_creation) => ({ turns, input, output, cache_read, cache_creation });
 const ZERO = t5(0, 0, 0, 0, 0);
 const addT5 = (a, b) => Object.fromEntries(Object.keys(ZERO).map((k) => [k, a[k] + b[k]]));
+const subT5 = (a, b) => Object.fromEntries(Object.keys(ZERO).map((k) => [k, a[k] - b[k]]));
+
+// Batch 063 phase 05: the shared fixtures carry the planning/implementation split additively (new
+// keys only) because the "fixtures stay in the contract shape" check reads the real payload shape.
+// A fixed planning share of a merged cost; the implementation part is the remainder, so
+// planning + implementation == total, also per model.
+const PLANNING_SHARE = t5(10, 100, 500, 2000, 300);
+function splitCost(cost) {
+  if (!cost) return cost;
+  const [first] = Object.keys(cost.byModel);
+  const implModels = { ...cost.byModel, [first]: subT5(cost.byModel[first], PLANNING_SHARE) };
+  return {
+    ...cost,
+    planning: { total: PLANNING_SHARE, byModel: { [first]: PLANNING_SHARE } },
+    implementation: { total: subT5(cost.total, PLANNING_SHARE), byModel: implModels },
+  };
+}
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
 
 export function fixtureSite(mode = "repo") {
   if (mode === "global") return { mode: "global" };
@@ -209,7 +233,7 @@ export function fixtureSite(mode = "repo") {
 
 function queueRow(name, over) {
   const [, number, date, title] = /^(\d+)-(\d{4}-\d{2}-\d{2})-(.+)$/.exec(name);
-  return {
+  const row = {
     name,
     number: Number(number),
     title: title.replace(/-/g, " "),
@@ -223,6 +247,7 @@ function queueRow(name, over) {
     started: `${date}T08:00:00Z`,
     finished: "",
     cost: { total: t5(100, 1000, 5000, 20000, 3000), byModel: { "claude-sonnet-5-5": t5(100, 1000, 5000, 20000, 3000) } },
+    time: { planning: { wallclock_s: 3600, active_s: 900 }, implementation: { wallclock_s: 14400, active_s: 5400 } },
     deviations: 0,
     flags: { warn: 0, info: 0 },
     branch: `cfq/${name}`,
@@ -231,6 +256,7 @@ function queueRow(name, over) {
     settled: true,
     ...over,
   };
+  return { ...row, cost: splitCost(row.cost), time: row.cost ? row.time : { planning: null, implementation: null } };
 }
 
 export function fixtureEntries() {
@@ -288,6 +314,29 @@ export function fixtureQueue() {
   const entries = fixtureEntries();
   const open = entries.filter((e) => e.state === "open");
   const cost = batches.reduce((acc, b) => (b.cost ? addT5(acc, b.cost.total) : acc), ZERO);
+  const finished = batches.filter((b) => b.status === "done" && b.cost)
+    .sort((a, b) => (a.finished < b.finished ? 1 : a.finished > b.finished ? -1 : a.name.localeCompare(b.name)));
+  const sumOf = (rows, pick) => rows.reduce((acc, b) => addT5(acc, pick(b)), ZERO);
+  const modelsOf = (rows, pick) => rows.reduce((acc, b) => {
+    for (const [m, t] of Object.entries(pick(b))) acc[m] = acc[m] ? addT5(acc[m], t) : t;
+    return acc;
+  }, {});
+  const perPhase = finished.flatMap((b) => Array(b.phases.done).fill(b.cost.implementation.total.output / b.phases.done));
+  const recent = {
+    batches: finished.map((b) => b.name),
+    planning: {
+      total: sumOf(finished, (b) => b.cost.planning.total), byModel: modelsOf(finished, (b) => b.cost.planning.byModel),
+      wallclock_s: finished.reduce((n, b) => n + b.time.planning.wallclock_s, 0),
+      active_s: finished.reduce((n, b) => n + b.time.planning.active_s, 0),
+      medianOutput: median(finished.map((b) => b.cost.planning.total.output)),
+    },
+    implementation: {
+      total: sumOf(finished, (b) => b.cost.implementation.total), byModel: modelsOf(finished, (b) => b.cost.implementation.byModel),
+      wallclock_s: finished.reduce((n, b) => n + b.time.implementation.wallclock_s, 0),
+      active_s: finished.reduce((n, b) => n + b.time.implementation.active_s, 0),
+      phases: perPhase.length, outputPerPhase: median(perPhase),
+    },
+  };
   return {
     repo: "/home/code/git/demo",
     totals: {
@@ -301,11 +350,26 @@ export function fixtureQueue() {
       },
       cost,
     },
-    baselines: { S: { n: 5, turnsMedian: 20, outputMedian: 9000 }, M: { n: 6, turnsMedian: 40, outputMedian: 20000 } },
+    baselines: {
+      S: { n: 5, nAll: 5, turnsMedian: 20, outputMedian: 9000, allTimeTurnsMedian: 20, allTimeOutputMedian: 9000 },
+      M: { n: 6, nAll: 6, turnsMedian: 40, outputMedian: 20000, allTimeTurnsMedian: 40, allTimeOutputMedian: 20000 },
+    },
     sizes: [
-      { batch: "045-2026-09-20-alpha-done", phase: "01-first", size: "S", turns: 18, output: 8000 },
-      { batch: "045-2026-09-20-alpha-done", phase: "02-second", size: "M", turns: 44, output: 21000 },
+      { batch: "045-2026-09-20-alpha-done", phase: "01-first", size: "S", turns: 18, output: 8000, finished: "2026-09-21T10:00:00Z" },
+      { batch: "045-2026-09-20-alpha-done", phase: "02-second", size: "M", turns: 44, output: 21000, finished: "2026-09-21T12:00:00Z" },
     ],
+    attention: [
+      { level: "warn", code: "red-attempt", batch: "047-2026-10-01-gamma-progress", phase: "01-a", text: "phase is red" },
+      { level: "plan", code: "review", batch: "049-2026-10-05-delta-review", phase: null, text: "plan review open" },
+    ],
+    attentionCounts: { warn: 1, plan: 1 },
+    now: [
+      {
+        batch: "047-2026-10-01-gamma-progress", number: 47, title: "gamma progress", status: "in_progress",
+        phases: { done: 1, total: 3, skipped: 0, error: 0 }, current: { num: 2, title: "Second step" }, waitsOn: [],
+      },
+    ],
+    recent,
     batches,
     entries,
   };
@@ -340,7 +404,7 @@ function attempt(over) {
     observations: [], errors: [], triggers: [], question: "", commit: "abc1234", reopened: false,
     diffstat: { files: 2, insertions: 30, deletions: 4, paths: [{ path: "scripts/a.py", added: 25, deleted: 4 }, { path: "assets/logo.png", added: null, deleted: null }] },
     filesTouched: ["/home/code/git/demo/scripts/a.py"], parkedPlanEntries: [],
-    time: { from: "2026-10-01T08:00:00Z", until: "2026-10-01T08:30:00Z", wallclock_s: 1800 },
+    time: { from: "2026-10-01T08:00:00Z", until: "2026-10-01T08:30:00Z", wallclock_s: 1800, active_s: 1500 },
     settled: true, mode: "orchestrator", cost: doneCost(), tools: { Bash: 12, Edit: 8 },
     skills: { used: [] },
     ...over,
@@ -352,14 +416,14 @@ export function fixtureBatch(kind = "done") {
     name: "047-2026-10-01-demo", status: "done", priority: "", dependsOn: [], branch: "cfq/047-2026-10-01-demo",
     base: "main", merged: true, started: "2026-10-01T08:00:00Z", finished: "2026-10-01T12:00:00Z",
     outcome: "green", context: { goal: "<p>Demo goal.</p>", decisions: "<ul><li>One</li></ul>" },
-    planning: null, phases: [], cost: null, notes: [], fromPlan: [], closing: null, security: null, flags: [],
+    planning: null, implementation: null, phases: [], cost: null, notes: [], fromPlan: [], closing: null, security: null, flags: [],
   };
   const phase = (num, slug, title, state, attempts, flags) => ({
     slug, num, title, size: "S", state, planHtml: `<p>Plan of ${title}.</p>`,
-    affectedFiles: ["scripts/a.py"], attempts, flags: flags || [],
+    affectedFiles: ["scripts/a.py"], attempts, flags: flags || [], baseline: null,
   });
   const openPhase = (num, slug, title) => ({
-    ...phase(num, slug, title, "open", []), edit: editTarget(`${BATCH_DIR}/${slug}.md`),
+    ...phase(num, slug, title, "open", []), edit: fileEdit(`${BATCH_DIR}/${slug}.md`),
   });
   if (kind === "plan_only") {
     return {
@@ -375,20 +439,32 @@ export function fixtureBatch(kind = "done") {
         openPhase(2, "02-second", "Second"),
         openPhase(3, "03-third", "Third"),
       ],
+      implementation: {
+        from: "2026-10-01T08:00:00Z", until: "2026-10-01T08:30:00Z", wallclock_s: 1800, active_s: 1500,
+        activeComplete: true, cost: doneCost(),
+      },
       cost: doneCost(),
     };
   }
-  return {
+  const done = {
     ...base,
-    planning: { from: "2026-10-01T06:00:00Z", until: "2026-10-01T07:00:00Z", wallclock_s: 3600, settled: true, cost: doneCost() },
+    planning: {
+      from: "2026-10-01T06:00:00Z", until: "2026-10-01T07:00:00Z", wallclock_s: 3600, active_s: 1800, settled: true,
+      cost: doneCost(), interviewDepth: "thorough", phaseCount: 2,
+      audit: [{ started: "2026-10-01T07:00:00Z", finished: "2026-10-01T07:05:00Z", findings: 1 }],
+    },
+    implementation: {
+      from: "2026-10-01T08:00:00Z", until: "2026-10-01T10:40:00Z", wallclock_s: 9600, active_s: 2400,
+      activeComplete: false, cost: doneCost(),
+    },
     phases: [
       phase(1, "01-first", "First", "done", [attempt({})]),
       phase(2, "02-second", "Second", "done", [
-        attempt({ status: "red", summary: "", errors: ["AssertionError: boom"], commit: "", diffstat: null, time: { from: "2026-10-01T09:00:00Z", until: "2026-10-01T09:20:00Z", wallclock_s: 1200 } }),
+        attempt({ status: "red", summary: "", errors: ["AssertionError: boom"], commit: "", diffstat: null, time: { from: "2026-10-01T09:00:00Z", until: "2026-10-01T09:20:00Z", wallclock_s: 1200, active_s: 900 } }),
         attempt({
           deviations: ["Touched an extra file"], observations: ["The helper is duplicated"],
           parkedPlanEntries: ["plan/2026-10-01-follow-up.md"], settled: false,
-          time: { from: "2026-10-01T10:00:00Z", until: "2026-10-01T10:40:00Z", wallclock_s: 2400 },
+          time: { from: "2026-10-01T10:00:00Z", until: "2026-10-01T10:40:00Z", wallclock_s: 2400, active_s: null },
         }),
       ], [{ level: "warn", code: "retry", text: "Phase needed a second attempt", phase: "02-second" }]),
     ],
@@ -408,6 +484,10 @@ export function fixtureBatch(kind = "done") {
     security: { available: true, counts: { high: 1 }, findings: [{ severity: "high", title: "Unchecked input" }], hint: "" },
     flags: [{ level: "info", code: "unsettled", text: "One attempt is not settled yet", phase: null }],
   };
+  // Output per phase is 6200 and 12400 (all attempts): 1.0x and 2.5x their size-S baseline.
+  done.phases[0].baseline = { size: "S", outputMedian: 6200, turnsMedian: 75 };
+  done.phases[1].baseline = { size: "S", outputMedian: 4960, turnsMedian: 75 };
+  return done;
 }
 
 export function fixtureEntry(kind = "todo_open") {
@@ -423,13 +503,27 @@ export function fixtureEntry(kind = "todo_open") {
     id: "todo-2026-10-01-merge-alpha", kind: "todo", state: "open", date: "2026-10-01",
     title: "Merge `cfq/045-2026-09-20-alpha-done`", check: "git branch --merged main",
     closed: null, origin: null, parkedInto: null, bodyHtml: "<p>Body of the todo card.</p>",
-    edit: editTarget("/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"),
+    edit: fileEdit("/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"),
   };
 }
 
 export function fixtureRepos() {
   return [
-    { name: "alpha", mirror: "alpha", source: "/home/code/git/alpha", counts: { batches: { inProgress: 1, planned: 2, done: 3 }, todos: 2, planEntries: 1 } },
-    { name: "beta", mirror: "beta-1a2b3c", source: "/home/code/git/beta", counts: { batches: { inProgress: 0, planned: 0, done: 5 }, todos: 0, planEntries: 0 } },
+    {
+      name: "alpha", mirror: "alpha", source: "/home/code/git/alpha",
+      counts: {
+        batches: { inProgress: 1, planned: 2, done: 3 }, todos: 2, planEntries: 1,
+        now: { batch: "012-2026-11-20-alpha-work", number: "012", title: "Alpha work", status: "in_progress", phases: { done: 2, total: 5 } },
+        attention: { warn: 2, plan: 1 },
+        lastActivity: "2026-11-22T10:00:00Z",
+      },
+    },
+    {
+      name: "beta", mirror: "beta-1a2b3c", source: "/home/code/git/beta",
+      counts: {
+        batches: { inProgress: 0, planned: 0, done: 5 }, todos: 0, planEntries: 0,
+        now: null, attention: { warn: 0, plan: 0 }, lastActivity: "",
+      },
+    },
   ];
 }

@@ -1,4 +1,5 @@
-// Tests for portal/overview-charts.js: the trend data, the two registered panels and their rendering.
+// Tests for portal/overview-charts.js: the trend data, the two registered panels and their rendering
+// on the overview's Trends tab.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -14,9 +15,11 @@ const OC = CFQ.overviewCharts;
 function ctxFor(queue) {
   return {
     mode: "repo", repo: "/home/code/git/demo", mirror: null, site: fixtureSite(), queue,
-    route: { name: "overview", tab: "batches", mirror: null }, setCrumbs() {},
+    route: { name: "overview", tab: "trends", mirror: null }, setCrumbs() {},
   };
 }
+
+const switchOf = (root, label) => byClass(root, "metric-switch").find((n) => n.attrs["aria-label"] === label);
 
 const t5 = (turns, input, output, cache_read, cache_creation) => ({ turns, input, output, cache_read, cache_creation });
 const svgClass = (n) => (n.attrs && n.attrs.class ? n.attrs.class.split(/\s+/) : []);
@@ -42,6 +45,19 @@ test("trendBars: done batches with a cost, oldest finish first, per-model values
   assert.deepEqual(OC.trendBars(null, "out"), []);
 });
 
+test("trendBars: the split grouping stacks planning and implementation", () => {
+  const q = fixtureQueue();
+  const bars = OC.trendBars(q, "out", "split");
+  assert.deepEqual(bars.map((b) => b.name), ["045-2026-09-20-alpha-done", "046-2026-09-25-beta-done"]);
+  assert.deepEqual(bars[0].values, { Planning: 500, Implementation: 8500 });
+  assert.equal(bars[0].total, 9000, "planning plus implementation is the batch total");
+  assert.deepEqual(OC.trendBars(q, "turns", "split")[0].values, { Planning: 10, Implementation: 110 });
+  const old = fixtureQueue();
+  delete old.batches[0].cost.planning;
+  delete old.batches[0].cost.implementation;
+  assert.deepEqual(OC.trendBars(old, "out", "split")[0].values, { Planning: 0, Implementation: 9000 }, "a cost without the split is implementation");
+});
+
 test("trendBars: limited to the latest 40", () => {
   const rows = [];
   for (let i = 1; i <= 45; i++) {
@@ -63,14 +79,15 @@ test("registration: exactly two overviewPanel items, cost 10 and calibration 20"
   items.forEach((i) => assert.equal(typeof i.render, "function"));
 });
 
-test("rendered in the overview: both panels above the toolbar with heading, caption, legend and numbers", () => {
+test("rendered in the overview: both panels on the Trends tab with heading, caption, legend and numbers", () => {
   const doc = fakeDoc();
   const root = fakeRoot(doc);
   CFQ.overview.render(doc, root, ctxFor(fixtureQueue()));
   const kids = root.children;
-  const panelsAt = kids.findIndex((c) => c.className === "panels");
-  const toolbarAt = kids.findIndex((c) => c.className === "toolbar");
-  assert.ok(panelsAt !== -1 && panelsAt < toolbarAt);
+  const panelsAt = kids.findIndex((c) => c.className.startsWith("panels"));
+  const tabsAt = kids.findIndex((c) => c.className === "tabs");
+  assert.ok(panelsAt !== -1 && tabsAt < panelsAt);
+  assert.equal(kids.findIndex((c) => c.className === "toolbar"), -1, "no batch toolbar on Trends");
   const panels = byTag(kids[panelsAt], "section");
   assert.equal(panels.length, 2);
   assert.deepEqual(panels.map((p) => p.className), ["panel panel-cost", "panel panel-calibration"]);
@@ -84,8 +101,8 @@ test("rendered in the overview: both panels above the toolbar with heading, capt
   }
   assert.equal(byTag(panels[0], "h3")[0].textContent, "Cost per batch");
   assert.equal(byTag(panels[1], "h3")[0].textContent, "Size calibration");
-  assert.match(collectText(byClass(panels[0], "legend")[0]), /claude-haiku-5/);
-  assert.match(collectText(byClass(panels[0], "legend")[0]), /claude-sonnet-5-5/);
+  assert.match(collectText(byClass(panels[0], "legend")[0]), /Planning/);
+  assert.match(collectText(byClass(panels[0], "legend")[0]), /Implementation/);
 });
 
 test("cost panel: bars link through core.href; the metric switch redraws", () => {
@@ -96,16 +113,37 @@ test("cost panel: bars link through core.href; the metric switch redraws", () =>
   assert.deepEqual(links(root), ["#/batch/045-2026-09-20-alpha-done", "#/batch/046-2026-09-25-beta-done"]);
   assert.equal(doc.innerHtmlWrites.length, 0);
 
-  const buttons = byTag(byClass(root, "metric-switch")[0], "button");
+  const buttons = byTag(switchOf(root, "Metric"), "button");
   assert.deepEqual(buttons.map((b) => b.textContent), ["Turns", "In", "Out"]);
   assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["false", "false", "true"]);
-  const heightOf = () => findAll(root, (n) => n.tagName === "rect" && svgClass(n).includes("m1")).map((r) => Number(r.attrs.height));
+  const heightOf = () => findAll(root, (n) => n.tagName === "rect" && svgClass(n).includes("m-impl")).map((r) => Number(r.attrs.height));
   const outH = heightOf();
   fire(buttons[0], "click");
   assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["true", "false", "false"]);
   assert.notDeepEqual(heightOf(), outH);
   assert.equal(byTag(root, "svg").length, 1, "the old chart is replaced, not appended to");
   assert.deepEqual(links(root), ["#/batch/045-2026-09-20-alpha-done", "#/batch/046-2026-09-25-beta-done"]);
+});
+
+test("cost panel: the grouping switch toggles between planning/implementation and model series", () => {
+  const doc = fakeDoc();
+  const root = fakeRoot(doc);
+  CFQ.core.registered("overviewPanel")[0].render(doc, root, ctxFor(fixtureQueue()));
+  const rectClasses = () => new Set(findAll(root, (n) => n.tagName === "rect" && !svgClass(n).includes("empty")).map((r) => svgClass(r)[0]));
+  const buttons = byTag(switchOf(root, "Grouping"), "button");
+  assert.deepEqual(buttons.map((b) => b.textContent), ["Planning / Implementation", "By model"]);
+  assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["true", "false"], "planning/implementation is the default");
+  assert.deepEqual([...rectClasses()].sort(), ["m-impl", "m-plan"]);
+  assert.match(collectText(byClass(root, "legend")[0]), /Planning/);
+  fire(buttons[1], "click");
+  assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["false", "true"]);
+  assert.deepEqual([...rectClasses()].sort(), ["m-haiku", "m-sonnet"]);
+  assert.match(collectText(byClass(root, "legend")[0]), /claude-haiku-5/);
+  assert.equal(byTag(root, "svg").length, 1);
+  fire(byTag(switchOf(root, "Metric"), "button")[0], "click");
+  assert.deepEqual([...rectClasses()].sort(), ["m-haiku", "m-sonnet"], "the metric switch keeps the grouping");
+  fire(buttons[0], "click");
+  assert.deepEqual([...rectClasses()].sort(), ["m-impl", "m-plan"]);
 });
 
 test("cost panel: global mode prefixes the mirror; the numbers table holds the exact values", () => {
@@ -116,8 +154,8 @@ test("cost panel: global mode prefixes the mirror; the numbers table holds the e
   assert.equal(links(root)[0], "#/demo-1a2b3c/batch/045-2026-09-20-alpha-done");
   fire(byClass(root, "disclosure-toggle")[0], "click");
   const cells = byTag(byClass(root, "disclosure-body")[0], "td").map((t) => t.textContent);
-  assert.ok(cells.includes("1500000"), "46's exact output, unrounded");
-  assert.ok(cells.includes("7000"));
+  assert.ok(cells.includes("1500000"), "46's exact total output, unrounded");
+  assert.ok(cells.includes("8500"), "45's implementation output");
 });
 
 test("calibration panel: dots, median labels and the turns/out switch", () => {
@@ -131,6 +169,9 @@ test("calibration panel: dots, median labels and the turns/out switch", () => {
   assert.deepEqual(buttons.map((b) => b.textContent), ["Turns", "Out"]);
   fire(buttons[1], "click");
   assert.deepEqual(labels(), ["median 9k · n=5", "median 20k · n=6"]);
+  const rows = byTag(byClass(root, "baseline-table")[0], "tr").map((tr) => byTag(tr, "td").map((td) => td.textContent));
+  assert.deepEqual(rows.slice(1), [["S", "9k", "9k", "20", "5"], ["M", "20k", "20k", "40", "6"]], "baseline out, all-time median, baseline turns, phase count");
+  assert.match(collectText(root), /last 50 finished phases/);
   assert.equal(byTag(root, "svg").length, 1);
   const notes = findAll(root, (n) => n.tagName === "text" && svgClass(n).includes("note"));
   assert.equal(notes.length, 0, "both sizes have n >= 5");
@@ -142,7 +183,7 @@ test("no cost anywhere: one line instead of two empty charts", () => {
   CFQ.overview.render(doc, root, ctxFor(noCost()));
   const panels = byTag(byClass(root, "panels")[0], "section");
   assert.equal(findAll(root, (n) => n.tagName === "svg").length, 0);
-  assert.equal(byTag(root, "h3").length, 0);
+  assert.equal(byTag(byClass(root, "panels")[0], "h3").length, 0);
   const texts = panels.map((p) => collectText(p).trim()).filter(Boolean);
   assert.deepEqual(texts, ["No cost data recorded yet."]);
 });

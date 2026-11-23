@@ -1156,6 +1156,73 @@ class BriefReviewTest(PhaseDirsStatus, CfqTestCase):
         r = self.run_cfq("brief", str(batch), "--changed")
         self.assertEqual(r.returncode, 2)
 
+    # ---- --gate (phase 02 of batch 061) ------------------------------------------------------
+
+    def test_review_gate_lists_phases(self):
+        repo, batch = self._review_batch("050-2026-03-01-gate1")
+        (batch / ".batch-context.md").write_text("## Goal\n\nSomething.\n")
+        self._phase(batch, "01-a.md", "Alpha", "S", context="Ctx a.",
+                    files=[f"- `{repo}/src/a.py`"], changes="1. Do a.", verify="echo a")
+        self._phase(batch, "02-b.md", "Beta", "M", changes="1. Do b.")
+        self._phase(batch, "03-c.md", "Gamma", "L", changes="1. Do c.")
+        out = self._review(batch, "--gate").stdout
+        self._no_trailing_space(out)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "BATCH 050 \u00b7 2026-03-01 \u00b7 gate1")
+        self.assertEqual(lines[1], "3 phases planned \u00b7 0 done")
+        self.assertEqual(lines[2], "")
+        self.assertEqual(lines[3:6], [
+            "  01  Alpha  \u00b7 S", "  02  Beta  \u00b7 M", "  03  Gamma  \u00b7 L"])
+        self.assertEqual(lines[6], "")
+        self.assertEqual(lines[7], f"  Plans    {batch.resolve()}")
+        self.assertEqual(len(lines), 8)
+        for banned in ("Context", "Portal", "src/a.py", "01-a.md", "PHASE"):
+            self.assertNotIn(banned, out)
+
+    def test_review_gate_marks_done_and_skipped(self):
+        _, batch = self._review_batch("051-2026-03-01-gate2")
+        self._phase(batch, "done/01-old.md", "Old", "S")
+        self._phase(batch, "skipped/02-skip.md", "Skip", "M")
+        self._phase(batch, "03-new.md", "New", "L")
+        out = self._review(batch, "--gate").stdout
+        self.assertIn("  01  Old  \u00b7 S \u00b7 done", out.splitlines())
+        self.assertIn("  02  Skip  \u00b7 M \u00b7 skipped", out.splitlines())
+        self.assertIn("  03  New  \u00b7 L", out.splitlines())
+
+    def test_review_gate_changed(self):
+        batch = self._changed_batch("052-2026-03-01-gate3")
+        out = self._review(batch, "--gate", "--changed").stdout
+        self.assertEqual(out.strip(), "no changes since last review")
+        self._phase(batch, "02-b.md", "Beta", changes="1. B rewritten step.")
+        out = self._review(batch, "--gate", "--changed").stdout
+        self.assertIn("  02  Beta  \u00b7 S", out.splitlines())
+        self.assertNotIn("Alpha", out)
+        self.assertNotIn("PHASE", out)
+        (batch / "01-a.md").unlink()
+        out = self._review(batch, "--gate", "--changed").stdout
+        self.assertIn("  Removed  01-a.md", out.splitlines())
+        self.assertIn("  02  Beta  \u00b7 S", out.splitlines())
+
+    def test_review_gate_requires_review(self):
+        _, batch = self._review_batch("053-2026-03-01-gate4")
+        self._phase(batch, "01-a.md")
+        r = self.run_cfq("brief", str(batch), "--gate")
+        self.assertEqual(r.returncode, 2)
+
+    def test_review_gate_rejects_phases(self):
+        _, batch = self._review_batch("054-2026-03-01-gate5")
+        self._phase(batch, "01-a.md")
+        r = self._review(batch, "--gate", "--phases", "01", check=False)
+        self.assertEqual(r.returncode, 2)
+
+    def test_review_gate_is_short(self):
+        _, batch = self._review_batch("055-2026-03-01-gate6")
+        for i in range(1, 19):
+            self._phase(batch, f"{i:02d}-p.md", f"Phase number {i}", "M",
+                        context="Long context.\n" * 20, changes="1. A step.\n2. Another.")
+        out = self._review(batch, "--gate").stdout
+        self.assertLessEqual(len(out.splitlines()), 25)
+
 
 class ParkTest(CfqTestCase):
     def setUp(self):

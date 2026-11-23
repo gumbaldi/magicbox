@@ -9,7 +9,8 @@ SECTION HEADER IN CAPS
 <icon> <label padded to 16 chars><detail, one short clause>
 ```
 
-Icons: `✅` done · `⚠️` warning/unavailable/degraded · `❌` failed · `➖` skipped/not applicable.
+Icons: `✅` done · `⚠️` warning/unavailable/degraded · `❌` failed · `➖` skipped/not applicable · `⏳` running, only
+where a step ends the turn to wait for a background agent.
 Rules: detail = what happened, not what happens next · a step that didn't run still gets its line
 with `➖`/`⚠️` and the reason · sub-information → indented `   └ ` line, never the detail column ·
 headers/labels/status lines are always English, and so are values — including the `RESULT` block's

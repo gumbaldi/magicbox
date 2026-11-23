@@ -17,7 +17,8 @@ from cfq_lib import text  # noqa: E402
 class IconsTest(unittest.TestCase):
     def test_icons_match_output_format_contract(self):
         self.assertEqual(
-            text.ICONS, {"done": "✅", "warn": "⚠️", "fail": "❌", "skip": "➖"}
+            text.ICONS,
+            {"done": "✅", "warn": "⚠️", "fail": "❌", "skip": "➖", "run": "⏳"},
         )
 
     def test_label_width_is_sixteen(self):
@@ -47,6 +48,14 @@ class StatusLineTest(unittest.TestCase):
     def test_icon_key_maps_to_icons_dict(self):
         for key, glyph in text.ICONS.items():
             self.assertTrue(text.status_line(key, "L", "d").startswith(glyph))
+
+
+class RunIconTest(unittest.TestCase):
+    def test_run_icon_is_an_hourglass_and_pads_the_label(self):
+        line = text.status_line("run", "Phase Audit", "running")
+        self.assertTrue(line.startswith("⏳ "))
+        self.assertEqual(line, "⏳ Phase Audit     running")
+        self.assertEqual(len(line) - len("⏳ "), text.LABEL_WIDTH + len("running"))
 
 
 class SubLineTest(unittest.TestCase):

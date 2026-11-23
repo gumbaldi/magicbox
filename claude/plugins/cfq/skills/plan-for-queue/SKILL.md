@@ -126,7 +126,8 @@ to check).
 
 Once nothing is left open, ask once more before writing any plans: "Before I write the plans: is
 there anything else we should discuss? Something I misunderstood, an edge case, a constraint?"
-(one `AskUserQuestion`). Proceed once nothing else is open; if something comes up, ask again.
+(one `AskUserQuestion`; when autonomous decisions are listed (`interaction-policy.md`'s **Active
+Interview Duty**), the list is in the question text). Proceed once nothing else is open; if something comes up, ask again.
 
 ## Step 8 — Language and Cut Phases
 
@@ -216,7 +217,8 @@ follow it — findings are parked as a `plan/` entry, never a question.
 
 Entering this step closes `POSTCHECKS` and opens `REVIEW`. Read
 `${CLAUDE_PLUGIN_ROOT}/references/plan-review.md` and follow it — the batch stays held until the
-user releases it; print `bin/cfq brief "<batch-dir>" --review` as returned, ask, revise, repeat.
+user releases it; the compact gate (`bin/cfq brief "<batch-dir>" --review --gate`) goes into the
+release question's text, ask, revise, repeat.
 Print `Review`.
 
 ## Step 16 — Telemetry and Sync

@@ -261,13 +261,35 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
 
         out = self.json_out(self._run_pf(str(reg)))
         self.assertEqual(
-            out["queue"]["awaitingReview"], [{"name": name, "open": 1}], msg=f"queue = {out['queue']}"
+            out["queue"]["awaitingReview"],
+            [{"name": name, "open": 1, "audit": False}], msg=f"queue = {out['queue']}"
         )
         entry = next(e for e in out["statusLines"] if e["label"] == "Review")
         self.assertEqual(entry["icon"], "warn", msg=f"{entry}")
         self.assertEqual(entry["detail"], "1 batch awaiting review", msg=f"{entry}")
         self.assertEqual(entry["sub"], [name], msg=f"{entry}")
         self.assert_status_lines_shape(out["statusLines"])
+
+    def test_running_audit_is_listed_in_awaiting_review(self):
+        reg = self._repos_dir / "audit-reg"
+        reg.mkdir()
+        self.run_clean("git", "init", "-q", cwd=reg)
+        self.run_clean(
+            "python3", str(self.scripts_copy / "cfq_registry.py"), "add", str(reg),
+            env={"HOME": str(self.home)},
+        )
+        name = "2026-02-01-auditing"
+        batch = reg / ".claude" / "cfq" / "impl" / name
+        batch.mkdir(parents=True)
+        (batch / "01-x.md").touch()
+        (batch / ".planning").touch()
+        (batch / ".audit").write_text("{}")
+
+        out = self.json_out(self._run_pf(str(reg)))
+        self.assertEqual(
+            out["queue"]["awaitingReview"],
+            [{"name": name, "open": 1, "audit": True}], msg=f"queue = {out['queue']}"
+        )
 
     def test_model_check_line(self):
         reg = self._repos_dir / "model-check-reg"

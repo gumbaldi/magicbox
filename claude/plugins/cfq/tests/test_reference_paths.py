@@ -470,6 +470,56 @@ def check_pfq_single_first_step(root):
     return []
 
 
+# 9. Added by batch 061 phase 01: the context of a decision question lives inside the
+#    `AskUserQuestion` payload, because text written before the dialog is not readable while it is
+#    open. The three references that state the rule must not say it is written "right before the"
+#    call, and `interaction-policy.md`'s **Decision Question Context** must say "inside the dialog".
+def check_question_context_in_dialog(root):
+    fails = []
+    for name in ("interaction-policy.md", "grilling.md", "orchestrator.md"):
+        f = root / "references" / name
+        if not f.is_file():
+            continue
+        for line in f.read_text().splitlines():
+            if "right before the" in line and "AskUserQuestion" in line:
+                fails.append(
+                    f"FAIL: {f}: places question context 'right before the' AskUserQuestion call"
+                    " instead of inside the dialog"
+                )
+                break
+    policy = root / "references" / "interaction-policy.md"
+    if policy.is_file():
+        text = policy.read_text()
+        marker = "## Decision Question Context"
+        if marker in text:
+            section = text.split(marker, 1)[1].split("\n## ", 1)[0]
+            if "inside the dialog" not in section:
+                fails.append(
+                    f"FAIL: {policy}: Decision Question Context does not say the context goes"
+                    " 'inside the dialog'"
+                )
+    return fails
+
+
+# 9. Added by batch 063 phase 02: `references/plan-self-critique.md` makes the planning session
+#    wait for the post-write audit -- it marks the audit with `bin/cfq batch audit` start/done and
+#    ends the turn on a `⏳ Phase Audit` line while the agent runs.
+def check_audit_wait(root):
+    fails = []
+    f = root / "references" / "plan-self-critique.md"
+    if not f.is_file():
+        return fails
+    text = f.read_text()
+    if "batch audit" not in text or "start" not in text or "done" not in text:
+        fails.append(f"FAIL: {f}: The Post-Write Audit lacks the `batch audit` start/done calls")
+    if "⏳ Phase Audit" not in text:
+        fails.append(
+            f"FAIL: {f}: The Post-Write Audit lacks the instruction to end the turn on a"
+            " `⏳ Phase Audit` line while the audit agent runs"
+        )
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -479,6 +529,7 @@ def run_all(root):
     fails += check_no_shell_mutations(root)
     fails += check_settings_documented(root)
     fails += check_skill_size_budget(root)
+    fails += check_question_context_in_dialog(root)
     fails += check_dashboard_todo_delegates(root)
     fails += check_start_gate_and_overview_mentioned(root)
     fails += check_references_linked_from_entrypoint(root)
@@ -491,6 +542,7 @@ def run_all(root):
     fails += check_step_headings_uniform(root)
     fails += check_no_step_letter_references(root)
     fails += check_pfq_single_first_step(root)
+    fails += check_audit_wait(root)
     return fails
 
 
@@ -650,6 +702,47 @@ class ReferencePathsTest(CfqTestCase):
         self.assertEqual(
             2, len(out), msg=f"check 7 self-test should only flag the two over-budget files: {out}"
         )
+
+    def test_audit_wait(self):
+        tmp = self._repos_dir / "audit-wait"
+        (tmp / "references").mkdir(parents=True)
+        f = tmp / "references" / "plan-self-critique.md"
+        f.write_text(
+            "- **When.** After **Park** has written every phase file, before **Plan Lint**.\n"
+        )
+        out = check_audit_wait(tmp)
+        self.assertEqual(2, len(out), msg=f"the old wording should fail both checks: {out}")
+
+        f.write_text(
+            "1. `bin/cfq batch audit \"<batch-dir>\" start`\n"
+            "3. Print `⏳ Phase Audit     running` and end the turn.\n"
+            "4. `bin/cfq batch audit \"<batch-dir>\" done --findings <n>`\n"
+        )
+        self.assertEqual([], check_audit_wait(tmp))
+
+    def test_question_context_in_dialog(self):
+        bad = self._repos_dir / "qctx"
+        (bad / "references").mkdir(parents=True)
+        (bad / "references" / "interaction-policy.md").write_text(
+            "## Decision Question Context\n\nWrite a block right before the `AskUserQuestion` call.\n"
+        )
+        (bad / "references" / "grilling.md").write_text(
+            "Prose block right before the `AskUserQuestion` call.\n"
+        )
+        (bad / "references" / "orchestrator.md").write_text("Clean.\n")
+        joined = "\n".join(check_question_context_in_dialog(bad))
+        self.assertIn("interaction-policy.md", joined, msg="check 9 missed the old policy wording")
+        self.assertIn("grilling.md", joined, msg="check 9 missed the old grilling wording")
+        self.assertNotIn("orchestrator.md", joined, msg="check 9 false-flagged a clean file")
+
+        good = self._repos_dir / "qctx-ok"
+        (good / "references").mkdir(parents=True)
+        (good / "references" / "interaction-policy.md").write_text(
+            "## Decision Question Context\n\nFacts go inside the dialog.\n\n## Next\n"
+        )
+        (good / "references" / "grilling.md").write_text("Clean.\n")
+        (good / "references" / "orchestrator.md").write_text("Clean.\n")
+        self.assertEqual([], check_question_context_in_dialog(good))
 
     def test_dashboard_todo_delegates(self):
         tmp = self._repos_dir / "f8"

@@ -118,7 +118,9 @@ session's telemetry), `finish` (the closing snapshot `cfq finish` takes), `notes
 `plan/` entries `park --from-plan` consumed) — closed onto the ledger together
 with the file's move into `done/` and the phase's own Git commit by the single transactional call
 `cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
-whatever is already staged (never runs `git add` itself), moves the `.md` file, appends the ledger
+whatever is already staged (never runs `git add` itself), first runs the optional repo-only
+`phaseCommitCommand` hook after the nothing-staged check (a non-zero exit stops the commit with
+`HOOK_FAILED`), moves the `.md` file, appends the ledger
 entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
 phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
@@ -146,7 +148,12 @@ this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window). `.review` replaces `.planning` when
 `plan-for-queue` enters its review gate (`cfq batch review`), stores a per-file hash snapshot,
 has no staleness window, and is removed only by `cfq batch ready`; `implement-for-queue` never
-offers a batch that carries it. A batch has a `done/` for finished phases
+offers a batch that carries it. `.audit` (written by `cfq batch audit start` while `plan-for-queue`'s
+post-write audit runs in the background, removed by `cfq batch audit done`) is held like `.review`:
+scan and both preflights report the batch as planning, `batch review` and `batch ready` refuse while
+it exists, and `implement-for-queue` never offers it; the `auditBarrier` setting (default `true`)
+switches the marker off, and the `audit` entries in `report.json` (duration, findings) are the
+comparison metric. A batch has a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`
@@ -155,8 +162,11 @@ via `cfq note close`, which appends a `## Closed` section and moves it into `pla
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
 current repo only). `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
-`plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase)
-may sit in a batch directory next to `status.json`. `.lock`, `telemetry.jsonl` (one line per planning
+`plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase;
+carries `baseCommit`, the commit a pre-existing failure is proven against)
+may sit in a batch directory next to `status.json`. `cfq worker verdict` parks the report's `outOfScope`
+findings as `plan/` entries and raises the `skippedCheck` trigger for a planned check the report lists
+as not run. `cfq brief --review --gate` prints the compact phase list the release question shows. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
 inside any of the three subdirectories — `.lock` is held by the currently running
 `implement-for-queue` session, liveness derived from the holder's transcript mtime. Apart from phase
@@ -248,6 +258,12 @@ A record's sub-agent turns are further split by the `WORKER_AGENT` attribution n
 a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
 downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker
 split, and `bin/cfq telemetry show --session`'s `layers` object.
+
+A record also carries `active_s`, the active working time: the responses of the session and of
+every attributed sub-agent are sorted by timestamp and the gaps of at most `ACTIVE_GAP_S` (300)
+seconds are summed, so time spent waiting for the user does not count. It is computed from
+timestamps alone, at no model-token cost, and sits next to `wallclock_s` at the record's top level;
+a record written before the field existed has none, and the portal then shows calendar time only.
 
 **Schema 3 counts per API response and records every sub-agent as its own node, grouped into four
 cost layers.** Claude Code writes one transcript line per content block of a response, each
@@ -371,6 +387,24 @@ recomputes its `flags`, unless a file in its batch directory is newer than that 
 (`batch_newer_than()`, stat only) — then it is rebuilt, so hand edits show up. Every batch,
 written or not, is part of the `reportDir` mirror.
 
+The payloads split planning from implementation. A batch payload carries `planning` (`from`,
+`until`, `wallclock_s`, `active_s`, `settled`, `cost`, `interviewDepth`, `phaseCount`, `audit`, the
+`report.json` audit runs) and `implementation` (the same time fields plus `activeComplete`, and the
+`cost` summed over the phase attempts); `time` holds `wallclock_s` and `active_s`, which is `null`
+for a record written before it was measured, never `0`. Each phase carries `baseline`
+(`{size, outputMedian, turnsMedian}` or `null`), attached in `sync()` once the baselines exist. The
+queue payload carries `now` (running, waiting and next batches with their current phase),
+`attention` (warnings and waiting batches of open and recently finished batches, capped, with
+`attentionCounts` counted before the cap), `recent` (the last `RECENT_BATCHES` finished batches with
+planning and implementation totals side by side) and, per batch row, `cost.planning`,
+`cost.implementation` and `time`; the merged `cost`/`cost.total` stays. `baselines` takes the last
+`BASELINE_WINDOW` (50) finished, green, costed phases of a size ordered by finish time (not by batch
+name) and keeps the all-time medians next to them; a phase over `OUTLIER_FACTOR` times its size's
+median raises `cost-outlier` at level `info`, once the window holds `BASELINE_MIN_SAMPLES` points.
+The viewer's top bar (repo switcher, breadcrumbs, search) and Trends tab read these keys, and the
+charts colour a model by its family (Fable, Opus, Sonnet, Haiku), planning and implementation by one
+colour each.
+
 The viewer shell is every file in the plugin's `portal/` directory: `install_shell()` globs the
 directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new
 script needs no registration, and runs whenever `reports/.portal-version` differs from the running
@@ -378,10 +412,10 @@ plugin's own version. The same version change deletes what the new version no lo
 `assets/` that `portal/` lacks and the flat `<batch>.html` files the retired per-batch renderer left
 under `reports/` (`remove_legacy_html()`) — and reports both in `removed`; an unchanged version
 copies and removes nothing. The viewer is several plain scripts on one shared `CFQ` namespace
-(`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — KPI strip
-and the sortable batch table; later views register through `CFQ.core.register(slot, item)` instead
+(`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — the Now,
+Needs attention and Last 10 sections, the sortable batch table and the Trends tab; later views register through `CFQ.core.register(slot, item)` instead
 of editing earlier files; `charts.js` draws the inline-SVG charts and `overview-charts.js`
-registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page
+registers the cost-per-batch and size-calibration `overviewPanel`s, shown on the Trends tab; `batch.js` draws the batch page
 — header, tab bar, phase table with per-phase detail — and registers its own `batchTab`/`phaseTab`
 items; `batch-cost.js`, `batch-notes.js` and `timeline.js` register the Cost tab and sub-tab, the
 Notes and Closing tabs and the `batchPhasesTop` timeline; `entry.js` draws the todo-card/plan-entry
@@ -391,12 +425,14 @@ viewer test file shares); `tests/js/e2e.test.mjs` walks every view over the file
 sync` wrote; `tests/test_portal_viewer.py` runs them. No CDN, no build step, charts are hand-written
 SVG.
 
-`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync. `sync()` reads the settings once (`settings list --repo`) and writes an `edit` object
-(`{"path": <OS path>, "url": <editor link>}`, `url` omitted when `editor` is `off`) into the payloads of
-editable items only: a phase not `done` (`phase_payloads()`), a batch with any phase not `done`
-(`edit.dir`, plus `edit.context` while `.batch-context.md` exists) and an open `plan/`/`todo/` entry
-(`entry/<id>.js` only, never the `queue.js` row, `entry_summary()` drops it). `edit` is computed at
-sync time from `host_paths` and the `editor` setting and always points at the repo-local files, also
+`cfq_lib/host_paths.py` is the single place that turns a repo path into an editor link, an OS path and a `file://` URL for the host the browser runs on (`posix`, `windows` or `wsl`); its translations are pure, while `resolve()` reads the two global settings `hostPlatform` and `wslDistro` and degrades to `posix` instead of ever failing a sync. `sync()` reads the settings once (`settings list --repo`) and writes an `edit` object into the payloads of
+editable items only: a phase not `done` (`phase_payloads()`) and an open `plan/`/`todo/` entry
+get `{"path": <OS path>, "dir": {"path", "url"}}`, a batch with any phase not `done` gets
+`{"dir": {"path", "url"}, "context": {"path"}}` (`context` while `.batch-context.md` exists); `url`
+is omitted when `editor` is `off`, and single files carry no link (a remote single-file link opens an
+empty window). An entry's `edit` goes into `entry/<id>.js` only, never the `queue.js` row
+(`entry_summary()` drops it). `edit` is computed at
+sync time from `host_paths` and the `editor` setting and always points at the repo-local paths, also
 in a `reportDir` mirror; a batch read back outside a `--batch` filter keeps its stored `edit`.
 
 With `reportDir` set, `sync()` additionally mirrors every data file into
@@ -485,7 +521,7 @@ of:
 - `MULTIPLE_IN_PROGRESS` — more than one batch has an active lock/in-progress marker (invariant
   violation, must be surfaced, never silently picked around).
 - `BLOCKED` — batch exists but `.dependsOn` is unsatisfied.
-- `PLANNING` — batch still has its `.planning` marker, or is held by `.review`; not
+- `PLANNING` — batch still has its `.planning` marker, or is held by `.review` or `.audit`; not
   implementation-ready. The `review` field carries the distinction, no new status string.
 - `LOCKED` — another session holds the repo lock.
 - `DIRTY` — repo has uncommitted changes where a clean tree was required.

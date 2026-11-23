@@ -418,7 +418,7 @@ class BranchTest(CfqTestCase):
         self.assertEqual(
             out["baseRef"], "refs/heads/cfq/001-2026-01-01-offline", msg=f"offline baseRef -> {out}"
         )
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"offline baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"offline baseSource -> {out}")
         opt = out["options"][0]
         self.assertTrue(opt["localOnly"], msg=f"offline localOnly -> {opt}")
 
@@ -560,6 +560,11 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
     def _names(self, entries):
         return [e["name"] for e in entries]
 
+    def _strategy_newest(self):
+        self.run_cfq(
+            "settings", "set", "--repo", str(self.repo), "baseBranchStrategy", "newest", check=True
+        )
+
     def test_routine_chain(self):
         self._branch(A, day(1))
         self._branch(B, day(2), start=A)
@@ -567,7 +572,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertEqual(out["mode"], "new", msg=f"mode -> {out}")
         self.assertEqual(out["base"], B, msg=f"base -> {out}")
         self.assertEqual(out["baseRef"], f"refs/remotes/origin/{B}", msg=f"baseRef -> {out}")
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
         self.assertEqual(len(out["options"]), 1, msg=f"options -> {out}")
         self.assertEqual(out["options"][0]["role"], "recommended", msg=f"role -> {out}")
         self.assertTrue(out["options"][0]["isCfq"], msg=f"isCfq -> {out}")
@@ -576,6 +581,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertNotIn("candidates", out, msg=f"candidates key -> {out}")
 
     def test_newest_branch_not_a_batch_branch(self):
+        self._strategy_newest()
         self._branch(B, day(2))
         self._branch("feature", day(3))
         out = self.json_out(self._plan())
@@ -589,6 +595,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertFalse(second["containedInBase"], msg=f"containedInBase -> {second}")
 
     def test_newest_branch_not_a_batch_branch_contains_highest_batch(self):
+        self._strategy_newest()
         self._branch(B, day(2))
         self._branch("feature", day(3), start=B)
         out = self.json_out(self._plan())
@@ -597,6 +604,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertEqual(out["options"][0]["uncontainedCount"], 0, msg=f"count -> {out}")
 
     def test_default_branch_is_the_newest(self):
+        self._strategy_newest()
         self._branch(B, day(2))
         self._commit_on("main", day(5))
         out = self.json_out(self._plan())
@@ -605,12 +613,79 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertTrue(out["options"][0]["isDefault"], msg=f"isDefault -> {out}")
         self.assertEqual(out["options"][1]["name"], B, msg=f"second option -> {out}")
 
+    def test_chain_tip_linear_chain(self):
+        self._branch("cfq/001-2026-01-01-a", day(1))
+        self._branch("cfq/002-2026-01-02-b", day(2), start="cfq/001-2026-01-01-a")
+        self._branch("cfq/003-2026-01-03-c", day(3), start="cfq/002-2026-01-02-b")
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], "cfq/003-2026-01-03-c", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
+        self.assertFalse(out["diverged"], msg=f"diverged -> {out}")
+
+    def test_chain_tip_reported_shape_ignores_main(self):
+        names = {n: f"cfq/{n:03d}-2026-01-01-x{n}" for n in (86, 87, 88, 89, 90)}
+        self._branch(names[86], day(1))
+        self._branch(names[89], day(2), start=names[86])
+        self._branch(names[90], day(3), start=names[89])
+        self._branch(names[87], day(4), start=names[90])
+        self._branch(names[88], day(5), start=names[87])
+        self._commit_on("main", day(9))
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], names[88], msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
+        self.assertNotIn("main", self._names(out["options"]), msg=f"options -> {out}")
+
+    def test_chain_tip_never_offers_a_newer_non_batch_branch(self):
+        self._branch(B, day(2))
+        self._branch("codex", day(7))
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], B, msg=f"base -> {out}")
+        self.assertEqual(self._names(out["options"]), [B], msg=f"options -> {out}")
+
+    def test_chain_tip_two_chains_recommend_the_highest_number(self):
+        self._branch(A, day(1))
+        self._branch(B, day(2))
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], B, msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertTrue(out["diverged"], msg=f"diverged -> {out}")
+
+    def test_chain_tip_without_batch_branch_recommends_main(self):
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "newestBranch", msg=f"baseSource -> {out}")
+        self.assertFalse(out["diverged"], msg=f"diverged -> {out}")
+
+    def test_newest_strategy_keeps_the_old_result(self):
+        self._strategy_newest()
+        self._branch(B, day(2))
+        self._commit_on("main", day(9))
+        out = self.json_out(self._plan())
+        self.assertEqual(out["base"], "main", msg=f"base -> {out}")
+        self.assertEqual(out["baseSource"], "newestBranch", msg=f"baseSource -> {out}")
+
+    def test_options_are_at_most_three_with_known_roles(self):
+        self._branch(A, day(1))
+        self._branch(B, day(2))
+        self._commit_on(A, day(3))
+        self._commit_on("main", day(9))
+        for strategy in ("chainTip", "newest"):
+            self.run_cfq(
+                "settings", "set", "--repo", str(self.repo), "baseBranchStrategy", strategy,
+                check=True,
+            )
+            out = self.json_out(self._plan())
+            self.assertLessEqual(len(out["options"]), 3, msg=f"{strategy} options -> {out}")
+            for o in out["options"]:
+                self.assertIn(o["role"], ("recommended", "highestBatch", "newestCommit"),
+                              msg=f"{strategy} role -> {o}")
+
     def test_tie_goes_to_the_highest_batch_branch(self):
         self._branch(B, day(2))
         self._ff_main_to(B)
         out = self.json_out(self._plan())
         self.assertEqual(out["base"], B, msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
         self.assertEqual(len(out["options"]), 1, msg=f"options -> {out}")
 
     def test_older_batch_with_newer_commit_is_offered_as_newest_commit(self):
@@ -630,6 +705,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self._branch(A, day(1))
         self._branch(B, day(2))
         out = self.json_out(self._plan())
+        self.assertTrue(out["diverged"], msg=f"diverged -> {out}")
         self.assertEqual(len(out["options"]), 1, msg=f"options -> {out}")
         self.assertEqual(self._names(out["options"][0]["uncontained"]), [A], msg=f"unc -> {out}")
         self.assertEqual(self._names(out["uncontained"]), [A], msg=f"top-level unc -> {out}")
@@ -737,6 +813,9 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self.assertEqual(len(out["options"]), 1, msg=f"options -> {out}")
         self.assertTrue(out["options"][0]["isDefault"], msg=f"isDefault -> {out}")
         self.assertTrue(out["options"][0]["localOnly"], msg=f"localOnly -> {out}")
+        self.run_cfq(
+            "settings", "set", "--repo", str(repo), "baseBranchStrategy", "newest", check=True
+        )
         for name, date in ((A, day(1)), ("feature", day(2))):
             self.run_clean("git", "checkout", "-q", "-b", name, "main", cwd=repo)
             env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
@@ -759,7 +838,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self._depends_on("2026-02-10-topic", "001-2026-01-01-a")
         out = self.json_out(self._plan("2026-02-10-topic"))
         self.assertEqual(out["base"], c, msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
         self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
     def test_dependson_missing_from_base_flagged_as_dependency(self):
@@ -796,7 +875,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self._depends_on("2026-02-19-topic", "001-2026-01-01-a")
         out = self.json_out(self._plan("2026-02-19-topic"))
         self.assertEqual(out["base"], B, msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
         self.assertEqual(out["uncontained"], [], msg=f"uncontained -> {out}")
 
     def test_dependson_two_independent_deps_one_flagged(self):
@@ -814,7 +893,7 @@ class BranchPlanBaseOptionsTest(CfqTestCase):
         self._depends_on("2026-02-14-topic", "2026-01-01-legacy")
         out = self.json_out(self._plan("2026-02-14-topic"))
         self.assertEqual(out["base"], B, msg=f"base -> {out}")
-        self.assertEqual(out["baseSource"], "highestBatch", msg=f"baseSource -> {out}")
+        self.assertEqual(out["baseSource"], "chainTip", msg=f"baseSource -> {out}")
         self.assertEqual(len(out["uncontained"]), 1, msg=f"uncontained -> {out}")
         entry = out["uncontained"][0]
         self.assertEqual(entry["name"], "cfq/2026-01-01-legacy", msg=f"name -> {out}")
@@ -889,9 +968,9 @@ class BranchListTest(CfqTestCase):
         lines = out["listText"].splitlines()
         self.assertEqual(lines[0], "BRANCHES · newest 3 of 3", msg=f"header -> {lines}")
         self.assertEqual([l.split()[0] for l in lines[1:]], ["1", "2", "3"], msg=f"rows -> {lines}")
-        self.assertEqual(out["recommended"], "feature", msg=f"recommended -> {out}")
+        self.assertEqual(out["recommended"], A, msg=f"recommended -> {out}")
         self.assertEqual(out["defaultBranch"], "main", msg=f"defaultBranch -> {out}")
-        self.assertTrue(self._row(out, "feature").endswith("recommended"), msg=f"{lines}")
+        self.assertTrue(self._row(out, A).endswith("recommended"), msg=f"{lines}")
         self.assertIn("default", self._row(out, "main"), msg=f"{lines}")
         self.assertRegex(self._row(out, A), r"2030-01-01", msg=f"date -> {lines}")
 

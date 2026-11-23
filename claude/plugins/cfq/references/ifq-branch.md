@@ -20,14 +20,20 @@ and marked `localOnly`. `base`/`baseRef` are the recommendation — the batch's 
 only gates *when* a batch is selectable (a blocked batch never reaches `/ifq` at all) and never
 picks the base — with the reason in `baseSource`:
 
-- `"highestBatch"` — the `cfq/<NNN>-…` branch with the highest batch number; no branch that is
-  not a batch branch has a newer commit than its tip;
-- `"newestBranch"` — a branch that is not a batch branch has a strictly newer commit than the
-  highest batch branch, or no batch branch exists at all.
+- `"chainTip"` — the `cfq/<NNN>-…` branch that contains every other batch branch, found by
+  ancestry, never by number or commit date; this is the `baseBranchStrategy` default `chainTip`;
+- `"highestBatch"` — the batch branch with the highest batch number, because no single batch
+  branch contains all the others (top-level `diverged` is `true`) or git could not decide
+  (`diverged` is `false`);
+- `"newestBranch"` — no batch branch exists at all.
+
+With `baseBranchStrategy` set to `newest`, `"highestBatch"` also covers the case where no
+non-batch branch has a newer commit than the highest batch branch's tip, and `"newestBranch"`
+the case where one has.
 
 `options` is the complete, ordered list of branches the base question offers: the
 recommendation (`role: "recommended"`), then `role: "highestBatch"` when the recommendation is
-not a batch branch, then `role: "newestCommit"` — an older batch branch carrying a newer commit
+not a batch branch (strategy `newest` only), then `role: "newestCommit"` — an older batch branch carrying a newer commit
 that the highest one does not contain. Each entry has `name`, `ref`, `isCfq`, `isDefault`,
 `localOnly`, `lastCommit`, `behindRemote`, `aheadRemote`, `containedInBase`, and its own
 `uncontained`/`uncontainedCount`: the unmerged batch branches that entry does not contain — at
@@ -80,7 +86,8 @@ on `mode` to read any of the three. `remoteState` and `pushable` describe the ch
   branch it builds on decides which earlier, unmerged work it contains. The options are exactly
   these, in this order — no branch is offered merely because it exists:
   - One option per `options` entry, in array order. The first is labelled `(Recommended)` and
-    described by `baseSource`: `"highestBatch"` → "the newest batch branch"; `"newestBranch"`
+    described by `baseSource`: `"chainTip"` → "the batch branch that contains all other batch
+    branches"; `"highestBatch"` → "the batch branch with the highest number"; `"newestBranch"`
     → "the newest branch — not a cfq batch branch", stated in the option's own description.
     `role: "highestBatch"` → "the newest cfq batch branch", plus "already contained in
     `<base>`" when `containedInBase` is true. `role: "newestCommit"` → "an older batch branch
@@ -90,7 +97,12 @@ on `mode` to read any of the three. `remoteState` and `pushable` describe the ch
   - **Pick from list**, always last.
 
   `AskUserQuestion`'s built-in "Other" is the free-text field for typing a branch name
-  directly. There is no `main` option, no further candidate and no Cancel option.
+  directly — that is how `main` or any other non-batch branch is chosen, because a non-batch
+  branch is neither recommended nor listed while a batch branch exists. There is no `main`
+  option, no further candidate and no Cancel option.
+
+  When `diverged` is `true`, the question text adds one sentence: the batch branches do not form
+  one chain and the one with the highest number is recommended.
 
   When the recommendation itself is incomplete — its `uncontainedCount` is above zero, or a
   `newestCommit` option exists — the question text opens with that warning, one clause per

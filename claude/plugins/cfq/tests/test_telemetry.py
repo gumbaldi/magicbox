@@ -79,6 +79,49 @@ def _write_meta(subdir, agent_id, agent_type, description="", spawn_depth=1, par
     (subdir / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
 
 
+class ActiveSecondsTest(unittest.TestCase):
+    def _ts(self, minute, second=0):
+        return "2026-08-13T10:%02d:%02d.000Z" % (minute, second)
+
+    def test_evenly_spaced_steps_sum_fully(self):
+        import cfq_telemetry
+        stamps = [self._ts(m) for m in range(0, 5)]
+        self.assertEqual(cfq_telemetry.active_seconds(stamps), 240)
+
+    def test_long_gap_in_the_middle_is_dropped(self):
+        import cfq_telemetry
+        stamps = [self._ts(0), self._ts(1), self._ts(21), self._ts(22)]
+        self.assertEqual(cfq_telemetry.active_seconds(stamps), 120)
+
+    def test_gap_of_exactly_the_limit_counts(self):
+        import cfq_telemetry
+        self.assertEqual(cfq_telemetry.active_seconds([self._ts(0), self._ts(5)]), 300)
+        self.assertEqual(cfq_telemetry.active_seconds([self._ts(0), self._ts(5, 1)]), 0)
+
+    def test_unordered_input_equals_sorted_input(self):
+        import cfq_telemetry
+        stamps = [self._ts(0), self._ts(2), self._ts(30), self._ts(31)]
+        shuffled = [stamps[2], stamps[0], stamps[3], stamps[1]]
+        self.assertEqual(cfq_telemetry.active_seconds(shuffled), cfq_telemetry.active_seconds(stamps))
+        self.assertEqual(cfq_telemetry.active_seconds(shuffled), 180)
+
+    def test_fewer_than_two_timestamps_give_zero(self):
+        import cfq_telemetry
+        self.assertEqual(cfq_telemetry.active_seconds([]), 0)
+        self.assertEqual(cfq_telemetry.active_seconds([self._ts(0)]), 0)
+
+    def test_none_and_garbage_are_skipped(self):
+        import cfq_telemetry
+        stamps = [self._ts(0), None, "not-a-time", "", self._ts(1)]
+        self.assertEqual(cfq_telemetry.active_seconds(stamps), 60)
+
+    def test_custom_gap_limit(self):
+        import cfq_telemetry
+        stamps = [self._ts(0), self._ts(2)]
+        self.assertEqual(cfq_telemetry.active_seconds(stamps, gap_s=60), 0)
+        self.assertEqual(cfq_telemetry.active_seconds(stamps, gap_s=120), 120)
+
+
 class TelemetryTest(CfqTestCase):
     def setUp(self):
         super().setUp()
@@ -172,7 +215,7 @@ class TelemetryTest(CfqTestCase):
         # `count` shows up in every record from here on, not only ones with a subagents/ dir.
         allowed = {
             "schema", "kind", "repo", "batch", "phase", "mode", "session_id", "branch",
-            "cc_version", "from", "until", "wallclock_s", "turns", "input", "output",
+            "cc_version", "from", "until", "wallclock_s", "active_s", "turns", "input", "output",
             "cache_read", "cache_creation", "billable_in", "Bash",
             "subagent_worker", "subagent_explore", "count", "since", "settled", "rev",
         }
@@ -692,6 +735,38 @@ class TelemetryTest(CfqTestCase):
         self.assertEqual(rec["totals"]["turns"], 3)
         self.assertEqual(rec["until"], "2026-08-13T10:02:00.000Z")
         self.assertEqual([n["id"] for n in rec["agents"]], ["u1"])
+
+    def test_active_s_counts_the_agents_activity_inside_a_long_main_gap(self):
+        # The session is idle between 10:00 (it spawns the worker) and 10:20 (the worker is back);
+        # on its own that gap is 1200 s and would be dropped. The worker answers every 4 minutes
+        # in between (10:04 .. 10:16), so the merged timeline has five 240 s gaps: 5 * 240 = 1200.
+        self.transcript.write_text(
+            self._agent_call_line("2026-08-13T10:00:00.000Z", "msg_m1", "toolu_A") + "\n"
+            + self._agent_call_line("2026-08-13T10:20:00.000Z", "msg_m2", "toolu_B") + "\n"
+        )
+        subdir = self._subagent_dir()
+        self._write_agent(
+            subdir, "a1", "cfq:cfq-phase-worker",
+            ["2026-08-13T10:04:00.000Z", "2026-08-13T10:08:00.000Z",
+             "2026-08-13T10:12:00.000Z", "2026-08-13T10:16:00.000Z"],
+            tool_use_id="toolu_A",
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["wallclock_s"], 1200)
+        self.assertEqual(rec["active_s"], 1200)
+        self.assertEqual(rec["subagent_worker"]["turns"], 4)
+
+    def test_active_s_without_agents_drops_the_idle_gap(self):
+        self.transcript.write_text(
+            self._agent_call_line("2026-08-13T10:00:00.000Z", "msg_m1", "toolu_A") + "\n"
+            + self._agent_call_line("2026-08-13T10:01:00.000Z", "msg_m2", "toolu_B") + "\n"
+            + self._agent_call_line("2026-08-13T10:21:00.000Z", "msg_m3", "toolu_C") + "\n"
+        )
+        self._record(str(self.batch), "phase", "01-foo")
+        rec = self._last_record()
+        self.assertEqual(rec["wallclock_s"], 1260)
+        self.assertEqual(rec["active_s"], 60)
 
     # -- one count per API response, split by model (schema 3) --------------------------------
 

@@ -65,11 +65,13 @@ repo-local files written exactly as if `reportDir` were unset.
 
 import argparse
 import copy
+import datetime
 import hashlib
 import json
 import os
 import pathlib
 import re
+import statistics
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -93,6 +95,9 @@ PROG = "cfq_portal.py"
 ENTRY_KINDS = ("plan", "todo")
 ENTRY_FILENAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
 CHECK_RE = re.compile(r"^check:\s*(.+)$")
+
+# how many finished batches the repo overview's planning-versus-implementation summary covers
+RECENT_BATCHES = 10
 
 
 # ---- layout ------------------------------------------------------------------------------------
@@ -290,15 +295,40 @@ def resolve_mirror_name(existing_repos, repo_root):
     return f"{base}-{digest}"
 
 
+def last_activity(queue_payload):
+    """The newest `finished`/`started` of every batch row and `started` of every `now` entry's
+    batch, as the ISO string it was recorded with, or `""` when none parses."""
+    rows = queue_payload.get("batches") or []
+    started = {r.get("name"): r.get("started") for r in rows}
+    candidates = []
+    for r in rows:
+        candidates += [r.get("finished"), r.get("started")]
+    for item in queue_payload.get("now") or []:
+        candidates.append(started.get(item.get("batch")))
+    best, best_ts = "", None
+    for value in candidates:
+        ts = _parse_ts(value) if value else None
+        if ts is not None and (best_ts is None or ts > best_ts):
+            best, best_ts = value, ts
+    return best
+
+
 def repo_counts(queue_payload):
-    """`{"batches": {"inProgress", "planned", "done"}, "todos", "planEntries"}` -- read straight off
-    the queue payload's `totals`, so the cross-repo index can render a repo's card without loading
-    and grouping that repo's full `queue.js` itself."""
+    """`{"batches": {"inProgress", "planned", "done"}, "todos", "planEntries", "now",
+    "attention": {"warn", "plan"}, "lastActivity"}` -- read straight off the queue payload, so the
+    cross-repo index can render a repo's row without loading and grouping that repo's full
+    `queue.js` itself. `now` is the first `queue.now` entry (or `None`), `attention` the uncapped
+    `attentionCounts`, `lastActivity` an ISO string (or `""`)."""
     totals = queue_payload.get("totals", {})
+    now = (queue_payload.get("now") or [None])[0]
+    counts = queue_payload.get("attentionCounts") or {}
     return {
         "batches": totals.get("batches", {"inProgress": 0, "planned": 0, "done": 0}),
         "todos": totals.get("todos", 0),
         "planEntries": totals.get("planEntries", 0),
+        "now": {k: now.get(k) for k in ("batch", "number", "title", "status", "phases")} if now else None,
+        "attention": {"warn": counts.get("warn", 0), "plan": counts.get("plan", 0)},
+        "lastActivity": last_activity(queue_payload),
     }
 
 
@@ -476,6 +506,49 @@ def batch_cost(data):
     return merge_costs([cost_of(tel) for tel in telemetry_records(data)])
 
 
+def _parse_ts(value):
+    """A timezone-aware datetime from an ISO timestamp (a naive one counts as UTC), else `None`."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
+
+
+def _known_num(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def implementation_part(data):
+    """The batch payload's `implementation` object: the phase attempts' own span, active time and
+    cost (planning excluded); `None` when no attempt carries telemetry. `wallclock_s` is calendar
+    time (pauses between sessions included), `active_s` sums the attempts that have one and is
+    `None` when none does, `activeComplete` is false when any attempt lacks it."""
+    attempts = [p["telemetry"] for p in report_phases(data) if isinstance(p.get("telemetry"), dict)]
+    if not attempts:
+        return None
+    starts = [(ts, tel["from"]) for tel in attempts if (ts := _parse_ts(tel.get("from")))]
+    ends = [(ts, tel["until"]) for tel in attempts if (ts := _parse_ts(tel.get("until")))]
+    if starts and ends:
+        first, last = min(starts, key=lambda x: x[0]), max(ends, key=lambda x: x[0])
+        wallclock = max(0, int((last[0] - first[0]).total_seconds()))
+        begin, end = first[1], last[1]
+    else:
+        begin = end = ""
+        wallclock = sum(_num(tel.get("wallclock_s")) for tel in attempts)
+    actives = [a for a in (_known_num(tel.get("active_s")) for tel in attempts) if a is not None]
+    return {
+        "from": begin,
+        "until": end,
+        "wallclock_s": wallclock,
+        "active_s": sum(actives) if actives else None,
+        "activeComplete": len(actives) == len(attempts),
+        "cost": merge_costs([cost_of(tel) for tel in attempts]),
+    }
+
+
 def count_deviations(data):
     total = 0
     for p in report_phases(data):
@@ -635,10 +708,10 @@ def note_stem(filename):
     return name[:-3] if name.endswith(".md") else name
 
 
-def edit_target(path, host):
-    """`{"path": <OS path>, "url": <editor link>}` for an editable file or directory; `url` is
-    left out when the `editor` setting is `off`. `host` is the `sync()`-wide
-    `{"platform", "distro", "editor"}` dict."""
+def dir_target(path, host):
+    """`{"path": <OS path>, "url": <link that opens the folder>}` for a folder; `url` is left out when the
+    `editor` setting is `off`. `host` is the `sync()`-wide `{"platform", "distro", "editor"}`
+    dict."""
     path = str(path)
     target = {"path": host_paths.os_path(path, host["platform"], host["distro"])}
     url = host_paths.editor_url(path, host["editor"], host["platform"], host["distro"])
@@ -647,8 +720,17 @@ def edit_target(path, host):
     return target
 
 
+def file_target(path, host):
+    """`{"path": <OS path of the file>, "dir": dir_target(<its folder>)}`; VS Code opens a
+    folder from a remote link but not a single file, so a file carries only its path."""
+    return {
+        "path": host_paths.os_path(str(path), host["platform"], host["distro"]),
+        "dir": dir_target(os.path.dirname(str(path)), host),
+    }
+
+
 def read_host(repo_root):
-    """The host dict `edit_target()` needs, from one `settings list --repo` read; any failure
+    """The host dict `dir_target()` needs, from one `settings list --repo` read; any failure
     degrades to the defaults and `host_paths.resolve()`'s own `posix` fallback."""
     try:
         proc = cfq_run("settings", "list", "--repo", str(repo_root))
@@ -701,7 +783,7 @@ def build_entry_payload(kind, path, state, links, host=None):
         "bodyHtml": cfq_lib_markdown.md_min(text, keep_h1=False),
     }
     if host is not None and state == "open":
-        payload["edit"] = edit_target(path, host)
+        payload["edit"] = file_target(path, host)
     return payload
 
 
@@ -766,6 +848,18 @@ def first_paragraph_html(markdown):
     return cfq_lib_markdown.md_inline(cfq_lib_markdown.esc(" ".join(lines))) if lines else ""
 
 
+def brief_cost(cost):
+    return {"total": cost["total"], "byModel": cost["byModel"]} if cost else None
+
+
+def brief_time(part):
+    """`{wallclock_s, active_s}` of a planning record or an implementation part; `None` for none."""
+    if not isinstance(part, dict):
+        return None
+    t = time_of(part)
+    return {"wallclock_s": t["wallclock_s"], "active_s": t["active_s"]}
+
+
 def build_queue_batch_row(b, bd, data, changelog, merge_lookup):
     number, date, title = parse_batch_name(b["name"])
     status = batch_status(b)
@@ -773,6 +867,8 @@ def build_queue_batch_row(b, bd, data, changelog, merge_lookup):
     info = changelog.get(b["name"], {"branch": "", "base": ""})
     records = telemetry_records(data)
     sections = cfq_report.read_batch_context(str(bd))
+    planning = data.get("planning") if isinstance(data.get("planning"), dict) else None
+    implementation = implementation_part(data)
     return {
         "name": b["name"],
         "number": number,
@@ -791,7 +887,16 @@ def build_queue_batch_row(b, bd, data, changelog, merge_lookup):
         "goalHtml": first_paragraph_html(sections.get("goal", "")),
         "started": render.jq_alt(data.get("started"), ""),
         "finished": cfq_report.batch_finished(data) if status == "done" else "",
-        "cost": {"total": cost["total"], "byModel": cost["byModel"]} if cost else None,
+        "cost": {
+            "total": cost["total"],
+            "byModel": cost["byModel"],
+            "planning": brief_cost(cost_of(planning)),
+            "implementation": brief_cost(implementation["cost"]) if implementation else None,
+        } if cost else None,
+        "time": {
+            "planning": brief_time(planning),
+            "implementation": brief_time(implementation),
+        },
         "deviations": count_deviations(data),
         "flags": {"warn": 0, "info": 0},
         "branch": info["branch"],
@@ -801,7 +906,100 @@ def build_queue_batch_row(b, bd, data, changelog, merge_lookup):
     }
 
 
-def build_queue_payload(repo_root, rows, entries, base=None, points=None):
+def _whole(value):
+    return int(value) if isinstance(value, float) and value.is_integer() else value
+
+
+def _median(values):
+    return _whole(statistics.median(values)) if values else None
+
+
+def _finished_key(row):
+    return _parse_ts(row.get("finished")) or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
+def recent_summary(rows, batch_payloads):
+    """The last `RECENT_BATCHES` finished batches with telemetry (newest first, ties by name) and,
+    over them, planning and implementation side by side: tokens, calendar and active time, and the
+    medians the overview compares. `active_s` sums known values only (`None` when none is known)."""
+    finished = [r for r in rows if r.get("status") == "done" and r.get("finished") and r.get("cost")]
+    finished.sort(key=lambda r: r["name"])
+    finished.sort(key=_finished_key, reverse=True)
+    names = [r["name"] for r in finished[:RECENT_BATCHES]]
+
+    p_total, p_models, p_wall, p_active, p_outputs = zero_t5(), {}, 0, [], []
+    i_total, i_models, i_wall, i_active, phase_outputs = zero_t5(), {}, 0, [], []
+    for name in names:
+        payload = batch_payloads.get(name) or {}
+        planning = payload.get("planning") if isinstance(payload.get("planning"), dict) else None
+        if planning:
+            p_wall += _num(planning.get("wallclock_s"))
+            if _known_num(planning.get("active_s")) is not None:
+                p_active.append(planning["active_s"])
+            if planning.get("cost"):
+                p_total = add_t5(p_total, planning["cost"]["total"])
+                merge_models(p_models, planning["cost"]["byModel"])
+                p_outputs.append(planning["cost"]["total"]["output"])
+        impl = payload.get("implementation") if isinstance(payload.get("implementation"), dict) else None
+        if impl:
+            i_wall += _num(impl.get("wallclock_s"))
+            if _known_num(impl.get("active_s")) is not None:
+                i_active.append(impl["active_s"])
+            if impl.get("cost"):
+                i_total = add_t5(i_total, impl["cost"]["total"])
+                merge_models(i_models, impl["cost"]["byModel"])
+        for ph in payload.get("phases") or []:
+            outs = [a["cost"]["total"]["output"] for a in ph.get("attempts") or [] if a.get("cost")]
+            if outs:
+                phase_outputs.append(sum(outs))
+    return {
+        "batches": names,
+        "planning": {
+            "total": p_total, "byModel": p_models, "wallclock_s": p_wall,
+            "active_s": sum(p_active) if p_active else None, "medianOutput": _median(p_outputs),
+        },
+        "implementation": {
+            "total": i_total, "byModel": i_models, "wallclock_s": i_wall,
+            "active_s": sum(i_active) if i_active else None, "phases": len(phase_outputs),
+            "outputPerPhase": _median(phase_outputs),
+        },
+    }
+
+
+NOW_CAP = 5
+NOW_ORDER = ("in_progress", "awaiting_review", "planning", "blocked")
+
+
+def now_items(rows, batch_payloads):
+    """What is happening now, at most `NOW_CAP` items: batches in progress, awaiting review, in
+    planning and blocked (in that order, by name), then the first planned batch in `/ifq` order
+    (priority `high` first, then name). `current` is the first open phase of an in-progress batch,
+    `waitsOn` the `dependsOn` of a blocked one."""
+    picked = []
+    for status in NOW_ORDER:
+        picked += sorted((r for r in rows if r["status"] == status), key=lambda r: r["name"])
+    planned = sorted(
+        (r for r in rows if r["status"] == "planned"),
+        key=lambda r: (0 if r.get("priority") == "high" else 1, r["name"]),
+    )
+    picked += planned[:1]
+    items = []
+    for r in picked[:NOW_CAP]:
+        current = None
+        if r["status"] == "in_progress":
+            for ph in (batch_payloads.get(r["name"]) or {}).get("phases") or []:
+                if ph.get("state") not in ("done", "skipped"):
+                    current = {"num": ph.get("num"), "title": ph.get("title", "")}
+                    break
+        items.append({
+            "batch": r["name"], "number": r["number"], "title": r["title"], "status": r["status"],
+            "phases": r["phases"], "current": current,
+            "waitsOn": r["dependsOn"] if r["status"] == "blocked" else [],
+        })
+    return items
+
+
+def build_queue_payload(repo_root, rows, entries, base=None, points=None, payloads=None, audits=None):
     groups = {"inProgress": 0, "planned": 0, "done": 0}
     for r in rows:
         if r["status"] == "in_progress":
@@ -815,6 +1013,15 @@ def build_queue_payload(repo_root, rows, entries, base=None, points=None):
         if r["cost"]:
             cost = add_t5(cost, r["cost"]["total"])
     open_entries = [e for e in entries if e["state"] == "open"]
+    payloads = payloads or {}
+    recent = recent_summary(rows, payloads)
+    waiting = [
+        {"name": r["name"], "status": r["status"], "unknownDeps": r["unknownDeps"],
+         "audit": (audits or {}).get(r["name"], False),
+         "flags": (payloads.get(r["name"]) or {}).get("flags") or []}
+        for r in rows
+    ]
+    everything = cfq_flags.attention_items(waiting, recent["batches"], cap=None)
     return {
         "repo": repo_root,
         "totals": {
@@ -830,17 +1037,25 @@ def build_queue_payload(repo_root, rows, entries, base=None, points=None):
         },
         "baselines": base or {},
         "sizes": points or [],
+        "recent": recent,
+        "attention": cfq_flags.attention_items(waiting, recent["batches"]),
+        "attentionCounts": {
+            level: sum(1 for i in everything if i.get("level") == level) for level in ("warn", "plan")
+        },
+        "now": now_items(rows, payloads),
         "batches": sorted(rows, key=lambda r: r["name"]),
         "entries": sorted(entries, key=lambda e: e["id"]),
     }
 
 
 def time_of(tel):
+    """A record's span; `active_s` is `None` for an older record that has none, never `0`."""
     tel = tel if isinstance(tel, dict) else {}
     return {
         "from": render.jq_alt(tel.get("from"), ""),
         "until": render.jq_alt(tel.get("until"), ""),
         "wallclock_s": _num(tel.get("wallclock_s")),
+        "active_s": _known_num(tel.get("active_s")),
     }
 
 
@@ -863,6 +1078,8 @@ def attempt_payload(p):
         "diffstat": p.get("diffstat") if isinstance(p.get("diffstat"), dict) else None,
         "filesTouched": render.jq_alt(p.get("filesTouched"), []),
         "parkedPlanEntries": render.jq_alt(p.get("parkedPlanEntries"), []),
+        "outOfScope": p.get("outOfScope") if isinstance(p.get("outOfScope"), list) else [],
+        "checks": p.get("checks") if isinstance(p.get("checks"), list) else [],
         "time": time_of(tel),
         "settled": is_settled(tel),
         "mode": render.jq_alt(tel_or_empty.get("mode"), ""),
@@ -902,7 +1119,7 @@ def phase_payloads(bd, data, host=None):
         if rec["status"] == "skipped":
             phase["skipReason"] = rec["reason"] or ""
         if host is not None and f and rec["status"] != "done":
-            phase["edit"] = edit_target(f, host)
+            phase["edit"] = file_target(f, host)
         phases.append(phase)
     return phases
 
@@ -944,7 +1161,12 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles, host=None)
         "context": {key: cfq_lib_markdown.md_min(body, keep_h1=False) for key, body in sections.items()},
         "planning": None if planning is None else {
             **time_of(planning), "settled": is_settled(planning), "cost": cost_of(planning),
+            "interviewDepth": render.jq_alt(planning.get("interview_depth"), ""),
+            "phaseCount": planning.get("phase_count") if isinstance(planning.get("phase_count"), int)
+            and not isinstance(planning.get("phase_count"), bool) else None,
+            "audit": data.get("audit") if isinstance(data.get("audit"), list) else [],
         },
+        "implementation": implementation_part(data),
         "phases": phases,
         "cost": batch_cost(data),
         "notes": note_payloads(data, entry_states),
@@ -957,10 +1179,10 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles, host=None)
         "flags": [],
     }
     if host is not None and any(p["state"] != "done" for p in phases):
-        edit = {"dir": edit_target(bd, host)}
+        edit = {"dir": dir_target(bd, host)}
         context_file = pathlib.Path(bd) / ".batch-context.md"
         if context_file.is_file():
-            edit["context"] = edit_target(context_file, host)
+            edit["context"] = {"path": host_paths.os_path(str(context_file), host["platform"], host["distro"])}
         payload["edit"] = edit
     return payload
 
@@ -978,6 +1200,15 @@ def batch_newer_than(batch_dir, data_file):
             if cfq_lib_paths.mtime(os.path.join(root, f)) > data_mtime:
                 return True
     return False
+
+
+def phase_baseline(size, base):
+    """The size's rolling medians for a phase payload (`None` for an unsized phase or a size
+    without a baseline) -- the batch page's cost tab compares a phase's output against it."""
+    entry = (base or {}).get(size) if size else None
+    if not entry:
+        return None
+    return {"size": size, "outputMedian": entry["outputMedian"], "turnsMedian": entry["turnsMedian"]}
 
 
 def sync(repo_root, batch_names=None):
@@ -1030,7 +1261,8 @@ def sync(repo_root, batch_names=None):
         data_file = out_dir / "batch" / f"{name}.js"
         if batch_names is not None and name not in batch_names and not batch_newer_than(dirs[name], data_file):
             payload = read_data_payload(data_file)
-            if not (isinstance(payload, dict) and isinstance(payload.get("phases"), list) and "flags" in payload):
+            if not (isinstance(payload, dict) and isinstance(payload.get("phases"), list) and "flags" in payload
+                    and "implementation" in payload):
                 payload = None
         if payload is None:
             fresh.add(name)
@@ -1044,13 +1276,17 @@ def sync(repo_root, batch_names=None):
     base = cfq_flags.baselines(points)
     for name, payload in payloads.items():
         for ph in payload["phases"]:
+            ph["baseline"] = phase_baseline(ph.get("size"), base)
             ph["flags"] = cfq_flags.phase_flags(ph, base, repo_root)
         payload["flags"] = cfq_flags.batch_flags(payload, base, repo_root)
         rows[name]["flags"] = {
             level: sum(1 for f in payload["flags"] if f["level"] == level) for level in ("warn", "info")
         }
 
-    queue_payload = build_queue_payload(repo_root, list(rows.values()), entries, base, points)
+    audits = {b["name"]: bool(b.get("audit")) for b in scan["batches"]}
+    queue_payload = build_queue_payload(
+        repo_root, list(rows.values()), entries, base, points, payloads, audits,
+    )
     write("queue", queue_payload)
 
     for name in sorted(payloads):

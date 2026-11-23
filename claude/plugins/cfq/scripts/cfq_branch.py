@@ -15,10 +15,18 @@ also read-only.
 
 On `new`, `base`/`baseRef` are the recommendation (`_recommend()`) -- `.dependsOn` never picks the
 base. It only gates *when* a batch is selectable (a batch whose dependency is not in `impl/done/` is
-already never offered by `ifq`). The recommended base is always the newest branch. "Newest" among
-`cfq/<NNN>-...` batch branches is decided by the batch number, never the commit date: `H` is the
-batch branch with the highest number (merged or not). `N` is the non-batch branch with the newest
-tip commit (ties: the default branch, then name). `N` is recommended only when its commit is
+already never offered by `ifq`). The setting `baseBranchStrategy` picks the rule.
+`chainTip` (default): with at least one `cfq/<NNN>-...` batch branch, the recommendation is the
+batch branch whose ref contains every other batch ref, found by ancestry (candidates newest first
+by commit date then number, one `for-each-ref --no-merged` call each) -- never a non-batch branch
+such as `main`; those stay reachable through the free-text answer (`baseSource: "chainTip"`,
+`diverged: false`). When no batch branch contains all the others, the highest batch number is
+recommended (`"highestBatch"`, top-level `diverged: true`) and `options` adds, as `"newestCommit"`,
+a batch branch with a newer commit that the recommendation does not contain; when git cannot decide, the highest
+number is recommended with `diverged: false`. With no batch branch the `newest` rule below applies.
+`newest`: "newest" among batch branches is decided by the batch number, never the commit date: `H`
+is the batch branch with the highest number (merged or not). `N` is the non-batch branch with the
+newest tip commit (ties: the default branch, then name). `N` is recommended only when its commit is
 strictly newer than `H`'s (`baseSource: "newestBranch"`, also when no batch branch exists); in every
 other case `H` is (`"highestBatch"`). `options` carries the recommendation and at most two more,
 each tagged with a `role`: `"recommended"`; `"highestBatch"` (`H`, offered when `N` is recommended,
@@ -285,14 +293,52 @@ def _uncontained(repo, target, branches, unmerged, dependency_branches):
     return ordered[:UNCONTAINED_CAP], len(ordered)
 
 
-def _recommend(repo, branches, default_name=None):
-    """`([(branch, role), ...], baseSource)` -- the ordered option list, at most three entries (see
-    the module docstring for the rule). Empty list when there is no branch at all."""
+def _base_strategy(repo):
+    """The `baseBranchStrategy` setting, `chainTip` for any unreadable or unknown value."""
+    try:
+        value = proc.settings_get(repo, "baseBranchStrategy")
+    except Exception:  # noqa: BLE001 -- an unreadable setting must never break a recommendation
+        return "chainTip"
+    return value if value in ("chainTip", "newest") else "chainTip"
+
+
+def _chain_tip(repo, batch):
+    """`(tip, diverged)` over the batch branches: the one whose ref contains every other batch
+    ref, found with one `_not_merged_refs` call per candidate (candidates newest first by
+    `(epoch, number)`). No such branch: `(None, True)`; git failing: `(None, False)`."""
+    refs = {b["ref"] for b in batch}
+    for b in sorted(batch, key=lambda b: (b["epoch"], _batch_number(b["name"])), reverse=True):
+        not_merged = _not_merged_refs(repo, b["ref"])
+        if not_merged is None:
+            return None, False
+        if not (refs - {b["ref"]}) & not_merged:
+            return b, False
+    return None, True
+
+
+def _recommend(repo, branches, default_name=None, strategy="chainTip"):
+    """`([(branch, role), ...], baseSource, diverged)` -- the ordered option list, at most three
+    entries (see the module docstring for the rule). Empty list when there is no branch at all."""
     if default_name is None:
         default_name, _ = default_branch(repo, any(not b["localOnly"] for b in branches))
     batch = [b for b in branches if _is_batch(b["name"])]
     other = [b for b in branches if not _is_batch(b["name"])]
     highest = max(batch, key=lambda b: (_batch_number(b["name"]), b["epoch"])) if batch else None
+
+    if strategy == "chainTip" and batch:
+        tip, diverged = _chain_tip(repo, batch)
+        if tip is not None:
+            return [(tip, "recommended")], "chainTip", False
+        options = [(highest, "recommended")]
+        newer = [
+            b for b in batch
+            if b is not highest and b["epoch"] > highest["epoch"]
+            and not is_ancestor(repo, b["ref"], highest["ref"])
+        ]
+        if newer:
+            options.append((max(newer, key=lambda b: (b["epoch"], b["name"])), "newestCommit"))
+        return options, "highestBatch", diverged
+
     newest = min(
         other, key=lambda b: (-b["epoch"], b["name"] != default_name, b["name"])
     ) if other else None
@@ -302,7 +348,7 @@ def _recommend(repo, branches, default_name=None):
     elif highest is not None:
         recommended, source = highest, "highestBatch"
     else:
-        return [], "newestBranch"
+        return [], "newestBranch", False
 
     options = [(recommended, "recommended")]
     if recommended is newest and highest is not None:
@@ -316,7 +362,7 @@ def _recommend(repo, branches, default_name=None):
         ]
         if newer:
             options.append((max(newer, key=lambda b: (b["epoch"], b["name"])), "newestCommit"))
-    return options, source
+    return options, source, False
 
 
 # ---- list ---------------------------------------------------------------------------------------
@@ -331,7 +377,7 @@ def cmd_list(args):
     default_name, default_ref = default_branch(repo, rchecked)
     branches = _collect_branches(repo, rchecked)
     unmerged = _unmerged_cfq(repo, branches, default_ref)
-    picked, _ = _recommend(repo, branches, default_name)
+    picked, _, _ = _recommend(repo, branches, default_name, _base_strategy(repo))
     recommended = picked[0][0]["name"] if picked else default_name
 
     def newest_first(b):
@@ -568,7 +614,9 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     # is still worth flagging explicitly -- `_uncontained()` folds it in as `dependency: true`.
     dependency_branches = _unmerged_dependency_branches(repo, batch_name, rchecked, default_ref)
 
-    picked, base_source = _recommend(repo, branches, default_name)
+    picked, base_source, diverged = _recommend(
+        repo, branches, default_name, _base_strategy(repo)
+    )
     if not picked:  # no branch at all (e.g. a repo without a first commit) -- the default branch
         picked = [({
             "name": default_name, "ref": default_ref, "epoch": 0, "lastCommit": "",
@@ -630,7 +678,7 @@ def _emit_new(repo, batch_name, number, rchecked, dirty, changelog_dirty):
     print(render.dump_json({
         "mode": "new", "batch": batch_name, "batchNumber": number, "branch": branch,
         "defaultBranch": default_name, "base": base_name, "baseRef": base_ref,
-        "baseSource": base_source, "options": options,
+        "baseSource": base_source, "diverged": diverged, "options": options,
         "uncontained": options[0]["uncontained"], "uncontainedCount": options[0]["uncontainedCount"],
         "remoteChecked": rchecked, "remoteWarning": new_warning,
         "remoteState": remote_state, "pushable": pushable, "unpushed": unpushed,

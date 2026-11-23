@@ -38,6 +38,9 @@
       var attempts = phase.attempts || [];
       var latest = latestAttempt(phase);
       var turns = null, inTok = null, out = null, duration = null;
+      // Active time is the sum over the attempts, but only when every timed attempt recorded it: a
+      // partial sum would understate the work, so one older record makes the row calendar-only.
+      var active = null, activeAll = true;
       attempts.forEach(function (a) {
         var t = attemptTotal(a);
         if (t) {
@@ -47,6 +50,9 @@
         }
         var w = a.time && a.time.wallclock_s;
         if (isNum(w)) duration = (duration || 0) + w;
+        var act = a.time && a.time.active_s;
+        if (isNum(act)) active = (active || 0) + act;
+        else if (isNum(w)) activeAll = false;
       });
       return {
         phase: phase,
@@ -61,6 +67,7 @@
         out: out,
         worked: latest && latest.time ? latest.time.from || null : null,
         duration: duration,
+        active: activeAll ? active : null,
         devCount: latest ? (latest.deviations || []).length : 0,
         // an error or skipped phase shows its own state, not the status of its latest attempt
         status: phase.state === "error" || phase.state === "skipped" ? phase.state : (latest ? latest.status : "open"),
@@ -134,7 +141,12 @@
       var a = new Date(batch.started).getTime(), b = new Date(batch.finished).getTime();
       if (isFinite(a) && isFinite(b) && b >= a) elapsed = (b - a) / 1000;
     }
+    var rows = phaseRows(batch);
+    var count = function (status) { return rows.filter(function (r) { return r.status === status; }).length; };
     return {
+      green: count("green"),
+      skipped: count("skipped"),
+      error: count("error"),
       started: batch.started || null,
       finished: batch.finished || null,
       elapsed: elapsed,
@@ -174,10 +186,22 @@
     return c;
   }
 
-  function dateCell(doc, iso) {
+  // Start clock time of the latest attempt, the full date and time as the tooltip.
+  function clockCell(doc, iso) {
     var C = core();
     if (!iso) return dash(doc, "td", "date");
-    var c = C.el(doc, "td", C.fmtDateTime(iso), "date");
+    var c = C.el(doc, "td", C.fmtClock(iso), "date");
+    c.setAttribute("title", C.fmtDateTime(iso));
+    return c;
+  }
+
+  // Active time with the calendar time as the tooltip; calendar time alone for an older record.
+  function activeCell(doc, row) {
+    var C = core();
+    if (!isNum(row.duration)) return dash(doc, "td", "n");
+    var a = C.fmtActive(row.active, row.duration);
+    var c = C.el(doc, "td", a.text, "n");
+    if (a.title) c.setAttribute("title", "calendar " + a.title);
     return c;
   }
 
@@ -209,21 +233,185 @@
     return ul;
   }
 
-  // ---- header -----------------------------------------------------------------------------------
+  // ---- header: result line, part cards and notices ----------------------------------------------
 
-  function fact(doc, label, node) {
+  // "N of M phases green" (plus skipped/error when present), the merge state, branch and base.
+  function resultLine(doc, batch) {
     var C = core();
-    var span = C.el(doc, "span", null, "fact");
-    span.appendChild(C.el(doc, "span", label, "fact-label"));
-    span.appendChild(node);
-    return span;
+    var f = headerFacts(batch);
+    var line = C.el(doc, "div", null, "result");
+    var main = "" + f.green + " of " + f.phases.total + " phases green";
+    if (f.skipped) main += " · " + f.skipped + " skipped";
+    if (f.error) main += " · " + f.error + " error";
+    line.appendChild(C.el(doc, "span", main, "result-main"));
+    if (f.merged !== null) line.appendChild(C.el(doc, "span", f.merged ? "✔ merged" : "not merged yet"));
+    if (f.branch) line.appendChild(C.el(doc, "code", f.branch, "branch"));
+    if (f.base) {
+      var base = C.el(doc, "span", "base ");
+      base.appendChild(C.el(doc, "code", f.base));
+      line.appendChild(base);
+    }
+    return line;
   }
 
-  function factText(doc, text, title) {
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  // Models of a byModel map, the one with the most output first.
+  function modelsByOutput(byModel) {
+    return Object.keys(byModel || {}).sort(function (a, b) {
+      return ((byModel[b] && byModel[b].output) || 0) - ((byModel[a] && byModel[a].output) || 0) || (a < b ? -1 : 1);
+    });
+  }
+
+  function layerCount(cost, name) {
+    var l = cost && cost.layers && cost.layers[name];
+    return l && isNum(l.count) ? l.count : 0;
+  }
+
+  // "17.11. 23:37–23:55" (the end carries its own day when it differs from the start's).
+  function clockRange(from, until) {
     var C = core();
-    var s = text === null || text === undefined ? C.el(doc, "span", "–", "fact-value faint") : C.el(doc, "span", text, "fact-value");
-    if (title) s.setAttribute("title", title);
-    return s;
+    if (!from || !until) return null;
+    var day = function (iso) { return C.fmtDmy(iso).slice(0, 6); };
+    var end = day(until) === day(from) ? C.fmtClock(until) : day(until) + " " + C.fmtClock(until);
+    return day(from) + " " + C.fmtClock(from) + "–" + end;
+  }
+
+  function auditNote(planning) {
+    var list = (planning && planning.audit) || [];
+    var last = list.length ? list[list.length - 1] : null;
+    if (!last) return null;
+    var a = new Date(last.started).getTime(), b = new Date(last.finished).getTime();
+    if (!last.finished || !isFinite(a) || !isFinite(b) || b < a) return "audit running";
+    return "audit " + core().fmtSpan((b - a) / 1000) + " · " + plural(last.findings || 0, "finding", "findings");
+  }
+
+  function modeNote(batch) {
+    var modes = {};
+    (batch.phases || []).forEach(function (p) {
+      (p.attempts || []).forEach(function (a) { if (a.mode) modes[a.mode] = true; });
+    });
+    var list = Object.keys(modes).sort();
+    return list.length ? list.join(" + ") : null;
+  }
+
+  // One side of the planning | implementation split of this batch.
+  function partCard(doc, kind, part, batch, share) {
+    var C = core();
+    var t = part && part.cost && part.cost.total;
+    var opts = { kind: kind, title: kind === "plan" ? "Planning" : "Implementation", share: share };
+    if (!t) {
+      opts.empty = "No telemetry recorded.";
+      return C.partCard(doc, opts);
+    }
+    var a = C.fmtActive(part.active_s, part.wallclock_s);
+    var sub = kind === "plan" ? clockRange(part.from, part.until) : null;
+    if (!sub && a.title) sub = "calendar " + a.title;
+    var inNew = C.billableIn(t);
+    opts.facts = [
+      { k: "Active", v: a.text, s: sub, title: a.title ? "calendar " + a.title : "" },
+      { k: "Output", v: C.fmtTokens(t.output), s: C.fmtInt(t.turns || 0) + " turns", title: C.fmtInt(t.output) + " output tokens" },
+      { k: "Input new", v: C.fmtTokens(inNew), title: "Input plus cache creation: " + C.fmtInt(inNew) + " tokens" },
+      { k: "Cache read", v: C.fmtTokens(t.cache_read), title: C.fmtInt(t.cache_read) + " tokens read from the cache" },
+    ];
+    opts.models = modelsByOutput(part.cost.byModel);
+    var notes = [];
+    var explorers = layerCount(part.cost, "main_explore") + layerCount(part.cost, "worker_explore");
+    if (kind === "plan") {
+      if (part.interviewDepth) notes.push(part.interviewDepth + " interview");
+      if (isNum(part.phaseCount)) notes.push(plural(part.phaseCount, "phase planned", "phases planned"));
+      if (explorers) notes.push(plural(explorers, "explorer", "explorers"));
+      var audit = auditNote(part);
+      if (audit) notes.push(audit);
+    } else {
+      var mode = modeNote(batch);
+      if (mode) notes.push(mode);
+      var workers = layerCount(part.cost, "worker");
+      var counts = [];
+      if (workers) counts.push(plural(workers, "worker", "workers"));
+      if (explorers) counts.push(plural(explorers, "explorer", "explorers"));
+      if (counts.length) notes.push(counts.join(" · "));
+    }
+    opts.notes = notes;
+    return C.partCard(doc, opts);
+  }
+
+  function partCards(doc, batch) {
+    var C = core();
+    var p = batch.planning, m = batch.implementation;
+    var pOut = (p && p.cost && p.cost.total && p.cost.total.output) || 0;
+    var mOut = (m && m.cost && m.cost.total && m.cost.total.output) || 0;
+    var all = pOut + mOut;
+    var pShare = all > 0 && pOut > 0 ? Math.round((pOut / all) * 100) : null;
+    var split = C.el(doc, "div", null, "split");
+    split.appendChild(partCard(doc, "plan", p, batch, pShare === null ? "" : pShare + " %"));
+    split.appendChild(partCard(doc, "impl", m, batch, pShare === null && !mOut ? "" : (100 - (pShare || 0)) + " %"));
+    return split;
+  }
+
+  var INFO_LABEL = {
+    "cost-outlier": ["phase above its size baseline", "phases above their size baseline"],
+    observations: ["phase with observations", "phases with observations"],
+  };
+
+  // Counts per flag code: distinct phases, or the flags themselves when they name no phase.
+  function infoSummary(infos) {
+    var by = {};
+    infos.forEach(function (f) {
+      var e = by[f.code] = by[f.code] || { phases: {}, loose: 0 };
+      if (f.phase) e.phases[f.phase] = true; else e.loose += 1;
+    });
+    var codes = Object.keys(by).sort(function (a, b) {
+      var ra = INFO_LABEL[a] ? 0 : 1, rb = INFO_LABEL[b] ? 0 : 1;
+      return ra - rb || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    return codes.map(function (code) {
+      var n = Object.keys(by[code].phases).length + by[code].loose;
+      var label = INFO_LABEL[code];
+      return label ? plural(n, label[0], label[1]) : plural(n, code + " note", code + " notes");
+    }).join(" · ");
+  }
+
+  function flagLine(doc, ctx, batch, flag, mark, level) {
+    var C = core();
+    var li = C.el(doc, "li", null, "flag-line");
+    li.appendChild(C.el(doc, "span", mark, "flag flag-" + level));
+    li.appendChild(C.text(doc, " "));
+    li.appendChild(C.inlineCode(doc, flag.text));
+    if (flag.phase) {
+      li.appendChild(C.text(doc, " "));
+      li.appendChild(link(doc, flag.phase, C.href(ctx, "batch/" + batch.name + "/phase/" + flag.phase), "flag-phase"));
+    }
+    return li;
+  }
+
+  // Real warnings stay listed; the info flags collapse into one disclosure whose summary counts
+  // them by code.
+  function renderNotices(doc, head, ctx, batch) {
+    var C = core();
+    var flags = batch.flags || [];
+    var warns = flags.filter(function (x) { return x.level === "warn"; });
+    var infos = flags.filter(function (x) { return x.level === "info"; });
+    if (warns.length) {
+      var ul = C.el(doc, "ul", null, "batch-flags");
+      warns.forEach(function (flag) { ul.appendChild(flagLine(doc, ctx, batch, flag, "⚠", "warn")); });
+      head.appendChild(ul);
+    }
+    var none = warns.length ? null : C.el(doc, "span", "no warnings", "pill ok");
+    if (!infos.length) {
+      if (none) head.appendChild(C.el(doc, "div", null, "notices notices-none")).appendChild(none);
+      return;
+    }
+    var label = C.el(doc, "span", null, "notices-label");
+    if (none) label.appendChild(none);
+    label.appendChild(C.el(doc, "span", infoSummary(infos), "muted"));
+    var box = C.disclosure(doc, label, function (d, body) {
+      var list = C.el(d, "ul", null, "batch-flags");
+      infos.forEach(function (flag) { list.appendChild(flagLine(d, ctx, batch, flag, "ℹ", "info")); });
+      body.appendChild(list);
+    });
+    box.className += " notices";
+    head.appendChild(box);
   }
 
   function renderHeader(doc, root, ctx, batch) {
@@ -253,64 +441,17 @@
     var goal = batch.context && batch.context.goal;
     if (goal) head.appendChild(C.html(doc, "div", goal, "goal prose"));
 
-    var f = headerFacts(batch);
-    var facts = C.el(doc, "p", null, "facts");
-    facts.appendChild(fact(doc, "Started", factText(doc, f.started ? C.fmtDateTime(f.started) : null)));
-    facts.appendChild(fact(doc, "Finished", factText(doc, f.finished ? C.fmtDateTime(f.finished) : null)));
-    facts.appendChild(fact(doc, "Elapsed", factText(doc, f.elapsed === null ? null : C.fmtDuration(f.elapsed))));
-    var skipped = (batch.phases || []).filter(function (p) { return p.state === "skipped"; }).length;
-    facts.appendChild(fact(doc, "Phases", factText(doc, f.phases.done + "/" + f.phases.total + (skipped ? " · " + skipped + " skipped" : ""))));
-    facts.appendChild(fact(doc, "Turns", factText(doc, f.turns === null ? null : C.fmtInt(f.turns))));
-    facts.appendChild(fact(doc, "In", factText(doc, f.in === null ? null : C.fmtTokens(f.in), f.in === null ? "" : C.fmtInt(f.in))));
-    facts.appendChild(fact(doc, "Out", factText(doc, f.out === null ? null : C.fmtTokens(f.out), f.out === null ? "" : C.fmtInt(f.out))));
-    var branch = f.branch ? C.el(doc, "code", f.branch) : factText(doc, null);
-    facts.appendChild(fact(doc, "Branch", branch));
-    facts.appendChild(fact(doc, "Base", f.base ? C.el(doc, "code", f.base) : factText(doc, null)));
-    facts.appendChild(fact(doc, "Merged", factText(doc, f.merged === null ? null : f.merged ? "✔ merged" : "not merged yet")));
-    head.appendChild(facts);
+    head.appendChild(resultLine(doc, batch));
 
     var edit = batch.edit;
     var editRow = edit && C.editControlRow(doc, [
       [edit.dir, { open: "Open folder", copy: "Copy folder path" }],
-      [edit.context, { open: "Open context", copy: "Copy context path" }],
+      [edit.context && { path: edit.context.path }, { copy: "Copy context path" }],
     ]);
     if (editRow) head.appendChild(editRow);
 
-    var flags = batch.flags || [];
-    var warns = flags.filter(function (x) { return x.level === "warn"; });
-    var infos = flags.filter(function (x) { return x.level === "info"; });
-    if (warns.length) {
-      var ul = C.el(doc, "ul", null, "batch-flags");
-      warns.forEach(function (flag) {
-        var li = C.el(doc, "li", null, "flag-line");
-        li.appendChild(C.el(doc, "span", "⚠", "flag flag-warn"));
-        li.appendChild(C.text(doc, " "));
-        li.appendChild(C.inlineCode(doc, flag.text));
-        if (flag.phase) {
-          li.appendChild(C.text(doc, " "));
-          li.appendChild(link(doc, flag.phase, C.href(ctx, "batch/" + batch.name + "/phase/" + flag.phase), "flag-phase"));
-        }
-        ul.appendChild(li);
-      });
-      head.appendChild(ul);
-    }
-    if (infos.length) {
-      head.appendChild(C.disclosure(doc, infos.length + (infos.length === 1 ? " note" : " notes"), function (d, body) {
-        var list = C.el(d, "ul", null, "batch-flags");
-        infos.forEach(function (flag) {
-          var li = C.el(d, "li", null, "flag-line");
-          li.appendChild(C.el(d, "span", "ⓘ", "flag flag-info"));
-          li.appendChild(C.text(d, " "));
-          li.appendChild(C.inlineCode(d, flag.text));
-          if (flag.phase) {
-            li.appendChild(C.text(d, " "));
-            li.appendChild(link(d, flag.phase, C.href(ctx, "batch/" + batch.name + "/phase/" + flag.phase), "flag-phase"));
-          }
-          list.appendChild(li);
-        });
-        body.appendChild(list);
-      }));
-    }
+    head.appendChild(partCards(doc, batch));
+    renderNotices(doc, head, ctx, batch);
 
     root.appendChild(head);
   }
@@ -397,7 +538,7 @@
 
   function renderPlan(doc, root, ctx, phase) {
     var C = core();
-    var editRow = phase.edit && C.editControls(doc, phase.edit, { open: "Edit plan", copy: "Copy path" });
+    var editRow = phase.edit && C.fileEditControls(doc, phase.edit, { open: "Open folder", copy: "Copy path" });
     if (editRow) root.appendChild(editRow);
     if (!phase.planHtml) {
       root.appendChild(C.el(doc, "p", "No plan text recorded.", "empty"));
@@ -518,8 +659,8 @@
   // ---- Phases tab -------------------------------------------------------------------------------
 
   var COLUMNS = [
-    ["#", "n"], ["Phase", ""], ["Size", ""], ["Status", ""], ["Worked", ""], ["Duration", "n"],
-    ["Turns", "n"], ["Out", "n"], ["Dev", "n"], ["Flags", ""],
+    ["#", "n"], ["Phase", ""], ["Size", ""], ["Status", ""], ["Time", ""], ["Active", "n"],
+    ["Turns", "n"], ["Out", "n"], ["Notes", ""],
   ];
 
   function phaseRow(doc, ctx, row, maxOut, open, tbody) {
@@ -547,13 +688,12 @@
     if (row.skipReason) statusCell.appendChild(C.el(doc, "div", row.skipReason, "sub faint skip-reason"));
     tr.appendChild(statusCell);
 
-    tr.appendChild(dateCell(doc, row.worked));
-    tr.appendChild(numCell(doc, row.duration, C.fmtDuration(row.duration), row.duration === null ? "" : C.fmtInt(row.duration) + " s"));
+    tr.appendChild(clockCell(doc, row.worked));
+    tr.appendChild(activeCell(doc, row));
     tr.appendChild(numCell(doc, row.turns, C.fmtInt(row.turns)));
     var outCell = C.el(doc, "td", null, "n");
     outCell.appendChild(C.tokenBar(doc, row.out, maxOut));
     tr.appendChild(outCell);
-    tr.appendChild(row.latest ? C.el(doc, "td", C.fmtInt(row.devCount), "n") : dash(doc, "td", "n"));
     var flagCell = C.el(doc, "td");
     flagCell.appendChild(C.flagBadges(doc, row.flags));
     tr.appendChild(flagCell);

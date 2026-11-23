@@ -1,6 +1,8 @@
 // The batch timeline: when each phase (and the planning session) was worked on, as one bar per row
 // on a shared time axis. Idle gaps longer than an hour are replaced by a fixed-width break marker
-// that carries the gap's length, so a batch spread over several days stays readable. Registers
+// that carries the gap's length, so a batch spread over several days stays readable. The planning
+// bar is drawn in the planning colour, the phase bars in the implementation colour, and a clock axis
+// (local time, at most six labels) with the date as its caption sits under the rows. Registers
 // itself under the `batchPhasesTop` slot, above the phase table.
 //
 // `timelineLayout` is pure (no DOM) so tests/js/timeline.test.mjs can exercise it directly; every
@@ -16,6 +18,9 @@
   var BREAK_W = 36;              // width of a break, in layout units
   var MIN_W = 4;                 // narrowest drawn bar, in layout units
   var DEFAULT_W = 1000;
+  var MAX_TICKS = 6;             // most clock labels on the time axis
+  var TICK_GAP = 90;             // least distance between two labels, in layout units (of 1000)
+  var STEPS = [10, 15, 30, 60, 120, 180, 360, 720, 1440];   // even label steps, in minutes
 
   function core() { return CFQ.core; }
   function isNum(n) { return typeof n === "number" && isFinite(n); }
@@ -47,7 +52,7 @@
       var s = a === null ? b : a, e = b === null ? a : b;
       if (e < s) { var t = s; s = e; e = t; }
       items.push({
-        label: r.label, from: r.from || null, until: r.until || null, s: s, e: e,
+        label: r.label, kind: r.kind || "impl", from: r.from || null, until: r.until || null, s: s, e: e,
         point: a === null || b === null || s === e,
       });
     });
@@ -88,11 +93,65 @@
       var w = it.point ? 0 : Math.max(MIN_W, (it.e - it.s) * scale);
       if (!it.point && x + w > width) x = Math.max(0, width - w);
       return {
-        label: it.label, from: it.from, until: it.until, x: r2(x), w: r2(w), point: it.point,
+        label: it.label, kind: it.kind, from: it.from, until: it.until, x: r2(x), w: r2(w), point: it.point,
         seconds: (it.e - it.s) / 1000,
       };
     });
-    return { width: width, rows: out, breaks: breaks, missing: missing, start: segs[0].s, end: segs[segs.length - 1].e };
+    var segments = segs.map(function (sg, k) {
+      return { s: sg.s, e: sg.e, x: r2(offsets[k]), w: r2((sg.e - sg.s) * scale) };
+    });
+    return {
+      width: width, rows: out, breaks: breaks, missing: missing, start: segs[0].s, end: segs[segs.length - 1].e,
+      segments: segments, scale: scale,
+    };
+  }
+
+  // Clock labels for the axis under the rows: [{x, t, label}] with strictly increasing x. The start and
+  // end of every stretch come first (the stretch starts before the ends), then even 10/15/30/60...
+  // minute marks in local time, in the smallest step that gives at most MAX_TICKS marks; a mark is
+  // dropped when it would sit closer than TICK_GAP to one already placed.
+  function axisTicks(layout) {
+    var C = core();
+    if (!layout || !layout.segments || !layout.segments.length) return [];
+    var segs = layout.segments, tickGap = TICK_GAP * layout.width / DEFAULT_W;
+    var offMs = function (t) { return -new Date(t).getTimezoneOffset() * 60000; };
+    var evenMarks = function (stepMin) {
+      var out = [], step = stepMin * 60000;
+      segs.forEach(function (sg) {
+        var off = offMs(sg.s);
+        for (var t = Math.ceil((sg.s + off) / step) * step - off; t <= sg.e; t += step) {
+          out.push({ t: t, x: sg.x + (t - sg.s) * layout.scale });
+        }
+      });
+      return out;
+    };
+    var marks = [];
+    for (var i = 0; i < STEPS.length; i++) {
+      marks = evenMarks(STEPS[i]);
+      if (marks.length <= MAX_TICKS) break;
+    }
+    var candidates = [];
+    segs.forEach(function (sg) { candidates.push({ t: sg.s, x: sg.x }); });
+    segs.forEach(function (sg) { if (sg.e > sg.s) candidates.push({ t: sg.e, x: sg.x + sg.w }); });
+    candidates = candidates.concat(marks);
+    var picked = [];
+    candidates.forEach(function (c) {
+      if (picked.length >= MAX_TICKS) return;
+      if (picked.some(function (p) { return Math.abs(p.x - c.x) < tickGap; })) return;
+      picked.push(c);
+    });
+    picked.sort(function (a, b) { return a.x - b.x; });
+    return picked.map(function (p) {
+      return { x: r2(p.x), t: p.t, label: C.fmtClock(new Date(p.t).toISOString()) };
+    });
+  }
+
+  // "17.11.2026 · local time", or "17.11.2026 – 18.11.2026 · local time" when the batch spans days.
+  function axisCaption(layout) {
+    var C = core();
+    if (!layout) return "";
+    var a = C.fmtDmy(new Date(layout.start).toISOString()), b = C.fmtDmy(new Date(layout.end).toISOString());
+    return (a === b ? a : a + " – " + b) + " · local time";
   }
 
   function pct(v, width) { return r2((v / width) * 100) + "%"; }
@@ -136,7 +195,7 @@
         gap.style.width = pct(b.w, layout.width);
         track.appendChild(gap);
       });
-      var bar = C.el(doc, "span", null, "tl-bar" + (row.point ? " tl-point" : ""));
+      var bar = C.el(doc, "span", null, "tl-bar " + (row.kind === "plan" ? "tl-plan" : "tl-impl") + (row.point ? " tl-point" : ""));
       bar.style.left = pct(row.x, layout.width);
       if (!row.point) bar.style.width = pct(row.w, layout.width);
       bar.setAttribute("title", barTitle(C, row));
@@ -144,6 +203,21 @@
       tr.appendChild(track);
       wrap.appendChild(tr);
     });
+    var ticks = axisTicks(layout);
+    if (ticks.length) {
+      var trow = C.el(doc, "div", null, "tl-row tl-ticks");
+      trow.appendChild(C.el(doc, "span", null, "tl-spacer"));
+      var ttrack = C.el(doc, "div", null, "tl-track");
+      ticks.forEach(function (tk) {
+        var edge = tk.x / layout.width < 0.03 ? " edge-l" : tk.x / layout.width > 0.97 ? " edge-r" : "";
+        var mark = C.el(doc, "span", tk.label, "tl-tick" + edge);
+        mark.style.left = pct(tk.x, layout.width);
+        ttrack.appendChild(mark);
+      });
+      trow.appendChild(ttrack);
+      wrap.appendChild(trow);
+      wrap.appendChild(C.el(doc, "p", axisCaption(layout), "tl-note tl-caption faint"));
+    }
     if (layout.breaks.length) {
       wrap.appendChild(C.el(doc, "p", "Idle gaps over 60 minutes are collapsed into breaks.", "tl-note faint"));
     }
@@ -154,7 +228,7 @@
   function batchRows(batch) {
     var rows = [];
     if (batch && batch.planning) {
-      rows.push({ label: "Planning", from: batch.planning.from || null, until: batch.planning.until || null });
+      rows.push({ label: "Planning", kind: "plan", from: batch.planning.from || null, until: batch.planning.until || null });
     }
     ((batch && batch.phases) || []).forEach(function (phase) {
       var attempts = phase.attempts || [];
@@ -165,7 +239,7 @@
         if (ts(t.from) !== null && (from === null || ts(t.from) < ts(from))) from = t.from;
         if (ts(t.until) !== null && (until === null || ts(t.until) > ts(until))) until = t.until;
       });
-      rows.push({ label: phase.slug, from: from, until: until });
+      rows.push({ label: phase.slug, kind: "impl", from: from, until: until });
     });
     return rows;
   }
@@ -185,6 +259,8 @@
 
   CFQ.timeline = {
     timelineLayout: timelineLayout,
+    axisTicks: axisTicks,
+    axisCaption: axisCaption,
     timeline: timeline,
     batchRows: batchRows,
     fmtGap: fmtGap,

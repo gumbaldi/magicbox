@@ -49,6 +49,10 @@ USAGE = (
 # still be running; `settle` leaves its records alone until it has been quiet for that long.
 SETTLE_QUIET_SECONDS = 120
 
+# `active_s` sums the gaps between neighbouring responses (session and attributed sub-agents) that
+# are at most this many seconds; a longer pause is the user thinking or the machine idle.
+ACTIVE_GAP_S = 300
+
 # The phase worker's plugin-namespaced agent name -- the one place it is defined is
 # agents/cfq-phase-worker.md, which resolves to this form (references/orchestrator.md,
 # "Sub-agent type"). A record's `mode` is "orchestrator" exactly when this name shows up in
@@ -120,6 +124,14 @@ def ts(value):
     except ValueError:
         return 0
     return int(dt.replace(tzinfo=timezone.utc).timestamp())
+
+
+def active_seconds(timestamps, gap_s=ACTIVE_GAP_S):
+    """Whole seconds of activity in `timestamps`: sorted, every gap between neighbours of at most
+    `gap_s` seconds counted, longer gaps dropped. Unparseable values are skipped; fewer than two
+    usable timestamps give 0."""
+    stamps = sorted(s for s in (ts(t) for t in timestamps) if s)
+    return int(sum(b - a for a, b in zip(stamps, stamps[1:]) if b - a <= gap_s))
 
 
 def usage_field(item, field):
@@ -432,6 +444,8 @@ def build_record(tf, since, kind, phase, batch, repo, upper="", subagents_dir=""
         "from": jqor(first_ts, ""),
         "until": jqor(last_ts, ""),
         "wallclock_s": (ts(last_ts) - ts(first_ts)) if raw else 0,
+        "active_s": active_seconds([it.get("timestamp") for it in raw]
+                                   + [it.get("timestamp") for it in sub]),
         "totals": sums(t),
         "by_model": bucket(t, model_key),
         "by_effort": bucket(t, lambda it: jqor(it.get("effort"), "?")),

@@ -45,8 +45,7 @@ snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
 `Batch` (absolute path) · `Phases` (in order, each with its size) · `Review` (`released`, with the revision count when above
 zero) · `Edit` (plain Markdown in `Batch`; editable by hand until `/ifq` starts the phase, `/ifq`
-lints again at its start) · `Portal` (the route from the digest's own `Portal` footer line, omit
-when the digest printed none) · `Priority` (only when **Start
+lints again at its start) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first

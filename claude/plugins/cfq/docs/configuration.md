@@ -130,14 +130,18 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | global, repo | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
 | `planBlockedPlugins` | `CFQ_PLAN_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
+| `auditBarrier` | `CFQ_AUDIT_BARRIER` | `true` | global, repo | while the post-write audit runs, `batch review` and `batch ready` refuse and `/ifq` never offers the batch; `false` writes no marker and ignores an existing one |
 
 ### Implementation
 
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
+| `strictWorkerReport` | `CFQ_STRICT_WORKER_REPORT` | `true` | global, repo | the worker verdict parks the report's `outOfScope` findings as plan entries itself, asks the user when the report's `checks` list names a planned check as not run, and rejects a malformed list; `false` reads the new report fields but acts on none of them |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `baseBranchStrategy` | `CFQ_BASE_BRANCH_STRATEGY` | `chainTip` | global, repo | which branch `ifq` recommends as the base of a new batch branch: `chainTip` = the batch branch that contains all other batch branches (never `main` or another non-batch branch while a batch branch exists), `newest` = the newest branch by commit date |
+| `phaseCommitCommand` | none | empty | repo | shell command `phase commit` runs in the repository root right before every phase commit and after the nothing-staged check, for example `npm run bump-buildversion`; empty turns the hook off. Environment: `CFQ_BATCH_NUMBER` (empty for a legacy batch name), `CFQ_PHASE_NUMBER` (`NN`), `CFQ_FIRST_PHASE` (`1` while no other phase of the batch is `done`, else `0`; a bump that belongs to the batch start checks it). The command stages its own changes (`git add BUILDVERSION`); cfq stages nothing for it. A non-zero exit stops the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output lines. No timeout; commits made outside `phase commit` are not covered. Repo scope only: a global write is refused and no environment variable overrides it |
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
@@ -187,11 +191,11 @@ setting; the rule is fixed, never a judgment call.
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on request (`bin/cfq portal sync <repo-root>`) |
-| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; empty = repo-local only — see layout below |
-| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "open in editor" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the editor links — see below |
+| `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; absolute path or a Windows drive path (`C:\dir`, `C:/dir`), UNC paths are rejected; empty = repo-local only — see layout below |
+| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "Open folder" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the folder links and leaves the copy buttons — see below |
 | `hostPlatform` | `CFQ_HOST_PLATFORM` | `auto` | global only | which host the browser and editors run on: `auto` detects it, `wsl`, `windows` or `posix` overrides detection |
 | `wslDistro` | `CFQ_WSL_DISTRO` | `""` | global only | WSL distribution name used in links and copied paths on Windows + WSL; empty means detect |
-| `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path to a dedicated telemetry git repo; empty disables the sync |
+| `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path or a Windows drive path (`C:\dir`, `C:/dir`; UNC paths are rejected) to a dedicated telemetry git repo; empty disables the sync |
 | `changelogFile` | `CFQ_CHANGELOG_FILE` | `.claude/cfq/changelog.yml` | global, repo | path (repo-root-relative) `ifq` records batch progress to; also the repository-local batch-number allocation ledger; always versioned — entries are ordered newest first, and cfq force-adds the file when a repo's own ignore rule would otherwise hide it; never part of the `gitStatePolicy: local` exclude block; empty disables both the changelog and numbered-batch allocation |
 
 Links and copied paths are translated for the machine you look at the portal from. `hostPlatform:
@@ -199,10 +203,11 @@ auto` treats native Windows Python as `windows`, Linux under WSL (the `WSL_DISTR
 `microsoft` kernel release) as `wsl` and everything else as `posix`; on WSL the distribution is
 `wslDistro`, else `WSL_DISTRO_NAME`, else the name `wslpath -w /` reports, and without one cfq falls
 back to `posix` rather than failing. On Linux and macOS a path opens as it is. On native Windows it
-becomes a backslash path and an editor link on the same drive path. On WSL a file under
-`/mnt/<letter>/` opens as the Windows path on that drive, and any other file opens through the
+becomes a backslash path and an editor folder link on the same drive path. On WSL a folder under
+`/mnt/<letter>/` opens as the Windows path on that drive, and any other folder opens through the
 editor's WSL remote link and as a `\\wsl.localhost\<distro>\...` path, so a Windows browser and a
-Windows editor reach it. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
+Windows editor reach it. Only folders are linked: the same remote link for a single file opens an
+empty window. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
 next full sync (`/cfq` or `bin/cfq portal sync <repo-root>`).
 
 ### Repo & git
@@ -211,7 +216,7 @@ next full sync (`/cfq` or `bin/cfq portal sync <repo-root>`).
 |---|---|---|---|---|
 | `gitStatePolicy` | `CFQ_GIT_STATE_POLICY` | `local` | global, repo | `local` keeps repo-local cfq workflow state in that clone's Git `info/exclude`, leaving `.claude/cfq/settings.json` trackable; `trackable` removes only cfq's managed exclude block and leaves the rest to normal repository Git policy |
 | `scanRoots` | `CFQ_SCAN_ROOTS` | `~/git` | global only | roots for automatic queue discovery |
-| `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
+| `frameworkRepo` | `CFQ_FRAMEWORK_REPO` | `""` | global only | absolute path or a Windows drive path (`C:\dir`, `C:/dir`; UNC paths are rejected) of the local cfq source checkout; a `note plan --framework` finding about cfq itself always lands in the global framework inbox (`$HOME/.claude/cfq/framework-inbox/`) instead of the repo being worked on, unless the target repo *is* `frameworkRepo`; `note import <repo-root>` moves accumulated inbox entries into that repo's `plan/` and is a no-op for any other repo; empty means findings just accumulate in the inbox |
 
 ### Outside the schema
 

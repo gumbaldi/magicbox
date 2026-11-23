@@ -17,6 +17,8 @@ test("parseRoute: repo mode routes", () => {
   const r = (h) => C.parseRoute(h, "repo");
   assert.deepEqual([r("").name, r("").tab], ["overview", "batches"]);
   assert.deepEqual([r("#/").name, r("#/").tab], ["overview", "batches"]);
+  assert.equal(r("#/trends").tab, "trends");
+  assert.equal(r("#/trends").name, "overview");
   assert.equal(r("#/todos").tab, "todos");
   assert.equal(r("#/inbox").tab, "inbox");
   assert.equal(r("#/archive").tab, "archive");
@@ -39,6 +41,7 @@ test("parseRoute: global mode routes", () => {
   assert.equal(r("#/").name, "repos");
   assert.deepEqual([r("#/alpha").name, r("#/alpha").mirror, r("#/alpha").tab], ["overview", "alpha", "batches"]);
   assert.equal(r("#/alpha/").mirror, "alpha");
+  assert.equal(r("#/alpha/trends").tab, "trends");
   assert.equal(r("#/alpha/todos").tab, "todos");
   assert.equal(r("#/alpha/archive").tab, "archive");
   const b = r("#/alpha-1a2b/batch/045-x.y/cost");
@@ -132,6 +135,20 @@ test("fmtDuration: m:ss and h:mm:ss", () => {
   assert.equal(C.fmtDuration(null), "–");
 });
 
+test("fmtSpan: short spans in s, m, h and d", () => {
+  const cases = [[0, "0s"], [45, "45s"], [59.6, "1m"], [660, "11m"], [3900, "1h 05m"], [7200, "2h 00m"],
+    [273600, "3d 4h"], [277200, "3d 5h"], [null, "–"], [undefined, "–"], [NaN, "–"], [-5, "–"]];
+  for (const [input, want] of cases) assert.equal(C.fmtSpan(input), want, String(input));
+});
+
+test("fmtActive: active time with the calendar time as title, or the calendar time alone", () => {
+  assert.deepEqual(C.fmtActive(660, 2220), { text: "≈ 11m", title: "37m" });
+  assert.deepEqual(C.fmtActive(0, 2220), { text: "≈ 0s", title: "37m" });
+  assert.deepEqual(C.fmtActive(null, 2220), { text: "37m", title: null });
+  assert.deepEqual(C.fmtActive(undefined, null), { text: "–", title: null });
+  assert.deepEqual(C.fmtActive(660, null), { text: "≈ 11m", title: null });
+});
+
 test("fmtDateTime and fmtDate use the injected formatter", () => {
   const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" });
   assert.equal(C.fmtDateTime("2026-10-01T08:05:00Z", fmt), fmt.format(new Date("2026-10-01T08:05:00Z")));
@@ -182,7 +199,7 @@ test("flagBadges: counts from {warn, info} or a flag array, texts in the title",
   const [warn, info] = byTag(list, "span").filter((s) => s.className.includes("flag-"));
   assert.equal(warn.textContent, "⚠ 2");
   assert.equal(warn.attrs.title, "first\nsecond");
-  assert.equal(info.textContent, "ⓘ 1");
+  assert.equal(info.textContent, "ℹ 1");
   assert.equal(C.flagBadges(doc, { warn: 0, info: 0 }).textContent, "–");
 });
 
@@ -311,7 +328,8 @@ test("app.render in global mode loads from the mirror and ctx carries the mirror
     const payload = [hash];
     const { load, loaded } = recorder(site, { [path]: payload });
     await cfq.app.render(doc, fakeRoot(doc), hash, load);
-    assert.deepEqual(loaded, ["data/site", path], hash);
+    // Every page of a mirror also loads the repo list for the top bar's switcher.
+    assert.deepEqual(loaded, view === "repos" ? ["data/site", path] : ["data/site", path, "data/repos"], hash);
     const ctx = calls[view];
     assert.ok(ctx, `${hash} dispatches to ${view}`);
     assert.equal(ctx.mode, "global");
@@ -350,7 +368,6 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
   const cfq = loadPortal();
   const doc = fakeDoc();
   doc.byId.crumbs = doc.createElement("nav");
-  doc.byId["site-title"] = doc.createElement("span");
   const root = fakeRoot(doc);
   root.appendChild(cfq.core.el(doc, "p", "stale"));
   cfq.overview = {
@@ -363,7 +380,6 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
   assert.equal(collectText(root), "fresh");
   assert.equal(byTag(doc.byId.crumbs, "a")[0].attrs.href, "#/");
   assert.match(collectText(doc.byId.crumbs), /Here/);
-  assert.equal(doc.byId["site-title"].textContent, "cfq – demo");
   assert.equal(doc.title, "cfq – demo");
 
   cfq.overview = { render() { throw new Error("kaboom"); } };
@@ -376,6 +392,110 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
     console.error = origError;
   }
   assert.match(collectText(root2), /kaboom/);
+});
+
+// ---- top bar ------------------------------------------------------------------------------
+
+function topbarDoc() {
+  const doc = fakeDoc();
+  for (const id of ["crumbs", "repo-switch"]) doc.byId[id] = doc.createElement(id === "crumbs" ? "nav" : "span");
+  doc.byId.search = doc.createElement("input");
+  return doc;
+}
+
+test("top bar: repo mode shows the repo name as plain text", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  await cfq.app.render(doc, fakeRoot(doc), "#/", recorder(fixtureSite(), { "data/queue": fixtureQueue() }).load);
+  const slot = doc.byId["repo-switch"];
+  assert.equal(byTag(slot, "select").length, 0);
+  assert.equal(collectText(slot), "demo");
+});
+
+test("top bar: global mode has a switcher over the repo list that opens the chosen overview", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const data = { "data/repos": fixtureRepos(), "alpha/data/queue": fixtureQueue() };
+  await cfq.app.render(doc, fakeRoot(doc), "#/alpha/", recorder(fixtureSite("global"), data).load);
+  const select = byTag(doc.byId["repo-switch"], "select")[0];
+  assert.ok(select, "a <select> in global mode");
+  const options = byTag(select, "option");
+  assert.deepEqual(options.map((o) => [o.attrs.value, o.textContent]), [["alpha", "alpha"], ["beta-1a2b3c", "beta"]]);
+  assert.equal(select.value, "alpha", "the current repo is selected");
+
+  const savedLocation = globalThis.location;
+  globalThis.location = { hash: "#/alpha/" };
+  try {
+    select.value = "beta-1a2b3c";
+    fire(select, "change");
+    assert.equal(globalThis.location.hash, "#/beta-1a2b3c/");
+  } finally {
+    if (savedLocation === undefined) delete globalThis.location;
+    else globalThis.location = savedLocation;
+  }
+
+  // the repo index itself offers "All repos" in front
+  const doc2 = topbarDoc();
+  await cfq.app.render(doc2, fakeRoot(doc2), "#/", recorder(fixtureSite("global"), data).load);
+  const first = byTag(byTag(doc2.byId["repo-switch"], "select")[0], "option")[0];
+  assert.equal(first.textContent, "All repos");
+});
+
+test("top bar: / focuses the search field, one handler per document", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const load = recorder(fixtureSite(), { "data/queue": fixtureQueue() }).load;
+  await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+  await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+  const search = doc.byId.search;
+  const ev = fire(doc, "keydown", { key: "/", target: fakeRoot(doc) });
+  assert.equal(search.focused, true);
+  assert.equal(ev.prevented, true);
+  search.focused = false;
+  fire(doc, "keydown", { key: "/", target: search });
+  assert.equal(search.focused, false, "typing / inside a field is left alone");
+  assert.equal(doc.listeners.keydown.length, 1, "one slash handler per document");
+});
+
+test("top bar: search filters the overview, and Enter elsewhere opens the overview with the query", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const search = doc.byId.search;
+  const load = recorder(fixtureSite(), { "data/queue": fixtureQueue(), "data/batch/x": { name: "x" } }).load;
+  const savedLocation = globalThis.location;
+  globalThis.location = { hash: "#/batch/x" };
+  try {
+    await cfq.app.render(doc, fakeRoot(doc), "#/batch/x", load);
+    search.value = "alpha";
+    fire(search, "input");
+    assert.equal(cfq.state.query, "alpha");
+    fire(search, "keydown", { key: "Enter" });
+    assert.equal(globalThis.location.hash, "#/", "Enter on a batch page navigates to the overview");
+
+    // On the overview, typing redraws through the hook the overview registered; Enter stays put.
+    let redraws = 0;
+    cfq.overview = { render() { cfq.state.onQuery = () => { redraws++; }; } };
+    await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+    assert.equal(search.value, "alpha", "the field shows the shared query");
+    search.value = "beta";
+    fire(search, "input");
+    assert.equal(redraws, 1);
+    globalThis.location.hash = "#/";
+    fire(search, "keydown", { key: "Enter" });
+    assert.equal(globalThis.location.hash, "#/");
+
+    // Another page drops the overview's hook.
+    await cfq.app.render(doc, fakeRoot(doc), "#/batch/x", load);
+    assert.equal(cfq.state.onQuery, null);
+    assert.equal(search.value, "beta");
+  } finally {
+    if (savedLocation === undefined) delete globalThis.location;
+    else globalThis.location = savedLocation;
+  }
 });
 
 test("fixtures stay in the contract shape", () => {
@@ -394,19 +514,22 @@ test("fixtures stay in the contract shape", () => {
 
 // ---- edit controls ------------------------------------------------------------------------
 
-const EDIT = { path: "\\\\wsl.localhost\\Alma\\home\\x.md", url: "vscode://vscode-remote/wsl+Alma/home/x.md" };
-const LABELS = { open: "Edit plan", copy: "Copy path" };
+const EDIT = {
+  path: "\\\\wsl.localhost\\Alma\\home\\x.md",
+  dir: { path: "\\\\wsl.localhost\\Alma\\home", url: "vscode://vscode-remote/wsl+Alma/home" },
+};
+const LABELS = { open: "Open folder", copy: "Copy path" };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("editControls: link, copy button and hint; no url means no link", () => {
+test("fileEditControls: link, copy button and hint; no url means no link", () => {
   const doc = fakeDoc();
-  const row = C.editControls(doc, EDIT, LABELS);
+  const row = C.fileEditControls(doc, EDIT, LABELS);
   assert.equal(row.className, "edit-controls");
   const open = byClass(row, "edit-open");
   assert.equal(open.length, 1);
   assert.equal(open[0].tagName, "a");
-  assert.equal(open[0].attrs.href, EDIT.url);
-  assert.equal(open[0].textContent, "Edit plan");
+  assert.equal(open[0].attrs.href, EDIT.dir.url);
+  assert.equal(open[0].textContent, "Open folder");
   const copy = byClass(row, "edit-copy");
   assert.equal(copy.length, 1);
   assert.equal(copy[0].tagName, "button");
@@ -418,16 +541,21 @@ test("editControls: link, copy button and hint; no url means no link", () => {
   assert.match(collectText(hint[0]), /Changes appear after the next sync/);
   assert.equal(byTag(hint[0], "code")[0].textContent, "bin/cfq portal sync <repo-root>");
 
-  const noUrl = C.editControls(doc, { path: EDIT.path }, LABELS);
+  const noUrl = C.fileEditControls(doc, { path: EDIT.path }, LABELS);
   assert.equal(byClass(noUrl, "edit-open").length, 0);
   assert.equal(byClass(noUrl, "edit-copy").length, 1);
-  assert.equal(C.editControls(doc, null, LABELS), null);
+  assert.equal(C.fileEditControls(doc, null, LABELS), null);
+
+  // data of an older cfq: file-level url, no dir -> only the copy button, the old url is never used
+  const old = C.fileEditControls(doc, { path: EDIT.path, url: "vscode://file/old" }, LABELS);
+  assert.equal(byClass(old, "edit-open").length, 0);
+  assert.deepEqual(byClass(old, "edit-copy").map((b) => b.textContent), ["Copy path"]);
 });
 
 test("editControlRow: several pairs share one row and one hint", () => {
   const row = C.editControlRow(fakeDoc(), [
-    [EDIT, { open: "Open folder", copy: "Copy folder path" }],
-    [{ path: "/p" }, { open: "Open context", copy: "Copy context path" }],
+    [EDIT.dir, { open: "Open folder", copy: "Copy folder path" }],
+    [{ path: "/p" }, { copy: "Copy context path" }],
     [null, LABELS],
   ]);
   assert.equal(byClass(row, "edit-open").length, 1);
@@ -436,10 +564,10 @@ test("editControlRow: several pairs share one row and one hint", () => {
   assert.equal(C.editControlRow(fakeDoc(), [[null, LABELS]]), null);
 });
 
-test("editControls: the clipboard API copies the path and the label reads Copied", async () => {
+test("fileEditControls: the clipboard API copies the path and the label reads Copied", async () => {
   const copied = [];
   await withClipboard({ writeText: (s) => { copied.push(s); return Promise.resolve(); } }, async () => {
-    const row = C.editControls(fakeDoc(), EDIT, LABELS);
+    const row = C.fileEditControls(fakeDoc(), EDIT, LABELS);
     const button = byClass(row, "edit-copy")[0];
     fire(button, "click");
     await tick();
@@ -449,7 +577,7 @@ test("editControls: the clipboard API copies the path and the label reads Copied
   });
 });
 
-test("editControls: without the clipboard API the execCommand fallback copies from a textarea", async () => {
+test("fileEditControls: without the clipboard API the execCommand fallback copies from a textarea", async () => {
   await withClipboard(undefined, async () => {
     const doc = fakeDoc();
     let seen = null;
@@ -457,7 +585,7 @@ test("editControls: without the clipboard API the execCommand fallback copies fr
       seen = { cmd, value: byTag(doc.body, "textarea")[0].value };
       return true;
     };
-    const row = C.editControls(doc, EDIT, LABELS);
+    const row = C.fileEditControls(doc, EDIT, LABELS);
     const button = byClass(row, "edit-copy")[0];
     fire(button, "click");
     await tick();
@@ -467,23 +595,23 @@ test("editControls: without the clipboard API the execCommand fallback copies fr
   });
 });
 
-test("editControls: a rejected clipboard write falls back to execCommand", async () => {
+test("fileEditControls: a rejected clipboard write falls back to execCommand", async () => {
   await withClipboard({ writeText: () => Promise.reject(new Error("denied")) }, async () => {
     const doc = fakeDoc();
     doc.execCommand = () => true;
-    const button = byClass(C.editControls(doc, EDIT, LABELS), "edit-copy")[0];
+    const button = byClass(C.fileEditControls(doc, EDIT, LABELS), "edit-copy")[0];
     fire(button, "click");
     await tick();
     assert.equal(button.textContent, "Copied");
   });
 });
 
-test("editControls: when every copy way fails the path appears as selectable code", async () => {
+test("fileEditControls: when every copy way fails the path appears as selectable code", async () => {
   await withClipboard(undefined, async () => {
     for (const execCommand of [null, () => false, () => { throw new Error("nope"); }]) {
       const doc = fakeDoc();
       doc.execCommand = execCommand;
-      const row = C.editControls(doc, EDIT, LABELS);
+      const row = C.fileEditControls(doc, EDIT, LABELS);
       const button = byClass(row, "edit-copy")[0];
       fire(button, "click");
       await tick();
@@ -498,11 +626,11 @@ test("editControls: when every copy way fails the path appears as selectable cod
   });
 });
 
-test("editControls: markup in a path stays text and never reaches innerHTML", async () => {
+test("fileEditControls: markup in a path stays text and never reaches innerHTML", async () => {
   const evil = "/home/<b>x</b>/plan.md";
   await withClipboard(undefined, async () => {
     const doc = fakeDoc();
-    const row = C.editControls(doc, { path: evil, url: "vscode://file/x" }, LABELS);
+    const row = C.fileEditControls(doc, { path: evil, dir: { url: "vscode://file/x" } }, LABELS);
     fire(byClass(row, "edit-copy")[0], "click");
     await tick();
     assert.equal(byTag(row, "b").length, 0);
