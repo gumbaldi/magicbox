@@ -89,8 +89,8 @@ class BatchIdentityTest(CfqTestCase):
     def test_pfq_never_hand_rolls_batch_number_padding(self):
         skill = (SKILLS_DIR / "plan-for-queue" / "SKILL.md").read_text()
         self.assertIn(
-            'bin/cfq" batch allocate', skill,
-            msg="plan-for-queue/SKILL.md no longer calls bin/cfq batch allocate",
+            'bin/cfq" planning open', skill,
+            msg="plan-for-queue/SKILL.md no longer calls bin/cfq planning open (which allocates)",
         )
         pattern = re.compile(r"printf '%0[0-9]+d'|printf \"%0[0-9]+d\"")
         for f in (SKILLS_DIR / "plan-for-queue").rglob("*"):

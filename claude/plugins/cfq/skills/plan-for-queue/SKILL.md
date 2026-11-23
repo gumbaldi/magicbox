@@ -49,14 +49,13 @@ produced `inbox.count`/`.imported`/`.overview`/`.detail`.
 ## Step 2 — Inbox
 
 Print `Inbox` as returned, then `inbox.overview` verbatim right after it — always, with or without
-arguments, zero entries included (`INBOX  empty`), then the preflight's `Review` status line as
-returned. Arguments were passed with the invocation → don't open the inbox question regardless of
+arguments, zero entries included (`INBOX  empty`). Arguments were passed with the invocation → don't open the inbox question regardless of
 entry count; plan the arguments, leave every inbox entry untouched, but when those arguments refer
 to or ask about inbox entries, print `inbox.detail` right after `inbox.overview` first. No
 arguments and `inbox.count == 0` → nothing further here. No arguments and `inbox.count > 0` → read
-`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it. `queue.awaitingReview` non-empty and
-no arguments → first read `${CLAUDE_PLUGIN_ROOT}/references/plan-review.md`'s **Resuming a Review**
-and follow it, before the inbox question.
+`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it. `queue.awaitingAudit` non-empty and
+no arguments → print one line naming the batch and resume its audit with `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s
+**The Post-Write Audit** (start, agent, wait, done), then continue at **Maintenance**. No question.
 
 ## Step 3 — Start Block
 
@@ -155,79 +154,61 @@ unconditionally, before any phase file is written. Print `Self-Critique`: `✅` 
 or `⚠️` with each correction named on its own `   └ ` sub-line — the primary channel for
 corrections.
 
-## Step 10 — Security Check
+## Step 10 — Security and Park
 
-Always runs, regardless of `security.available` — that preflight field (a `gh`/`tea` binary on
-`PATH`) is a capability hint only: `false` means the forge-side check comes back empty, while a
-`package.json` repo still gets a local `npm audit`.
-
+Entering this step closes `PLANNING` and opens `POSTCHECKS`.
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" security "<repo-root>"
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" planning open "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"
 ```
-
-Read the call's JSON fields directly (no `jq`, no `/tmp` file). `available == false` → print the
-`hint` once; findings present → state the count per severity. `fixable.critical`/`fixable.high` > 0
-and no `"<repo-root>/.claude/cfq/plan"/*-security-findings.md` exists yet → write the `plan/` entry
-via `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
+(repo root: **Preflight**'s `repo.root`, no repeat `git rev-parse`) runs the security check
+whatever `security.available` says (a capability hint only: without a forge binary the forge side
+comes back empty, a `package.json` repo still gets a local `npm audit`), reserves the batch and
+stores the security snapshot. Read its JSON directly (no `jq`, no `/tmp` file) and print its
+`statusLines` entry `Security` verbatim. `status` is not `OK` → surface `action`/`detail` and stop,
+nothing parked. `securityEntry.needed` true and `securityEntry.exists` false → write the `plan/`
+entry via `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note plan "<repo-root>" "security-findings" - <<'EOF' … EOF`
 (body on stdin, never a temp file; counts per severity and the fixable advisories, plus either of
 two closings: when a phase of this batch names every fixable critical and high advisory, the body
 names that phase and says the entry can be closed once it lands, with no sentence saying a decision
-is open; otherwise the body says a decision is still open); one already exists → write nothing, say so in the status line. Never a
-question, never a phase in this batch. Store the snapshot:
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" report security "<batch-dir>" "<security-json>"`.
+is open; otherwise the body says a decision is still open); otherwise write nothing. Never a
+question, never a phase in this batch.
 
-Print `Security`: `⚠️` with the hint as detail when `available == false`, `⚠️` with the count per
-severity (plus whether a `plan/` entry was written) when findings are present, or `➖ no findings`
-when the scan ran clean.
-
-## Step 11 — Park
-
-Entering this step closes `PLANNING` and opens `POSTCHECKS`.
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" batch allocate "<repo-root>" "<YYYY-MM-DD>" "<topic-slug>"`
-(repo root: **Preflight**'s `repo.root`, no repeat `git rev-parse`) reserves and returns
-`<batch-dir-name>`; write `NN-<slug>.md` per phase into it — mechanics in
+Write `NN-<slug>.md` per phase into `batchDir` — all phase files in one response, mechanics in
 `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Park Mechanics**. Phase files alone use the
-`Write` tool; everything else here goes through `bin/cfq`. `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
+`Write` tool; everything else here goes through `bin/cfq`. Write `<batch-dir>/.batch-context.md` —
+read `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it. Then `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
 "<repo-root>" "<batch-dir-name>" "<high|normal>" [<dependsOn-entry>...] [--from-plan
 <chosen-entry-path>]` — argument detail in the same section; `--from-plan` is passed only when
 this session's topic came from a chosen inbox entry (**Inbox**), naming that entry's path so it
-moves into `plan/done/`. Write `<batch-dir>/.batch-context.md` — read
-`${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it. Print four status lines
-(wording in **Park Mechanics**): `Park`, `Batch Context`, `Git Exclude`, `Registry`.
+moves into `plan/done/`. Print four status lines (wording in **Park Mechanics**): `Park`,
+`Batch Context`, `Git Exclude`, `Registry`.
 
-## Step 12 — Post-Write Audit
+## Step 11 — Post-Write Audit
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s **The Post-Write Audit** and
 follow it. Print `Phase Audit`: `✅` with the count and `no findings`, or `⚠️` per correction as a `   └ ` sub-line.
 
-## Step 13 — Plan Lint
-
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"`; fix findings **immediately** and re-run
-until clean — a batch never hands off with open findings. `warn: … changes-steps`
-lines are fixed like findings; the other `warn:` lines (an unresolvable `.dependsOn` edge) don't
-block. Print `Lint` — clean pass, or the fixed finding.
-
-## Step 14 — Maintenance
+## Step 12 — Maintenance
 
 Read `maintenance.status`/`.n` from **Preflight**'s result (no new call). `OFF`/`NOT_DUE`
 → print `Maintenance`, move on. `DUE` → read `${CLAUDE_PLUGIN_ROOT}/references/maintenance.md` and
-follow it — findings are parked as a `plan/` entry, never a question.
+follow it — findings are parked as a `plan/` entry, never a question. It runs before the close
+call, because that call records the session's telemetry.
 
-## Step 15 — Review Gate
+## Step 13 — Close and Report
 
-Entering this step closes `POSTCHECKS` and opens `REVIEW`. Read
-`${CLAUDE_PLUGIN_ROOT}/references/plan-review.md` and follow it — the batch stays held until the
-user releases it; the compact gate (`bin/cfq brief "<batch-dir>" --review --gate`) goes into the
-release question's text, ask, revise, repeat.
-Print `Review`.
+Entering this step closes `POSTCHECKS`.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" planning close "<batch-dir>" --depth <quick|thorough|docs>
+```
+(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") runs lint,
+releases the batch, records and syncs the planning telemetry and builds the portal link. Print its
+`statusLines` entries verbatim, in order. `LINT_FAILED` → fix every finding in one turn (all
+corrections of one run in one response) and call it again; `warn:` lines are fixed when they are
+`changes-steps`, the others don't block. A telemetry failure is one line in the report, never a
+stop.
 
-## Step 16 — Telemetry and Sync
-
-Run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry record "<batch-dir>" planning --depth <quick|thorough|docs>`
-(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") then
-`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" telemetry sync "<repo-root>"`. Failures are non-fatal, one line in
-the final report. Print `Telemetry`.
-
-## Step 17 — Final Report
-
-A `RESULT · plan-for-queue` header only — field list in `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**.
+Then the `RESULT · plan-for-queue` block — field list in
+`${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**. A correction asked for
+after the report is made in the plan files, then `bin/cfq park` if a phase file was added, renamed
+or removed, then `planning close` again (idempotent).

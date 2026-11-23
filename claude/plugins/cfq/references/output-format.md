@@ -22,14 +22,14 @@ section is a label/value list under the same padding, not a table · no commenta
 ## Rendered vs. composed lines
 
 Some steps have a script (`cfq_ifq_preflight.py`, `cfq_pfq_preflight.py`, `cfq_finish.py`,
-`cfq_phase.py`, `cfq_worker.py`) that already resolved every fact its line needs; that script returns a
+`cfq_phase.py`, `cfq_worker.py`, `cfq_planning.py`) that already resolved every fact its line needs; that script returns a
 `statusLines` array, each entry `{"label", "icon", "detail", "sub", "text"}` — `text` already run
 through `cfq_lib/text.py`'s `status_line`/`sub_line` (the single definition of the 16-character
 padding). Printing one of these means printing its `text` verbatim, entry by entry, in array
 order — no re-padding, no re-wording, no re-ordering, and never merging two entries into one.
 
 Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_preflight.py`),
-`Model Gate`/`Inbox`/`Review`/`Plugin Boundaries` (`cfq_pfq_preflight.py`), `Language`/`Maintenance`/
+`Model Gate`/`Inbox`/`Plugin Boundaries` (`cfq_pfq_preflight.py`), `Security` (`planning open`), `Lint`/`Release`/`Telemetry`/`Portal` (`planning close`), `Language`/`Maintenance`/
 `Security Diff`/`Changelog`/`Branch`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit`/`Cost` (`cfq_phase.py commit`), `Cost` (`cfq_worker.py verdict`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
 `Model Gate` renders only the deterministic half — which list applies, or that
 `allowAnyModel` skips the check entirely; the actual substring match against the running model
@@ -37,6 +37,5 @@ Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_pref
 
 Everything else still has no script behind it and stays composed by the model, following the
 prose rules above: `Failed Attempt`, `Escalation`, `Size Gate`, `Language` on the `pfq` side,
-`Phases`, `Self-Critique`, `Park`, `Phase Audit`, `Lint`, the Start Gate's own `Start Gate`
-line, the review gate's own `Review` line (released / discarded) — the preflight's `Review`
-line is rendered, the gate's is composed by the model — and the batch review's `Review` line.
+`Phases`, `Self-Critique`, `Park`, `Phase Audit`, the Start Gate's own `Start Gate`
+line and the ifq code review's `Review` line.

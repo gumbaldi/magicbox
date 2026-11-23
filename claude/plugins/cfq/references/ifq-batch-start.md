@@ -120,7 +120,7 @@ repair command (`bin/cfq batch verify "<repo-root>"`), never blocking.
 
 ## Lint Gate
 
-`lint` is the same `bin/cfq lint <batch-dir>` check `/pfq` already runs at Plan Lint, right before
+`lint` is the same `bin/cfq lint <batch-dir>` check `/pfq` already runs in `planning close`, right before
 handoff — run again here since a plan file is plain Markdown the user may edit by hand between
 `/pfq` and `/ifq`, and a hand edit that breaks its structure would otherwise go unnoticed until a
 later deterministic script misparses it mid-implementation. `lint.clean: false` → print `Lint` (its

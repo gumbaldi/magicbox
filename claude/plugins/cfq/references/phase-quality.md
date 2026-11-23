@@ -141,8 +141,8 @@ stands on its own and says what changes and where; everything an implementer nee
 into nested bullets or a fenced block below it. No prose before step 1 — a test-first order (rule 1)
 is expressed by making the test step 1.
 
-The review digest (`bin/cfq brief --review`) and `/ifq`'s phase announcement show exactly these
-opening sentences, so they are what the user approves.
+The portal's batch page and `/ifq`'s phase announcement show exactly these opening sentences, so
+they are what the user reads.
 
 `bin/cfq lint` reports a missing numbered step as `warn: … changes-steps`, never as a finding, so an
 older batch still starts.
@@ -171,10 +171,10 @@ the default; when the list has one entry, never write the heading.
 Every phase opens with `## Summary`, directly under the title and before `## Size`. It is 2 to 4
 sentences: what the user sees or does today and what is different afterwards. It names no file,
 function, setting or command; those belong in Context and Changes. The reader is a junior sysadmin
-who approves the plan from the review digest, so every term must make sense without knowing the
+who reads the plan in the portal's batch page, so every term must make sense without knowing the
 code.
 
-The review digest and the `/ifq` announcement show the Summary instead of Context. `bin/cfq lint`
+The portal's batch page and the `/ifq` announcement show the Summary instead of Context. `bin/cfq lint`
 only warns (`summary-missing`) when it is absent, so an older batch still starts.
 
 ## 10. Facts about the current state are verified while planning

@@ -517,6 +517,39 @@ def check_audit_wait(root):
     return fails
 
 
+# 21. Added by batch 064 phase 07: the plan release gate is gone. No skill or reference names its
+#     reference file, its commands or its resume wording, and `plan-for-queue/SKILL.md` runs the
+#     two bundle commands. The ifq code review (`ifq-batch-review.md`, `batchReview`) is another
+#     feature and not in the list.
+REMOVED_GATE_VOCABULARY = (
+    "plan-review.md",
+    "bin/cfq batch review",
+    "--review --gate",
+    "awaitingReview",
+    "Resuming a Review",
+)
+PLANNING_BUNDLE_NEEDLES = ("planning open", "planning close")
+
+
+def check_no_plan_review_gate(root):
+    fails = []
+    for f in _md_files(root):
+        rel = f.relative_to(root).parts
+        if rel[0] not in ("skills", "references"):
+            continue
+        text = f.read_text()
+        for needle in REMOVED_GATE_VOCABULARY:
+            if needle in text:
+                fails.append(f"FAIL: {f} still names the removed plan review gate: {needle!r}")
+    skill = root / "skills" / "plan-for-queue" / "SKILL.md"
+    if skill.is_file():
+        text = skill.read_text()
+        for needle in PLANNING_BUNDLE_NEEDLES:
+            if needle not in text:
+                fails.append(f"FAIL: {skill} does not name `{needle}`")
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -540,6 +573,7 @@ def run_all(root):
     fails += check_no_step_letter_references(root)
     fails += check_pfq_single_first_step(root)
     fails += check_audit_wait(root)
+    fails += check_no_plan_review_gate(root)
     return fails
 
 
@@ -717,6 +751,27 @@ class ReferencePathsTest(CfqTestCase):
         )
         self.assertEqual([], check_audit_wait(tmp))
 
+    def test_no_plan_review_gate(self):
+        tmp = self._repos_dir / "no-review-gate"
+        (tmp / "skills" / "plan-for-queue").mkdir(parents=True)
+        (tmp / "references").mkdir(parents=True)
+        skill = tmp / "skills" / "plan-for-queue" / "SKILL.md"
+        skill.write_text("Run `bin/cfq planning open` and `bin/cfq planning close`.\n")
+        ref = tmp / "references" / "a.md"
+        ref.write_text("Read plan-review.md, then `--review --gate` and awaitingReview.\n")
+        out = check_no_plan_review_gate(tmp)
+        joined = "\n".join(out)
+        for needle in ("plan-review.md", "--review --gate", "awaitingReview"):
+            self.assertIn(needle, joined, msg=f"check 21 self-test did not catch {needle}")
+
+        ref.write_text("The ifq code review is `ifq-batch-review.md` and `batchReview`.\n")
+        self.assertEqual([], check_no_plan_review_gate(tmp))
+
+        skill.write_text("Run `bin/cfq planning open` only.\n")
+        out = check_no_plan_review_gate(tmp)
+        self.assertEqual(1, len(out), msg=f"a missing planning close should be the one failure: {out}")
+        self.assertIn("planning close", out[0])
+
     def test_question_context_in_dialog(self):
         bad = self._repos_dir / "qctx"
         (bad / "references").mkdir(parents=True)
@@ -816,10 +871,10 @@ class ReferencePathsTest(CfqTestCase):
 
         out = check_references_linked_from_entrypoint(tmp)
         joined = "\n".join(out)
-        self.assertIn("indirect.md", joined, msg="check 10 self-test did not catch a reference named only by another reference")
-        self.assertNotIn("direct.md is", joined.replace("indirect.md is", ""), msg="check 10 self-test false-flagged a directly linked reference")
-        self.assertNotIn("viaagent", joined, msg="check 10 self-test false-flagged a reference named by an agent")
-        self.assertEqual(1, len(out), msg=f"check 10 self-test should flag only the indirect file: {out}")
+        self.assertIn("indirect.md", joined, msg="check 21 self-test did not catch a reference named only by another reference")
+        self.assertNotIn("direct.md is", joined.replace("indirect.md is", ""), msg="check 21 self-test false-flagged a directly linked reference")
+        self.assertNotIn("viaagent", joined, msg="check 21 self-test false-flagged a reference named by an agent")
+        self.assertEqual(1, len(out), msg=f"check 21 self-test should flag only the indirect file: {out}")
 
     def test_long_references_have_contents(self):
         tmp = self._repos_dir / "f11"

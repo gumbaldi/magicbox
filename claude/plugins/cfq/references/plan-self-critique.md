@@ -112,20 +112,20 @@ file and `.batch-context.md`, the written text can drift from that proposal in w
 never sees: a phase whose `Verification` depends on a file only a later phase creates, a
 `Dependencies` section pointing forward or at nothing. This section is that check against reality.
 
-- **When.** After **Park** has written every phase file and `.batch-context.md`, before **Plan
-  Lint**. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
+- **When.** After **Park** has written every phase file and `.batch-context.md`, before
+  `bin/cfq planning close`. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
   still gets its `Dependencies` and `Verification` checked against reality. The audit is a barrier
   and runs as an ordered procedure:
   1. `bin/cfq batch audit "<batch-dir>" start`.
   2. Spawn the Explore agent (**Who** and **What the agent is given** below).
   3. Print `⏳ Phase Audit     running · waiting for the audit agent` and end the turn with that
-     line as the last output. While the agent runs there is no lint, no maintenance, no review gate,
+     line as the last output. While the agent runs there is no lint, no maintenance, no release,
      no final report and no question; this is the one place a planning session ends its turn without
      a question. The wait applies whether or not `auditBarrier` is on — the setting only removes the
-     script-level refusal in `batch review` and `batch ready`.
+     script-level refusal in `batch ready`.
   4. When the agent's result arrives: apply the fixes (**How findings are handled**), run
      `bin/cfq batch audit "<batch-dir>" done --findings <n>`, print the `Phase Audit` line and
-     continue with **Plan Lint**.
+     continue with **Maintenance** and then `bin/cfq planning close`, which runs the lint.
 - **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from **Start Block**'s
   preflight result — no new `bin/cfq settings get` call), per `<plugin-root>/references/explore-escalation.md`'s
   judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the
@@ -148,8 +148,6 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   corrects the phase files and names each correction in the status line. Only a correction that
   would drop a phase or remove a capability the user named in the interview goes to one
   `AskUserQuestion`.
-- **After a review revision.** Whether the audit runs again after a change at the review gate is
-  decided by `<plugin-root>/references/plan-review.md`'s **Re-check**.
 - **Renumbering after a correction.** A correction that reorders phases renames the files so the
   numbering stays gapless and ascending, and updates every `## Dependencies` reference to a renamed
-  phase. This happens before **Plan Lint**.
+  phase. This happens before `bin/cfq planning close`.

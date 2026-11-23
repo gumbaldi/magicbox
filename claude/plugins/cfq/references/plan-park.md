@@ -1,13 +1,14 @@
 # Plan Park: Batch Allocation and the Final Report
 
-Only read at pfq's **Park** and **Final Report** steps.
+Only read at pfq's **Security and Park** and **Close and Report** steps.
 
 ## Park Mechanics
 
 Topic slug (`codeLanguage`, lowercase, hyphen-separated, ASCII only) plus today's date
-(`YYYY-MM-DD`) go to the allocation call. Never compute/pad the batch number by hand — the helper
-reserves it in the local changelog (`status: parked`) and the queue directory, returning the final
-`batch` name. `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing parked. Number
+(`YYYY-MM-DD`) go to `bin/cfq planning open`. Never compute/pad the batch number by hand — the
+command allocates it through `batch allocate`, which reserves it in the local changelog
+(`status: parked`) and the queue directory, and returns the final `batch` name.
+`BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing parked. Number
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
 leaves no gap in the numbering. Each `NN-<slug>.md` starts as a copy of
 `<plugin-root>/references/phase-template.md`.
@@ -29,31 +30,28 @@ several entries (**Inbox**) passes every one of them in the same `park` call.
 
 `.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
 batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
-during this session). `batch ready` runs at **Review Gate**
-(`<plugin-root>/references/plan-review.md`), not at **Plan Lint**: **Review Gate** replaces
-`.planning` with `.review`, and a `park` call while `.review` exists refreshes nothing and warns
-about nothing. Once `batch ready` has removed the marker, a later `park` call — a correction after
-that point — leaves it absent and prints an `already ready` warning on stderr instead of
-resurrecting it: re-run `bin/cfq lint` until clean and `batch ready` (idempotent) again before
-**Final Report**.
+during this session). `bin/cfq planning close` runs lint, then `batch ready`, which removes the
+marker. Once it has, a later `park` call — a correction after that point — leaves it absent and
+prints an `already ready` warning on stderr instead of resurrecting it: call `planning close`
+(idempotent) again afterwards.
 
-Print four status lines: `Park` (file count and batch dir, also covers **Security Check**'s
-snapshot), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
+Print four status lines: `Park` (file count and batch dir, also covers the security
+snapshot of `planning open`), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
 ## Final Report Fields
 
 `RESULT · plan-for-queue` header, then a label/value list under the `Output Format` padding rule:
-`Batch` (absolute path) · `Phases` (in order, each with its size) · `Review` (`released`, with the revision count when above
-zero) · `Edit` (plain Markdown in `Batch`; editable by hand until `/ifq` starts the phase, `/ifq`
-lints again at its start) · `Priority` (only when **Start
+`Batch` (absolute path) · `Phases` (in order, each with its size) · `Portal` (the `portal` value of `planning close`, omitted when it is null) · `Edit` (plain
+Markdown in `Batch`; editable by hand until `/ifq` starts the phase, `/ifq` lints again at its
+start) · `Priority` (only when **Start
 Block**'s flag answer was high, omit otherwise) · `Waiting on` (the `.dependsOn` edge and its
 reason, omit when none) · `Cost` (interview depth plus the script-derived numbers below) ·
 `Security` (count, "unavailable"+hint, or "no findings") · `Handoff` (`/clear` → `/model <first
 implModels>` → `/ifq`). A maintenance `plan/` entry from **Maintenance** is named in one extra
 `Inbox` line, not a second `RESULT` block.
 
-`Cost`'s numbers are never a model estimate. Run `bin/cfq telemetry show "<repo-root>" --session`
-and render its own top-level fields, field by field: `turns`, `billable_in` as "in", `output` as
+`Cost`'s numbers are never a model estimate. Build the line from the `cost` object of `bin/cfq
+planning close` (the output of `telemetry show --session`), field by field, rendering its own top-level fields: `turns`, `billable_in` as "in", `output` as
 "out" — the whole session's own sum (the planning session itself plus every sub-agent it spawned,
 never only the top-level transcript), `cache_read` named separately, `models`, `efforts`. When
 `layers.main_explore.turns` is non-zero, add one further clause naming the Explore sub-agent's own
@@ -61,5 +59,5 @@ never only the top-level transcript), `cache_read` named separately, `models`, `
 top-level numbers above, this clause only surfaces the split, so a planning session that delegated
 research to an Explore agent doesn't have that share stay invisible. Interview depth is the one
 part of this line that stays prose, not a script field — it is a fact about this session, not
-something the script can see. If the call itself fails or returns nothing usable, the whole line
+something the script can see. If `cost` is null or unusable, the whole line
 reads `⚠️ unavailable` — never a guessed number in its place.
