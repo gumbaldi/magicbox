@@ -1,6 +1,9 @@
 - batchNumber: 63
   batch: 063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
-  status: parked
+  branch: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
+  base: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
+  started: 2026-11-23
+  status: in-progress
 - batchNumber: 62
   batch: 062-2026-11-22-portal-folder-links-and-report-timestamps
   branch: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
