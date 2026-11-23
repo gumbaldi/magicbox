@@ -74,6 +74,7 @@ SCHEMA = {
     "maintenanceEvery": {"type": "int", "default": 50, "min": 0, "scope": ["global", "repo"], "env": "CFQ_MAINTENANCE_EVERY", "group": "maintenance", "description": "Commits since the last maintenance run before the next one is due; 0 disables maintenance entirely."},
     "branchPerBatch": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_BRANCH_PER_BATCH", "group": "implementation", "description": "Create a dedicated branch per implementation batch instead of committing to the checked-out branch."},
     "baseBranchStrategy": {"type": "enum", "default": "chainTip", "values": ["chainTip", "newest"], "scope": ["global", "repo"], "env": "CFQ_BASE_BRANCH_STRATEGY", "group": "implementation", "description": "Which branch /ifq recommends as the base of a new batch branch: chainTip (the batch branch that contains all other batch branches) or newest (the newest branch by commit date)."},
+    "phaseCommitCommand": {"type": "string", "default": "", "scope": ["repo"], "env": None, "group": "implementation", "description": "Shell command `phase commit` runs in the repository root right before every phase commit (for example `npm run bump-buildversion`); it stages its own changes, and a non-zero exit stops the commit. Environment: CFQ_BATCH_NUMBER, CFQ_PHASE_NUMBER, CFQ_FIRST_PHASE. Empty turns the hook off; repo scope only."},
     "changelogFile": {"type": "string", "default": ".claude/cfq/changelog.yml", "scope": ["global", "repo"], "env": "CFQ_CHANGELOG_FILE", "group": "reports", "description": "Filename of the per-repo changelog cfq_changelog.py writes to."},
     "htmlReport": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_HTML_REPORT", "group": "reports", "description": "Maintain the HTML report portal under `.claude/cfq/reports/` (and `reportDir`); false turns every automatic sync off."},
     "planBlockedPlugins": {"type": "array", "default": ["superpowers"], "scope": ["global", "repo"], "env": "CFQ_PLAN_BLOCKED_PLUGINS", "group": "planning", "description": "Plugins /pfq must never call, even indirectly."},
@@ -176,6 +177,9 @@ def merged_tiers(repo_path):
     """Three tiers below env, highest wins: <repo>/.claude/cfq/settings.json (if repo_path
     given) > $HOME/.claude/cfq/settings.json > schema default."""
     base = merge_tier_file(DEFAULTS, GLOBAL_SETTINGS_FILE)
+    for key, entry in SCHEMA.items():
+        if "global" not in entry["scope"]:
+            base[key] = DEFAULTS[key]  # a repo-only key is never read from the global file
     if repo_path:
         base = merge_tier_file(base, paths.repo_settings_file(repo_path))
     if base.get("docLevel") == "full":
@@ -246,7 +250,7 @@ def key_source(key, repo_path, base_json, final_json):
                 return "repo"
     if os.path.isfile(GLOBAL_SETTINGS_FILE):
         global_data = _read_json(GLOBAL_SETTINGS_FILE, default={})
-        if isinstance(global_data, dict) and key in global_data:
+        if isinstance(global_data, dict) and key in global_data and "global" in SCHEMA[key]["scope"]:
             return "global"
     return "default"
 
@@ -265,6 +269,8 @@ def _apply_set(key, val, repo_path):
             _write_raw(target, "{}\n")
         data = _read_json(target, default={})
     else:
+        if "global" not in entry["scope"]:
+            errors.die(f"{PROG}: '{key}' cannot be set globally (scope is repo-only); use --repo")
         ensure()
         target = GLOBAL_SETTINGS_FILE
         data = _read_json(target, default={})
@@ -556,6 +562,8 @@ def _render_menu_group(group_out, repo_path):
         notes = []
         if "repo" not in entry["scope"]:
             notes.append("global only")
+        if "global" not in entry["scope"]:
+            notes.append("repo only")
         if k["source"] == "env:repo-legacy":
             notes.append("(legacy env)")
         rows.append([

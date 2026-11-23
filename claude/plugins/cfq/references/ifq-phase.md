@@ -228,6 +228,9 @@ drive what happens next, beyond just printing the line: `status: "NOTHING_STAGED
 phase's changes and retry the same call once; `status: "COMMIT_FAILED"` or `"RECORD_FAILED"` →
 treat as a red phase, don't move on — a `RECORD_FAILED` result still carries the commit `sha` for
 `bin/cfq batch verify` to reconcile later, since the commit itself succeeded and is never undone.
+`status: "HOOK_FAILED"` → treat as a red phase too: the repository's `phaseCommitCommand` exited
+non-zero before the commit, so no commit exists and the phase stays open; its `detail` (the last
+20 output lines) names the cause.
 
 ## Phase Commit Trailers
 

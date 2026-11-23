@@ -29,7 +29,9 @@ directory without a readable `status.json` is refused with `STATUS_FILE_MISSING`
 
 import argparse
 import json
+import os
 import pathlib
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -38,14 +40,14 @@ import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
 from cfq_lib import errors, phase_state, portal_hook, render, text  # noqa: E402
-from cfq_lib.proc import git as proc_git  # noqa: E402
+from cfq_lib.proc import git as proc_git, settings_get  # noqa: E402
 
 PROG = "cfq_phase.py"
 
 
 def commit_status_line(result):
     """`references/ifq-phase.md`'s **Commit Result Rendering** branch table (`OK`/`NOTHING_STAGED`/
-    `COMMIT_FAILED`/`RECORD_FAILED`), rendered here instead of re-derived by the skill every
+    `COMMIT_FAILED`/`RECORD_FAILED`/`HOOK_FAILED`), rendered here instead of re-derived by the skill every
     session -- the branch condition (`result["status"]`) already lives right where the result
     itself is built."""
     status = result.get("status")
@@ -56,7 +58,7 @@ def commit_status_line(result):
         return text.status_entry("Commit", icon, detail, sub=sub)
     if status == "NOTHING_STAGED":
         return text.status_entry("Commit", "warn", "nothing staged")
-    if status in ("COMMIT_FAILED", "RECORD_FAILED"):
+    if status in ("COMMIT_FAILED", "RECORD_FAILED", "HOOK_FAILED"):
         return text.status_entry("Commit", "fail", result.get("detail") or status)
     return text.status_entry("Commit", "fail", status or "unknown")
 
@@ -183,6 +185,33 @@ def _last_stderr_line(stderr):
     return lines[-1] if lines else stderr.strip()
 
 
+def _run_commit_hook(repo_root, batch_dir, phase_id):
+    """Runs the repository's `phaseCommitCommand` (repo-scoped setting, empty = off) in the
+    repository root. `shell=True` is deliberate: the setting is a shell command line the user
+    wrote into the repo-scoped settings file; batch, phase and first-phase values travel only in
+    the environment, never inside the command string. Returns None on success or when no hook is
+    set, else the last 20 lines of the combined output of the failed command."""
+    command = settings_get(repo_root, "phaseCommitCommand")
+    if not command or command == "null":
+        return None
+    number = cfq_changelog.parse_batch_number(batch_dir.name)
+    first = not any(
+        st == "done" for slug, st in _statuses(batch_dir).items() if slug != phase_id
+    )
+    env = dict(os.environ)
+    env["CFQ_BATCH_NUMBER"] = "" if number is None else str(number)
+    env["CFQ_PHASE_NUMBER"] = phase_id.split("-", 1)[0]
+    env["CFQ_FIRST_PHASE"] = "1" if first else "0"
+    done = subprocess.run(
+        command, shell=True, cwd=repo_root, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    if done.returncode == 0:
+        return None
+    lines = (done.stdout or "").rstrip("\n").splitlines()[-20:]
+    return "\n".join(lines) or f"phaseCommitCommand exited with {done.returncode}"
+
+
 def cmd_commit(args):
     """The green-phase path: commit whatever the model already staged, then record, backfill the
     SHA, push and register the repo -- one call in place of the six a green phase used to issue
@@ -231,6 +260,13 @@ def cmd_commit(args):
 
     if proc_git(repo_root, "diff", "--cached", "--quiet").returncode == 0:
         result = {"status": "NOTHING_STAGED"}
+        result["statusLines"] = [commit_status_line(result)]
+        print(render.dump_json(result))
+        sys.exit(1)
+
+    hook_output = _run_commit_hook(repo_root, batch_dir, phase_id)
+    if hook_output is not None:
+        result = {"status": "HOOK_FAILED", "detail": hook_output}
         result["statusLines"] = [commit_status_line(result)]
         print(render.dump_json(result))
         sys.exit(1)

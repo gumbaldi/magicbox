@@ -156,6 +156,8 @@ On `green`, mandatory, not optional — the orchestrator's next step pipes this 
    or `RECORD_FAILED` means treat this run as `red` in the returned report instead — a
    `RECORD_FAILED` result still carries the commit `sha`, which the report should include so
    `bin/cfq batch verify` can reconcile it later; the commit itself is never undone.
+   `HOOK_FAILED` means the repository's `phaseCommitCommand` exited non-zero before the commit:
+   report `red` with the result's `detail` in `errors` — no commit exists and the phase stays open.
 
 On `red`, call `commands.phaseRecordRed` with the report (status `red`, `errors` populated) — this
 appends the ledger entry without moving the file — and stop; no commit, no push.

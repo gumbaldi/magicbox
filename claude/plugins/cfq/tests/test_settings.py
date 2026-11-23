@@ -254,6 +254,31 @@ class SettingsTest(CfqTestCase):
             )
             self.assertNotEqual(bad.returncode, 0, msg="set baseBranchStrategy bogus should fail")
 
+    # 5h. phaseCommitCommand: empty default, repo round-trip, no env override, global write refused
+    def test_05h_phase_commit_command(self):
+        got = self.run_clean(str(CFQ_BIN), "settings", "get", "phaseCommitCommand").stdout.strip()
+        self.assertEqual(got, "", msg=f"default phaseCommitCommand = '{got}'")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "phaseCommitCommand",
+                "npm run bump-buildversion", home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "phaseCommitCommand", home=self.home,
+                env={"CFQ_PHASE_COMMIT_COMMAND": "evil"},
+            ).stdout.strip()
+            self.assertEqual(got, "npm run bump-buildversion", msg=f"repo round-trip -> '{got}'")
+
+            bad = self.run_cfq("settings", "set", "phaseCommitCommand", "x", home=self.home)
+            self.assertNotEqual(bad.returncode, 0, msg="a global write of a repo-only key must fail")
+            self.assertIn("repo-only", bad.stderr)
+            got = self.run_cfq(
+                "settings", "get", "--global", "phaseCommitCommand", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "", msg="the refused write must leave the global tier empty")
+
     # 5g. orchestratorMode: default, round-trip through global and repo, env, set rejects
     def test_05g_orchestrator_mode(self):
         got = self.run_clean(
@@ -1148,6 +1173,7 @@ class SettingsTest(CfqTestCase):
             "implementation": {
                 "orchestratorMode", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
                 "implBlockedPlugins",
+                "phaseCommitCommand",
                 "batchReview", "batchReviewFindings", "requiredTools",
             },
             "limits": {
