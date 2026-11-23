@@ -221,6 +221,22 @@
     return fmt ? fmt.format(d) : d.toISOString().slice(0, 10);
   }
 
+  // Local wall-clock time "HH:MM" and local date "DD.MM.YYYY" of an instant; "–" for a missing or
+  // unparsable value. Both follow the browser's timezone, like fmtDateTime.
+  function fmtClock(iso) {
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "–";
+    var pad = function (x) { return x < 10 ? "0" + x : String(x); };
+    return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function fmtDmy(iso) {
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "–";
+    var pad = function (x) { return x < 10 ? "0" + x : String(x); };
+    return pad(d.getDate()) + "." + pad(d.getMonth() + 1) + "." + d.getFullYear();
+  }
+
   function billableIn(t) {
     return ((t && t.input) || 0) + ((t && t.cache_creation) || 0);
   }
@@ -329,6 +345,8 @@
   // One side of the planning | implementation split: a swatch, title and share in the head, a row of
   // facts ({k, v, s, title}: label, value, optional sub line and tooltip) and one chip per model
   // family (names with the same family collapse into one chip). `kind` is "plan" or "impl".
+  // `notes` (plain strings) follow the chips in the same row; `empty` replaces the facts with that
+  // sentence when the part has no data.
   function partCard(doc, opts) {
     var card = el(doc, "div", null, "part part-" + opts.kind);
     var head = el(doc, "div", null, "part-head");
@@ -336,6 +354,10 @@
     head.appendChild(el(doc, "h3", opts.title));
     if (opts.share) head.appendChild(el(doc, "span", opts.share, "share"));
     card.appendChild(head);
+    if (opts.empty) {
+      card.appendChild(el(doc, "p", opts.empty, "empty-line muted"));
+      return card;
+    }
     var facts = el(doc, "div", null, "facts");
     (opts.facts || []).forEach(function (f) {
       var box = el(doc, "div", null, "fact");
@@ -347,7 +369,8 @@
     });
     card.appendChild(facts);
     var models = opts.models || [];
-    if (models.length) {
+    var notes = opts.notes || [];
+    if (models.length || notes.length) {
       var slots = CFQ.charts && CFQ.charts.modelSlots ? CFQ.charts.modelSlots(models) : {};
       var meta = el(doc, "div", null, "meta");
       var seen = {};
@@ -361,6 +384,7 @@
         chip.appendChild(text(doc, label));
         meta.appendChild(chip);
       });
+      notes.forEach(function (n) { meta.appendChild(el(doc, "span", n)); });
       card.appendChild(meta);
     }
     return card;
@@ -501,6 +525,8 @@
     fmtDuration: fmtDuration,
     fmtSpan: fmtSpan,
     fmtActive: fmtActive,
+    fmtClock: fmtClock,
+    fmtDmy: fmtDmy,
     fmtDateTime: fmtDateTime,
     fmtDate: fmtDate,
     billableIn: billableIn,

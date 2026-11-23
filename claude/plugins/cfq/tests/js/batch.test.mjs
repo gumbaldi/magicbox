@@ -132,10 +132,11 @@ test("header: title, status, priority, dependencies, goal, facts and flags", () 
   assert.ok(collectHtml(root).includes("<p>Demo goal.</p>"));
   assert.match(text, /Phase needed a second attempt/);
   assert.ok(links(root).includes("#/batch/047-2026-10-01-demo/phase/02-second"));
-  assert.match(text, /2 notes/);
+  assert.match(text, /1 a note · 1 b note/);
   assert.doesNotMatch(text, /Note A/); // info flags stay collapsed
+  assert.doesNotMatch(text, /no warnings/); // a warn flag is present
   assert.match(text, /cfq\/047-2026-10-01-demo/);
-  assert.match(text, /2\/2/);
+  assert.match(text, /2 of 2 phases green/);
   assert.deepEqual(crumbs[0].map((c) => c.href), ["#/", null]);
   assert.equal(crumbs[0][1].label, "047-2026-10-01-demo");
 });
@@ -170,7 +171,7 @@ test("phases table: columns, one row per phase, closed by default", () => {
   const { root } = draw(fixtureBatch("done"));
   const table = byTag(root, "table")[0];
   assert.deepEqual(byTag(table, "th").map((th) => th.textContent),
-    ["#", "Phase", "Size", "Status", "Worked", "Duration", "Turns", "Out", "Dev", "Flags"]);
+    ["#", "Phase", "Size", "Status", "Time", "Active", "Turns", "Out", "Notes"]);
   assert.equal(byClass(table, "phase-row").length, 2);
   const toggles = rowToggles(table);
   assert.equal(toggles.length, 2);
@@ -296,7 +297,7 @@ test("Plan context: every section but the goal, or a notice", () => {
   const batch = fixtureBatch("done");
   batch.context = { goal: "<p>G</p>", decisions: "<ul><li>One</li></ul>", "cross-phase contracts": "<p>C</p>" };
   const { root } = draw(batch, { route: { tab: "context" } });
-  assert.deepEqual(byTag(root, "h3").map((h) => h.textContent), ["Decisions", "Cross phase contracts"]);
+  assert.deepEqual(byTag(byClass(root, "batch-tab")[0], "h3").map((h) => h.textContent), ["Decisions", "Cross phase contracts"]);
   const html = collectHtml(byClass(root, "batch-tab")[0]);
   assert.deepEqual(html, ["<ul><li>One</li></ul>", "<p>C</p>"]);
   batch.context = {};
@@ -307,24 +308,151 @@ test("Plan context: every section but the goal, or a notice", () => {
   assert.match(collectText(byClass(goalOnly.root, "batch-tab")[0]), /No batch context recorded\./);
 });
 
-test("the plan-only batch renders and shows dashes for every figure", () => {
+test("the plan-only batch renders without figures: empty cards, dashes in the table", () => {
   const { root } = draw(fixtureBatch("plan_only"));
-  const facts = byClass(root, "facts")[0];
-  const values = Object.fromEntries(byClass(facts, "fact").map((f) => [byClass(f, "fact-label")[0].textContent, collectText(byClass(f, "fact-value")[0] || f.children[1])]));
-  for (const label of ["Started", "Finished", "Elapsed", "Turns", "In", "Out", "Merged"]) {
-    assert.equal(values[label].trim(), "–", label);
-  }
+  assert.match(collectText(byClass(root, "result")[0]), /0 of 2 phases green/);
+  assert.doesNotMatch(collectText(byClass(root, "result")[0]), /merged/);
+  const cards = byClass(root, "part");
+  assert.equal(cards.length, 2);
+  for (const card of cards) assert.match(collectText(card), /No telemetry recorded\./);
   const rows = byClass(root, "phase-row");
   assert.equal(rows.length, 2);
   for (const tr of rows) {
     const cells = byTag(tr, "td");
-    assert.equal(collectText(cells[4]).trim(), "–"); // worked
-    assert.equal(collectText(cells[5]).trim(), "–"); // duration
+    assert.equal(collectText(cells[4]).trim(), "–"); // time
+    assert.equal(collectText(cells[5]).trim(), "–"); // active
     assert.equal(collectText(cells[6]).trim(), "–"); // turns
     assert.equal(collectText(cells[7]).trim(), "–"); // out
-    assert.equal(collectText(cells[8]).trim(), "–"); // dev
   }
   assert.doesNotThrow(() => draw(fixtureBatch("in_progress")));
+});
+
+test("the in-progress batch shows an implementation card and an empty planning card", () => {
+  const { root } = draw(fixtureBatch("in_progress"));
+  const [plan, impl] = byClass(root, "part");
+  assert.match(collectText(plan), /No telemetry recorded\./);
+  assert.match(collectText(impl), /Active ≈ 25m calendar 30m/);
+});
+
+test("headerFacts counts green, skipped and error phases", () => {
+  const f = B.headerFacts(stateBatch());
+  assert.deepEqual([f.green, f.skipped, f.error], [1, 1, 1]);
+  assert.deepEqual(B.headerFacts(fixtureBatch("done")).green, 2);
+});
+
+test("result line: green count, merge state, branch and base", () => {
+  const { root } = draw(fixtureBatch("done"));
+  const line = byClass(root, "result")[0];
+  assert.equal(byClass(line, "result-main")[0].textContent, "2 of 2 phases green");
+  const text = collectText(line);
+  assert.match(text, /✔ merged/);
+  assert.deepEqual(byTag(line, "code").map((c) => c.textContent), ["cfq/047-2026-10-01-demo", "main"]);
+  const open = fixtureBatch("in_progress");
+  open.merged = false;
+  assert.match(collectText(byClass(draw(open).root, "result")[0]), /not merged yet/);
+});
+
+test("part cards: values, share, interview depth, phase count, explorers and audit", () => {
+  const { root } = draw(fixtureBatch("done"));
+  const [plan, impl] = byClass(root, "part");
+  assert.match(plan.className, /part-plan/);
+  assert.match(impl.className, /part-impl/);
+  const planText = collectText(plan);
+  assert.match(planText, /Planning/);
+  assert.match(planText, /50 %/); // equal output on both sides in the fixture
+  assert.match(planText, /Active ≈ 30m/);
+  assert.match(planText, /Output 6\.2k 75 turns/);
+  assert.match(planText, /Input new 4\.4k/);
+  assert.match(planText, /Cache read 38k/);
+  assert.match(planText, /thorough interview/);
+  assert.match(planText, /2 phases planned/);
+  assert.match(planText, /1 explorer\b/);
+  assert.match(planText, /audit 5m · 1 finding\b/);
+  assert.match(planText, /sonnet/);
+  assert.match(planText, /haiku/);
+  // the sub line of the planning Active fact is the calendar range, with the labels on the facts
+  const range = byClass(byClass(plan, "fact")[0], "s")[0].textContent;
+  assert.match(range, /^\d\d\.\d\d\. \d\d:\d\d–(\d\d\.\d\d\. )?\d\d:\d\d$/);
+  const implText = collectText(impl);
+  assert.match(implText, /Active ≈ 40m calendar 2h 40m/);
+  assert.match(implText, /orchestrator/);
+  assert.match(implText, /1 worker · 1 explorer/);
+  // "Input new" and "Cache read" are explained in their tooltips
+  const titles = byClass(plan, "fact").map((f) => f.attrs.title || "");
+  assert.ok(titles.some((t) => /Input plus cache creation/.test(t)));
+  assert.ok(titles.some((t) => /read from the cache/.test(t)));
+});
+
+test("part cards: a part without telemetry says so, the other stays; no audit means no audit line", () => {
+  const batch = fixtureBatch("done");
+  batch.planning.cost = null;
+  const { root } = draw(batch);
+  const [plan, impl] = byClass(root, "part");
+  assert.match(collectText(plan), /No telemetry recorded\./);
+  assert.equal(byClass(plan, "fact").length, 0);
+  assert.equal(byClass(impl, "fact").length, 4);
+  const noAudit = fixtureBatch("done");
+  noAudit.planning.audit = [];
+  assert.doesNotMatch(collectText(byClass(draw(noAudit).root, "part")[0]), /audit/);
+  const running = fixtureBatch("done");
+  running.planning.audit = [{ started: "2026-10-01T07:00:00Z", finished: "", findings: 0 }];
+  assert.match(collectText(byClass(draw(running).root, "part")[0]), /audit running/);
+});
+
+test("notices: with only info flags there are no warn lines and a no-warnings pill with counts by code", () => {
+  const batch = fixtureBatch("done");
+  batch.flags = [
+    { level: "info", code: "cost-outlier", text: "Output 3.5x the S baseline", phase: "01-first" },
+    { level: "info", code: "cost-outlier", text: "Output 2.5x the S baseline", phase: "02-second" },
+    { level: "info", code: "observations", text: "1 observation", phase: "02-second" },
+  ];
+  batch.phases[1].flags = [];
+  const { root } = draw(batch);
+  const head = byTag(root, "header")[0];
+  assert.equal(byClass(head, "flag-warn").length, 0);
+  const box = byClass(head, "notices")[0];
+  assert.match(collectText(byClass(box, "pill")[0]), /no warnings/);
+  const summary = collectText(byClass(box, "disclosure-toggle")[0]);
+  assert.match(summary, /2 phases above their size baseline · 1 phase with observations/);
+  assert.doesNotMatch(collectText(box), /Output 3\.5x/); // the list opens on demand
+  fire(byClass(box, "disclosure-toggle")[0], "click");
+  assert.match(collectText(box), /Output 3\.5x the S baseline/);
+  assert.ok(links(box).includes("#/batch/047-2026-10-01-demo/phase/01-first"));
+  // no flags at all: just the pill
+  const clean = fixtureBatch("done");
+  clean.flags = [];
+  const none = byClass(draw(clean).root, "notices")[0];
+  assert.match(collectText(none), /no warnings/);
+});
+
+test("notices: a warn flag is listed above the collapsed notes and there is no no-warnings pill", () => {
+  const batch = fixtureBatch("done");
+  batch.flags = [
+    { level: "info", code: "cost-outlier", text: "Output 3.5x the S baseline", phase: "01-first" },
+    { level: "warn", code: "red-attempt", text: "Phase is red", phase: "02-second" },
+  ];
+  const head = byTag(draw(batch).root, "header")[0];
+  const warn = byClass(head, "flag-warn")[0];
+  assert.ok(warn);
+  const kids = head.children;
+  const warnList = kids.find((k) => byClass(k, "flag-warn").length && k.tagName === "ul");
+  const notices = byClass(head, "notices")[0];
+  assert.ok(kids.indexOf(warnList) < kids.indexOf(notices));
+  assert.doesNotMatch(collectText(notices), /no warnings/);
+  assert.match(collectText(notices), /1 phase above its size baseline/);
+});
+
+test("phases table: Time is the latest attempt's clock time, Active the active sums; no active_s shows calendar time only", () => {
+  const { root } = draw(fixtureBatch("done"));
+  const [one, two] = byClass(root, "phase-row").map((tr) => byTag(tr, "td"));
+  assert.match(collectText(one[4]), /^\d\d:\d\d$/);
+  assert.equal(collectText(one[5]), "≈ 25m");
+  assert.equal(one[5].attrs.title, "calendar 30m");
+  // the second phase's latest attempt has active_s null: calendar time (20m + 40m) without a tilde
+  assert.equal(collectText(two[5]), "1h 00m");
+  assert.equal(two[5].attrs.title, undefined);
+  assert.equal(B.phaseRows(fixtureBatch("done"))[1].active, null);
+  assert.equal(B.phaseRows(fixtureBatch("done"))[0].active, 1500);
 });
 
 test("a null payload renders Batch not found and a link back", () => {
@@ -444,7 +572,7 @@ test("phase states: error and skipped render with their own icon and word; the s
   assert.notEqual(byClass(errorPill, "icon")[0].textContent, byClass(skippedPill, "icon")[0].textContent);
   assert.match(collectText(skippedRow), /obsolete/);
   assert.doesNotMatch(collectText(errorRow), /obsolete/);
-  assert.match(collectText(byClass(root, "facts")[0]), /1\/3 · 1 skipped/);
+  assert.match(collectText(byClass(root, "result")[0]), /1 of 3 phases green · 1 skipped · 1 error/);
 });
 
 test("a skip attempt renders as a row labelled skipped", () => {
@@ -471,7 +599,7 @@ test("header: an open batch shows the folder and context controls and the hint",
   assert.equal(byClass(rows[0], "edit-hint").length, 1);
   // after the facts list
   const kids = head.children;
-  assert.ok(kids.indexOf(rows[0]) > kids.indexOf(byClass(head, "facts")[0]));
+  assert.ok(kids.indexOf(rows[0]) > kids.indexOf(byClass(head, "result")[0]));
 });
 
 test("header: no context file means no context pair; editor off means no links; a done batch has none", () => {
