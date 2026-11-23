@@ -3,7 +3,36 @@
   branch: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
   base: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
   started: 2026-11-23
-  status: in-progress
+  status: done
+  finished: 2026-11-24
+  phases:
+    - phase: "01-planning-open-and-close-commands"
+      status: "green"
+      summary: "bin/cfq planning open and planning close bundle commands (scripts/cfq_planning.py) with the noun registered in bin/cfq and 13 tests"
+    - phase: "02-drop-review-marker-from-pfq-readers"
+      status: "green"
+      summary: "Removed the review marker from cfq_scan, the attention items and the pfq preflight (awaitingReview became awaitingAudit, Review status line dropped), with tests and docs updated"
+    - phase: "03-drop-review-marker-from-ifq-readers"
+      status: "green"
+      summary: "Removed the review parameter, review_set branch and review keys from the ifq preflight, dropped the awaiting-review wording from ifq-batch-start.md, added an audit-held planning-row test"
+    - phase: "04-remove-brief-review-flags"
+      status: "green"
+      summary: "Removed the --review, --phases, --gate and --changed modes and their renderers from cfq_brief.py, the BriefReviewTest class and the plan-for-queue half of reference check 9"
+    - phase: "05-remove-batch-review-verb-and-marker-helpers"
+      status: "green"
+      summary: "Removed the batch review verb, review_snapshot/read_review and the park .review branch; ready keeps the legacy .review cleanup; auditBarrier text now says batch ready refuses"
+    - phase: "06-remove-awaiting-review-from-the-portal"
+      status: "green"
+      summary: "Removed the awaiting_review state from the portal payload builder, viewer, styles and tests; the viewer renders stale awaiting_review payloads as planning via core.normalizeStatus"
+    - phase: "07-plan-flow-without-the-review-gate"
+      status: "green"
+      summary: "plan-for-queue ends without a release question: Security and Park run through planning open, Close and Report through planning close with the portal link; plan-review.md removed and the references, interaction policy and phase-quality text updated"
+    - phase: "08-parallel-reads-and-batched-edits"
+      status: "green"
+      summary: "Reading groups A and B in the pfq skill, one-response rules for phase writes and corrections, and a structural test for the groups"
+    - phase: "09-document-the-changes-and-release-0-45-0"
+      status: "green"
+      summary: "Documented the shorter planning flow in design notes, usage, README and CLAUDE.md, and bumped the plugin version to 0.45.0."
 - batchNumber: 63
   batch: 063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
   branch: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
