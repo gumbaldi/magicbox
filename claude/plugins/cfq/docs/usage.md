@@ -161,7 +161,7 @@ The report portal lives at `<repo>/.claude/cfq/reports/index.html` and shows eve
 phases, deviations, flags and cost; the README's [Report portal](../README.md#report-portal)
 section describes each view. `/ifq` prints the link of the finished batch at its end, and `/cfq`
 names the portal path under `view reports`. Open batches, their unfinished phases and open inbox
-entries carry "Open in editor" and "Copy path" controls, so a plan can be edited before `/ifq`
+entries carry "Open folder" and "Copy path" controls, so a plan can be edited before `/ifq`
 picks it up.
 
 Configurable (see [configuration.md](configuration.md#settings-reference)): `htmlReport`,

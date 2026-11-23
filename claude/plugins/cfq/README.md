@@ -426,9 +426,11 @@ cross-repo index across every repo that mirrors into it (`## Report collection l
 reachable, just not kept current in the background.
 
 **Editing plans before `/ifq`.** Open batches, their not-yet-done phases and open `plan/` and
-`todo/` inbox entries show "Open in editor" and "Copy path". The editor is a VS Code-family editor
-chosen by `editor` (default `vscode`; `cursor`, `windsurf`, `kiro` and similar work, `off` hides the
-links). The links always point at the repo's own files, also when the page was opened from a
+`todo/` inbox entries show "Open folder" and "Copy path". "Open folder" opens the containing folder
+in the editor (a single-file link opens an empty window in VS Code, so files are not linked); "Copy
+path" copies the file's path. The editor is a VS Code-family editor chosen by `editor` (default
+`vscode`; `cursor`, `windsurf`, `kiro` and similar work, `off` leaves only the copy buttons). The
+links always point at the repo's own folders, also when the page was opened from a
 `reportDir` copy. Changes show in the portal after the next sync, and `/ifq` lints the plans again
 at its start. The report link `/ifq` prints opens in the host's browser on WSL and native Windows.
 

@@ -191,7 +191,7 @@ setting; the rule is fixed, never a judgment call.
 |---|---|---|---|---|
 | `htmlReport` | `CFQ_HTML_REPORT` | `true` | global, repo | keep the report portal synced automatically at batch end; set false to sync only on request (`bin/cfq portal sync <repo-root>`) |
 | `reportDir` | `CFQ_REPORT_DIR` | `""` | global, repo | additional copy of every repo's report portal plus a cross-repo index; absolute path or a Windows drive path (`C:\dir`, `C:/dir`), UNC paths are rejected; empty = repo-local only — see layout below |
-| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "open in editor" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the editor links — see below |
+| `editor` | `CFQ_EDITOR` | `vscode` | global, repo | URL scheme of the VS Code-family editor the portal's "Open folder" links use (`vscode`, `vscode-insiders`, `cursor`, `windsurf`, `kiro`, `trae`, `vscodium`, ...); `off` hides the folder links and leaves the copy buttons — see below |
 | `hostPlatform` | `CFQ_HOST_PLATFORM` | `auto` | global only | which host the browser and editors run on: `auto` detects it, `wsl`, `windows` or `posix` overrides detection |
 | `wslDistro` | `CFQ_WSL_DISTRO` | `""` | global only | WSL distribution name used in links and copied paths on Windows + WSL; empty means detect |
 | `telemetrySyncRepo` | `CFQ_TELEMETRY_SYNC_REPO` | `""` | global, repo | absolute path or a Windows drive path (`C:\dir`, `C:/dir`; UNC paths are rejected) to a dedicated telemetry git repo; empty disables the sync |
@@ -202,10 +202,11 @@ auto` treats native Windows Python as `windows`, Linux under WSL (the `WSL_DISTR
 `microsoft` kernel release) as `wsl` and everything else as `posix`; on WSL the distribution is
 `wslDistro`, else `WSL_DISTRO_NAME`, else the name `wslpath -w /` reports, and without one cfq falls
 back to `posix` rather than failing. On Linux and macOS a path opens as it is. On native Windows it
-becomes a backslash path and an editor link on the same drive path. On WSL a file under
-`/mnt/<letter>/` opens as the Windows path on that drive, and any other file opens through the
+becomes a backslash path and an editor folder link on the same drive path. On WSL a folder under
+`/mnt/<letter>/` opens as the Windows path on that drive, and any other folder opens through the
 editor's WSL remote link and as a `\\wsl.localhost\<distro>\...` path, so a Windows browser and a
-Windows editor reach it. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
+Windows editor reach it. Only folders are linked: the same remote link for a single file opens an
+empty window. A changed `editor`, `hostPlatform` or `wslDistro` reaches every batch page on the
 next full sync (`/cfq` or `bin/cfq portal sync <repo-root>`).
 
 ### Repo & git

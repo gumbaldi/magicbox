@@ -258,9 +258,17 @@ left every batch page empty.
 Editing a parked plan from the portal could have been an in-browser edit mode. It is not: the portal
 is a `file://` page, and a browser page cannot write files. A local edit server (`portal serve`) was
 rejected as too large for the gain — it brings a process lifecycle, write authorisation and
-conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open in
-editor" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
+conflicts with a running `/ifq` that reads the same files. So each editable item carries an "Open
+folder" link (a URL of the VS Code family) and a "Copy path" control, and editing happens in the
 user's own editor.
+
+The links name folders, not files. VS Code opens a folder from
+`vscode://vscode-remote/wsl+<distro>/<path>`, but the same link for a single file opens an empty
+window on the user's host. A trailing `:line:col` is the reported way to force a file
+(microsoft/vscode#108257), and it is unreliable and was never tested there. The user chose folder
+links only: a phase links its batch folder, an entry its `plan/` or `todo/` folder, a batch its batch
+folder, and "Copy path" still copies the file's own path. The `:1:1` suffix was rejected for that
+reason.
 
 The links target the repo-local files, never the `reportDir` mirror: a plan edited in the mirror
 would not be the plan `/ifq` reads. For the same reason the printed report link points at the
