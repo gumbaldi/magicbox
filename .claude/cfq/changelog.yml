@@ -6,7 +6,21 @@
   branch: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
   base: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
   started: 2026-11-23
-  status: in-progress
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-write-folder-targets-into-the-portal-payloads"
+      status: "green"
+      summary: "Portal phase, entry and batch payloads now carry folder targets (dir_target/file_target); file-level editor URLs removed, batch context keeps only its path"
+    - phase: "02-show-open-folder-and-copy-path-in-the-portal"
+      status: "green"
+      summary: "Portal renders 'Open folder' (edit.dir.url) and 'Copy path' for phases and entries via the new fileEditControls; batch header keeps folder pair and context is copy-only; editControls removed; fixtures and tests updated"
+    - phase: "03-take-report-timestamps-from-the-shared-helper"
+      status: "green"
+      summary: "ensure_report() and cmd_security() take their timestamps from render.now_iso() instead of starting `date -Iseconds`; new test test_timestamps_do_not_start_date guards the call and checks both stored timestamps against the ISO pattern."
+    - phase: "04-document-the-folder-links-and-raise-the-plugin-version"
+      status: "green"
+      summary: "Documented the folder links and copy-path control in design notes, README, configuration, usage and CLAUDE.md, and raised the cfq plugin version 0.42.0 to 0.43.0"
 - batchNumber: 61
   batch: 061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
   branch: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
