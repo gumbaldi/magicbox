@@ -9,8 +9,11 @@ on — there is no setting that skips it.
 
 `bin/cfq batch review "<batch-dir>"` replaces `.planning` with `.review`: the batch stays held for
 `/ifq`, and unlike `.planning` the marker never goes stale. Print the `REVIEW` section header, then
-`bin/cfq brief "<batch-dir>" --review` exactly as returned — no rewording, no translation, nothing
-omitted, in the plan's own language. This is the one place the digest is printed in full.
+run `bin/cfq brief "<batch-dir>" --review --gate` and place its output exactly as returned — no
+rewording, no translation, in the plan's own language — at the top of **The Question**'s `question`
+text, followed by the four options. Text printed before the dialog is not visible while it is open,
+so nothing of the gate goes before the question. The full digest is
+`bin/cfq brief "<batch-dir>" --review`; run it only when the user asks to read it.
 
 ## The Question
 
@@ -21,8 +24,8 @@ One `AskUserQuestion`, in the user's language, four options, none labelled as re
 - **I'll edit the files myself** — the planner waits.
 - **Discard** — the batch goes to the cfq trash, restorable.
 
-A free-text answer is a change request. This question is exempt from `interaction-policy.md`'s
-**Decision Question Context** — the digest printed above it is the context.
+A free-text answer is a change request. The phase list at the top of the `question` text is the
+question's context (`interaction-policy.md`'s **Decision Question Context**).
 
 ## Request Changes
 
@@ -49,9 +52,10 @@ In this order:
 3. Run `<plugin-root>/references/plan-self-critique.md`'s **The Post-Write Audit** again only when
    more than one phase changed, the phase order changed, or an `## Affected Files` list changed. A
    text change inside one phase gets lint only.
-4. Print `bin/cfq brief "<batch-dir>" --review --changed` exactly as returned.
+4. Run `bin/cfq brief "<batch-dir>" --review --gate --changed`.
 5. `bin/cfq batch review "<batch-dir>"` to refresh the snapshot.
-6. Ask **The Question** again.
+6. Ask **The Question** again, with step 4's output exactly as returned at the top of its
+   `question` text.
 
 ## Release
 

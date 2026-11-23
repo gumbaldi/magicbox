@@ -217,7 +217,8 @@ follow it — findings are parked as a `plan/` entry, never a question.
 
 Entering this step closes `POSTCHECKS` and opens `REVIEW`. Read
 `${CLAUDE_PLUGIN_ROOT}/references/plan-review.md` and follow it — the batch stays held until the
-user releases it; print `bin/cfq brief "<batch-dir>" --review` as returned, ask, revise, repeat.
+user releases it; the compact gate (`bin/cfq brief "<batch-dir>" --review --gate`) goes into the
+release question's text, ask, revise, repeat.
 Print `Review`.
 
 ## Step 16 — Telemetry and Sync

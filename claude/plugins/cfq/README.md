@@ -244,7 +244,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 |---|---|
 | `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `review` to hold a batch for plan review, `ready` to clear `.planning`/`.review`. |
 | `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
-| `brief` | Renders a batch or single-phase announcement from the phase files on disk; `--review` prints the plan digest, `--review --changed` only the phases edited since. |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk; `--review` prints the plan digest, `--review --changed` only the phases edited since; `--review --gate [--changed]` the compact phase list the release question shows. |
 | `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
