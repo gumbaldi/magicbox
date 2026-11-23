@@ -72,8 +72,16 @@ form as `verification-filter`.
 
 ## 5. Size reflects verify-the-reuse work, not just new lines
 
-The three letters: `S` one file and one test, `M` several files or a new script, `L` a new script
-**with** a new test or a skill rework — this is what steers whether `ifq` even starts a phase.
+The three letters, anchored on the files a phase touches:
+
+- `S`: at most 3 files in `## Affected Files` (tests included), no new script, no real-browser check.
+- `M`: 4–8 affected files, or a new script, or an `S`-sized change that adds a real-browser check.
+- `L`: 9 or more affected files, or a new script with its own new test file, or a rework of skill,
+  reference or agent prose across several files, or an `M`-sized change that adds a real-browser
+  check.
+
+The size steers whether `ifq` even starts a phase; the portal's size calibration view shows whether
+these anchors still hold.
 
 A phase carrying `(verbatim)` blocks per rule 2 costs more than its new-code line count alone
 suggests — writing the fixture, running it, and fixing whatever the move actually broke is real
