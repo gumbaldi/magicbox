@@ -3,7 +3,45 @@
   branch: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
   base: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
   started: 2026-11-23
-  status: in-progress
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-hold-the-review-gate-while-the-audit-runs"
+      status: "green"
+      summary: "batch audit start|done with a .audit marker, review/ready refusals, auditBarrier setting, scan and preflight awareness of .audit"
+    - phase: "02-wait-for-the-audit-in-plan-for-queue"
+      status: "green"
+      summary: "Post-Write Audit four-step wait procedure with the hourglass Phase Audit line, Re-check and Resuming a Review routing, run icon in ICONS and output-format, with tests"
+    - phase: "03-anchor-phase-sizes-on-affected-files"
+      status: "green"
+      summary: "Rule 5 of phase-quality.md now defines S/M/L by affected-file counts with a step up for real-browser checks"
+    - phase: "04-measure-active-time-in-telemetry"
+      status: "green"
+      summary: "Added ACTIVE_GAP_S, active_seconds() and the active_s field in build_record(), with unit and record-level tests and the whitelist entry"
+    - phase: "05-split-planning-and-implementation-in-portal-data"
+      status: "green"
+      summary: "time_of active_s, implementation_part, planning interviewDepth/phaseCount/audit, queue row cost.planning/implementation and time, recent_summary with RECENT_BATCHES, extended JS fixtures"
+    - phase: "06-rolling-baselines-cost-notes-and-attention-lists"
+      status: "green"
+      summary: "Rolling 50-phase size baselines ordered by finish time, cost outliers demoted to info notes, attention_items() and now_items() wired into queue.js as attention, attentionCounts and now"
+    - phase: "07-new-visual-system-and-top-bar"
+      status: "green"
+      summary: "New token-based portal stylesheet, top bar with repo switcher, breadcrumbs and shared search (/ handler moved to app.js), family-based model colours, fmtSpan and fmtActive"
+    - phase: "08-overview-now-attention-and-trends"
+      status: "green"
+      summary: "Overview rebuilt as Now, Needs attention, Last 10 batches (planning | implementation part cards and share bar), then tabs Batches (new Planning/Implementation columns), Trends (cost chart with planning/implementation grouping switch, calibration with baseline table), Todos, Plan inbox, Archive; KPI strip removed"
+    - phase: "09-batch-page-result-band-and-timeline"
+      status: "green"
+      summary: "Batch page header with result line, planning and implementation part cards, collapsed info notices and a new phase table (Time, Active, Notes); timeline with a local-time axis, date caption and plan/impl bar colours"
+    - phase: "10-cost-tab-split-by-planning-and-implementation"
+      status: "green"
+      summary: "The batch cost tab now opens with an output-by-part bar, shows planning and implementation tables side by side, then implementation by phase against the size baseline and agents grouped by part; sync() attaches phase.baseline"
+    - phase: "11-cross-repo-index-with-now-summaries"
+      status: "green"
+      summary: "repo_counts() gained now, attention and lastActivity; repos.js renders one Now/attention row per repo sorted by last activity, with styles and tests"
+    - phase: "12-document-check-in-browser-and-bump-version"
+      status: "green"
+      summary: "Documented the redesign (CLAUDE.md, README.md, usage.md, five new design-notes sections plus the price-table sentence), removed three unused CSS rules, replaced the info flag glyph, raised the plugin version to 0.44.0 and ran the real-browser check"
 - batchNumber: 62
   batch: 062-2026-11-22-portal-folder-links-and-report-timestamps
   branch: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
