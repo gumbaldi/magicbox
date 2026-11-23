@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview|--review [--phases NN,...|--changed|--gate [--changed]]]
+# Usage: cfq_brief.py <batch-dir> [--phase <NN> [--classic-fallback]|--with-done|--overview]
 """Prints the flat batch listing the dashboard's next-batch expansion shows (default mode), or (with
 --phase <NN>) a single-phase announcement block (title, goal, files, the first 10 numbered
 `## Changes` steps at two lines each, check command), or (with --with-done) the same flat listing
 with done phases listed first, ticked, and skipped ones after them, or (with --overview) the aligned-monospace batch-overview
 block (header, phase count/done/error/skipped line, the untruncated labelled `.batch-context.md` block, the
 phase table interleaved with each phase's own `## Context` excerpt and a `-> <file>` pointer, and
-closing `Plans` and (report portal on) `Portal` lines) shown at `ifq`'s start gate, or (with --review [--phases NN,...]) the untruncated Plan-Mode digest: the whole batch
-context, and per phase its whole `## Context`, files, top-level `## Changes` steps, verification
-command and phase-file path; --review --changed prints only what changed since the `.review`
-snapshot `cfq batch review` took (read-only, never refreshes it); --review --gate prints the compact
-review gate instead (header, count line, one `NN  title  · size` line per phase and the `Plans`
-directory line; with --changed only the changed phases), the text the release question carries. Batch mode (default and --with-done) prints an optional
+closing `Plans` and (report portal on) `Portal` lines) shown at `ifq`'s start gate. Batch mode (default and --with-done) prints an optional
 `goal:` line right after the header, read from `.batch-context.md`'s `## Goal`; --phase mode never
 does, since it is the per-phase announcement. Read-only except for its own exit code: --phase
 refuses (MODE_MISMATCH, exit 2) when the owning repo has orchestratorMode on, unless
@@ -359,17 +354,6 @@ def changes_steps(text):
     return steps
 
 
-def changes_fallback(text):
-    """First paragraph of `## Changes` joined by spaces, "" when empty or absent."""
-    para = []
-    for line in _section_lines(text, "Changes"):
-        if line.strip():
-            para.append(line.strip())
-        elif para:
-            break
-    return " ".join(para)
-
-
 def _render_md_blocks(lines, indent, para_gap):
     """Raw Markdown lines as wrapped blocks: a column-0 `- ` line plus its indented continuation
     is one bullet (continuation lines at `indent` + 2 spaces), consecutive other non-blank lines
@@ -417,212 +401,12 @@ def render_context_block(d):
     return out
 
 
-def parse_phase_review(text, fallback_title):
-    fields = parse_phase_body(text, fallback_title=fallback_title)
-    context_lines = _section_lines(text, "Context")
-    while context_lines and not context_lines[0].strip():
-        context_lines.pop(0)
-    while context_lines and not context_lines[-1].strip():
-        context_lines.pop()
-    summary_lines = _section_lines(text, "Summary")
-    while summary_lines and not summary_lines[0].strip():
-        summary_lines.pop(0)
-    while summary_lines and not summary_lines[-1].strip():
-        summary_lines.pop()
-    files = []
-    for line in _section_lines(text, "Affected Files"):
-        if line.startswith("- `"):
-            path, _, rest = line[3:].partition("`")
-            files.append((path, rest.strip()))
-    return {
-        "title": fields["title"], "size": fields["size"], "check": fields["check"],
-        "context_lines": context_lines, "summary_lines": summary_lines, "files": files,
-        "steps": changes_steps(text), "fallback": changes_fallback(text),
-    }
-
-
-def _display_path(path, repo_root):
-    p = pathlib.Path(path)
-    if repo_root is not None:
-        try:
-            return str(p.relative_to(repo_root))
-        except ValueError:
-            pass
-    return str(path)
-
-
-def render_review_phase(num, fields, phase_path, repo_root, state=""):
-    head = f"PHASE {num} · {fields['title']} · Size {fields['size'] or 'M'}"
-    lines = [head + (f" · {state}" if state else "")]
-
-    summary = _render_md_blocks(fields["summary_lines"], "    ", para_gap=True)
-    if summary:
-        lines.append("  Summary")
-        lines.extend(summary)
-    else:
-        ctx = _render_md_blocks(fields["context_lines"], "    ", para_gap=True)
-        if ctx:
-            lines.append("  Context")
-            lines.extend(ctx)
-
-    if fields["files"]:
-        lines.append("  Files")
-        for path, marker in fields["files"]:
-            shown = _display_path(path, repo_root)
-            lines.append(f"    {shown} {marker}" if marker else f"    {shown}")
-
-    if fields["steps"]:
-        lines.append("  Changes")
-        for i, step in enumerate(fields["steps"], 1):
-            prefix = f"    {i}. "
-            wrapped = cfq_text.wrap(step["lead"], width=64, max_lines=3) or [""]
-            n = step["details"]
-            if n:
-                wrapped[-1] = (wrapped[-1] + f" (+{n} detail{'s' if n != 1 else ''})").lstrip()
-            for j, w in enumerate(wrapped):
-                lines.append(prefix + w if j == 0 else " " * len(prefix) + w)
-    elif fields["fallback"]:
-        lines.append("  Changes")
-        lines.extend(cfq_text.wrap(fields["fallback"], width=68, indent="    ", max_lines=6))
-
-    if fields["check"]:
-        lines.append(f"  Verify   {fields['check']}")
-    lines.append(f"  Edit     {_display_path(phase_path.resolve(), repo_root)}")
-    return lines
-
-
 def _portal_line(d):
     """`  Portal   <url>` when the batch sits in a queue layout and `htmlReport` is on, else None."""
     repo = _repo_root_from_batch_dir(d)
     if repo is None or cfq_proc.settings_get(repo, "htmlReport") != "true":
         return None
     return f"  Portal   {host_paths.portal_batch_url(repo, d.name)}"
-
-
-def render_review(d, only=None):
-    repo_root = _repo_root_from_batch_dir(d)
-    done, skipped, pending = _phase_groups(d)
-    entries = [
-        (r["path"], "" if r["status"] in phase_state.PENDING else r["status"])
-        for r in done + skipped + pending
-    ]
-
-    if only is not None:
-        known = {phase_num(f) for f, _ in entries}
-        for n in only:
-            if n not in known:
-                print(f"{PROG}: no phase {n} in {d}", file=sys.stderr)
-                sys.exit(1)
-        entries = [(f, state) for f, state in entries if phase_num(f) in only]
-
-    blocks = []
-    for f, state in entries:
-        fields = parse_phase_review(f.read_text(), f.stem)
-        blocks.append(render_review_phase(phase_num(f), fields, f, repo_root, state))
-    if only is not None:
-        return "\n\n".join("\n".join(b) for b in blocks)
-
-    rows, _, done_n, skipped_n, error_n, _ = _overview_rows(d)
-    sections = [[_overview_header(d), _count_line(done_n, skipped_n, error_n, len(rows))]]
-    ctx = render_context_block(d)
-    if ctx:
-        sections.append(ctx)
-    sections.extend(blocks)
-    footer = [f"  Plans    {d.resolve()}"]
-    if (d / ".batch-context.md").is_file():
-        footer.append(f"  Context  {d.resolve()}/.batch-context.md")
-    portal = _portal_line(d)
-    if portal is not None:
-        footer.append(portal)
-    sections.append(footer)
-    return "\n\n".join("\n".join(s) for s in sections)
-
-
-def _gate_phase_line(num, title, size, state=""):
-    line = f"  {num}  {title}  · {size or 'M'}"
-    return line + (f" · {state}" if state else "")
-
-
-def render_review_gate(d, changed=False):
-    """The compact review gate: header, count line, one `  NN  <title>  · <size>[ · <state>]` line
-    per phase and the `Plans` directory line. With `changed`, only the phases whose hash differs
-    from the `.review` snapshot (or that are new) plus a `Removed` line per vanished file; the
-    output is `no changes since last review` when nothing changed. Read-only."""
-    if not changed:
-        done, skipped, pending = _phase_groups(d)
-        rows = []
-        for r in done + skipped + pending:
-            f = r["path"]
-            fields = parse_phase_review(f.read_text(), f.stem)
-            rows.append(_gate_phase_line(
-                phase_num(f), fields["title"], fields["size"],
-                "" if r["status"] in phase_state.PENDING else r["status"]))
-        _, _, done_n, skipped_n, error_n, _ = _overview_rows(d)
-        sections = [[_overview_header(d), _count_line(done_n, skipped_n, error_n, len(rows))], rows,
-                    [f"  Plans    {d.resolve()}"]]
-        return _gate_join(sections)
-
-    marker = cfq_queue.read_review(d)
-    if marker is None:
-        print(f"{PROG}: no review snapshot in {d} -- run 'cfq batch review' first", file=sys.stderr)
-        sys.exit(1)
-    old = marker.get("files") if isinstance(marker.get("files"), dict) else {}
-    new = cfq_queue.review_snapshot(d)
-    changed_names = sorted(n for n in new if old.get(n) != new[n])
-    removed = sorted(n for n in old if n not in new)
-    if not changed_names and not removed:
-        return "no changes since last review"
-
-    phase_names = [n for n in changed_names if n != ".batch-context.md"]
-    states = {r["path"].resolve(): r["status"] for g in _phase_groups(d) for r in g}
-    rows = []
-    for name in phase_names:
-        f = d / name
-        fields = parse_phase_review(f.read_text(), f.stem)
-        status = states.get(f.resolve(), "")
-        rows.append(_gate_phase_line(
-            phase_num(f), fields["title"], fields["size"],
-            "" if status in phase_state.PENDING else status))
-    if ".batch-context.md" in changed_names:
-        rows.append("  Changed  .batch-context.md")
-    rows.extend(f"  Removed  {n}" for n in removed)
-    head = [_overview_header(d), f"{len(phase_names) + len(removed)} changed since last review"]
-    return _gate_join([head, rows, [f"  Plans    {d.resolve()}"]])
-
-
-def _gate_join(sections):
-    return "\n\n".join("\n".join(s) for s in sections if s)
-
-
-def render_review_changed(d):
-    """The part of the digest that changed since `cfq batch review` last snapshotted the batch:
-    phase files whose hash differs or that are new, `.batch-context.md` when it changed, and a
-    `Removed` line per file the snapshot knew that is gone. Read-only."""
-    marker = cfq_queue.read_review(d)
-    if marker is None:
-        print(f"{PROG}: no review snapshot in {d} -- run 'cfq batch review' first", file=sys.stderr)
-        sys.exit(1)
-    old = marker.get("files") if isinstance(marker.get("files"), dict) else {}
-    new = cfq_queue.review_snapshot(d)
-    changed = sorted(n for n in new if old.get(n) != new[n])
-    removed = sorted(n for n in old if n not in new)
-    if not changed and not removed:
-        return "no changes since last review"
-
-    repo_root = _repo_root_from_batch_dir(d)
-    phase_names = [n for n in changed if n != ".batch-context.md"]
-    sections = [[_overview_header(d), f"{len(phase_names) + len(removed)} changed since last review"]]
-    if ".batch-context.md" in changed:
-        ctx = render_context_block(d)
-        if ctx:
-            sections.append(ctx)
-    for name in phase_names:
-        f = d / name
-        fields = parse_phase_review(f.read_text(), f.stem)
-        sections.append(render_review_phase(phase_num(f), fields, f, repo_root))
-    if removed:
-        sections.append([f"  Removed  {n}" for n in removed])
-    return "\n\n".join("\n".join(sec) for sec in sections)
 
 
 def _check_orchestrator_gate(batch_dir):
@@ -676,19 +460,6 @@ def cmd_brief(args):
         print(render_overview(d))
         return
 
-    if args.gate:
-        print(render_review_gate(d, changed=args.changed))
-        return
-
-    if args.review and args.changed:
-        print(render_review_changed(d))
-        return
-
-    if args.review:
-        only = [n.strip() for n in args.phases.split(",") if n.strip()] if args.phases else None
-        print(render_review(d, only))
-        return
-
     name = d.name
     priority_file = d / ".priority"
     priority = priority_file.read_text().strip() if priority_file.is_file() else ""
@@ -727,10 +498,6 @@ def build_parser():
     group.add_argument("--phase")
     group.add_argument("--with-done", action="store_true")
     group.add_argument("--overview", action="store_true")
-    group.add_argument("--review", action="store_true")
-    parser.add_argument("--phases")
-    parser.add_argument("--changed", action="store_true")
-    parser.add_argument("--gate", action="store_true")
     parser.add_argument("--classic-fallback", action="store_true")
     parser.set_defaults(func=cmd_brief)
     return parser
@@ -739,16 +506,6 @@ def build_parser():
 def main(argv):
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.phases is not None and not args.review:
-        parser.error("--phases requires --review")
-    if args.gate and not args.review:
-        parser.error("--gate requires --review")
-    if args.gate and args.phases is not None:
-        parser.error("--gate cannot be combined with --phases")
-    if args.changed and not args.review:
-        parser.error("--changed requires --review")
-    if args.changed and args.phases is not None:
-        parser.error("--changed cannot be combined with --phases")
     args.func(args)
 
 

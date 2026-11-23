@@ -198,16 +198,13 @@ def check_dashboard_todo_delegates(root):
 
 
 # 9. Added by Phase 04 (batch 035), extended by Phase 05: `implement-for-queue/SKILL.md` must keep
-#    its pointer to `ifq-batch-start.md`'s **Start Gate** section reachable, and
-#    `plan-for-queue/SKILL.md` must keep its pointer to the `--overview` call that precedes its
-#    `RESULT` header -- a later edit that drops either mention would silently remove it from the
-#    session's read path while the reference section itself stays in place, undetected by any
-#    other check. One shared assertion over both files, not two copies.
+#    its pointer to `ifq-batch-start.md`'s **Start Gate** section reachable -- a later edit that
+#    drops the mention would silently remove it from the session's read path while the reference
+#    section itself stays in place, undetected by any other check.
 def check_start_gate_and_overview_mentioned(root):
     fails = []
     checks = (
         (root / "skills" / "implement-for-queue" / "SKILL.md", "Start Gate"),
-        (root / "skills" / "plan-for-queue" / "SKILL.md", "--review"),
     )
     for f, needle in checks:
         if not f.is_file():
@@ -781,12 +778,8 @@ class ReferencePathsTest(CfqTestCase):
     def test_start_gate_and_overview_mentioned(self):
         tmp = self._repos_dir / "f9"
         (tmp / "skills" / "implement-for-queue").mkdir(parents=True)
-        (tmp / "skills" / "plan-for-queue").mkdir(parents=True)
         (tmp / "skills" / "implement-for-queue" / "SKILL.md").write_text(
             "no pointer to the gate here\n"
-        )
-        (tmp / "skills" / "plan-for-queue" / "SKILL.md").write_text(
-            "no pointer to the review call here\n"
         )
 
         out = check_start_gate_and_overview_mentioned(tmp)
@@ -796,26 +789,17 @@ class ReferencePathsTest(CfqTestCase):
             joined,
             msg="check 9 self-test did not catch a missing Start Gate mention",
         )
-        self.assertIn(
-            "plan-for-queue",
-            joined,
-            msg="check 9 self-test did not catch a missing --review mention",
-        )
 
         good = self._repos_dir / "f9-good"
         (good / "skills" / "implement-for-queue").mkdir(parents=True)
-        (good / "skills" / "plan-for-queue").mkdir(parents=True)
         (good / "skills" / "implement-for-queue" / "SKILL.md").write_text(
             "read ...ifq-batch-start.md's **Start Gate** section...\n"
-        )
-        (good / "skills" / "plan-for-queue" / "SKILL.md").write_text(
-            'print `bin/cfq brief "<batch-dir>" --review` as returned...\n'
         )
         out = check_start_gate_and_overview_mentioned(good)
         self.assertEqual(
             out,
             [],
-            msg=f"check 9 self-test false-flagged SKILL.md files that mention both: {out}",
+            msg=f"check 9 self-test false-flagged a SKILL.md that mentions the gate: {out}",
         )
 
     def test_references_linked_from_entrypoint(self):
