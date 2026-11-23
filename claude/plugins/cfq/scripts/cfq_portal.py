@@ -635,10 +635,10 @@ def note_stem(filename):
     return name[:-3] if name.endswith(".md") else name
 
 
-def edit_target(path, host):
-    """`{"path": <OS path>, "url": <editor link>}` for an editable file or directory; `url` is
-    left out when the `editor` setting is `off`. `host` is the `sync()`-wide
-    `{"platform", "distro", "editor"}` dict."""
+def dir_target(path, host):
+    """`{"path": <OS path>, "url": <link that opens the folder>}` for a folder; `url` is left out when the
+    `editor` setting is `off`. `host` is the `sync()`-wide `{"platform", "distro", "editor"}`
+    dict."""
     path = str(path)
     target = {"path": host_paths.os_path(path, host["platform"], host["distro"])}
     url = host_paths.editor_url(path, host["editor"], host["platform"], host["distro"])
@@ -647,8 +647,17 @@ def edit_target(path, host):
     return target
 
 
+def file_target(path, host):
+    """`{"path": <OS path of the file>, "dir": dir_target(<its folder>)}`; VS Code opens a
+    folder from a remote link but not a single file, so a file carries only its path."""
+    return {
+        "path": host_paths.os_path(str(path), host["platform"], host["distro"]),
+        "dir": dir_target(os.path.dirname(str(path)), host),
+    }
+
+
 def read_host(repo_root):
-    """The host dict `edit_target()` needs, from one `settings list --repo` read; any failure
+    """The host dict `dir_target()` needs, from one `settings list --repo` read; any failure
     degrades to the defaults and `host_paths.resolve()`'s own `posix` fallback."""
     try:
         proc = cfq_run("settings", "list", "--repo", str(repo_root))
@@ -701,7 +710,7 @@ def build_entry_payload(kind, path, state, links, host=None):
         "bodyHtml": cfq_lib_markdown.md_min(text, keep_h1=False),
     }
     if host is not None and state == "open":
-        payload["edit"] = edit_target(path, host)
+        payload["edit"] = file_target(path, host)
     return payload
 
 
@@ -904,7 +913,7 @@ def phase_payloads(bd, data, host=None):
         if rec["status"] == "skipped":
             phase["skipReason"] = rec["reason"] or ""
         if host is not None and f and rec["status"] != "done":
-            phase["edit"] = edit_target(f, host)
+            phase["edit"] = file_target(f, host)
         phases.append(phase)
     return phases
 
@@ -959,10 +968,10 @@ def build_batch_payload(b, bd, data, row, entry_states, entry_titles, host=None)
         "flags": [],
     }
     if host is not None and any(p["state"] != "done" for p in phases):
-        edit = {"dir": edit_target(bd, host)}
+        edit = {"dir": dir_target(bd, host)}
         context_file = pathlib.Path(bd) / ".batch-context.md"
         if context_file.is_file():
-            edit["context"] = edit_target(context_file, host)
+            edit["context"] = {"path": host_paths.os_path(str(context_file), host["platform"], host["distro"])}
         payload["edit"] = edit
     return payload
 
