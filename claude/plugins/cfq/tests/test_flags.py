@@ -98,6 +98,16 @@ class PhaseFlagsTest(unittest.TestCase):
         latest = self.flags(phase(state="open", attempts=[attempt("red"), attempt("red")]))
         self.assertEqual(latest[0]["text"], "phase is red after 2 red attempts")
 
+    def test_skipped_checks_warn(self):
+        checks = [{"check": "pytest", "status": "ran", "result": "ok"},
+                  {"check": "browser", "status": "skipped", "reason": "no browser"},
+                  {"check": "playwright", "status": "skipped", "reason": "not started"}]
+        found = self.flags(phase(attempts=[attempt(checks=checks)]))
+        self.assertIn(("warn", "checks-skipped"), codes(found))
+        flag = [f for f in found if f["code"] == "checks-skipped"][0]
+        self.assertEqual(flag["text"], "2 planned checks not run")
+        self.assertNotIn(("warn", "checks-skipped"), codes(self.flags(phase())))
+
     def test_question(self):
         self.assertIn(("warn", "question"), codes(self.flags(phase(state="open", attempts=[attempt("question")]))))
         self.assertNotIn(("warn", "question"), codes(self.flags(phase())))

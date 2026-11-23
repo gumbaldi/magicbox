@@ -549,6 +549,62 @@ class WorkerVerdictTest(CfqTestCase):
         self.assertEqual(len(set(body["parkedPlanEntries"])), 2)
         self.assertEqual(len(self._plan_files(repo)), 2)
 
+    # --- planned checks (batch 061 phase 07) ---
+
+    def _checks(self, *skipped):
+        out = [{"check": "pytest tests", "status": "ran", "result": "12 passed"}]
+        for name in skipped:
+            out.append({"check": name, "status": "skipped", "result": "", "reason": "Playwright not started"})
+        return out
+
+    def test_checks_all_ran_continues(self):
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green", "checks": self._checks()}).stdout)
+        self.assertEqual(body["verdict"], "CONTINUE")
+        self.assertNotIn("skippedCheck", body["triggers"])
+        self.assertEqual(body["skippedChecks"], [])
+
+    def test_skipped_check_asks_and_names_check_and_reason(self):
+        _, batch = self._repo_batch()
+        proc = self._verdict({"phase": "02-x", "status": "green", "checks": self._checks("browser check")},
+                             batch_dir=batch)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = json.loads(proc.stdout)
+        self.assertEqual(body["verdict"], "ASK")
+        self.assertIn("skippedCheck", body["triggers"])
+        self.assertEqual(body["skippedChecks"], [{"check": "browser check", "reason": "Playwright not started"}])
+
+    def test_skipped_check_is_accepted_when_strict_is_off(self):
+        repo, batch = self._repo_batch()
+        self.run_cfq("settings", "set", "--repo", str(repo), "strictWorkerReport", "false", check=True)
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green", "checks": self._checks("browser check")},
+                                        batch_dir=batch).stdout)
+        self.assertEqual(body["verdict"], "CONTINUE")
+        self.assertNotIn("skippedCheck", body["triggers"])
+
+    def test_green_without_checks_continues(self):
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green"}).stdout)
+        self.assertEqual(body["verdict"], "CONTINUE")
+        self.assertEqual(body["skippedChecks"], [])
+
+    def test_malformed_checks_are_rejected(self):
+        for bad in ("pytest ran", [{"check": "x"}], [{"check": "x", "status": "maybe"}],
+                    ["x"], [{"status": "ran"}]):
+            proc = self._verdict({"phase": "02-x", "status": "green", "checks": bad})
+            self.assertNotEqual(proc.returncode, 0, bad)
+            self.assertEqual(json.loads(proc.stderr)["status"], "MALFORMED_REPORT")
+
+    def test_skipped_check_and_omitted_trigger_give_both_triggers(self):
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green", "triggers": ["omitted"],
+                                         "checks": self._checks("browser check")}).stdout)
+        self.assertEqual(body["verdict"], "ASK")
+        self.assertEqual(sorted(body["triggers"]), ["omitted", "skippedCheck"])
+
+    def test_worker_written_skipped_check_trigger_is_not_trusted(self):
+        body = json.loads(self._verdict({"phase": "02-x", "status": "green", "triggers": ["skippedCheck"],
+                                         "checks": self._checks()}).stdout)
+        self.assertEqual(body["verdict"], "CONTINUE")
+        self.assertEqual(body["triggers"], [])
+
     def test_malformed_json_fails_loudly_never_silent_continue(self):
         run_env = self._base_env()
         run_env["HOME"] = str(self.home)

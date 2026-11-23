@@ -71,7 +71,11 @@ composed by the script (never write a fallback line yourself); empty for a `ques
 - `ASK` → resolve what can be resolved from `.batch-context.md`, the phase file and settings;
   relay only what genuinely can't be resolved as one `AskUserQuestion`. This covers both the
   self-reported `triggers` (`omitted`/`dependency`) and a `status: "question"` report — `verdict`
-  already tells them apart, the orchestrator doesn't re-classify.
+  already tells them apart, the orchestrator doesn't re-classify. The trigger `skippedCheck`
+  (a planned check the worker reported as `skipped`) is relayed as one `AskUserQuestion` whose
+  question text lists the result's `skippedChecks`, each with its check and reason, and whose
+  options are: accept as skipped · run it now · stop the batch. "Run it now" resumes the same
+  worker through section 4.
 - `ESCALATE` → the worker judged the phase harder than planned. If the brief call's
   `escalation.next` is `null`, or this phase was already escalated once in this session, handle
   it exactly as `ASK`, with the worker's `handover.remaining` as the question. Otherwise write

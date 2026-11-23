@@ -864,6 +864,7 @@ def attempt_payload(p):
         "filesTouched": render.jq_alt(p.get("filesTouched"), []),
         "parkedPlanEntries": render.jq_alt(p.get("parkedPlanEntries"), []),
         "outOfScope": p.get("outOfScope") if isinstance(p.get("outOfScope"), list) else [],
+        "checks": p.get("checks") if isinstance(p.get("checks"), list) else [],
         "time": time_of(tel),
         "settled": is_settled(tel),
         "mode": render.jq_alt(tel_or_empty.get("mode"), ""),

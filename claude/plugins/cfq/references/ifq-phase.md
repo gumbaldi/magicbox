@@ -193,6 +193,8 @@ Any of the three firing → do not auto-advance; state which trigger fired and a
 None firing → continue, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
+In orchestrator mode "(a) not run" arrives as the verdict trigger `skippedCheck` (a `checks` entry
+the worker reported as `skipped`) and red as status `red`; no fourth trigger is added.
 
 ## Skipping a Phase
 

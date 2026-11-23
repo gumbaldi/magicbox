@@ -22,13 +22,18 @@ same as it is in `references/ifq-classic.md`'s **Implementation** prose, just ma
 immediate question it has no channel to ask. `verdict` only translates that self-report into
 CONTINUE/ASK/STOP (or ESCALATE); it never re-derives the classification from `deviations` text, which stays a
 plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_report.py` already
-read) and is not inspected here.
+read) and is not inspected here. `checks` is structured data and is read: see below.
 
 A `green` report may also carry `outOfScope`, a list of `{"title": "...", "body": "..."}` findings
 the phase met outside its scope, and `commit` as a sha string, `null` or an object `{"sha": ...,
 "pushed": ..., "branch": ...}`. With `strictWorkerReport` on (the default; read from the repository
 the batch directory belongs to) `verdict` parks every `outOfScope` entry itself through `bin/cfq
-note plan` and a malformed list fails `MALFORMED_REPORT`; with it off the list is ignored. The
+note plan` and a malformed list fails `MALFORMED_REPORT`; with it off the list is ignored. A `green` report
+may also carry `checks`, a list of `{"check": ..., "status": "ran"|"skipped", "result": ...,
+"reason": ...}`, one entry per command or live check the phase's `## Verification` names. With
+`strictWorkerReport` on a malformed list fails `MALFORMED_REPORT` and any `skipped` entry adds the
+trigger `skippedCheck` (so the verdict is `ASK`); the result's `skippedChecks` lists `{check,
+reason}` for each. A report without `checks` is accepted. The
 `green` result carries `parkedPlanEntries` (the paths parked here, `[]` when none) and `commit`
 (the sha string or `null`).
 
@@ -61,6 +66,9 @@ BRIEF_FILE = ".worker-brief.json"
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 GREEN_TRIGGERS = ("omitted", "dependency")
+# Derived by `verdict` from `checks`, never taken from the worker's own `triggers`.
+SKIPPED_CHECK_TRIGGER = "skippedCheck"
+CHECK_STATUSES = ("ran", "skipped")
 VALID_STATUSES = ("green", "red", "question", "escalate")
 
 # Capability order, weakest first. Used only to find the next stronger entry inside implModels
@@ -135,6 +143,19 @@ def valid_out_of_scope(value):
         and isinstance(e.get("body"), str) and e["body"].strip()
         for e in value
     )
+
+
+def valid_checks(value):
+    return isinstance(value, list) and all(
+        isinstance(e, dict) and isinstance(e.get("check"), str) and e["check"].strip()
+        and e.get("status") in CHECK_STATUSES
+        for e in value
+    )
+
+
+def skipped_checks(value):
+    return [{"check": e["check"], "reason": e.get("reason") if isinstance(e.get("reason"), str) else ""}
+            for e in value if e["status"] == "skipped"]
 
 
 def finding_slug(title):
@@ -334,8 +355,16 @@ def cmd_verdict(args):
         return
 
     parked = []
+    skipped = []
     out_of_scope = report.get("outOfScope")
-    if out_of_scope is not None and strict_worker_report(args.batch_dir):
+    checks = report.get("checks")
+    strict = strict_worker_report(args.batch_dir) if (out_of_scope is not None or checks is not None) else False
+    if checks is not None and strict:
+        if not valid_checks(checks):
+            errors.fail("MALFORMED_REPORT", detail="checks must be a list of {check, status ran|skipped, ...} entries")
+            return
+        skipped = skipped_checks(checks)
+    if out_of_scope is not None and strict:
         if not valid_out_of_scope(out_of_scope):
             errors.fail("MALFORMED_REPORT", detail="outOfScope must be a list of {title, body} non-empty strings")
             return
@@ -348,10 +377,13 @@ def cmd_verdict(args):
 
     raw_triggers = report.get("triggers") or []
     triggers = [t for t in raw_triggers if t in GREEN_TRIGGERS]
+    if skipped:
+        triggers.append(SKIPPED_CHECK_TRIGGER)
     verdict = "ASK" if triggers else "CONTINUE"
     print(render.dump_json({
         "status": "OK", "verdict": verdict, "triggers": triggers, "question": None,
         "statusLines": status_lines, "parkedPlanEntries": parked, "commit": commit,
+        "skippedChecks": skipped,
     }))
 
 

@@ -150,6 +150,13 @@ def phase_flags(phase, base, repo_root):
         if text:
             flags.append(_flag("warn", "cost-outlier", text, slug))
 
+    skipped = sum(
+        1 for c in (latest.get("checks") if isinstance(latest.get("checks"), list) else [])
+        if isinstance(c, dict) and c.get("status") == "skipped"
+    )
+    if skipped:
+        flags.append(_flag("warn", "checks-skipped", f"{skipped} planned {'check' if skipped == 1 else 'checks'} not run", slug))
+
     observations = sum(len(a.get("observations") or []) for a in attempts)
     if observations:
         flags.append(_flag("info", "observations", _plural(observations, "observation"), slug))

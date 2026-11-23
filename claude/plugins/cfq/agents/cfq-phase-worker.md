@@ -115,6 +115,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
   "status": "green" | "red" | "question" | "escalate",
   "implemented": "<one clause: what was built>",
   "verification": "<command run, and its result>",
+  "checks": [{"check": "<command or name>", "status": "ran" | "skipped", "result": "<one clause>", "reason": "<why not, when skipped>"}],
   "deviations": ["..."],
   "observations": ["..."],
   "outOfScope": [{"title": "...", "body": "..."}],
@@ -144,6 +145,13 @@ notes with nothing to act on, omitted when nothing stood out; anything actionabl
 `outOfScope`, which the verdict parks (the entries' paths come back as the verdict's
 `parkedPlanEntries`). `parkedPlanEntries` in the report holds only the worker's own framework
 entries.
+
+`verification` stays the one-line summary string. `checks` holds the detail: every command or live
+check named in the phase's `## Verification` (browser and Playwright checks included) is one entry. A
+check that was not run is `skipped` with a `reason`, never only a `deviations` line; do not report
+`green` for a phase whose named live or browser check is `skipped` unless the environment truly
+cannot run it. The verdict turns any `skipped` entry into the trigger `skippedCheck` and the
+orchestrator asks the user before the next phase starts.
 
 ## Commit
 
