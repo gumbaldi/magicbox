@@ -114,7 +114,18 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
 
 - **When.** After **Park** has written every phase file and `.batch-context.md`, before **Plan
   Lint**. Runs unconditionally, every session, including a single-phase batch — a one-phase batch
-  still gets its `Dependencies` and `Verification` checked against reality.
+  still gets its `Dependencies` and `Verification` checked against reality. The audit is a barrier
+  and runs as an ordered procedure:
+  1. `bin/cfq batch audit "<batch-dir>" start`.
+  2. Spawn the Explore agent (**Who** and **What the agent is given** below).
+  3. Print `⏳ Phase Audit     running · waiting for the audit agent` and end the turn with that
+     line as the last output. While the agent runs there is no lint, no maintenance, no review gate,
+     no final report and no question; this is the one place a planning session ends its turn without
+     a question. The wait applies whether or not `auditBarrier` is on — the setting only removes the
+     script-level refusal in `batch review` and `batch ready`.
+  4. When the agent's result arrives: apply the fixes (**How findings are handled**), run
+     `bin/cfq batch audit "<batch-dir>" done --findings <n>`, print the `Phase Audit` line and
+     continue with **Plan Lint**.
 - **Who.** One Explore subagent on `planningPolicy.planExploreModelComplex` (from **Start Block**'s
   preflight result — no new `bin/cfq settings get` call), per `<plugin-root>/references/explore-escalation.md`'s
   judge/locate rule. The planner does not perform the audit itself: it wrote the files, and the

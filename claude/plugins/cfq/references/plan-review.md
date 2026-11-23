@@ -51,7 +51,9 @@ In this order:
    park` (idempotent) so `.dependsOn` matches.
 3. Run `<plugin-root>/references/plan-self-critique.md`'s **The Post-Write Audit** again only when
    more than one phase changed, the phase order changed, or an `## Affected Files` list changed. A
-   text change inside one phase gets lint only.
+   text change inside one phase gets lint only. The audit runs through its four steps — `batch audit
+   start`, the Explore agent, the `⏳ Phase Audit` wait that ends the turn, then the fixes and `batch
+   audit done` — and the re-check continues with step 4 once the result is in.
 4. Run `bin/cfq brief "<batch-dir>" --review --gate --changed`.
 5. `bin/cfq batch review "<batch-dir>"` to refresh the snapshot.
 6. Ask **The Question** again, with step 4's output exactly as returned at the top of its
@@ -77,7 +79,9 @@ without arguments. One `AskUserQuestion` before the inbox question: continue the
 batch (the oldest when several wait; the others are named in the question text), or plan something
 new.
 
-- **Continue** — skip the interview and every planning step, go straight to **Entering the Gate**
+- **Continue** — skip the interview and every planning step. An `awaitingReview` entry with
+  `audit: true` (an interrupted audit) goes to **The Post-Write Audit** first — start again, wait,
+  done — and then to **Entering the Gate**; any other entry goes straight to **Entering the Gate**
   for that batch (`batch review` keeps the marker's `since`). **Telemetry and Sync** is skipped — the
   planning record was written by the session that planned it. **Final Report** prints `Batch`,
   `Review` and `Handoff`.

@@ -501,6 +501,25 @@ def check_question_context_in_dialog(root):
     return fails
 
 
+# 9. Added by batch 063 phase 02: `references/plan-self-critique.md` makes the planning session
+#    wait for the post-write audit -- it marks the audit with `bin/cfq batch audit` start/done and
+#    ends the turn on a `⏳ Phase Audit` line while the agent runs.
+def check_audit_wait(root):
+    fails = []
+    f = root / "references" / "plan-self-critique.md"
+    if not f.is_file():
+        return fails
+    text = f.read_text()
+    if "batch audit" not in text or "start" not in text or "done" not in text:
+        fails.append(f"FAIL: {f}: The Post-Write Audit lacks the `batch audit` start/done calls")
+    if "⏳ Phase Audit" not in text:
+        fails.append(
+            f"FAIL: {f}: The Post-Write Audit lacks the instruction to end the turn on a"
+            " `⏳ Phase Audit` line while the audit agent runs"
+        )
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -523,6 +542,7 @@ def run_all(root):
     fails += check_step_headings_uniform(root)
     fails += check_no_step_letter_references(root)
     fails += check_pfq_single_first_step(root)
+    fails += check_audit_wait(root)
     return fails
 
 
@@ -682,6 +702,23 @@ class ReferencePathsTest(CfqTestCase):
         self.assertEqual(
             2, len(out), msg=f"check 7 self-test should only flag the two over-budget files: {out}"
         )
+
+    def test_audit_wait(self):
+        tmp = self._repos_dir / "audit-wait"
+        (tmp / "references").mkdir(parents=True)
+        f = tmp / "references" / "plan-self-critique.md"
+        f.write_text(
+            "- **When.** After **Park** has written every phase file, before **Plan Lint**.\n"
+        )
+        out = check_audit_wait(tmp)
+        self.assertEqual(2, len(out), msg=f"the old wording should fail both checks: {out}")
+
+        f.write_text(
+            "1. `bin/cfq batch audit \"<batch-dir>\" start`\n"
+            "3. Print `⏳ Phase Audit     running` and end the turn.\n"
+            "4. `bin/cfq batch audit \"<batch-dir>\" done --findings <n>`\n"
+        )
+        self.assertEqual([], check_audit_wait(tmp))
 
     def test_question_context_in_dialog(self):
         bad = self._repos_dir / "qctx"
