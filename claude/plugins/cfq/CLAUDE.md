@@ -118,7 +118,9 @@ session's telemetry), `finish` (the closing snapshot `cfq finish` takes), `notes
 `plan/` entries `park --from-plan` consumed) — closed onto the ledger together
 with the file's move into `done/` and the phase's own Git commit by the single transactional call
 `cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
-whatever is already staged (never runs `git add` itself), moves the `.md` file, appends the ledger
+whatever is already staged (never runs `git add` itself), first runs the optional repo-only
+`phaseCommitCommand` hook after the nothing-staged check (a non-zero exit stops the commit with
+`HOOK_FAILED`), moves the `.md` file, appends the ledger
 entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
 phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
@@ -155,8 +157,11 @@ via `cfq note close`, which appends a `## Closed` section and moves it into `pla
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
 current repo only). `implement-for-queue` reads `impl/`, writes `plan/` and `todo/`;
-`plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase)
-may sit in a batch directory next to `status.json`. `.lock`, `telemetry.jsonl` (one line per planning
+`plan-for-queue` reads `plan/`, writes `impl/`. `.worker-brief.json` (written by `cfq worker brief`, read by the phase worker, replaced per phase;
+carries `baseCommit`, the commit a pre-existing failure is proven against)
+may sit in a batch directory next to `status.json`. `cfq worker verdict` parks the report's `outOfScope`
+findings as `plan/` entries and raises the `skippedCheck` trigger for a planned check the report lists
+as not run. `cfq brief --review --gate` prints the compact phase list the release question shows. `.lock`, `telemetry.jsonl` (one line per planning
 session and per phase) and `.maintenance` (the maintenance-run marker) stay at the queue root, not
 inside any of the three subdirectories — `.lock` is held by the currently running
 `implement-for-queue` session, liveness derived from the holder's transcript mtime. Apart from phase

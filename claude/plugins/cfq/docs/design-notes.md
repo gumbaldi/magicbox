@@ -681,3 +681,71 @@ The `security-findings` entry stays when a phase of the batch fixes every fixabl
 advisory, because it is the safety net if that phase fails. It names the covering phase and drops the
 "decision still open" sentence, so it says what is true: the fix is planned and the entry only records
 the finding. The trade-off is one more entry in the queue until the phase has landed.
+
+## ifq/pfq: why question context lives inside the dialog
+
+Text a skill prints before an `AskUserQuestion` call is not visible while the dialog is open, so a
+question that needed that text asked the user to decide blind. Every question now carries its context
+in the payload itself: the question text, the option descriptions and the preview. The rejected
+alternative was to end the turn after a text block and ask in the next turn; it costs a round trip per
+question and breaks the flow of a phase loop. There is no switch; the rule is part of the skill text.
+
+## pfq: why the release question shows a compact review gate
+
+The full plan digest printed before the release question flooded the terminal on large batches, and the
+question itself then scrolled out of view. The release question now carries the phase list plus one
+directory link inside its own text (`bin/cfq brief --review --gate [--changed]`); the full digest stays
+available as `bin/cfq brief --review`. Per-file links are left out because they do not open in the
+report HTML. The rejected alternative was a threshold, the full digest below N phases and a short one
+above it: two shapes of the same step are harder to follow than one, and the threshold is arbitrary.
+
+## ifq: why the base branch recommendation follows the batch-branch chain tip
+
+Batches build on one another, so the right base for a new batch branch is the tip of the batch-branch
+chain, found by ancestry: the batch branch that contains all other batch branches. Recommending the
+newest branch by commit date picked `main` or a side branch whenever one of them had a newer commit.
+While a batch branch exists, a non-batch branch is never recommended; when the batch branches have
+diverged, the result is flagged instead of guessed. The setting `baseBranchStrategy` is the rollback:
+`chainTip` is the default, `newest` restores the old rule. The rejected alternative was a "never offer
+the default branch" setting, which fixes one wrong answer and leaves the recommendation date-based.
+
+## ifq: why one phase-commit hook, repo scope only
+
+Projects bump a build version or regenerate a file with every commit, and a worker could not be relied
+on to remember it. `phaseCommitCommand` runs one shell command in the repository root before every
+`phase commit`, after the nothing-staged check. The command stages its own changes and cfq stages
+nothing for it, so the hook stays a plain command with no cfq-specific contract. A non-zero exit stops
+the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output
+lines; the phase turns red. `CFQ_FIRST_PHASE` lets a bump that belongs to the batch start tell the
+first phase from the others. The setting is repo scope only and has no environment override, because a
+command from a global file or an environment variable would run in every repository. Rejected: a
+separate batch-start hook, since `CFQ_FIRST_PHASE` covers it, and cfq staging the hook's changes, since
+that needs a list of paths cfq cannot know. Commits made outside `phase commit` are not covered.
+
+## ifq: why the worker report has structured out-of-scope and check fields
+
+Findings and skipped checks lived as free text in `observations` and `deviations`, where they were
+lost: nobody read them again, and a planned check reported as not run looked like a green phase. The
+report now carries `outOfScope` (entries with slug and body) and `checks` (planned checks with their
+outcome); `verification` stays a string because the report portal reads it as one. `worker verdict`
+parks each `outOfScope` finding as a `plan/` entry and gives the verdict `ASK` with the trigger
+`skippedCheck` when a planned check was not run. The rejected alternative was keyword matching in
+`observations` and `deviations`: it misses what is worded differently and flags what is not a finding.
+`strictWorkerReport` (default on) is the rollback; off, the fields are read and nothing is acted on.
+The flags counter reports two numbers, the findings parked by the verdict and the skipped checks of the
+latest attempt.
+
+## ifq: why a pre-existing failure is proven at the batch base commit
+
+A worker could call a failing check pre-existing without evidence, and the claim then hid a regression.
+The briefing now carries `baseCommit`, the commit the batch branch started from, and the worker calls a
+failure pre-existing only when the same check also fails in a temporary git worktree at that commit.
+Without that proof the failure is the phase's own. A counter for rejected claims was planned and left
+out: the parked findings and the skipped checks already show the behaviour that matters.
+
+## cfq: why path settings accept drive letters and not UNC paths
+
+`reportDir`, `telemetrySyncRepo` and `frameworkRepo` required a POSIX absolute path, which locked out
+Windows users. The patterns now also accept `C:\dir` and `C:/dir`. UNC paths (`\\host\share`) stay
+rejected: they depend on network state and credentials at the time of the call, and no one has asked for
+them. The cost is that a UNC user mounts the share to a drive letter first.

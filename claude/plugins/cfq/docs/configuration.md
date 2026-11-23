@@ -136,7 +136,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | Key | Env | Default | Scope | Meaning |
 |---|---|---|---|---|
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
-| `strictWorkerReport` | `CFQ_STRICT_WORKER_REPORT` | `true` | global, repo | the worker verdict parks the report's `outOfScope` findings as plan entries itself and rejects a malformed list; `false` reads the new report fields but acts on none of them |
+| `strictWorkerReport` | `CFQ_STRICT_WORKER_REPORT` | `true` | global, repo | the worker verdict parks the report's `outOfScope` findings as plan entries itself, asks the user when the report's `checks` list names a planned check as not run, and rejects a malformed list; `false` reads the new report fields but acts on none of them |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `baseBranchStrategy` | `CFQ_BASE_BRANCH_STRATEGY` | `chainTip` | global, repo | which branch `ifq` recommends as the base of a new batch branch: `chainTip` = the batch branch that contains all other batch branches (never `main` or another non-batch branch while a batch branch exists), `newest` = the newest branch by commit date |

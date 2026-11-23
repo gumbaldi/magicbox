@@ -15,17 +15,19 @@ finding becomes a `plan/` entry for a later session, never a question.
 
 ### Reviewing and editing the plan
 
-Before a batch is released, `/pfq` prints a digest of the whole plan — the batch context and, per
-phase, its context, affected files, change steps and verification command — and asks whether to
-release it, request changes, edit the files yourself, or discard it. The batch stays held until
-you answer.
+Before a batch is released, `/pfq` asks whether to release it, request changes, edit the files
+yourself, or discard it. The release question carries a compact gate in its own text: the phase list
+and one link to the batch directory. The full digest — the batch context and, per phase, its
+context, affected files, change steps and verification command — stays one command away. The batch
+stays held until you answer.
 
 The plan lives at `<repo>/.claude/cfq/impl/<batch>/NN-<slug>.md` plus `.batch-context.md`, plain
 Markdown; the same plan is readable in the report portal. You may edit these files by hand, at the
 gate and afterwards, until `/ifq` starts the phase; `/ifq` lints the batch again at its start.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review   # print the plan digest again
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review         # print the full plan digest
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review --gate  # print the compact gate
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"             # check your edits
 ```
 
@@ -59,6 +61,10 @@ shows the full batch context, and each phase announcement and the review digest 
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
 early.
+
+A repository that must change a file with every commit, such as a build version, sets
+`phaseCommitCommand`: `phase commit` runs that command before every phase commit, and a non-zero
+exit turns the phase red (see [configuration.md](configuration.md#settings-reference)).
 
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything
