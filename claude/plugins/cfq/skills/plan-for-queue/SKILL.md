@@ -54,8 +54,8 @@ entry count; plan the arguments, leave every inbox entry untouched, but when tho
 to or ask about inbox entries, print `inbox.detail` right after `inbox.overview` first. No
 arguments and `inbox.count == 0` → nothing further here. No arguments and `inbox.count > 0` → read
 `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it. `queue.awaitingAudit` non-empty and
-no arguments → print one line naming the batch and resume its audit with `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s
-**The Post-Write Audit** (start, agent, wait, done), then continue at **Maintenance**. No question.
+no arguments → print one line naming the batch, read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` first and resume
+its audit per **The Post-Write Audit** (start, agent, wait, done), then continue at **Maintenance**. No question.
 
 ## Step 3 — Start Block
 
@@ -96,30 +96,31 @@ already ran and are never folded into it. Two independent questions:
   ordering, marked in the `/cfq` dashboard; not flagging is normal and needs no answer).
 
 Print `Interview Depth` and `Priority` (omit detail when not flagged) status lines once answered.
-The user picked **Thorough grilling** or **Grilling with docs** → read
-`${CLAUDE_PLUGIN_ROOT}/references/grilling.md` and follow it for the interview round.
+Then read **Group A** in one parallel turn: `${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md`, plus `${CLAUDE_PLUGIN_ROOT}/references/grilling.md`
+when the user picked **Thorough grilling** or **Grilling with docs** (follow it for the interview round).
 
 ## Step 4 — Understand
 
 Read the code, trace callers, find the root cause before proposing a solution. Reading is
 unlimited, writing is not. For research spanning multiple files or unclear scope, delegate to
 Explore agents instead of reading inline — one for a narrow area, up to three in parallel for
-broad scope, each with a specific focus. Model choice is a rule, not a mood — read
-`${CLAUDE_PLUGIN_ROOT}/references/explore-escalation.md` and follow it.
+broad scope, each with a specific focus. Model choice is a rule, not a mood — follow
+`explore-escalation.md` (read in Group A).
 
 ## Step 5 — Interview
 
 Clarify open points as long as different readings would lead to materially different work; decide
-and name routine decisions yourself — first read
-`${CLAUDE_PLUGIN_ROOT}/references/interaction-policy.md` and follow it; its **Active Interview
+and name routine decisions yourself — follow
+`interaction-policy.md` (read in Group A); its **Active Interview
 Duty** also governs **Closing Question**'s closing check.
 
 ## Step 6 — Queue Check
 
-`queue.openBatches` (**Preflight**, no new `bin/cfq scan | jq` call). Any batch found → read
-`${CLAUDE_PLUGIN_ROOT}/references/queue-check.md` and follow it — overlap sets
-`.dependsOn` automatically, without a question. None → skip silently. Either way print `Queue Check` (`➖` when nothing
-to check).
+`queue.openBatches` (**Preflight**, no new `bin/cfq scan | jq` call). None → print `Queue Check`
+with `➖` and move on. Any batch found → `queue-check.md` (read in Group B) is followed at the start
+of **Language and Cut Phases**, right after that read: overlap sets `.dependsOn` automatically,
+without a question; print `Queue Check` there.
 
 ## Step 7 — Closing Question (mandatory)
 
@@ -130,26 +131,29 @@ Interview Duty**), the list is in the question text). Proceed once nothing else 
 
 ## Step 8 — Language and Cut Phases
 
-Entering this step closes `INTERVIEW`, opens `PLANNING`. Read
-`language.codeLanguage`/`.docLanguages`/`.docLevel` from **Preflight**'s result (no new
+Entering this step closes `INTERVIEW`, opens `PLANNING`. Read **Group B** in one parallel turn:
+`${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md`, `${CLAUDE_PLUGIN_ROOT}/references/phase-template.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`, `${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/batch-context.md`, plus `${CLAUDE_PLUGIN_ROOT}/references/queue-check.md`
+when `queue.openBatches` has entries and `${CLAUDE_PLUGIN_ROOT}/references/language.md` when a phase touches
+documentation. Read `language.codeLanguage`/`.docLanguages`/`.docLevel` from **Preflight**'s result (no new
 call). `codeLanguage` governs everything a phase specifies without exception — code, comments,
 commit messages, `README`, `CLAUDE.md`, `SKILL.md`, files under `.claude/` — and this session's own
 output too: plan files, `## Decisions`, the batch directory name. A phase touching documentation →
-read `${CLAUDE_PLUGIN_ROOT}/references/language.md` and follow it. Print `Language`. Propose a
+follow `language.md`. Print `Language`. Propose a
 split — one phase = one self-testable, individually committable unit — as a status update (phase
 list + S/M/L sizes); no dedicated confirmation question gates the write, that gate is
-**Self-Critique of the Phase Cut**. Read `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` (and, once,
-`${CLAUDE_PLUGIN_ROOT}/references/phase-template.md` as the phase-file skeleton) and
-follow it, always, before writing any phase's Changes and Verification text — it also steers the
+**Self-Critique of the Phase Cut**. Follow `phase-quality.md` (and `phase-template.md` as the
+phase-file skeleton), always, before writing any phase's Changes and Verification text — it also steers the
 Size letter (rule 5). For each phase, estimate **Size** `S`/`M`/`L` and write the `## Size` heading
-— mechanics (letter placement, what parses it, the degrade-to-`M` fallback) in `${CLAUDE_PLUGIN_ROOT}/references/phase-quality.md` rule 5. Per phase, decide the
+— mechanics (letter placement, what parses it, the degrade-to-`M` fallback) in `phase-quality.md` rule 5. Per phase, decide the
 optional `## Model` heading per that file's rule 8, from `planningPolicy.implModels`. Print `Phases` once
 written — no phase file is written to disk yet, that's **Park**, after **Self-Critique of the
 Phase Cut**.
 
 ## Step 9 — Self-Critique of the Phase Cut
 
-Still `PLANNING`. Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` and follow it,
+Still `PLANNING`. Follow the self-critique reference (already read in Group B, do not read it again),
 unconditionally, before any phase file is written. Print `Self-Critique`: `✅` with the phase count,
 or `⚠️` with each correction named on its own `   └ ` sub-line — the primary channel for
 corrections.
@@ -173,10 +177,10 @@ names that phase and says the entry can be closed once it lands, with no sentenc
 is open; otherwise the body says a decision is still open); otherwise write nothing. Never a
 question, never a phase in this batch.
 
-Write `NN-<slug>.md` per phase into `batchDir` — all phase files in one response, mechanics in
-`${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Park Mechanics**. Phase files alone use the
+Write `NN-<slug>.md` per phase into `batchDir` — all phase files in one response (anchors are looked up before that turn, not between the writes), mechanics in
+`plan-park.md`'s **Park Mechanics** (read in Group B). Phase files alone use the
 `Write` tool; everything else here goes through `bin/cfq`. Write `<batch-dir>/.batch-context.md` —
-read `${CLAUDE_PLUGIN_ROOT}/references/batch-context.md` and follow it. Then `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
+follow `batch-context.md` (read in Group B). Then `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
 "<repo-root>" "<batch-dir-name>" "<high|normal>" [<dependsOn-entry>...] [--from-plan
 <chosen-entry-path>]` — argument detail in the same section; `--from-plan` is passed only when
 this session's topic came from a chosen inbox entry (**Inbox**), naming that entry's path so it
@@ -185,8 +189,7 @@ moves into `plan/done/`. Print four status lines (wording in **Park Mechanics**)
 
 ## Step 11 — Post-Write Audit
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`'s **The Post-Write Audit** and
-follow it. Print `Phase Audit`: `✅` with the count and `no findings`, or `⚠️` per correction as a `   └ ` sub-line.
+Follow **The Post-Write Audit** of the self-critique reference (already read in Group B, do not read it again). Print `Phase Audit`: `✅` with the count and `no findings`, or `⚠️` per correction as a `   └ ` sub-line.
 
 ## Step 12 — Maintenance
 
@@ -204,11 +207,11 @@ Entering this step closes `POSTCHECKS`.
 (the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") runs lint,
 releases the batch, records and syncs the planning telemetry and builds the portal link. Print its
 `statusLines` entries verbatim, in order. `LINT_FAILED` → fix every finding in one turn (all
-corrections of one run in one response) and call it again; `warn:` lines are fixed when they are
+corrections of one run in one response; several `Edit` calls on one file are applied in the order sent) and call it again; `warn:` lines are fixed when they are
 `changes-steps`, the others don't block. A telemetry failure is one line in the report, never a
 stop.
 
 Then the `RESULT · plan-for-queue` block — field list in
-`${CLAUDE_PLUGIN_ROOT}/references/plan-park.md`'s **Final Report Fields**. A correction asked for
+`plan-park.md`'s **Final Report Fields** (read in Group B). A correction asked for
 after the report is made in the plan files, then `bin/cfq park` if a phase file was added, renamed
 or removed, then `planning close` again (idempotent).

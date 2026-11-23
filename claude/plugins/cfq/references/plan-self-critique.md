@@ -26,7 +26,8 @@ This file governs whether a phase should **exist**. `phase-quality.md` governs w
 
 ## Scope
 
-Read unconditionally at **Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A
+Read once, in Group B of **Language and Cut Phases**, and applied unconditionally at
+**Self-Critique of the Phase Cut**, every session, regardless of phase count or interview depth. A
 two-phase batch still gets two short verdicts — this step is never skipped as "too small to
 bother".
 
@@ -145,7 +146,9 @@ never sees: a phase whose `Verification` depends on a file only a later phase cr
   fails, and the quoted line that fails it. No prose report, no recommendation, no file edits — the
   agent is read-only. An empty list is the normal outcome and is returned as such, not padded.
 - **How findings are handled.** The same fix-first rule as above, in `## On a Fail`: the planner
-  corrects the phase files and names each correction in the status line. Only a correction that
+  corrects the phase files and names each correction in the status line; all corrections of one
+  audit result go out in one response (several `Edit` calls on one file are applied in the order
+  sent). Only a correction that
   would drop a phase or remove a capability the user named in the interview goes to one
   `AskUserQuestion`.
 - **Renumbering after a correction.** A correction that reorders phases renames the files so the

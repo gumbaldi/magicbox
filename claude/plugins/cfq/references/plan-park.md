@@ -1,6 +1,7 @@
 # Plan Park: Batch Allocation and the Final Report
 
-Only read at pfq's **Security and Park** and **Close and Report** steps.
+Read in Group B of pfq's **Language and Cut Phases**; applies at the **Security and Park** and
+**Close and Report** steps.
 
 ## Park Mechanics
 
@@ -10,7 +11,8 @@ command allocates it through `batch allocate`, which reserves it in the local ch
 (`status: parked`) and the queue directory, and returns the final `batch` name.
 `BATCH_WIDTH_MIGRATION_BLOCKED` → surface `action` and stop, nothing parked. Number
 phase files ascending against the cut from **Self-Critique of the Phase Cut** — a phase it dropped
-leaves no gap in the numbering. Each `NN-<slug>.md` starts as a copy of
+leaves no gap in the numbering. All phase files go out as `Write` calls in one response, once the cut
+and every decision are final; look up anchors before that turn, not between the writes. Each `NN-<slug>.md` starts as a copy of
 `<plugin-root>/references/phase-template.md`.
 
 A phase-file `Write` denied by a `PreToolUse` hook ends the session. Print `❌ Park`, then

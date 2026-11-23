@@ -550,6 +550,53 @@ def check_no_plan_review_gate(root):
     return fails
 
 
+# 22. Added by batch 064 phase 08: `plan-for-queue/SKILL.md` reads the planning references in two
+#     parallel groups. The paragraph defining each bold group label names every file of the group,
+#     and the self-critique reference carries a read instruction at most twice: in Group B and in
+#     the interrupted-audit resume rule at Inbox.
+READING_GROUPS = (
+    ("Group A", ("interaction-policy.md", "explore-escalation.md", "grilling.md")),
+    (
+        "Group B",
+        (
+            "phase-quality.md",
+            "phase-template.md",
+            "plan-self-critique.md",
+            "plan-park.md",
+            "batch-context.md",
+            "queue-check.md",
+            "language.md",
+        ),
+    ),
+)
+SELF_CRITIQUE_READ = "references/plan-self-critique.md"
+
+
+def check_pfq_reading_groups(root):
+    fails = []
+    skill = root / "skills" / "plan-for-queue" / "SKILL.md"
+    if not skill.is_file():
+        return fails
+    text = skill.read_text()
+    paragraphs = text.split("\n\n")
+    for label, files in READING_GROUPS:
+        marker = f"**{label}**"
+        group = next((p for p in paragraphs if marker in p), None)
+        if group is None:
+            fails.append(f"FAIL: {skill} does not define {marker}")
+            continue
+        for name in files:
+            if name not in group:
+                fails.append(f"FAIL: {skill}: the {label} paragraph does not name {name}")
+    n = text.count(SELF_CRITIQUE_READ)
+    if n > 2:
+        fails.append(
+            f"FAIL: {skill} names {SELF_CRITIQUE_READ} {n} times; at most twice (Group B and the"
+            " interrupted-audit resume rule)"
+        )
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -574,6 +621,7 @@ def run_all(root):
     fails += check_pfq_single_first_step(root)
     fails += check_audit_wait(root)
     fails += check_no_plan_review_gate(root)
+    fails += check_pfq_reading_groups(root)
     return fails
 
 
@@ -771,6 +819,33 @@ class ReferencePathsTest(CfqTestCase):
         out = check_no_plan_review_gate(tmp)
         self.assertEqual(1, len(out), msg=f"a missing planning close should be the one failure: {out}")
         self.assertIn("planning close", out[0])
+
+    def test_pfq_reading_groups(self):
+        tmp = self._repos_dir / "reading-groups"
+        (tmp / "skills" / "plan-for-queue").mkdir(parents=True)
+        skill = tmp / "skills" / "plan-for-queue" / "SKILL.md"
+        good = (
+            "Resume: read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` first.\n\n"
+            "Read **Group A**: interaction-policy.md, explore-escalation.md, grilling.md.\n\n"
+            "Read **Group B**: phase-quality.md, phase-template.md,\n"
+            "`${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md`, plan-park.md,\n"
+            "batch-context.md, queue-check.md, language.md.\n"
+        )
+        skill.write_text(good)
+        self.assertEqual([], check_pfq_reading_groups(tmp))
+
+        skill.write_text(good.replace("grilling.md", "").replace("language.md", ""))
+        joined = "\n".join(check_pfq_reading_groups(tmp))
+        self.assertIn("Group A paragraph does not name grilling.md", joined)
+        self.assertIn("Group B paragraph does not name language.md", joined)
+
+        skill.write_text("Read the references.\n")
+        out = check_pfq_reading_groups(tmp)
+        self.assertEqual(2, len(out), msg=f"missing labels should fail both groups: {out}")
+
+        skill.write_text(good + "Read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` again.\n")
+        joined = "\n".join(check_pfq_reading_groups(tmp))
+        self.assertIn("at most twice", joined)
 
     def test_question_context_in_dialog(self):
         bad = self._repos_dir / "qctx"
