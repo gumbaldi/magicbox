@@ -242,9 +242,9 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 
 | Noun | Purpose |
 |---|---|
-| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `review` to hold a batch for plan review, `ready` to clear `.planning`/`.review`. |
+| `batch` | Numbered batch identity: `allocate`/`reconcile` the ledger, `verify`/`recover` a batch's completion state, `ready` to clear `.planning` (it refuses while `.audit` exists). |
 | `branch` | Resolves and creates the per-batch branch (`plan`), checks a candidate name (`check`). |
-| `brief` | Renders a batch or single-phase announcement from the phase files on disk; `--review` prints the plan digest, `--review --changed` only the phases edited since; `--review --gate [--changed]` the compact phase list the release question shows. |
+| `brief` | Renders a batch or single-phase announcement from the phase files on disk. |
 | `changelog` | Reads and writes the changelog (`changelogFile`, default `.claude/cfq/changelog.yml`) (`init`, `commit-message`, `commit`, `normalize`, status lookups). |
 | `ctx` | Post-phase context/rate-limit gate — `OK`/`WARN`/`STOP`. |
 | `dash` | Cross-repo dashboard: queues, phases, config. |
@@ -262,6 +262,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `preflight-impl` | `/ifq`'s one aggregator call: policy, batch selection, size gate. |
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
+| `planning` | `/pfq`'s two bundled protocol steps: `open` (security snapshot, batch allocation, queue snapshot) and `close` (lint, `batch ready`, telemetry record/sync/show, portal link), each one JSON result. |
 | `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild [--migrate]` rewrites everything. |
 | `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
@@ -286,8 +287,8 @@ half-written batch in the queue:
 
 - `<repo>/.claude/cfq/**` — the three queues, and the only path every `pfq` session writes.
   `bin/cfq layout` (implemented in `scripts/`) is the source of truth for this list; read it there
-  rather than copying the entries into the hook by hand. The batch markers `.planning`, `.review`
-  and `.audit` (held while the post-write audit runs) live inside this tree, so the same allowance
+  rather than copying the entries into the hook by hand. The batch markers `.planning` and
+  `.audit` (held while the post-write audit runs) live inside this tree, so the same allowance
   covers them.
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
@@ -410,7 +411,7 @@ locale.
 - **Overview** — what is running comes first: **Now** lists the running batches and the phase each
   is on, **Needs attention** lists the warnings of open batches and of the last ten finished ones
   (red phases, open questions, missing telemetry, undeclared files, language or security warnings)
-  plus batches waiting on a plan review, an unknown dependency or the running audit, and **Last 10
+  plus batches waiting on an unknown dependency or the running audit, and **Last 10
   batches** shows planning and implementation side by side. Below sit the tabs Batches (sortable
   table with status, progress, dates, cost, deviations and flags), Trends (cost per batch, grouped
   by planning and implementation or by model, and a size calibration of turns and output per phase

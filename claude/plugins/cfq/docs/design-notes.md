@@ -169,20 +169,6 @@ no such restriction, so each data file registers its payload on `window.CFQ_DATA
 side effect of merely being loaded, and the viewer reads it back off that global instead of issuing
 a request for it.
 
-## pfq: why the plan review gate exists
-
-A user saw only a truncated overview after `/pfq` had already released the batch, so they could
-not judge the plan and did not know the plan files were plain Markdown they could edit. The gate
-turns that around: `/pfq` prints a digest of the whole plan and holds the batch until the user
-answers. It sits after the files are written and linted, not before, so what is shown is
-byte-for-byte what `/ifq` will read and nothing is generated twice.
-
-The gate has no off switch and no display-only mode — decided in the interview; adding one later
-is a single schema entry. A `.review` marker has no staleness window, unlike `.planning`: a
-`.planning` marker guards a session that may have crashed mid-write, so it expires, while an
-unanswered review is a plan that is complete and waiting for a human, and expiring it would
-release a batch nobody approved.
-
 ## pfq: why `changes-steps` is a warning, not a finding
 
 `/ifq`'s Lint Gate ends the session on a finding, so making the numbered-steps rule a finding
@@ -699,14 +685,38 @@ in the payload itself: the question text, the option descriptions and the previe
 alternative was to end the turn after a text block and ask in the next turn; it costs a round trip per
 question and breaks the flow of a phase loop. There is no switch; the rule is part of the skill text.
 
-## pfq: why the release question shows a compact review gate
+## pfq: why there is no release question
 
-The full plan digest printed before the release question flooded the terminal on large batches, and the
-question itself then scrolled out of view. The release question now carries the phase list plus one
-directory link inside its own text (`bin/cfq brief --review --gate [--changed]`); the full digest stays
-available as `bin/cfq brief --review`. Per-file links are left out because they do not open in the
-report HTML. The rejected alternative was a threshold, the full digest below N phases and a short one
-above it: two shapes of the same step are harder to follow than one, and the threshold is arbitrary.
+The user asked for the release question to go. The original reason for it was that a user could not
+judge the plan after `/pfq` had released the batch and did not know the plan files were plain Markdown
+they could edit. The portal link that ends the report and the "edit by hand" line cover that, and
+`/ifq`'s start gate (start or cancel, plus lint) stays the last check before any code is written.
+
+The concern recorded at planning time was that the gate was the only hold between parking and `/ifq`;
+the user overruled it. The rejected alternative was a setting `reviewGate` that keeps the old behaviour
+as a fallback: it keeps two paths in the skill, the scripts and the tests. Rollback is a git revert.
+Leftover `.review` files on disk are ignored by the scan and deleted by `batch ready`.
+
+## pfq: why planning protocol steps are bundled
+
+`planning open` (security, batch allocation, snapshot) and `planning close` (lint, ready, telemetry
+record, sync and show, portal link) replace about ten single turns of a `/pfq` session, measured on
+batch 063. The rejected alternative was a prose rule to issue independent calls in one turn: it cannot
+be checked, and a model skips it under load. The cost is two more commands; the single commands stay
+and keep their behaviour.
+
+The comparison metric is the planning turns per planned phase: `layers.main.turns` divided by
+`phase_count` of a `planning` record in `.claude/cfq/telemetry.jsonl`. The baseline comes from the
+planning records of batch 061 (67 turns, 9 phases, about 7.4) and batch 063 (77 turns, 12 phases, about
+6.4); 061 was planned on Sonnet, 063 on Opus. Review the figure after five planned batches.
+
+## pfq: why references are read in groups
+
+`SKILL.md` names its reference files in two groups, A and B, and the session reads each group in one
+turn. Phase files are written in one response, and the corrections of one check are made in one
+response. Every separate read or edit is a model turn, and the late turns of a planning session run at a
+large context, so turns are what the 5-hour limit counts. The rule is text only: the grouping states
+which reads are independent, and a script could not know when a session has read them.
 
 ## ifq: why the base branch recommendation follows the batch-branch chain tip
 
@@ -759,13 +769,13 @@ Windows users. The patterns now also accept `C:\dir` and `C:/dir`. UNC paths (`\
 rejected: they depend on network state and credentials at the time of the call, and no one has asked for
 them. The cost is that a UNC user mounts the share to a drive letter first.
 
-## cfq: why the review gate waits for the post-write audit
+## cfq: why `batch ready` waits for the post-write audit
 
 `/pfq` runs its audit of the written plan files in background subagents, so its turn used to end
-with the batch looking finished while the audit was still producing findings; the release question
-could then be answered, and `/ifq` could pick the batch up, before the findings landed. A `.audit`
-marker closes the gap: `batch audit start` writes it, `batch review` and `batch ready` refuse while
-it exists, scan and the preflights treat the batch like one held by `.review`, and the skill ends its
+with the batch looking finished while the audit was still producing findings; the batch could
+then be released, and `/ifq` could pick it up, before the findings landed. A `.audit`
+marker closes the gap: `batch audit start` writes it, `batch ready` refuses while
+it exists, scan and the preflights report the batch as planning, and the skill ends its
 turn with a `⏳ Phase Audit` line until `batch audit done` removes it. Because a held batch is a
 behaviour change that could misfire, the `auditBarrier` setting (default `true`) is the rollback:
 `false` writes no marker and ignores an existing one. The comparison metric is the `audit` list in

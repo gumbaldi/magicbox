@@ -13,34 +13,24 @@ builds, or commits, even when a plan-mode approval or an autonomous/auto-run mod
 let it. Overlapping open batches get an automatic `.dependsOn`; any fixable security or maintenance
 finding becomes a `plan/` entry for a later session, never a question.
 
-### Reviewing and editing the plan
-
-Before a batch is released, `/pfq` asks whether to release it, request changes, edit the files
-yourself, or discard it. The release question carries a compact gate in its own text: the phase list
-and one link to the batch directory. The full digest — the batch context and, per phase, its
-context, affected files, change steps and verification command — stays one command away. The batch
-stays held until you answer.
+### Editing the plan
 
 The plan lives at `<repo>/.claude/cfq/impl/<batch>/NN-<slug>.md` plus `.batch-context.md`, plain
-Markdown; the same plan is readable in the report portal. You may edit these files by hand, at the
-gate and afterwards, until `/ifq` starts the phase; `/ifq` lints the batch again at its start.
+Markdown. You may edit these files by hand until `/ifq` starts the phase; `/ifq` lints the batch
+again at its start. The report ends with the link to the batch page of the report portal, where the
+same plan is readable.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review         # print the full plan digest
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" brief "<batch-dir>" --review --gate  # print the compact gate
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"             # check your edits
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" lint "<batch-dir>"   # check your edits
 ```
-
-A review that was never answered keeps the batch held, with no time limit; the next `/pfq`
-offers to resume it, and `bin/cfq batch ready "<batch-dir>"` releases it without a review.
 
 ### Waiting for the post-write audit
 
 After the plan files are written, `/pfq` starts an audit in the background and writes an `.audit`
-marker into the batch (`bin/cfq batch audit <batch-dir> start`). While the marker exists, `batch review` and
-`batch ready` refuse, `/ifq` never offers the batch, and `/pfq` ends its turn with a `⏳ Phase Audit`
+marker into the batch (`bin/cfq batch audit <batch-dir> start`). While the marker exists, `batch ready`
+refuses, `/ifq` never offers the batch, and `/pfq` ends its turn with a `⏳ Phase Audit`
 line instead of looking finished. When the audit result arrives, `/pfq` removes the marker
-(`bin/cfq batch audit <batch-dir> done`) and goes on to the review gate. The duration and finding count land in
+(`bin/cfq batch audit <batch-dir> done`) and goes on to lint and release. The duration and finding count land in
 `report.json` under `audit`. `auditBarrier: false` writes no marker.
 
 ```bash
@@ -70,7 +60,7 @@ green phase. Gates hard on the running model — `implModels`, or `orchestratorM
 orchestrator mode is on (falls back to `implModels` when empty) — the one check in cfq that aborts
 rather than warns. Shows the batch overview and the full queue and asks — start or cancel, plus
 pick a different batch when another one is selectable — before touching anything. The overview
-shows the full batch context, and each phase announcement and the review digest open with the phase's plain-words Summary, followed by its change steps. By default
+shows the full batch context, and each phase announcement opens with the phase's plain-words Summary, followed by its change steps. By default
 (`orchestratorMode`) each phase runs in its own worker sub-agent with a fresh context window
 instead of the classic single-session loop, shifting the handoff point from the context-capacity
 gate to the rate-limit window. Never two batches in the same session, even once the first finishes
@@ -174,7 +164,7 @@ Exact steps: [`skills/code-for-queue/SKILL.md`](../skills/code-for-queue/SKILL.m
 The report portal lives at `<repo>/.claude/cfq/reports/index.html` and shows every batch with its
 phases, deviations, flags and cost; the README's [Report portal](../README.md#report-portal)
 section describes each view. The overview opens with **Now** (running batches and their current
-phase), **Needs attention** (warnings and batches waiting on a review or the audit) and the **Last 10
+phase), **Needs attention** (warnings and batches waiting on the audit) and the **Last 10
 batches**, planning and implementation side by side; the **Trends** tab holds the cost and size
 charts. A batch page opens with a result band and one card each for planning and implementation;
 its **Cost** tab splits tokens by planning and implementation, then by model, agent and phase, and
