@@ -138,6 +138,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `orchestratorMode` | `CFQ_ORCHESTRATOR_MODE` | `true` | global, repo | `ifq` runs each phase in its own sub-agent instead of implementing in the session itself |
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
+| `baseBranchStrategy` | `CFQ_BASE_BRANCH_STRATEGY` | `chainTip` | global, repo | which branch `ifq` recommends as the base of a new batch branch: `chainTip` = the batch branch that contains all other batch branches (never `main` or another non-batch branch while a batch branch exists), `newest` = the newest branch by commit date |
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |

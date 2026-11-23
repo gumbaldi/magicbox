@@ -196,6 +196,7 @@ class SettingsTest(CfqTestCase):
             "planModels": "opus,fable",
             "implModels": "sonnet,haiku",
             "orchestratorMode": "true",
+            "baseBranchStrategy": "chainTip",
             "orchestratorModels": "sonnet",
             "planExploreModel": "haiku",
             "implExploreModel": "haiku",
@@ -222,6 +223,36 @@ class SettingsTest(CfqTestCase):
                 self.assertEqual(
                     got, expected, msg=f"regression default {key} = '{got}', want '{expected}'"
                 )
+
+    # 5g-bis. baseBranchStrategy: default, repo round-trip, env, set rejects an unknown value
+    def test_05g_base_branch_strategy(self):
+        got = self.run_clean(
+            str(CFQ_BIN), "settings", "get", "baseBranchStrategy"
+        ).stdout.strip()
+        self.assertEqual(got, "chainTip", msg=f"default baseBranchStrategy = '{got}'")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            fixture = pathlib.Path(fixture_s)
+            self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "baseBranchStrategy", "newest",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "baseBranchStrategy", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "newest", msg=f"repo set baseBranchStrategy -> got '{got}'")
+
+            got = self.run_cfq(
+                "settings", "get", "--repo", str(fixture), "baseBranchStrategy", home=self.home,
+                env={"CFQ_BASE_BRANCH_STRATEGY": "chainTip"},
+            ).stdout.strip()
+            self.assertEqual(got, "chainTip", msg=f"env override -> got '{got}'")
+
+            bad = self.run_cfq(
+                "settings", "set", "--repo", str(fixture), "baseBranchStrategy", "bogus",
+                home=self.home,
+            )
+            self.assertNotEqual(bad.returncode, 0, msg="set baseBranchStrategy bogus should fail")
 
     # 5g. orchestratorMode: default, round-trip through global and repo, env, set rejects
     def test_05g_orchestrator_mode(self):
@@ -1084,7 +1115,8 @@ class SettingsTest(CfqTestCase):
             },
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
-                "orchestratorMode", "onePhasePerSession", "branchPerBatch", "implBlockedPlugins",
+                "orchestratorMode", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
+                "implBlockedPlugins",
                 "batchReview", "batchReviewFindings", "requiredTools",
             },
             "limits": {
