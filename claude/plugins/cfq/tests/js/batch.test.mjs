@@ -466,7 +466,6 @@ test("header: an open batch shows the folder and context controls and the hint",
   assert.equal(rows.length, 1);
   assert.deepEqual(byClass(rows[0], "edit-open").map((a) => [a.textContent, a.attrs.href]), [
     ["Open folder", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo"],
-    ["Open context", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo/.batch-context.md"],
   ]);
   assert.deepEqual(byClass(rows[0], "edit-copy").map((b) => b.textContent), ["Copy folder path", "Copy context path"]);
   assert.equal(byClass(rows[0], "edit-hint").length, 1);
@@ -484,15 +483,20 @@ test("header: no context file means no context pair; editor off means no links; 
 
   const off = fixtureBatch("in_progress");
   delete off.edit.dir.url;
-  delete off.edit.context.url;
   const b = draw(off).root;
   assert.equal(byClass(b, "edit-open").length, 0);
   assert.equal(byClass(b, "edit-copy").length, 2);
 
+  // an old-shape context url never becomes a link
+  const oldCtx = fixtureBatch("in_progress");
+  oldCtx.edit.context.url = "vscode://file/old/.batch-context.md";
+  const c = draw(oldCtx).root;
+  assert.deepEqual(byClass(c, "edit-open").map((a) => a.textContent), ["Open folder"]);
+
   assert.equal(byClass(draw(fixtureBatch("done")).root, "edit-controls").length, 0);
 });
 
-test("Plan sub-tab: a phase with edit shows Edit plan above the plan text, also without plan text", () => {
+test("Plan sub-tab: a phase with edit shows Open folder above the plan text, also without plan text", () => {
   const { root } = draw(fixtureBatch("plan_only"));
   fire(rowToggles(root)[0], "click");
   let panel = byClass(root, "phase-detail")[0];
@@ -500,7 +504,7 @@ test("Plan sub-tab: a phase with edit shows Edit plan above the plan text, also 
   panel = byClass(root, "phase-detail")[0];
   const row = byClass(panel, "edit-controls")[0];
   assert.deepEqual(byClass(row, "edit-open").map((a) => [a.textContent, a.attrs.href]),
-    [["Edit plan", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo/01-first.md"]]);
+    [["Open folder", "vscode://file/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo"]]);
   assert.deepEqual(byClass(row, "edit-copy").map((b) => b.textContent), ["Copy path"]);
   const siblings = row.parentNode.children;
   assert.ok(siblings.indexOf(row) < siblings.indexOf(byClass(panel, "plan-text")[0]));

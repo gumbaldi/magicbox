@@ -272,7 +272,7 @@
     var edit = batch.edit;
     var editRow = edit && C.editControlRow(doc, [
       [edit.dir, { open: "Open folder", copy: "Copy folder path" }],
-      [edit.context, { open: "Open context", copy: "Copy context path" }],
+      [edit.context && { path: edit.context.path }, { copy: "Copy context path" }],
     ]);
     if (editRow) head.appendChild(editRow);
 
@@ -397,7 +397,7 @@
 
   function renderPlan(doc, root, ctx, phase) {
     var C = core();
-    var editRow = phase.edit && C.editControls(doc, phase.edit, { open: "Edit plan", copy: "Copy path" });
+    var editRow = phase.edit && C.fileEditControls(doc, phase.edit, { open: "Open folder", copy: "Copy path" });
     if (editRow) root.appendChild(editRow);
     if (!phase.planHtml) {
       root.appendChild(C.el(doc, "p", "No plan text recorded.", "empty"));

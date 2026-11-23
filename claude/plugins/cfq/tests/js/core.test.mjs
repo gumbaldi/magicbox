@@ -394,19 +394,22 @@ test("fixtures stay in the contract shape", () => {
 
 // ---- edit controls ------------------------------------------------------------------------
 
-const EDIT = { path: "\\\\wsl.localhost\\Alma\\home\\x.md", url: "vscode://vscode-remote/wsl+Alma/home/x.md" };
-const LABELS = { open: "Edit plan", copy: "Copy path" };
+const EDIT = {
+  path: "\\\\wsl.localhost\\Alma\\home\\x.md",
+  dir: { path: "\\\\wsl.localhost\\Alma\\home", url: "vscode://vscode-remote/wsl+Alma/home" },
+};
+const LABELS = { open: "Open folder", copy: "Copy path" };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("editControls: link, copy button and hint; no url means no link", () => {
+test("fileEditControls: link, copy button and hint; no url means no link", () => {
   const doc = fakeDoc();
-  const row = C.editControls(doc, EDIT, LABELS);
+  const row = C.fileEditControls(doc, EDIT, LABELS);
   assert.equal(row.className, "edit-controls");
   const open = byClass(row, "edit-open");
   assert.equal(open.length, 1);
   assert.equal(open[0].tagName, "a");
-  assert.equal(open[0].attrs.href, EDIT.url);
-  assert.equal(open[0].textContent, "Edit plan");
+  assert.equal(open[0].attrs.href, EDIT.dir.url);
+  assert.equal(open[0].textContent, "Open folder");
   const copy = byClass(row, "edit-copy");
   assert.equal(copy.length, 1);
   assert.equal(copy[0].tagName, "button");
@@ -418,16 +421,21 @@ test("editControls: link, copy button and hint; no url means no link", () => {
   assert.match(collectText(hint[0]), /Changes appear after the next sync/);
   assert.equal(byTag(hint[0], "code")[0].textContent, "bin/cfq portal sync <repo-root>");
 
-  const noUrl = C.editControls(doc, { path: EDIT.path }, LABELS);
+  const noUrl = C.fileEditControls(doc, { path: EDIT.path }, LABELS);
   assert.equal(byClass(noUrl, "edit-open").length, 0);
   assert.equal(byClass(noUrl, "edit-copy").length, 1);
-  assert.equal(C.editControls(doc, null, LABELS), null);
+  assert.equal(C.fileEditControls(doc, null, LABELS), null);
+
+  // data of an older cfq: file-level url, no dir -> only the copy button, the old url is never used
+  const old = C.fileEditControls(doc, { path: EDIT.path, url: "vscode://file/old" }, LABELS);
+  assert.equal(byClass(old, "edit-open").length, 0);
+  assert.deepEqual(byClass(old, "edit-copy").map((b) => b.textContent), ["Copy path"]);
 });
 
 test("editControlRow: several pairs share one row and one hint", () => {
   const row = C.editControlRow(fakeDoc(), [
-    [EDIT, { open: "Open folder", copy: "Copy folder path" }],
-    [{ path: "/p" }, { open: "Open context", copy: "Copy context path" }],
+    [EDIT.dir, { open: "Open folder", copy: "Copy folder path" }],
+    [{ path: "/p" }, { copy: "Copy context path" }],
     [null, LABELS],
   ]);
   assert.equal(byClass(row, "edit-open").length, 1);
@@ -436,10 +444,10 @@ test("editControlRow: several pairs share one row and one hint", () => {
   assert.equal(C.editControlRow(fakeDoc(), [[null, LABELS]]), null);
 });
 
-test("editControls: the clipboard API copies the path and the label reads Copied", async () => {
+test("fileEditControls: the clipboard API copies the path and the label reads Copied", async () => {
   const copied = [];
   await withClipboard({ writeText: (s) => { copied.push(s); return Promise.resolve(); } }, async () => {
-    const row = C.editControls(fakeDoc(), EDIT, LABELS);
+    const row = C.fileEditControls(fakeDoc(), EDIT, LABELS);
     const button = byClass(row, "edit-copy")[0];
     fire(button, "click");
     await tick();
@@ -449,7 +457,7 @@ test("editControls: the clipboard API copies the path and the label reads Copied
   });
 });
 
-test("editControls: without the clipboard API the execCommand fallback copies from a textarea", async () => {
+test("fileEditControls: without the clipboard API the execCommand fallback copies from a textarea", async () => {
   await withClipboard(undefined, async () => {
     const doc = fakeDoc();
     let seen = null;
@@ -457,7 +465,7 @@ test("editControls: without the clipboard API the execCommand fallback copies fr
       seen = { cmd, value: byTag(doc.body, "textarea")[0].value };
       return true;
     };
-    const row = C.editControls(doc, EDIT, LABELS);
+    const row = C.fileEditControls(doc, EDIT, LABELS);
     const button = byClass(row, "edit-copy")[0];
     fire(button, "click");
     await tick();
@@ -467,23 +475,23 @@ test("editControls: without the clipboard API the execCommand fallback copies fr
   });
 });
 
-test("editControls: a rejected clipboard write falls back to execCommand", async () => {
+test("fileEditControls: a rejected clipboard write falls back to execCommand", async () => {
   await withClipboard({ writeText: () => Promise.reject(new Error("denied")) }, async () => {
     const doc = fakeDoc();
     doc.execCommand = () => true;
-    const button = byClass(C.editControls(doc, EDIT, LABELS), "edit-copy")[0];
+    const button = byClass(C.fileEditControls(doc, EDIT, LABELS), "edit-copy")[0];
     fire(button, "click");
     await tick();
     assert.equal(button.textContent, "Copied");
   });
 });
 
-test("editControls: when every copy way fails the path appears as selectable code", async () => {
+test("fileEditControls: when every copy way fails the path appears as selectable code", async () => {
   await withClipboard(undefined, async () => {
     for (const execCommand of [null, () => false, () => { throw new Error("nope"); }]) {
       const doc = fakeDoc();
       doc.execCommand = execCommand;
-      const row = C.editControls(doc, EDIT, LABELS);
+      const row = C.fileEditControls(doc, EDIT, LABELS);
       const button = byClass(row, "edit-copy")[0];
       fire(button, "click");
       await tick();
@@ -498,11 +506,11 @@ test("editControls: when every copy way fails the path appears as selectable cod
   });
 });
 
-test("editControls: markup in a path stays text and never reaches innerHTML", async () => {
+test("fileEditControls: markup in a path stays text and never reaches innerHTML", async () => {
   const evil = "/home/<b>x</b>/plan.md";
   await withClipboard(undefined, async () => {
     const doc = fakeDoc();
-    const row = C.editControls(doc, { path: evil, url: "vscode://file/x" }, LABELS);
+    const row = C.fileEditControls(doc, { path: evil, dir: { url: "vscode://file/x" } }, LABELS);
     fire(byClass(row, "edit-copy")[0], "click");
     await tick();
     assert.equal(byTag(row, "b").length, 0);

@@ -105,10 +105,12 @@ test("the open batch's header and plan tab render edit controls from a real sync
     const header = fakeRoot(doc);
     CFQ.batch.render(doc, header, { mode: "repo", repo: "/x", site: {}, batch, route: { name: "batch", batch: row.name }, setCrumbs() {} });
     assert.ok(byClass(header, "edit-controls").length >= 1, `${row.name}: header lacks edit controls`);
+    assert.ok(!byClass(header, "edit-open").some((a) => a.textContent === "Open context"), `${row.name}: header offers Open context`);
     const plan = fakeRoot(doc);
     CFQ.core.registered("phaseTab").find((t) => t.id === "plan").render(doc, plan, { mode: "repo", site: {} }, phase);
     assert.equal(byClass(plan, "edit-controls").length, 1, `${row.name}/${phase.slug}: plan tab lacks edit controls`);
     assert.ok(byClass(plan, "edit-copy")[0].textContent === "Copy path");
+    assert.equal(byClass(plan, "edit-open")[0].textContent, "Open folder", `${row.name}/${phase.slug}: plan tab lacks Open folder`);
   }
   assert.ok(checked >= 1, "no batch with an open phase in the synced data");
   assert.deepEqual(failures, []);

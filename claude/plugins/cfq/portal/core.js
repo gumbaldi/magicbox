@@ -334,9 +334,10 @@
   }
 
   // ---- edit controls ----------------------------------------------------------------------------
-  // "Open in editor" link and "copy path" button for one editable item, driven by the `edit` object
-  // `portal sync` writes: {path: <OS path>, url: <editor link, absent when the editor is off>}.
-  // The path is only ever set as text; `url` becomes the link's href as written.
+  // "Open folder" link and "copy path" button for one editable item, driven by the `edit` object
+  // `portal sync` writes: a file's is {path: <OS path>, dir: {path, url: <editor link, absent when
+  // the editor is off>}}. The path is only ever set as text; `dir.url` becomes the link's href as
+  // written. A file-level `url` (data of an older cfq) is never used.
 
   var EDIT_HINT = "Changes appear after the next sync (`bin/cfq portal sync <repo-root>`, or when /ifq starts).";
 
@@ -409,8 +410,14 @@
     return row;
   }
 
-  function editControls(doc, edit, labels) {
-    return editControlRow(doc, [[edit, labels]]);
+  // One file item: a link to its folder and a copy button for its own path.
+  function fileEditControls(doc, edit, labels) {
+    if (!edit) return null;
+    var dir = edit.dir || {};
+    return editControlRow(doc, [
+      [{ url: dir.url }, { open: labels.open }],
+      [{ path: edit.path }, { copy: labels.copy }],
+    ]);
   }
 
   CFQ.core = {
@@ -438,7 +445,7 @@
     tokenBar: tokenBar,
     tabs: tabs,
     disclosure: disclosure,
-    editControls: editControls,
+    fileEditControls: fileEditControls,
     editControlRow: editControlRow,
   };
 })();

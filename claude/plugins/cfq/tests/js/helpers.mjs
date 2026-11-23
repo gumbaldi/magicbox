@@ -187,10 +187,12 @@ export function loadPortal() {
 
 // The `edit` target of an editable item as `portal sync` writes it (POSIX host, `vscode` editor).
 export const editTarget = (p) => ({ path: p, url: "vscode://file" + p });
+// A file's `edit`: the file path plus the folder that holds it (the only part that gets a link).
+export const fileEdit = (p) => ({ path: p, dir: editTarget(p.slice(0, p.lastIndexOf("/"))) });
 const BATCH_DIR = "/home/code/git/demo/.claude/cfq/impl/047-2026-10-01-demo";
 const batchEdit = () => ({
   dir: editTarget(BATCH_DIR),
-  context: editTarget(BATCH_DIR + "/.batch-context.md"),
+  context: { path: BATCH_DIR + "/.batch-context.md" },
 });
 
 const t5 = (turns, input, output, cache_read, cache_creation) => ({ turns, input, output, cache_read, cache_creation });
@@ -359,7 +361,7 @@ export function fixtureBatch(kind = "done") {
     affectedFiles: ["scripts/a.py"], attempts, flags: flags || [],
   });
   const openPhase = (num, slug, title) => ({
-    ...phase(num, slug, title, "open", []), edit: editTarget(`${BATCH_DIR}/${slug}.md`),
+    ...phase(num, slug, title, "open", []), edit: fileEdit(`${BATCH_DIR}/${slug}.md`),
   });
   if (kind === "plan_only") {
     return {
@@ -423,7 +425,7 @@ export function fixtureEntry(kind = "todo_open") {
     id: "todo-2026-10-01-merge-alpha", kind: "todo", state: "open", date: "2026-10-01",
     title: "Merge `cfq/045-2026-09-20-alpha-done`", check: "git branch --merged main",
     closed: null, origin: null, parkedInto: null, bodyHtml: "<p>Body of the todo card.</p>",
-    edit: editTarget("/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"),
+    edit: fileEdit("/home/code/git/demo/.claude/cfq/todo/2026-10-01-merge-alpha.md"),
   };
 }
 
