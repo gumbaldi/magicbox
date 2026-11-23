@@ -1,6 +1,7 @@
-// The two chart panels above the overview's batch table: cost per batch (stacked by model, with a
-// metric switch) and size calibration (planned S/M/L against actual turns or output). Both plug
-// into the `overviewPanel` slot; `charts.js` draws, this file only picks and shapes the data.
+// The two chart panels of the overview's Trends tab: cost per batch (stacked by planning and
+// implementation or by model, with a metric switch) and size calibration (planned S/M/L against
+// actual turns or output, plus the rolling baseline table). Both plug into the `overviewPanel` slot;
+// `charts.js` draws, this file only picks and shapes the data.
 
 (function () {
   "use strict";
@@ -24,6 +25,13 @@
     { id: "output", label: "Out", name: "Output tokens" },
   ];
 
+  var GROUPS = [
+    { id: "split", label: "Planning / Implementation", name: "Planning and implementation" },
+    { id: "model", label: "By model", name: "Stacked by model" },
+  ];
+  var SPLIT_KEYS = { Planning: "m-plan", Implementation: "m-impl" };
+  var SIZE_ORDER = ["S", "M", "L"];
+
   function metricOf(t, metric) {
     if (!t) return 0;
     if (metric === "turns") return t.turns || 0;
@@ -45,8 +53,10 @@
     return seen;
   }
 
-  // Done batches with a cost, oldest finish first, the latest 40. `values` maps model -> metric.
-  function trendBars(queue, metric) {
+  // Done batches with a cost, oldest finish first, the latest 40. `values` maps model -> metric, or
+  // with `group` "split" the series Planning / Implementation -> metric (a cost without the split
+  // counts as implementation).
+  function trendBars(queue, metric, group) {
     var rows = ((queue && queue.batches) || []).filter(function (b) {
       return b && b.status === "done" && b.cost;
     });
@@ -56,6 +66,14 @@
     });
     return rows.slice(-LATEST).map(function (b) {
       var values = {}, total = 0;
+      if (group === "split") {
+        var plan = b.cost.planning && b.cost.planning.total;
+        var impl = b.cost.implementation && b.cost.implementation.total;
+        values.Planning = metricOf(plan, metric);
+        values.Implementation = metricOf(plan || impl ? impl : b.cost.total, metric);
+        total = values.Planning + values.Implementation;
+        return { name: b.name, number: b.number, finished: b.finished || "", values: values, total: total };
+      }
       var byModel = b.cost.byModel || {};
       Object.keys(byModel).forEach(function (m) {
         values[m] = metricOf(byModel[m], metric);
@@ -74,11 +92,11 @@
   }
 
   // A two- or three-button switch; `onPick(id)` redraws the panel's view.
-  function metricSwitch(doc, metrics, start, onPick) {
+  function metricSwitch(doc, metrics, start, onPick, label) {
     var C = core();
     var wrap = C.el(doc, "div", null, "metric-switch");
     wrap.setAttribute("role", "group");
-    wrap.setAttribute("aria-label", "Metric");
+    wrap.setAttribute("aria-label", label || "Metric");
     var buttons = [];
     metrics.forEach(function (m) {
       var b = C.el(doc, "button", m.label, "chip");
@@ -114,14 +132,16 @@
       return;
     }
     frame(doc, root, "Cost per batch",
-      "Finished batches, oldest to newest (latest " + LATEST + "), stacked by model. Each bar opens its batch.");
-    var slots = K.modelSlots(allModels(queue));
+      "Finished batches, oldest to newest (latest " + LATEST + "). Each bar opens its batch.");
+    var modelSlots = K.modelSlots(allModels(queue));
+    var state = { group: "split", metric: "out" };
     var view = C.el(doc, "div", null, "chart-view");
 
-    function draw(metric) {
+    function draw() {
       C.clear(view);
-      var def = COST_METRICS.filter(function (m) { return m.id === metric; })[0];
-      var rows = trendBars(queue, metric);
+      var def = COST_METRICS.filter(function (m) { return m.id === state.metric; })[0];
+      var split = state.group === "split";
+      var rows = trendBars(queue, state.metric, state.group);
       var bars = rows.map(function (r) {
         return {
           label: r.name + (r.finished ? "  (" + C.fmtDate(r.finished.slice(0, 10)) + ")" : ""),
@@ -130,6 +150,7 @@
           values: r.values,
         };
       });
+      var slots = split ? SPLIT_KEYS : modelSlots;
       var svg = K.stackedBars(doc, { bars: bars, keys: slots, metric: def.name });
       if (!svg) {
         view.appendChild(C.el(doc, "p", rows.length ? "No " + def.name.toLowerCase() + " recorded for the finished batches."
@@ -142,20 +163,23 @@
       var used = {};
       rows.forEach(function (r) { Object.keys(r.values).forEach(function (m) { if (r.values[m] > 0) used[m] = slots[m]; }); });
       view.appendChild(K.legend(doc, used));
-      var models = Object.keys(used).sort();
+      var names = Object.keys(used).sort();
       var columns = [{ key: "batch", label: "Batch" }, { key: "finished", label: "Finished" }]
-        .concat(models.map(function (m) { return { key: "m:" + m, label: m, num: true }; }))
+        .concat(names.map(function (m) { return { key: "m:" + m, label: m, num: true }; }))
         .concat([{ key: "total", label: "Total " + def.label.toLowerCase(), num: true }]);
       view.appendChild(numbersDisclosure(doc, columns, rows.map(function (r) {
         var row = { batch: r.name, finished: r.finished ? r.finished.slice(0, 10) : "–", total: r.total };
-        models.forEach(function (m) { row["m:" + m] = r.values[m] || 0; });
+        names.forEach(function (m) { row["m:" + m] = r.values[m] || 0; });
         return row;
       })));
     }
 
-    root.appendChild(metricSwitch(doc, COST_METRICS, "out", draw));
+    var switches = C.el(doc, "div", null, "switches");
+    switches.appendChild(metricSwitch(doc, GROUPS, state.group, function (id) { state.group = id; draw(); }, "Grouping"));
+    switches.appendChild(metricSwitch(doc, COST_METRICS, state.metric, function (id) { state.metric = id; draw(); }));
+    root.appendChild(switches);
     root.appendChild(view);
-    draw("out");
+    draw();
   }
 
   // ---- size calibration -------------------------------------------------------------------------
@@ -180,7 +204,7 @@
     // With no cost anywhere the cost panel already says so in one line.
     if (!hasCost(queue)) return;
     frame(doc, root, "Size calibration",
-      "Planned size against the turns or output a finished phase actually used. A size needs 5 phases before its median flags outliers.");
+      "Planned size against the turns or output a finished phase actually used. The baseline is the median of the last 50 finished phases of each size; a size needs 5 phases before its median flags outliers.");
     var points = (queue && queue.sizes) || [];
     var baselines = (queue && queue.baselines) || {};
     var view = C.el(doc, "div", null, "chart-view");
@@ -209,6 +233,34 @@
     root.appendChild(metricSwitch(doc, SIZE_METRICS, "turns", draw));
     root.appendChild(view);
     draw("turns");
+    var table = baselineTable(doc, baselines);
+    if (table) root.appendChild(table);
+  }
+
+  // Per size: the rolling baseline (last 50 finished phases), the all-time median and the phase count.
+  function baselineTable(doc, baselines) {
+    var C = core();
+    var sizes = Object.keys(baselines || {}).sort(function (a, b) {
+      var ia = SIZE_ORDER.indexOf(a), ib = SIZE_ORDER.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    if (!sizes.length) return null;
+    var tok = function (n) { return typeof n === "number" ? C.fmtTokens(n) : null; };
+    var rows = sizes.map(function (size) {
+      var b = baselines[size] || {};
+      return {
+        size: size, out: tok(b.outputMedian), all: tok(b.allTimeOutputMedian),
+        turns: typeof b.turnsMedian === "number" ? b.turnsMedian : null,
+        phases: typeof b.nAll === "number" ? b.nAll : (typeof b.n === "number" ? b.n : null),
+      };
+    });
+    var scroll = C.el(doc, "div", null, "tscroll baseline-table");
+    scroll.appendChild(charts().numbersTable(doc, [
+      { key: "size", label: "Size" }, { key: "out", label: "Baseline out", num: true },
+      { key: "all", label: "All-time median", num: true }, { key: "turns", label: "Baseline turns", num: true },
+      { key: "phases", label: "Phases", num: true },
+    ], rows));
+    return scroll;
   }
 
   // ---- registration -----------------------------------------------------------------------------

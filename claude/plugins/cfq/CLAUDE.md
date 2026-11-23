@@ -383,10 +383,10 @@ plugin's own version. The same version change deletes what the new version no lo
 `assets/` that `portal/` lacks and the flat `<batch>.html` files the retired per-batch renderer left
 under `reports/` (`remove_legacy_html()`) — and reports both in `removed`; an unchanged version
 copies and removes nothing. The viewer is several plain scripts on one shared `CFQ` namespace
-(`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — KPI strip
-and the sortable batch table; later views register through `CFQ.core.register(slot, item)` instead
+(`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — the Now,
+Needs attention and Last 10 sections, the sortable batch table and the Trends tab; later views register through `CFQ.core.register(slot, item)` instead
 of editing earlier files; `charts.js` draws the inline-SVG charts and `overview-charts.js`
-registers the cost-per-batch and size-calibration `overviewPanel`s; `batch.js` draws the batch page
+registers the cost-per-batch and size-calibration `overviewPanel`s, shown on the Trends tab; `batch.js` draws the batch page
 — header, tab bar, phase table with per-phase detail — and registers its own `batchTab`/`phaseTab`
 items; `batch-cost.js`, `batch-notes.js` and `timeline.js` register the Cost tab and sub-tab, the
 Notes and Closing tabs and the `batchPhasesTop` timeline; `entry.js` draws the todo-card/plan-entry

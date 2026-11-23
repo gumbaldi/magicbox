@@ -18,13 +18,13 @@
   var CFQ = g.CFQ = g.CFQ || {};
 
   // ---- routes -----------------------------------------------------------------------------------
-  // Repo mode: #/  #/todos  #/inbox  #/archive  #/batch/<name>[/<tab>]  #/batch/<name>/phase/<slug>
+  // Repo mode: #/  #/trends  #/todos  #/inbox  #/archive  #/batch/<name>[/<tab>]  #/batch/<name>/phase/<slug>
   //            #/entry/<id>.  Global mode prefixes each with #/<mirror>/ and adds #/ = repo list.
   // Result: {name: "overview"|"batch"|"entry"|"repos", mirror, tab, batch, phase, id}; `tab` is the
-  // overview tab (batches|todos|inbox|archive) or the batch tab (phases|cost|context|notes|closing,
+  // overview tab (batches|trends|todos|inbox|archive) or the batch tab (phases|cost|context|notes|closing,
   // null when none is named).
 
-  var OVERVIEW_TABS = { todos: "todos", inbox: "inbox", archive: "archive" };
+  var OVERVIEW_TABS = { trends: "trends", todos: "todos", inbox: "inbox", archive: "archive" };
   var BATCH_TABS = ["phases", "cost", "context", "notes", "closing"];
 
   function decode(part) {
@@ -326,6 +326,46 @@
     return nav;
   }
 
+  // One side of the planning | implementation split: a swatch, title and share in the head, a row of
+  // facts ({k, v, s, title}: label, value, optional sub line and tooltip) and one chip per model
+  // family (names with the same family collapse into one chip). `kind` is "plan" or "impl".
+  function partCard(doc, opts) {
+    var card = el(doc, "div", null, "part part-" + opts.kind);
+    var head = el(doc, "div", null, "part-head");
+    head.appendChild(el(doc, "span", null, "swatch sw-" + opts.kind));
+    head.appendChild(el(doc, "h3", opts.title));
+    if (opts.share) head.appendChild(el(doc, "span", opts.share, "share"));
+    card.appendChild(head);
+    var facts = el(doc, "div", null, "facts");
+    (opts.facts || []).forEach(function (f) {
+      var box = el(doc, "div", null, "fact");
+      if (f.title) box.setAttribute("title", f.title);
+      box.appendChild(el(doc, "div", f.k, "k"));
+      box.appendChild(el(doc, "div", f.v, "v"));
+      if (f.s) box.appendChild(el(doc, "div", f.s, "s"));
+      facts.appendChild(box);
+    });
+    card.appendChild(facts);
+    var models = opts.models || [];
+    if (models.length) {
+      var slots = CFQ.charts && CFQ.charts.modelSlots ? CFQ.charts.modelSlots(models) : {};
+      var meta = el(doc, "div", null, "meta");
+      var seen = {};
+      models.forEach(function (m) {
+        var slot = slots[m] || "m-other";
+        var label = slot === "m-other" ? m : slot.replace(/^m-/, "");
+        if (seen[label]) return;
+        seen[label] = true;
+        var chip = el(doc, "span", null, "mchip");
+        chip.appendChild(el(doc, "span", null, "mdot " + slot));
+        chip.appendChild(text(doc, label));
+        meta.appendChild(chip);
+      });
+      card.appendChild(meta);
+    }
+    return card;
+  }
+
   // A real button; the body renders on first open only.
   function disclosure(doc, labelNode, renderBody) {
     var wrap = el(doc, "div", null, "disclosure");
@@ -469,6 +509,7 @@
     flagBadges: flagBadges,
     tokenBar: tokenBar,
     tabs: tabs,
+    partCard: partCard,
     disclosure: disclosure,
     fileEditControls: fileEditControls,
     editControlRow: editControlRow,

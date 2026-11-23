@@ -61,14 +61,58 @@ button{font:inherit;color:inherit}
   color:var(--fg);font:inherit}
 @media (max-width:40rem){.topbar .search{flex:1 1 100%;max-width:none;margin-left:0}}
 
-/* ---- KPI strip ---------------------------------------------------------------------------- */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.75rem;margin:.5rem 0 1.25rem}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
-  padding:.6rem .85rem}
-.kpi .label{color:var(--fg-faint);text-transform:uppercase;font-size:.7rem;letter-spacing:.04em}
-.kpi .value{font-size:1.45rem;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
-.kpi .sub{color:var(--fg-muted);font-size:.78rem;font-variant-numeric:tabular-nums}
-.kpi-flags .value{color:var(--warn)}
+/* ---- overview: sections, Now and Needs attention lists, part cards ------------------------------ */
+section.now,section.attention,section.recent{display:grid;gap:.75rem;min-width:0;margin:0 0 1.75rem}
+.sec-head{display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap}
+.sec-head .aside{margin-left:auto;color:var(--fg-3);font-size:.78rem}
+.list{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.item{display:grid;grid-template-columns:1.4rem minmax(0,1fr) auto;gap:.75rem;align-items:center;
+  padding:.75rem 1rem;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item .t{font-weight:600;min-width:0}
+.item .t a{color:var(--fg)}
+.item .sub{color:var(--fg-2);font-size:.8rem}
+.list .dot{width:.65rem;height:.65rem;border-radius:50%;justify-self:center}
+.list .dot.run{background:var(--accent);box-shadow:0 0 0 4px var(--accent-bg)}
+.list .dot.review{background:var(--plan)}
+.list .dot.wait{border:2px solid var(--fg-3)}
+.prog{display:flex;align-items:center;gap:.6rem}
+.prog .bar{width:7.5rem;height:.4rem;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.prog .bar i{display:block;height:100%;background:var(--accent)}
+.list .sev{width:4px;align-self:stretch;border-radius:2px;justify-self:center}
+.list .sev.warn{background:var(--warn)}
+.list .sev.plan{background:var(--plan)}
+.list .pill.warn{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+.list .pill.plan{color:var(--plan);background:var(--plan-bg);border-color:var(--plan)}
+.list .pill.neutral{color:var(--fg-2);background:var(--surface-2)}
+.empty-line{margin:0;padding:.8rem 1rem}
+.empty-line.more{border-top:1px solid var(--line);font-size:.8rem}
+.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
+@media (max-width:45rem){.split{grid-template-columns:minmax(0,1fr)}}
+.part{border:1px solid var(--line);border-radius:var(--r);padding:.85rem 1rem;display:grid;gap:.6rem;min-width:0}
+.part-head{display:flex;align-items:center;gap:.5rem}
+.part-head h3{font-size:.95rem}
+.part-head .share{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--fg-2)}
+.part-head .swatch.sw-plan{background:var(--plan)}
+.part-head .swatch.sw-impl{background:var(--impl)}
+.part-head .swatch{width:.65rem;height:.65rem;border-radius:2px;display:inline-block}
+.part .facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem 1rem}
+@media (max-width:30rem){.part .facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.part .fact .k{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-3)}
+.part .fact .v{font-size:1.1rem;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.part .fact .s{font-size:.75rem;color:var(--fg-2);white-space:nowrap}
+.part .meta{font-size:.78rem;color:var(--fg-2);display:flex;gap:.4rem .8rem;flex-wrap:wrap}
+.mchip{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;padding:.05rem .5rem;
+  border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.mdot{width:.5rem;height:.5rem;border-radius:50%;display:inline-block;background:var(--c,var(--m-other))}
+.sharebar{display:flex;height:.6rem;border-radius:999px;overflow:hidden;background:var(--surface-2)}
+.sharebar i{display:block;height:100%}
+.sharebar .p,.mini .p{background:var(--plan)}
+.sharebar .m,.mini .m{background:var(--impl)}
+.mini{display:flex;height:.4rem;width:5.5rem;border-radius:999px;overflow:hidden;background:var(--surface-2);
+  margin:.3rem 0 0 auto}
+.mini i{display:block;height:100%}
+table.data td.n .active{font-family:var(--sans);font-size:.75rem}
 
 /* ---- tabs --------------------------------------------------------------------------------- */
 nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 1rem;overflow-x:auto}
@@ -81,6 +125,7 @@ nav.tabs .tab.active{color:var(--fg);font-weight:600;border-bottom-color:var(--f
 /* ---- toolbar and chips -------------------------------------------------------------------- */
 .panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:0 0 1.25rem}
 @media (max-width:60rem){.panels{grid-template-columns:minmax(0,1fr)}}
+.panels.stacked{grid-template-columns:minmax(0,1fr)}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
   padding:.9rem 1rem;min-width:0}
 .panel:empty{display:none}
@@ -166,10 +211,13 @@ tr.phase-row.status-skipped .phase-title{color:var(--fg-muted)}
 /* ---- overview charts: one fixed colour per model family ---------------------------------------- */
 .m-fable{--c:var(--m-fable)}.m-opus{--c:var(--m-opus)}.m-sonnet{--c:var(--m-sonnet)}
 .m-haiku{--c:var(--m-haiku)}.m-other{--c:var(--m-other)}
+.m-plan{--c:var(--plan)}.m-impl{--c:var(--impl)}
 .panel .panel-title{margin:0 0 .15rem;font-size:1rem}
 .panel .caption{margin:0 0 .6rem;font-size:.8rem}
 .panel .empty{margin:0}
 .metric-switch{display:inline-flex;gap:.35rem;margin:0 0 .5rem}
+.switches{display:flex;gap:.5rem 1.25rem;flex-wrap:wrap}
+.baseline-table{margin-top:.75rem}
 .chart-wrap{width:100%}
 svg.chart{display:block;width:100%;height:auto;max-height:18rem}
 svg.chart text{fill:var(--fg-muted);font:10px var(--sans)}
@@ -178,7 +226,7 @@ svg.chart text.note{fill:var(--warn)}
 svg.chart .grid{stroke:var(--border);stroke-width:1}
 svg.chart .axis{stroke:var(--border-strong);stroke-width:1}
 svg.chart rect.m-fable,svg.chart rect.m-opus,svg.chart rect.m-sonnet,svg.chart rect.m-haiku,
-svg.chart rect.m-other{fill:var(--c);stroke:var(--surface);stroke-width:.75}
+svg.chart rect.m-other,svg.chart rect.m-plan,svg.chart rect.m-impl{fill:var(--c);stroke:var(--surface);stroke-width:.75}
 svg.chart rect.empty{fill:var(--border-strong)}
 svg.chart .bar:hover rect,svg.chart .row:hover rect{opacity:.8}
 svg.chart a.chart-link:focus-visible .bar{outline:2px solid var(--accent)}
@@ -230,7 +278,7 @@ svg.chart .median{stroke:var(--fg);stroke-width:2;stroke-dasharray:5 3}
 .batch-deps{margin:.1rem 0 .5rem;font-size:.85rem}
 .batch-head .goal{max-width:72ch;color:var(--fg-muted);margin:.3rem 0 .6rem}
 .batch-head .goal p{margin:.2rem 0}
-.facts{display:flex;flex-wrap:wrap;gap:.35rem 1.25rem;margin:.5rem 0;padding:.55rem .85rem;
+.part .facts{display:flex;flex-wrap:wrap;gap:.35rem 1.25rem;margin:.5rem 0;padding:.55rem .85rem;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:.82rem}
 .fact{display:inline-flex;gap:.4rem;align-items:baseline;white-space:nowrap}
 .fact-label{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem;letter-spacing:.04em}
@@ -343,7 +391,6 @@ dl.closing dd table{margin:0 0 .4rem;width:auto}
   main{padding:1rem .75rem 2.5rem}
   .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table.data{min-width:46rem}
-  .kpis{grid-template-columns:repeat(2,1fr)}
 }
 
 /* ---- entry page and repo index -------------------------------------------------------------- */

@@ -17,6 +17,8 @@ test("parseRoute: repo mode routes", () => {
   const r = (h) => C.parseRoute(h, "repo");
   assert.deepEqual([r("").name, r("").tab], ["overview", "batches"]);
   assert.deepEqual([r("#/").name, r("#/").tab], ["overview", "batches"]);
+  assert.equal(r("#/trends").tab, "trends");
+  assert.equal(r("#/trends").name, "overview");
   assert.equal(r("#/todos").tab, "todos");
   assert.equal(r("#/inbox").tab, "inbox");
   assert.equal(r("#/archive").tab, "archive");
@@ -39,6 +41,7 @@ test("parseRoute: global mode routes", () => {
   assert.equal(r("#/").name, "repos");
   assert.deepEqual([r("#/alpha").name, r("#/alpha").mirror, r("#/alpha").tab], ["overview", "alpha", "batches"]);
   assert.equal(r("#/alpha/").mirror, "alpha");
+  assert.equal(r("#/alpha/trends").tab, "trends");
   assert.equal(r("#/alpha/todos").tab, "todos");
   assert.equal(r("#/alpha/archive").tab, "archive");
   const b = r("#/alpha-1a2b/batch/045-x.y/cost");

@@ -17,6 +17,7 @@
   var SVG_NS = "http://www.w3.org/2000/svg";
   var FAMILIES = ["fable", "opus", "sonnet", "haiku"];
   var OTHER = "m-other";
+  var SLOT_ORDER = FAMILIES.concat(["plan", "impl"]);
   var BASELINE_MIN = 5;
 
   function core() { return CFQ.core; }
@@ -55,10 +56,11 @@
     return nice * base;
   }
 
-  // Stack order, bottom first: fable, opus, sonnet, haiku, other.
+  // Stack order, bottom first: fable, opus, sonnet, haiku, then planning and implementation (the
+  // two-series cost grouping, slots `m-plan` and `m-impl`), other last.
   function slotRank(slot) {
-    var i = FAMILIES.indexOf(String(slot || "").replace(/^m-/, ""));
-    return i === -1 ? FAMILIES.length : i;
+    var i = SLOT_ORDER.indexOf(String(slot || "").replace(/^m-/, ""));
+    return i === -1 ? SLOT_ORDER.length : i;
   }
 
   // The names of `values` with a non-zero number, in slot order (bottom of the stack first).
