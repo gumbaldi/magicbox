@@ -1,3 +1,9 @@
+- batchNumber: 64
+  batch: 064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
+  branch: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
+  base: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
+  started: 2026-11-23
+  status: in-progress
 - batchNumber: 63
   batch: 063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
   branch: cfq/063-2026-11-22-portal-redesign-cost-split-and-audit-barrier
