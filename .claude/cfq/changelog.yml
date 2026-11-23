@@ -3,7 +3,10 @@
   status: parked
 - batchNumber: 62
   batch: 062-2026-11-22-portal-folder-links-and-report-timestamps
-  status: parked
+  branch: cfq/062-2026-11-22-portal-folder-links-and-report-timestamps
+  base: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
+  started: 2026-11-23
+  status: in-progress
 - batchNumber: 61
   batch: 061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
   branch: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
