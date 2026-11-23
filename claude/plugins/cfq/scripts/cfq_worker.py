@@ -123,6 +123,23 @@ def repo_root_of(batch_dir):
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
 
 
+def base_commit(repo_root, batch):
+    """The commit `batch` started from: the parent of the oldest commit carrying the trailer
+    `CFQ-Batch: <batch>`, or the current HEAD while no phase commit exists; `None` when the
+    repository cannot answer."""
+    try:
+        log = proc_git(repo_root, "log", "--format=%H", "--fixed-strings",
+                       f"--grep=CFQ-Batch: {batch}")
+        if log.returncode != 0:
+            return None
+        lines = log.stdout.split()
+        ref = f"{lines[-1]}^" if lines else "HEAD"
+        proc = proc_git(repo_root, "rev-parse", ref)
+        return proc.stdout.strip() or None if proc.returncode == 0 else None
+    except OSError:
+        return None
+
+
 def strict_worker_report(batch_dir):
     """The `strictWorkerReport` setting of the repository `batch_dir` belongs to; `True` whenever
     that cannot be read (no such directory, no repository, an unparsable value)."""
@@ -284,6 +301,7 @@ def cmd_brief(args):
             "size": size,
             "batchContext": batch_context,
             "branch": branch,
+            "baseCommit": base_commit(repo_root, batch_dir.name),
             "language": language,
             "blockedPlugins": blocked_plugins,
             "exploreModels": explore_models,

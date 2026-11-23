@@ -4,12 +4,12 @@ Read unconditionally in **Language and Cut Phases**, before any phase's Changes 
 text is written — not only for a phase that moves, extracts, or reuses existing logic verbatim, or
 introduces non-trivial logic of its own (a branch, a loop, a parser, a multi-step resolution chain,
 an adapter). Rules 1-4 name their own trigger condition inline, so a phase outside that condition
-simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6, 7 and 9 apply
+simply has nothing to apply for that rule; rule 5 steers the phase's `Size` letter; rules 6, 7, 9 and 10 apply
 to every phase without exception; rule 8 is optional. This file governs what a phase's text must contain once it
 exists; `<plugin-root>/references/plan-self-critique.md`'s **Self-Critique of the Phase Cut**
 governs whether the phase should exist at all — keep the two separate.
 
-The nine rules below are a standing checkpoint against runaway debugging tokens and untested
+The ten rules below are a standing checkpoint against runaway debugging tokens and untested
 verbatim moves, not a one-time lesson repeated only in a post-mortem.
 
 ## Contents
@@ -23,6 +23,7 @@ verbatim moves, not a one-time lesson repeated only in a post-mortem.
 - 7. `## Changes` is a numbered step list
 - 8. `## Model` names the smallest model that fits
 - 9. `## Summary` says it in plain words
+- 10. Facts about the current state are verified while planning
 - Phase File Structure
 
 ## 1. Test-first, not shell exploration
@@ -167,6 +168,14 @@ code.
 
 The review digest and the `/ifq` announcement show the Summary instead of Context. `bin/cfq lint`
 only warns (`summary-missing`) when it is absent, so an older batch still starts.
+
+## 10. Facts about the current state are verified while planning
+
+A phase that names a fact about the current state has checked it against the repository at
+planning time: the number of red tests, an existing loop or function, ids, counts. Anything that
+could not be verified then is written as an assumption, and the worker checks it first, before the
+first edit. A wrong fact in a plan costs the worker a phase of guesswork, so a fact is either
+verified or marked as an assumption.
 
 ---
 

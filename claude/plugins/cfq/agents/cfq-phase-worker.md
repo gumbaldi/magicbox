@@ -38,6 +38,14 @@ phase's own changes happens directly, since `commands.phaseCommit` commits whate
 staged and never runs `git add` itself. A worker never calls `phase skip` or `phase unskip` — a skip
 is the user's decision alone, carried out by the orchestrator between phases.
 
+## Verification baseline
+
+A failing check is "pre-existing" only with proof: the same check, run in a temporary
+`git worktree add --detach <temporary directory> <baseCommit>` (remove the worktree afterwards),
+also fails there. `git stash`, or a comparison with the previous phase's commit, is never proof. With
+`baseCommit` `null`, or without proof, the failure is a failure of this phase (`red` or a
+`question`).
+
 ## Implementation
 
 Identical in substance to `<plugin-root>/references/ifq-classic.md`'s **Implementation** step: implement the phase completely,
@@ -152,6 +160,9 @@ check that was not run is `skipped` with a `reason`, never only a `deviations` l
 `green` for a phase whose named live or browser check is `skipped` unless the environment truly
 cannot run it. The verdict turns any `skipped` entry into the trigger `skippedCheck` and the
 orchestrator asks the user before the next phase starts.
+
+The worker returns its report only when none of its own background processes is still running; it
+stops them first.
 
 ## Commit
 

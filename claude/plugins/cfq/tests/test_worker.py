@@ -127,6 +127,42 @@ class WorkerBriefTest(PhaseDirsStatus, CfqTestCase):
             set(out),
         )
 
+    def _git(self, *args):
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    def test_base_commit_is_the_parent_of_the_oldest_phase_commit(self):
+        (self.repo / "start.txt").write_text("start\n")
+        self._git("add", "start.txt")
+        self._git("commit", "-q", "-m", "Start cfq/workerbatch batch in the changelog")
+        start = self._git("rev-parse", "HEAD")
+        (self.repo / "a.txt").write_text("a\n")
+        self._git("add", "a.txt")
+        self._git("commit", "-q", "-m", "Phase one\n\nCFQ-Batch: 2026-01-01-workerbatch\nCFQ-Phase: 01-a")
+        (self.repo / "b.txt").write_text("b\n")
+        self._git("add", "b.txt")
+        self._git("commit", "-q", "-m", "Phase two\n\nCFQ-Batch: 2026-01-01-workerbatch\nCFQ-Phase: 02-b")
+        self.assertEqual(self._brief_file()["baseCommit"], start)
+
+    def test_base_commit_is_head_without_a_phase_commit(self):
+        self.assertEqual(self._brief_file()["baseCommit"], self._git("rev-parse", "HEAD"))
+
+    def test_base_commit_is_null_outside_a_repository(self):
+        import tempfile
+        import cfq_worker
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(cfq_worker.base_commit(d, "2026-01-01-workerbatch"))
+
+    def test_brief_printed_keys_ignore_the_base_commit(self):
+        out = self.json_out(self._brief("02"))
+        self.assertNotIn("baseCommit", out)
+        self.assertEqual(
+            {"status", "batch", "batchDir", "phase", "briefFile", "prompt", "announcement",
+             "model", "escalation"},
+            set(out),
+        )
+
     def test_stdout_does_not_leak_the_briefing(self):
         out = self.json_out(self._brief("02"))
         for key in ("priorDeviations", "commands", "handover", "phaseFile", "language"):
