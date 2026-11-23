@@ -47,7 +47,7 @@ def ensure_report(dir_):
     if os.path.isfile(path):
         return
     repo = proc_git(dir_, "rev-parse", "--show-toplevel").stdout.strip()
-    started = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
+    started = render.now_iso()
     render.write_json(path, {"repo": repo, "batch": os.path.basename(dir_), "started": started, "phases": []})
 
 
@@ -142,7 +142,7 @@ def cmd_security(args):
     f = os.path.join(dir_, "report.json")
     ensure_report(dir_)
     data = json.loads(pathlib.Path(f).read_text())
-    at = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
+    at = render.now_iso()
     entry = dict(snap_obj) if isinstance(snap_obj, dict) else snap_obj
     if isinstance(entry, dict):
         entry["at"] = at

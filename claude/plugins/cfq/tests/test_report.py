@@ -4,14 +4,18 @@ Self-test for scripts/cfq_report.py: append/set-commit/summary/last-failure/secu
 the derivation helpers the portal shares.
 """
 
+import argparse
 import contextlib
 import io
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, SCRIPTS_DIR, write_status
 
@@ -731,6 +735,23 @@ class PhaseCostEntryTest(CfqTestCase):
         phases = json.loads((d / "report.json").read_text())["phases"]
         self.assertIsNotNone(cfq_report.parse_ts(phases[0]["finished"]))
         self.assertEqual(phases[1]["finished"], "2026-02-02T01:02:03+00:00")
+
+    def test_timestamps_do_not_start_date(self):
+        real_run = subprocess.run
+
+        def guarded(argv, *args, **kwargs):
+            if argv and argv[0] == "date":
+                raise AssertionError("report timestamps must not start `date`")
+            return real_run(argv, *args, **kwargs)
+
+        pattern = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$"
+        d = self._dir("ts-started")
+        with mock.patch.object(subprocess, "run", side_effect=guarded), contextlib.redirect_stdout(io.StringIO()):
+            cfq_report.ensure_report(str(d))
+            cfq_report.cmd_security(argparse.Namespace(dir=str(d), snap='{"status":"ok"}'))
+        report = json.loads((d / "report.json").read_text())
+        self.assertRegex(report["started"], pattern)
+        self.assertRegex(report["security"][-1]["at"], pattern)
 
 
 if __name__ == "__main__":
