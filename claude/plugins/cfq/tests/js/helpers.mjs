@@ -302,7 +302,6 @@ export function fixtureQueue() {
       status: "in_progress", phases: { done: 1, total: 3 }, flags: { warn: 0, info: 1 }, deviations: 1,
       goalHtml: "Reach the <code>gamma</code> goal &amp; more",
     }),
-    queueRow("048-2026-10-03-delta-review", { status: "awaiting_review", phases: { done: 0, total: 2 } }),
     queueRow("049-2026-10-05-epsilon-planned", { status: "planned", phases: { done: 0, total: 4 }, priority: "high" }),
     queueRow("050-2026-10-06-zeta-blocked", {
       status: "blocked", phases: { done: 0, total: 1 }, dependsOn: ["047-2026-10-01-gamma-progress"],
@@ -340,7 +339,7 @@ export function fixtureQueue() {
   return {
     repo: "/home/code/git/demo",
     totals: {
-      batches: { inProgress: 1, planned: 4, done: 2 },
+      batches: { inProgress: 1, planned: 3, done: 2 },
       todos: open.filter((e) => e.kind === "todo").length,
       planEntries: open.filter((e) => e.kind === "plan").length,
       deviations: batches.reduce((n, b) => n + b.deviations, 0),
@@ -360,7 +359,7 @@ export function fixtureQueue() {
     ],
     attention: [
       { level: "warn", code: "red-attempt", batch: "047-2026-10-01-gamma-progress", phase: "01-a", text: "phase is red" },
-      { level: "plan", code: "review", batch: "049-2026-10-05-delta-review", phase: null, text: "plan review open" },
+      { level: "plan", code: "audit-running", batch: "049-2026-10-05-epsilon-planned", phase: null, text: "plan audit running" },
     ],
     attentionCounts: { warn: 1, plan: 1 },
     now: [

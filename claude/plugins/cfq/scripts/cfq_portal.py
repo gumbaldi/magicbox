@@ -807,16 +807,14 @@ def collect_entries(repo_root, links, host=None):
 # ---- batches ---------------------------------------------------------------------------------------
 
 def batch_status(b):
-    """`planning|awaiting_review|planned|blocked|in_progress|done` -- the six values the viewer
-    is contracted to show. Precedence: done (archived) > blocked > awaiting_review (a `.review`
-    marker) > planning > in_progress > planned; an archived batch never carries any of the other
-    flags (`cfq_scan.archived_batch_record`), so checking it first never shadows a real one."""
+    """`planning|planned|blocked|in_progress|done` -- the five values the viewer is contracted
+    to show. Precedence: done (archived) > blocked > planning > in_progress > planned; an
+    archived batch never carries any of the other flags (`cfq_scan.archived_batch_record`), so
+    checking it first never shadows a real one."""
     if b.get("archived"):
         return "done"
     if b.get("blocked"):
         return "blocked"
-    if b.get("review"):
-        return "awaiting_review"
     if b.get("planning"):
         return "planning"
     if b.get("inProgress"):
@@ -967,12 +965,12 @@ def recent_summary(rows, batch_payloads):
 
 
 NOW_CAP = 5
-NOW_ORDER = ("in_progress", "awaiting_review", "planning", "blocked")
+NOW_ORDER = ("in_progress", "planning", "blocked")
 
 
 def now_items(rows, batch_payloads):
-    """What is happening now, at most `NOW_CAP` items: batches in progress, awaiting review, in
-    planning and blocked (in that order, by name), then the first planned batch in `/ifq` order
+    """What is happening now, at most `NOW_CAP` items: batches in progress, in planning
+    and blocked (in that order, by name), then the first planned batch in `/ifq` order
     (priority `high` first, then name). `current` is the first open phase of an in-progress batch,
     `waitsOn` the `dependsOn` of a blocked one."""
     picked = []

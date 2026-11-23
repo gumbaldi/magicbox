@@ -251,7 +251,6 @@
 
   var STATUS = {
     planning: ["✎", "Planning"],
-    awaiting_review: ["◔", "Awaiting review"],
     planned: ["○", "Planned"],
     blocked: ["⊘", "Blocked"],
     in_progress: ["▶", "In progress"],
@@ -264,8 +263,15 @@
     skipped: ["↷", "Skipped"],
   };
 
+  // A payload written before the state was removed can still say "awaiting_review"; it shows as
+  // a planning batch until its data file is re-synced.
+  function normalizeStatus(status) {
+    return status === "awaiting_review" ? "planning" : status;
+  }
+
   // Status is always icon plus text, never colour alone.
   function statusPill(doc, status) {
+    status = normalizeStatus(status);
     var known = Object.prototype.hasOwnProperty.call(STATUS, status);
     var pill = el(doc, "span", null, "pill" + (known ? " pill-" + status : ""));
     if (!known) {
@@ -532,6 +538,7 @@
     billableIn: billableIn,
     addT5: addT5,
     statusPill: statusPill,
+    normalizeStatus: normalizeStatus,
     flagBadges: flagBadges,
     tokenBar: tokenBar,
     tabs: tabs,

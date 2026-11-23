@@ -183,7 +183,7 @@ table.data td.origin a:hover{text-decoration:underline}
   background:var(--surface);color:var(--fg-muted)}
 .pill-done,.pill-green{color:var(--ok);background:var(--ok-bg);border-color:var(--ok)}
 .pill-red{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}
-.pill-blocked,.pill-question,.pill-awaiting_review{color:var(--warn);background:var(--warn-bg);
+.pill-blocked,.pill-question{color:var(--warn);background:var(--warn-bg);
   border-color:var(--warn)}
 .pill-in_progress{color:var(--accent);background:var(--accent-bg);border-color:var(--accent)}
 .pill-error{color:var(--bad);background:var(--bad-bg);border-color:var(--bad)}

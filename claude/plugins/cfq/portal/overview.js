@@ -14,7 +14,7 @@
 
   // ---- pure logic -------------------------------------------------------------------------------
 
-  var ACTIVE_ORDER = ["in_progress", "awaiting_review", "blocked", "planned", "planning"];
+  var ACTIVE_ORDER = ["in_progress", "blocked", "planned", "planning"];
   var STATUS_RANK = ACTIVE_ORDER.concat(["done"]);
 
   function isActive(row) { return row.status !== "done"; }
@@ -24,7 +24,7 @@
   // Active batches first (by status, newest name first), then done by finish time, newest first.
   function defaultOrder(rows) {
     var active = rows.filter(isActive).sort(function (a, b) {
-      return ACTIVE_ORDER.indexOf(a.status) - ACTIVE_ORDER.indexOf(b.status) || byNameDesc(a, b);
+      return ACTIVE_ORDER.indexOf(core().normalizeStatus(a.status)) - ACTIVE_ORDER.indexOf(core().normalizeStatus(b.status)) || byNameDesc(a, b);
     });
     var done = rows.filter(function (r) { return !isActive(r); }).sort(function (a, b) {
       var fa = a.finished || "", fb = b.finished || "";
@@ -42,7 +42,7 @@
   function sortValue(row, key) {
     switch (key) {
       case "name": return row.name;
-      case "status": return STATUS_RANK.indexOf(row.status);
+      case "status": return STATUS_RANK.indexOf(core().normalizeStatus(row.status));
       case "finished": return row.finished || null;
       case "planning": case "implementation": return partOutput(row, key);
       case "deviations": return row.deviations || 0;
@@ -438,17 +438,15 @@
     return a;
   }
 
-  var NOW_DOT = { in_progress: "run", awaiting_review: "review", planning: "review", blocked: "wait", planned: "wait" };
+  var NOW_DOT = { in_progress: "run", planning: "review", blocked: "wait", planned: "wait" };
 
   function nowSub(item) {
     var phases = item.phases || { done: 0, total: 0 };
-    switch (item.status) {
+    switch (core().normalizeStatus(item.status)) {
       case "in_progress":
         if (!item.current) return "In progress";
         return "Phase " + pad2(item.current.num || 0) + " of " + pad2(phases.total || 0) + " running"
           + (item.current.title ? " · " + item.current.title : "");
-      case "awaiting_review":
-        return "Waiting for your plan review · " + phases.total + " phases";
       case "planning":
         return "Planning in progress";
       case "blocked":
@@ -458,13 +456,15 @@
     }
   }
 
-  var NOW_PILL = { awaiting_review: ["plan", "review"], planning: ["plan", "planning"], blocked: ["neutral", "blocked"], planned: ["neutral", "next"] };
+  var NOW_PILL = { planning: ["plan", "planning"], blocked: ["neutral", "blocked"], planned: ["neutral", "next"] };
 
   function renderNow(doc, root, ctx, queue) {
     var C = core();
-    var items = (queue && queue.now) || [];
+    var items = ((queue && queue.now) || []).map(function (item) {
+      return Object.assign({}, item, { status: C.normalizeStatus(item.status) });
+    });
     var sec = C.el(doc, "section", null, "now");
-    sec.appendChild(sectionHead(doc, "Now", "in progress · awaiting review · next in queue"));
+    sec.appendChild(sectionHead(doc, "Now", "in progress · planning · next in queue"));
     var list = C.el(doc, "div", null, "list");
     if (!items.length) {
       list.appendChild(C.el(doc, "p", "Nothing running. Next: none queued.", "empty-line muted"));
@@ -503,7 +503,7 @@
     "red-attempt": "red", question: "question", reopened: "reopened", "no-commit": "commit",
     "no-telemetry": "telemetry", "undeclared-files": "files", "checks-skipped": "checks",
     "finish-errors": "finish", "lang-issues": "language", "security-new": "security",
-    review: "review", "unknown-dependency": "dependency", "audit-running": "audit",
+    "unknown-dependency": "dependency", "audit-running": "audit",
   };
 
   function phaseTitle(slug) {

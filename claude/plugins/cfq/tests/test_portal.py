@@ -735,6 +735,17 @@ class PortalTest(CfqTestCase):
         self._sync(repo)
         self.assertEqual(self._row(repo, BARE_BATCH)["status"], "blocked")
 
+    def test_leftover_review_file_changes_nothing(self):
+        repo = self.make_repo()
+        self._build_world(repo)
+        impl = self._cfq(repo) / "impl"
+        (impl / BARE_BATCH / ".review").write_text("{}\n")
+        self._sync(repo)
+        self.assertEqual(self._row(repo, BARE_BATCH)["status"], "planned")
+        (impl / BARE_BATCH / ".dependsOn").write_text(f"{OPEN_BATCH}\n")
+        self._sync(repo)
+        self.assertEqual(self._row(repo, BARE_BATCH)["status"], "blocked")
+
     def test_queue_row_carries_unknown_deps(self):
         # An unnamed/deleted dependency doesn't block a batch on its own (cfq_scan.py's own
         # resolve_deps -- only a still-open dependency dir does that), but the viewer still needs
@@ -830,16 +841,16 @@ class PortalTest(CfqTestCase):
         rows = [
             row("010-planned-a", "planned"), row("011-planned-b", "planned", "high"),
             row("005-blocked", "blocked", deps=["004-x"]), row("003-plan", "planning"),
-            row("002-review", "awaiting_review"), row("001-run", "in_progress"), row("000-done", "done"),
+            row("001-run", "in_progress"), row("000-done", "done"),
         ]
         payloads = {"001-run": {"phases": [
             {"num": 1, "title": "One", "state": "done"}, {"num": 2, "title": "Two", "state": "open"},
         ]}}
         got = cfq_portal.now_items(rows, payloads)
-        self.assertEqual([i["batch"] for i in got], ["001-run", "002-review", "003-plan", "005-blocked", "011-planned-b"])
+        self.assertEqual([i["batch"] for i in got], ["001-run", "003-plan", "005-blocked", "011-planned-b"])
         self.assertEqual(got[0]["current"], {"num": 2, "title": "Two"})
         self.assertIsNone(got[1]["current"])
-        self.assertEqual(got[3]["waitsOn"], ["004-x"])
+        self.assertEqual(got[2]["waitsOn"], ["004-x"])
         self.assertEqual(got[0]["waitsOn"], [])
         self.assertEqual(set(got[0]), {"batch", "number", "title", "status", "phases", "current", "waitsOn"})
         more = rows + [row(f"02{i}-run", "in_progress") for i in range(3)]

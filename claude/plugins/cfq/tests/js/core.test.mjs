@@ -175,7 +175,7 @@ test("fmtInt, billableIn and addT5", () => {
 test("statusPill renders icon and label for every status, raw text for an unknown one", () => {
   const doc = fakeDoc();
   const labels = {
-    planning: "Planning", awaiting_review: "Awaiting review", planned: "Planned", blocked: "Blocked",
+    planning: "Planning", planned: "Planned", blocked: "Blocked",
     in_progress: "In progress", done: "Done", green: "Green", red: "Red", question: "Question", open: "Open",
   };
   for (const [status, label] of Object.entries(labels)) {
@@ -501,7 +501,7 @@ test("top bar: search filters the overview, and Enter elsewhere opens the overvi
 test("fixtures stay in the contract shape", () => {
   const q = fixtureQueue();
   assert.deepEqual([...new Set(q.batches.map((b) => b.status))].sort(),
-    ["awaiting_review", "blocked", "done", "in_progress", "planned", "planning"]);
+    ["blocked", "done", "in_progress", "planned", "planning"]);
   assert.equal(q.batches.filter((b) => b.cost === null).length, 1);
   assert.ok(fixtureEntry("todo_open").origin === null && fixtureEntry("plan_closed").origin);
   const done = fixtureBatch("done");

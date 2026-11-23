@@ -31,7 +31,6 @@ test("defaultOrder: active first by status, then done by finish date, newest fir
   const shuffled = [...queue.batches].reverse();
   assert.deepEqual(names(O.defaultOrder(shuffled)), [
     "047-2026-10-01-gamma-progress",
-    "048-2026-10-03-delta-review",
     "050-2026-10-06-zeta-blocked",
     "049-2026-10-05-epsilon-planned",
     "051-2026-10-07-eta-planning",
@@ -78,8 +77,8 @@ test("filterBatches: query over number, title and goal; four groups", () => {
   assert.deepEqual(names(O.filterBatches(rows, { query: "gamma goal" })), ["047-2026-10-01-gamma-progress"], "tags in goalHtml are ignored");
   assert.deepEqual(names(O.filterBatches(rows, { query: "goal of beta" })), ["046-2026-09-25-beta-done"]);
   assert.equal(O.filterBatches(rows, { query: "nothing like this" }).length, 0);
-  assert.equal(O.filterBatches(rows, { group: "all" }).length, 7);
-  assert.equal(O.filterBatches(rows, { group: "active" }).length, 5);
+  assert.equal(O.filterBatches(rows, { group: "all" }).length, 6);
+  assert.equal(O.filterBatches(rows, { group: "active" }).length, 4);
   assert.equal(O.filterBatches(rows, { group: "done" }).length, 2);
   assert.deepEqual(names(O.filterBatches(rows, { group: "flagged" })), ["045-2026-09-20-alpha-done"]);
   assert.deepEqual(names(O.filterBatches(rows, { group: "active", query: "eta planning" })), ["051-2026-10-07-eta-planning"]);
@@ -147,13 +146,13 @@ test("render: sections come in the order Now, Needs attention, Last 10 batches, 
 const longNow = () => [
   { batch: "118-2026-11-01-docs", number: 118, title: "Document templates", status: "in_progress",
     phases: { done: 3, total: 7, skipped: 0, error: 0 }, current: { num: 4, title: "Bulk import" }, waitsOn: [] },
-  { batch: "119-2026-11-02-calendar", number: 119, title: "Calendar sync", status: "awaiting_review",
+  { batch: "119-2026-11-02-calendar", number: 119, title: "Calendar sync", status: "planning",
     phases: { done: 0, total: 5, skipped: 0, error: 0 }, current: null, waitsOn: [] },
   { batch: "120-2026-11-03-audit", number: 120, title: "Audit export", status: "blocked",
     phases: { done: 0, total: 2, skipped: 0, error: 0 }, current: null, waitsOn: ["118-2026-11-01-docs"] },
 ];
 
-test("Now: a running batch with progress, a review item and a waiting item; the empty state", () => {
+test("Now: a running batch with progress, a planning item and a waiting item; the empty state", () => {
   const q = fixtureQueue();
   q.now = longNow();
   const { root } = draw({ queue: q });
@@ -163,7 +162,7 @@ test("Now: a running batch with progress, a review item and a waiting item; the 
   assert.deepEqual(items.map((i) => byClass(i, "dot")[0].className), ["dot run", "dot review", "dot wait"]);
   const subs = items.map((i) => collectText(byClass(i, "sub")[0]).trim());
   assert.equal(subs[0], "Phase 04 of 07 running · Bulk import");
-  assert.equal(subs[1], "Waiting for your plan review · 5 phases");
+  assert.equal(subs[1], "Planning in progress");
   assert.equal(subs[2], "Queued · waits on 118");
   assert.equal(collectText(byClass(items[0], "prog")[0]).trim(), "3/7");
   assert.equal(byClass(items[1], "prog").length, 0, "only a running batch gets a progress bar");
@@ -171,12 +170,28 @@ test("Now: a running batch with progress, a review item and a waiting item; the 
   assert.deepEqual(links(now), [
     "#/batch/118-2026-11-01-docs", "#/batch/119-2026-11-02-calendar", "#/batch/120-2026-11-03-audit"]);
   assert.match(collectText(items[0]), /118 · Document templates/);
-  assert.deepEqual(items.slice(1).map((i) => collectText(byClass(i, "pill")[0])), ["review", "blocked"]);
+  assert.deepEqual(items.slice(1).map((i) => collectText(byClass(i, "pill")[0])), ["planning", "blocked"]);
 
   q.now = [];
   const empty = byClass(draw({ queue: q }).root, "now")[0];
   assert.match(collectText(empty), /Nothing running\. Next: none queued\./);
   assert.equal(byClass(empty, "item").length, 0);
+});
+
+test("renders_stale_awaiting_review_payload_as_planning", () => {
+  const q = fixtureQueue();
+  q.batches[2].status = "awaiting_review";
+  q.now = [{ batch: "119-2026-11-02-calendar", number: 119, title: "Calendar sync", status: "awaiting_review",
+    phases: { done: 0, total: 5, skipped: 0, error: 0 }, current: null, waitsOn: [] }];
+  q.attention.push({ level: "plan", code: "review", batch: "049-2026-10-05-epsilon-planned", phase: null, text: "plan review open" });
+  const { root } = draw({ queue: q });
+  const item = byClass(byClass(root, "now")[0], "item")[0];
+  assert.equal(byClass(item, "dot")[0].className, "dot review");
+  assert.equal(collectText(byClass(item, "sub")[0]).trim(), "Planning in progress");
+  assert.equal(collectText(byClass(item, "pill")[0]), "planning");
+  const row = byTag(root, "tr").find((tr) => collectText(tr).includes(q.batches[2].title));
+  assert.equal(collectText(byClass(row, "pill")[0]).trim().replace(/^\S+\s*/, ""), "Planning");
+  assert.equal(byClass(byClass(root, "attention")[0], "item").length, 3);
 });
 
 test("Needs attention: warn and plan items link to their batch and phase; the empty state", () => {
@@ -189,9 +204,9 @@ test("Needs attention: warn and plan items link to their batch and phase; the em
   assert.match(collectText(byClass(items[0], "t")[0]), /047\s+\/ 01 · A/);
   assert.equal(collectText(byClass(items[0], "sub")[0]).trim(), "phase is red");
   assert.equal(collectText(byClass(items[0], "pill")[0]), "red");
-  assert.deepEqual(links(items[1]), ["#/batch/049-2026-10-05-delta-review"]);
-  assert.match(collectText(byClass(items[1], "t")[0]), /049 · delta review/);
-  assert.equal(collectText(byClass(items[1], "pill")[0]), "review");
+  assert.deepEqual(links(items[1]), ["#/batch/049-2026-10-05-epsilon-planned"]);
+  assert.match(collectText(byClass(items[1], "t")[0]), /049 · epsilon planned/);
+  assert.equal(collectText(byClass(items[1], "pill")[0]), "audit");
 
   const more = fixtureQueue();
   more.attention.push({ code: "more", text: "3 more" });
@@ -331,7 +346,7 @@ test("toolbar: search, chips and sorting redraw the table", () => {
   const root = fakeRoot(doc);
   O.render(doc, root, ctxFor());
   const rowNames = () => byTag(root, "tr").filter((tr) => byClass(tr, "rowlink").length).map((tr) => byClass(tr, "rowlink")[0].attrs.href);
-  assert.equal(rowNames().length, 7);
+  assert.equal(rowNames().length, 6);
   assert.equal(rowNames()[0], "#/batch/047-2026-10-01-gamma-progress", "default order: active first");
 
   assert.equal(byTag(root, "input").length, 0, "the search field lives in the top bar");

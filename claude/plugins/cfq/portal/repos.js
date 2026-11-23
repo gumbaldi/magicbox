@@ -10,7 +10,7 @@
   var g = typeof window !== "undefined" ? window : globalThis;
   var CFQ = g.CFQ = g.CFQ || {};
 
-  var NOW_DOT = { in_progress: "run", awaiting_review: "review", planning: "review", blocked: "wait", planned: "wait" };
+  var NOW_DOT = { in_progress: "run", planning: "review", blocked: "wait", planned: "wait" };
   var DAY_MS = 86400000;
 
   function startOfDay(d) {
@@ -51,7 +51,7 @@
       cell.appendChild(C.el(doc, "span", "idle", "muted"));
       return cell;
     }
-    cell.appendChild(C.el(doc, "span", null, "dot " + (NOW_DOT[now.status] || "wait")));
+    cell.appendChild(C.el(doc, "span", null, "dot " + (NOW_DOT[C.normalizeStatus(now.status)] || "wait")));
     cell.appendChild(C.el(doc, "span", (now.number || "") + " · " + (now.title || now.batch), "t"));
     var phases = now.phases || {};
     if (phases.total) cell.appendChild(C.el(doc, "span", (phases.done || 0) + "/" + phases.total, "num muted"));
