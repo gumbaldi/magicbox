@@ -734,6 +734,31 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
 
     # ---- selection.queueText (batch 035 phase 03) --------------------------------------------
 
+    def test_audit_held_batch_shows_planning_and_is_not_selectable(self):
+        repo = self._setup_repo("queue-audit")
+        qdir = repo / ".claude" / "cfq" / "impl"
+        (qdir / "040-2026-09-22-ready-one").mkdir(parents=True)
+        (qdir / "040-2026-09-22-ready-one" / "01-a.md").touch()
+        (qdir / "041-2026-09-23-audited").mkdir(parents=True)
+        (qdir / "041-2026-09-23-audited" / "01-b.md").touch()
+        (qdir / "041-2026-09-23-audited" / ".audit").touch()
+
+        out = self.json_out(self._run_pf(str(repo)))
+        self.assertEqual(out["status"], "OK", msg=f"status = {out}")
+        selection = out["selection"]
+        self.assertEqual(selection["planning"], ["041-2026-09-23-audited"], msg=f"planning = {out}")
+        self.assertNotIn(
+            "041-2026-09-23-audited", [b["name"] for b in selection["selectable"]],
+            msg=f"audit-held batch is selectable: {selection}",
+        )
+        self.assertEqual(out["batch"]["name"], "040-2026-09-22-ready-one", msg=f"batch = {out}")
+        self.assertIn(
+            "planning", selection["queueText"].splitlines()[-1],
+            msg=f"queueText = {selection['queueText']!r}",
+        )
+        self.assertNotIn("awaiting review", selection["queueText"])
+        self.assertNotIn("review", selection, msg=f"selection keys = {sorted(selection)}")
+
     def test_queue_text_three_open_batches(self):
         repo = self._setup_repo("queue-three")
         qdir = repo / ".claude" / "cfq" / "impl"

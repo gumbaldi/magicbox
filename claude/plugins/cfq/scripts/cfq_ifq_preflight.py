@@ -48,18 +48,17 @@ def project(batch, keys):
     return {k: batch[k] for k in keys}
 
 
-def render_queue_text(selectable, blocked, planning, in_progress, chosen, review=()):
+def render_queue_text(selectable, blocked, planning, in_progress, chosen):
     """The `QUEUE · <n> open` block the ifq start gate (a later phase) prints: one row per open
     batch across `selectable` (already sorted flagged-first-then-name, per its own caller),
-    `blocked` and `planning`, the latter two appended after in name order. `review` is the subset
-    of `planning` held at the plan review gate. Status resolution is first-match-wins: in
-    progress, then awaiting review (a name in `review`), then planning, then blocked (with its wait list and any
-    unknown dependency folded into the same cell), then selected, then plain ready -- a `high`
+    `blocked` and `planning`, the latter two appended after in name order. `planning` covers both
+    the `.planning` marker and a batch held by `.audit`. Status resolution is first-match-wins: in
+    progress, then planning, then blocked (with its wait list and any unknown dependency folded
+    into the same cell), then selected, then plain ready -- a `high`
     priority entry gets that whole cell prefixed with `high · `. Empty input -> "" (never a bare
     header) -- see references/ifq-batch-start.md for the field this rides on."""
     blocked_by_name = {b["name"]: b for b in blocked}
     planning_set = set(planning)
-    review_set = set(review)
     combined = (
         list(selectable)
         + sorted(blocked, key=lambda b: b["name"])
@@ -73,8 +72,6 @@ def render_queue_text(selectable, blocked, planning, in_progress, chosen, review
         name = entry["name"]
         if name == in_progress:
             status = "in progress"
-        elif name in review_set:
-            status = "awaiting review"
         elif name in planning_set:
             status = "planning"
         elif name in blocked_by_name:
@@ -254,14 +251,13 @@ def cmd_preflight(args):
             break
 
     next_scan = json.loads(cfq_run("scan", "--format=next").stdout)
-    next_entry = {"next": None, "reason": None, "blocked": [], "planning": [], "review": []}
+    next_entry = {"next": None, "reason": None, "blocked": [], "planning": []}
     for r in next_scan.get("repos", []):
         if r.get("path") == repo:
             next_entry = r
             break
 
     planning_names = next_entry["planning"]
-    review_names = next_entry.get("review", [])
     blocked_names = next_entry["blocked"]
     blocked_json = [
         project(b, ["name", "dependsOn", "unknownDeps"])
@@ -295,10 +291,9 @@ def cmd_preflight(args):
             "inbox": inbox, "effort": effort_json,
             "selection": {
                 "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
-                "review": review_names,
                 "inProgress": inprog, "multipleInProgress": multi,
                 "queueText": render_queue_text(
-                    queue_rows, blocked_json, planning_names, inprog or "", "", review=review_names,
+                    queue_rows, blocked_json, planning_names, inprog or "", "",
                 ) or None,
             },
             "requiredTools": required_tools,
@@ -407,10 +402,9 @@ def cmd_preflight(args):
         "effort": effort_json,
         "selection": {
             "selectable": selectable, "blocked": blocked_json, "planning": planning_names,
-            "review": review_names,
             "inProgress": inprogress_name or None, "multipleInProgress": [],
             "queueText": render_queue_text(
-                queue_rows, blocked_json, planning_names, inprogress_name, chosen, review=review_names,
+                queue_rows, blocked_json, planning_names, inprogress_name, chosen,
             ) or None,
         },
         "batch": {
