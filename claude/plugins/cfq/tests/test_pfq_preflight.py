@@ -235,42 +235,11 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assert_status_lines_shape(out["statusLines"])
         labels = [e["label"] for e in out["statusLines"]]
         self.assertEqual(
-            labels, ["Model Gate", "Inbox", "Review", "Plugin Boundaries"], msg=f"labels = {labels}"
+            labels, ["Model Gate", "Inbox", "Plugin Boundaries"], msg=f"labels = {labels}"
         )
+        self.assertNotIn("awaitingReview", out["queue"])
 
-    def test_review_line_and_awaiting_review(self):
-        reg = self._repos_dir / "review-reg"
-        reg.mkdir()
-        self.run_clean("git", "init", "-q", cwd=reg)
-        self.run_clean(
-            "python3", str(self.scripts_copy / "cfq_registry.py"), "add", str(reg),
-            env={"HOME": str(self.home)},
-        )
-
-        out = self.json_out(self._run_pf(str(reg)))
-        self.assertEqual(out["queue"]["awaitingReview"], [], msg=f"queue = {out['queue']}")
-        entry = next(e for e in out["statusLines"] if e["label"] == "Review")
-        self.assertEqual((entry["icon"], entry["detail"]), ("skip", "none waiting"), msg=f"{entry}")
-
-        name = "2026-02-01-held"
-        batch = reg / ".claude" / "cfq" / "impl" / name
-        batch.mkdir(parents=True)
-        (batch / "01-x.md").touch()
-        (batch / ".planning").touch()
-        (batch / ".review").write_text("{}")
-
-        out = self.json_out(self._run_pf(str(reg)))
-        self.assertEqual(
-            out["queue"]["awaitingReview"],
-            [{"name": name, "open": 1, "audit": False}], msg=f"queue = {out['queue']}"
-        )
-        entry = next(e for e in out["statusLines"] if e["label"] == "Review")
-        self.assertEqual(entry["icon"], "warn", msg=f"{entry}")
-        self.assertEqual(entry["detail"], "1 batch awaiting review", msg=f"{entry}")
-        self.assertEqual(entry["sub"], [name], msg=f"{entry}")
-        self.assert_status_lines_shape(out["statusLines"])
-
-    def test_running_audit_is_listed_in_awaiting_review(self):
+    def test_running_audit_is_listed_in_awaiting_audit(self):
         reg = self._repos_dir / "audit-reg"
         reg.mkdir()
         self.run_clean("git", "init", "-q", cwd=reg)
@@ -287,9 +256,11 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
 
         out = self.json_out(self._run_pf(str(reg)))
         self.assertEqual(
-            out["queue"]["awaitingReview"],
+            out["queue"]["awaitingAudit"],
             [{"name": name, "open": 1, "audit": True}], msg=f"queue = {out['queue']}"
         )
+        self.assertNotIn("awaitingReview", out["queue"])
+        self.assertNotIn("Review", [e["label"] for e in out["statusLines"]])
 
     def test_model_check_line(self):
         reg = self._repos_dir / "model-check-reg"

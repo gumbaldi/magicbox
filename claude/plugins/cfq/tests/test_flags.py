@@ -314,10 +314,9 @@ class AttentionItemsTest(unittest.TestCase):
         self.assertEqual([(i["level"], i["code"], i["batch"]) for i in got], [
             ("warn", "unknown-dependency", "002-b"),
             ("plan", "audit-running", "003-c"),
-            ("plan", "review", "001-a"),
         ])
         by_code = {i["code"]: i["text"] for i in got}
-        self.assertEqual(by_code["review"], "plan review open")
+        self.assertNotIn("review", by_code)
         self.assertEqual(by_code["audit-running"], "post-write audit still running")
 
     def test_sorted_warn_first_then_batch_descending_then_phase(self):
@@ -327,7 +326,6 @@ class AttentionItemsTest(unittest.TestCase):
         ], [])
         self.assertEqual([(i["level"], i["batch"], i["phase"]) for i in got], [
             ("warn", "002-b", "01-a"), ("warn", "001-a", "01-a"), ("warn", "001-a", "02-b"),
-            ("plan", "001-a", None),
         ])
 
     def test_cap_adds_a_more_item_and_none_returns_everything(self):

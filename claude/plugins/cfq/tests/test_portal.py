@@ -30,7 +30,6 @@ DATA_FILE_RE = re.compile(
 DONE_BATCH = "007-2026-09-01-demo-batch"
 OPEN_BATCH = "008-2026-09-02-open-batch"
 BARE_BATCH = "2026-09-03-bare"
-REVIEW_BATCH = "009-2026-09-04-review-batch"
 PLANNING_BATCH = "010-2026-09-05-planning-batch"
 DONE_BRANCH = f"cfq/{DONE_BATCH}"
 MERGE_CARD = f"2026-09-30-merge-cfq-{DONE_BATCH}.md"
@@ -164,7 +163,7 @@ class PortalTest(CfqTestCase):
     def _build_world(self, repo):
         """A done batch (planning record; phase 02 red then green; notes, fromPlan, finish,
         security, changelog block, merge card), an open batch (one done, two open phases, no
-        telemetry), a batch without report.json, a `.review` batch, a `.planning` batch, and
+        telemetry), a batch without report.json, a `.planning` batch, and
         open and closed todo cards and plan entries."""
         cfq = self._cfq(repo)
         done = cfq / "impl" / "done" / DONE_BATCH
@@ -224,8 +223,6 @@ class PortalTest(CfqTestCase):
         }))
 
         self._write(cfq / "impl" / BARE_BATCH / "01-x.md", "# X\n\n## Size\n\nS\n")
-        self._write(cfq / "impl" / REVIEW_BATCH / "01-r.md", "# R\n\n## Size\n\nS\n")
-        self._write(cfq / "impl" / REVIEW_BATCH / ".review", "{}\n")
         self._write(cfq / "impl" / PLANNING_BATCH / "01-p.md", "# P\n\n## Size\n\nS\n")
         self._write(cfq / "impl" / PLANNING_BATCH / ".planning", "2026-09-05T00:00:00+00:00\n")
 
@@ -314,7 +311,7 @@ class PortalTest(CfqTestCase):
         first = self._sync(repo)
         expected_data = {
             "site.js", "queue.js",
-            *(f"batch/{b}.js" for b in (DONE_BATCH, OPEN_BATCH, BARE_BATCH, REVIEW_BATCH, PLANNING_BATCH)),
+            *(f"batch/{b}.js" for b in (DONE_BATCH, OPEN_BATCH, BARE_BATCH, PLANNING_BATCH)),
             *(f"entry/{e}.js" for e in (
                 "todo-2026-09-20-fix-thing", "todo-2026-09-21-xss", "todo-2026-09-01-old-card",
                 "plan-2026-09-19-idea", "plan-2026-09-16-from-phase", "plan-2026-09-17-parked",
@@ -726,18 +723,17 @@ class PortalTest(CfqTestCase):
         self.assertIsNone(self._row(repo, BARE_BATCH)["number"])
         self.assertEqual(self._row(repo, BARE_BATCH)["title"], "bare")
 
-    def test_review_marker_and_planning_marker_statuses(self):
+    def test_planning_marker_status(self):
         repo = self._world()
-        self.assertEqual(self._row(repo, REVIEW_BATCH)["status"], "awaiting_review")
         self.assertEqual(self._row(repo, PLANNING_BATCH)["status"], "planning")
 
-    def test_blocked_batch_stays_blocked_with_a_review_marker(self):
+    def test_batch_with_an_open_dependency_is_blocked(self):
         repo = self.make_repo()
         self._build_world(repo)
         impl = self._cfq(repo) / "impl"
-        (impl / REVIEW_BATCH / ".dependsOn").write_text(f"{OPEN_BATCH}\n")
+        (impl / BARE_BATCH / ".dependsOn").write_text(f"{OPEN_BATCH}\n")
         self._sync(repo)
-        self.assertEqual(self._row(repo, REVIEW_BATCH)["status"], "blocked")
+        self.assertEqual(self._row(repo, BARE_BATCH)["status"], "blocked")
 
     def test_queue_row_carries_unknown_deps(self):
         # An unnamed/deleted dependency doesn't block a batch on its own (cfq_scan.py's own
@@ -767,7 +763,7 @@ class PortalTest(CfqTestCase):
     def test_queue_totals(self):
         repo = self._world()
         totals = self._load(repo, "queue")["totals"]
-        self.assertEqual(totals["batches"], {"inProgress": 1, "planned": 3, "done": 1})
+        self.assertEqual(totals["batches"], {"inProgress": 1, "planned": 2, "done": 1})
         self.assertEqual(totals["todos"], 2, "open todo cards only")
         self.assertEqual(totals["planEntries"], 2, "open plan entries only")
         self.assertEqual(totals["deviations"], 1)
@@ -824,7 +820,6 @@ class PortalTest(CfqTestCase):
         self.assertEqual(queue["attentionCounts"], {
             level: sum(1 for i in shown if i["level"] == level) for level in ("warn", "plan")
         })
-        self.assertIn(("review", REVIEW_BATCH), [(i["code"], i["batch"]) for i in queue["attention"]])
         self.assertIn(("no-telemetry", OPEN_BATCH), [(i["code"], i["batch"]) for i in queue["attention"]])
 
     def test_now_items_order_current_waits_on_and_cap(self):

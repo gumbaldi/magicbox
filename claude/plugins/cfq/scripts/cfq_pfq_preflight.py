@@ -10,8 +10,9 @@ finding counts, which need a network round-trip.
 Ported from cfq-pfq-preflight.sh -- a port, not a redesign: every output key is frozen -- an
 addition (batch 037 phase 03's `inbox` object, batch 044 phase 07's `inbox.detail` field -- the
 per-entry excerpt block from `note list --detail`, alongside the existing `.count`/`.imported`/
-`.overview`; batch 049 phase 04's `queue.awaitingReview` list and `Review` status line) is not a
-break of that rule, only a removal or rename would be.
+`.overview`) is not a break of that rule, only a removal or rename would be. Batch 064 replaced
+the plan release gate's list `queue.awaitingReview` by `queue.awaitingAudit` (batches carrying the
+`.audit` marker) and dropped its status line.
 """
 
 import argparse
@@ -49,18 +50,6 @@ def inbox_line(count, imported):
     return text.status_entry("Inbox", icon, detail)
 
 
-def review_line(awaiting):
-    """The `Review` status line -- a batch held at the plan review gate (`.review` marker) is
-    reported by every `/pfq` session so a forgotten review cannot go unnoticed."""
-    if not awaiting:
-        return text.status_entry("Review", "skip", "none waiting")
-    n = len(awaiting)
-    noun = "batch" if n == 1 else "batches"
-    return text.status_entry(
-        "Review", "warn", f"{n} {noun} awaiting review", sub=[b["name"] for b in awaiting],
-    )
-
-
 def cmd_preflight(args):
     repo = args.repo_root
 
@@ -90,8 +79,8 @@ def cmd_preflight(args):
                     "name": b["name"], "priority": b["priority"], "open": b["open"],
                     "dependsOn": b["dependsOn"],
                 })
-            if not b.get("archived") and (b.get("review") or b.get("audit")):
-                awaiting.append({"name": b["name"], "open": b["open"], "audit": bool(b.get("audit"))})
+            if not b.get("archived") and b.get("audit"):
+                awaiting.append({"name": b["name"], "open": b["open"], "audit": True})
 
     maint_raw = cfq_run("maintenance", "due", repo).stdout.split()
     maint_status = maint_raw[0] if maint_raw else ""
@@ -132,7 +121,7 @@ def cmd_preflight(args):
             "docLevel": settings["docLevel"],
         },
         "effort": effort.status(current_effort, required_effort),
-        "queue": {"openBatches": batches, "awaitingReview": awaiting},
+        "queue": {"openBatches": batches, "awaitingAudit": awaiting},
         "maintenance": {"status": maint_status, "n": maint_n},
         "security": {"available": sec_available},
         "reporting": {"reportDir": settings["reportDir"], "htmlReport": settings["htmlReport"]},
@@ -144,7 +133,6 @@ def cmd_preflight(args):
         "statusLines": [
             model_check_line(settings["allowAnyModel"], effort_warning),
             inbox_line(inbox_n, imported_n),
-            review_line(awaiting),
             text.plugin_boundaries_line(settings["planBlockedPlugins"]),
             *([tools_line] if tools_line else []),
         ],

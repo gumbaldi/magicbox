@@ -288,11 +288,10 @@ restate a field list inline — read the field here, then read it back from the 
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
 - **`bin/cfq scan [--format=json|next]`** — `json` (default): `{repos: [{path, plan,
   todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
-  inProgress, planning, review}]}]}`. `next`: one object per repo — `{path, next, reason,
-  blocked, planning, review}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
+  inProgress, planning}]}]}`. `next`: one object per repo — `{path, next, reason,
+  blocked, planning}` — `next` is the batch name `ifq` would pick (`null` if none selectable),
   `reason` one of `inProgress`/`priority`/`order`/`multipleInProgress`/`null`; the one place the
   `ifq` selection ranking is decided, consumed rather than recomputed by `cfq_ifq_preflight.py`.
-  `review` lists the batches held for plan review, a subset of `planning`, never stale.
 - **`bin/cfq phase commit <batch-dir> <phase-json-file> <message-file>`** — the green-phase path:
   commits whatever is already staged (never runs `git add` itself), moves the phase's `.md` file
   into `done/` and appends its `report.json` entry, backfills the commit SHA, pushes (`-u origin

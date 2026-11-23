@@ -227,7 +227,7 @@ def batch_flags(batch, base, repo_root):
 
 def attention_items(batches, recent_names, cap=ATTENTION_CAP):
     """What needs attention on the start page: every `warn` flag of a batch that is not done or is
-    in `recent_names`, plus one item per waiting batch (plan review open, unknown dependency,
+    in `recent_names`, plus one item per waiting batch (unknown dependency,
     post-write audit running). A batch is `{name, status, flags, unknownDeps, audit}`. Items are
     `{level, code, batch, phase, text}`, `warn` before `plan`, then batch name descending, then
     phase. A `cap` cuts the list and appends one `{code: "more", text}` item; `None` keeps all."""
@@ -240,9 +240,6 @@ def attention_items(batches, recent_names, cap=ATTENTION_CAP):
                 if f.get("level") == "warn":
                     items.append({"level": "warn", "code": f["code"], "batch": name,
                                   "phase": f.get("phase"), "text": f["text"]})
-        if b.get("status") == "awaiting_review":
-            items.append({"level": "plan", "code": "review", "batch": name, "phase": None,
-                          "text": "plan review open"})
         if b.get("unknownDeps"):
             items.append({"level": "warn", "code": "unknown-dependency", "batch": name, "phase": None,
                           "text": "unknown dependency: " + ", ".join(b["unknownDeps"])})
