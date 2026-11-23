@@ -94,7 +94,7 @@ the fallback is visible, never silent.
 
 Render the worker's report as `<plugin-root>/references/ifq-phase.md`'s existing **Phase Summary**
 block (`implemented`/`verification`/`deviations`/`observations` map onto
-`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per entry in `parkedPlanEntries`, then print the verdict's `statusLines` entries
+`Implemented`/`Verification`/`Deviation`/`Observation` directly), adding one line per path in `parkedPlanEntries` — the verdict's (the worker's `outOfScope` findings it parked) and the worker's own framework entries — then print the verdict's `statusLines` entries
 below the block, each `text` exactly as returned. Batch end — `nextPhase: null` —
 follows `implement-for-queue/SKILL.md`'s **Batch Done** in full.
 

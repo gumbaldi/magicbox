@@ -147,8 +147,10 @@ Deviation** section below runs before every green phase closes and its result fe
 an empty array is fine only when that comparison came back empty, a glossed-over deviation is not;
 `errors` carries the actual failure output, trimmed to what identifies it. `observations`
 (optional): zero to three one-clause entries for what a reader should know that is neither a
-deviation nor an error — a flaky test, a pre-existing defect left untouched, a plan assumption that
-proved false without changing the work. Nothing stood out → leave the field out; never pad it.
+deviation nor an error and needs no action — a flaky test, a plan assumption that proved false
+without changing the work. Nothing stood out → leave the field out; never pad it. A finding to act
+on later, such as a pre-existing defect left untouched, is not an observation: it goes into
+`outOfScope` (`{"title", "body"}` entries) and `bin/cfq worker verdict` parks it as a plan entry.
 
 ## File-Scope Deviation
 

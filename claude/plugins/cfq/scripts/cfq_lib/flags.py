@@ -156,6 +156,9 @@ def phase_flags(phase, base, repo_root):
     parked = sum(len(a.get("parkedPlanEntries") or []) for a in attempts)
     if parked:
         flags.append(_flag("info", "parked-entries", f"{parked} plan {'entry' if parked == 1 else 'entries'} parked", slug))
+    out_of_scope = sum(len(a.get("outOfScope") or []) for a in attempts if isinstance(a.get("outOfScope"), list))
+    if out_of_scope:
+        flags.append(_flag("info", "out-of-scope", f"{out_of_scope} out-of-scope {'finding' if out_of_scope == 1 else 'findings'} parked", slug))
     triggers = sorted({t for a in attempts for t in a.get("triggers") or []})
     if triggers:
         flags.append(_flag("info", "triggers", f"triggers: {', '.join(triggers)}", slug))

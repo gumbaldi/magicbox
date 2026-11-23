@@ -24,6 +24,14 @@ CONTINUE/ASK/STOP (or ESCALATE); it never re-derives the classification from `de
 plain string list (the existing `report.json` contract `cfq_resume.py`/`cfq_report.py` already
 read) and is not inspected here.
 
+A `green` report may also carry `outOfScope`, a list of `{"title": "...", "body": "..."}` findings
+the phase met outside its scope, and `commit` as a sha string, `null` or an object `{"sha": ...,
+"pushed": ..., "branch": ...}`. With `strictWorkerReport` on (the default; read from the repository
+the batch directory belongs to) `verdict` parks every `outOfScope` entry itself through `bin/cfq
+note plan` and a malformed list fails `MALFORMED_REPORT`; with it off the list is ignored. The
+`green` result carries `parkedPlanEntries` (the paths parked here, `[]` when none) and `commit`
+(the sha string or `null`).
+
 Every result also carries `statusLines`: for `green` and `red` the phase's `Cost` entry rendered
 from its ledger entry in `<batch-dir>/report.json` (`cfq_report.phase_cost_line()`), a list of
 one -- the `⚠️ Cost` warning entry when there is no usable telemetry or the report names no phase;
@@ -34,7 +42,9 @@ its own.
 import argparse
 import json
 import pathlib
+import re
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -103,6 +113,62 @@ def find_phase_file(batch_dir, phase_num):
 def repo_root_of(batch_dir):
     proc = proc_git(batch_dir, "rev-parse", "--show-toplevel")
     return proc.stdout.strip() if proc.returncode == 0 else str(batch_dir.parents[3])
+
+
+def strict_worker_report(batch_dir):
+    """The `strictWorkerReport` setting of the repository `batch_dir` belongs to; `True` whenever
+    that cannot be read (no such directory, no repository, an unparsable value)."""
+    batch_dir = pathlib.Path(batch_dir)
+    if not batch_dir.is_dir():
+        return True
+    proc = proc_git(batch_dir, "rev-parse", "--show-toplevel")
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return True
+    got = cfq_run("settings", "get", "--repo", proc.stdout.strip(), "strictWorkerReport")
+    value = got.stdout.strip().lower() if got.returncode == 0 else ""
+    return value != "false"
+
+
+def valid_out_of_scope(value):
+    return isinstance(value, list) and all(
+        isinstance(e, dict) and isinstance(e.get("title"), str) and e["title"].strip()
+        and isinstance(e.get("body"), str) and e["body"].strip()
+        for e in value
+    )
+
+
+def finding_slug(title):
+    ascii_title = title.encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_title).strip("-")[:60].strip("-") or "finding"
+
+
+def park_out_of_scope(entries, batch_dir, phase):
+    """One `note plan` call per finding; returns the printed paths. A slug that is taken gets `-2`,
+    `-3`, ... so two findings with the same title never collide."""
+    batch_dir = pathlib.Path(batch_dir)
+    root = repo_root_of(batch_dir)
+    paths = []
+    for entry in entries:
+        body = f"# {entry['title'].strip()}\n\n{entry['body'].strip()}\n"
+        if "## Origin" not in body:
+            body += f"\n## Origin\n\nBatch `{batch_dir.name}`, phase `{phase}`.\n"
+        base = finding_slug(entry["title"])
+        for n in range(1, 50):
+            slug = base if n == 1 else f"{base[:60 - len(str(n)) - 1].strip('-')}-{n}"
+            with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as fh:
+                fh.write(body)
+            try:
+                proc = cfq_run("note", "plan", root, slug, fh.name)
+            finally:
+                pathlib.Path(fh.name).unlink(missing_ok=True)
+            if proc.returncode == 0:
+                paths.append(proc.stdout.strip().splitlines()[-1])
+                break
+            if '"EXISTS"' not in proc.stderr + proc.stdout:
+                errors.fail("PARK_FAILED", detail=f"note plan failed for {entry['title']!r}: {(proc.stderr or proc.stdout).strip()}")
+        else:
+            errors.fail("PARK_FAILED", detail=f"no free slug for {entry['title']!r}")
+    return paths
 
 
 def build_commands(plugin_root, repo_root, batch_dir):
@@ -267,12 +333,25 @@ def cmd_verdict(args):
         }))
         return
 
+    parked = []
+    out_of_scope = report.get("outOfScope")
+    if out_of_scope is not None and strict_worker_report(args.batch_dir):
+        if not valid_out_of_scope(out_of_scope):
+            errors.fail("MALFORMED_REPORT", detail="outOfScope must be a list of {title, body} non-empty strings")
+            return
+        parked = park_out_of_scope(out_of_scope, args.batch_dir, report.get("phase"))
+
+    commit = report.get("commit")
+    if isinstance(commit, dict):
+        commit = commit.get("sha")
+    commit = commit if isinstance(commit, str) and commit else None
+
     raw_triggers = report.get("triggers") or []
     triggers = [t for t in raw_triggers if t in GREEN_TRIGGERS]
     verdict = "ASK" if triggers else "CONTINUE"
     print(render.dump_json({
         "status": "OK", "verdict": verdict, "triggers": triggers, "question": None,
-        "statusLines": status_lines,
+        "statusLines": status_lines, "parkedPlanEntries": parked, "commit": commit,
     }))
 
 

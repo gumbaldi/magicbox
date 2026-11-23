@@ -863,6 +863,7 @@ def attempt_payload(p):
         "diffstat": p.get("diffstat") if isinstance(p.get("diffstat"), dict) else None,
         "filesTouched": render.jq_alt(p.get("filesTouched"), []),
         "parkedPlanEntries": render.jq_alt(p.get("parkedPlanEntries"), []),
+        "outOfScope": p.get("outOfScope") if isinstance(p.get("outOfScope"), list) else [],
         "time": time_of(tel),
         "settled": is_settled(tel),
         "mode": render.jq_alt(tel_or_empty.get("mode"), ""),

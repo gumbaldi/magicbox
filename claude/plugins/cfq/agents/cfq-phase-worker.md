@@ -71,12 +71,14 @@ question.
 
 ## Out-of-scope findings
 
-Park each one without asking: one `plan/<YYYY-MM-DD>-<slug>.md` entry per finding, written through
-`commands.notePlan` — or `commands.notePlanFramework` for a finding about cfq itself, rule in
-`<plugin-root>/references/queue-entries.md` — noting plainly that a decision is still open on it.
-List every entry written this way in the report's `parkedPlanEntries` so the orchestrator can name
-them in the phase summary. Nothing is dropped, and nothing interrupts the implementation to ask
-about it.
+Park each one without asking: list it in the report's `outOfScope` as `{"title": "...", "body":
+"..."}` and `bin/cfq worker verdict` writes the `plan/<YYYY-MM-DD>-<slug>.md` entry itself, so the
+worker never calls `commands.notePlan` for it. The `body` follows
+`<plugin-root>/references/queue-entries.md`'s **Parking Out-of-Scope Work**: `## Finding`,
+`## Location` with absolute paths and `## Why Not Here`, which states plainly that a decision is
+still open on it. A finding about cfq itself is the exception: it goes through
+`commands.notePlanFramework` and its path into `parkedPlanEntries`. Nothing is dropped, and nothing
+interrupts the implementation to ask about it.
 
 ## When the worker may stop and ask
 
@@ -115,6 +117,7 @@ End every run by returning exactly one JSON object, and nothing beyond it, as th
   "verification": "<command run, and its result>",
   "deviations": ["..."],
   "observations": ["..."],
+  "outOfScope": [{"title": "...", "body": "..."}],
   "triggers": ["omitted", "dependency"],
   "filesTouched": ["<absolute path>", "..."],
   "parkedPlanEntries": ["plan/<date>-<slug>.md", "..."],
@@ -137,7 +140,10 @@ ever called for it. This is the exact object `bin/cfq worker verdict` accepts on
 orchestrator pipes it there, not the worker itself) and, for `green`/`red`, the same object written
 to the temp file handed to `commands.phaseCommit`/`commands.phaseRecordRed` — one shape, two
 consumers, never worded or shaped differently for either. `observations`: zero to three one-clause
-entries per ifq-phase.md's rule, omitted when nothing stood out.
+notes with nothing to act on, omitted when nothing stood out; anything actionable goes into
+`outOfScope`, which the verdict parks (the entries' paths come back as the verdict's
+`parkedPlanEntries`). `parkedPlanEntries` in the report holds only the worker's own framework
+entries.
 
 ## Commit
 

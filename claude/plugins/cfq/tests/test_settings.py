@@ -196,6 +196,7 @@ class SettingsTest(CfqTestCase):
             "planModels": "opus,fable",
             "implModels": "sonnet,haiku",
             "orchestratorMode": "true",
+            "strictWorkerReport": "true",
             "baseBranchStrategy": "chainTip",
             "orchestratorModels": "sonnet",
             "planExploreModel": "haiku",
@@ -320,6 +321,22 @@ class SettingsTest(CfqTestCase):
 
         proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
+
+    # 5g2. strictWorkerReport: default true, round-trip through global and repo, env
+    def test_05g2_strict_worker_report(self):
+        got = self.run_clean(str(CFQ_BIN), "settings", "get", "strictWorkerReport").stdout.strip()
+        self.assertEqual(got, "true")
+        with tempfile.TemporaryDirectory() as fixture_s:
+            self.run_cfq("settings", "set", "strictWorkerReport", "false", home=self.home, check=True)
+            self.assertEqual(self.run_cfq("settings", "get", "strictWorkerReport", home=self.home).stdout.strip(), "false")
+            self.run_cfq("settings", "set", "--repo", fixture_s, "strictWorkerReport", "true", home=self.home, check=True)
+            self.assertEqual(self.run_cfq(
+                "settings", "get", "--repo", fixture_s, "strictWorkerReport", home=self.home).stdout.strip(), "true")
+            got = self.run_cfq("settings", "get", "strictWorkerReport", home=self.home,
+                               env={"CFQ_STRICT_WORKER_REPORT": "1"}).stdout.strip()
+            self.assertEqual(got, "true")
+        proc = self.run_cfq("settings", "set", "strictWorkerReport", "yes", home=self.home)
+        self.assertNotEqual(proc.returncode, 0)
 
     # 5i. batchReview / batchReviewFindings: default, every allowed value (global and repo),
     # rejection outside the enum, env override
@@ -1171,7 +1188,7 @@ class SettingsTest(CfqTestCase):
             },
             "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
             "implementation": {
-                "orchestratorMode", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
+                "orchestratorMode", "strictWorkerReport", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
                 "implBlockedPlugins",
                 "phaseCommitCommand",
                 "batchReview", "batchReviewFindings", "requiredTools",

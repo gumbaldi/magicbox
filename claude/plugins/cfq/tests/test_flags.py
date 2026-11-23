@@ -177,6 +177,12 @@ class PhaseFlagsTest(unittest.TestCase):
         self.assertTrue(all(f["level"] == "info" for f in got.values()))
         self.assertEqual(got["observations"]["text"], "2 observations")
 
+    def test_out_of_scope_findings_counter(self):
+        p = phase(attempts=[attempt(outOfScope=[{"title": "a", "body": "x"}, {"title": "b", "body": "y"}])])
+        got = {f["code"]: f for f in self.flags(p)}
+        self.assertEqual(got["out-of-scope"]["level"], "info")
+        self.assertEqual(got["out-of-scope"]["text"], "2 out-of-scope findings parked")
+
     def test_info_flags_negatives(self):
         p = phase(attempts=[attempt(skills={"used": ["tdd"]})])
         self.assertEqual(self.flags(p), [])

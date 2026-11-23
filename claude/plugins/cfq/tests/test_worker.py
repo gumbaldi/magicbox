@@ -480,6 +480,75 @@ class WorkerVerdictTest(CfqTestCase):
         self.assertEqual(body["statusLines"][0]["icon"], "warn")
         self.assertEqual(body["verdict"], "CONTINUE")
 
+    # --- outOfScope parking, strictWorkerReport and commit normalization (batch 061 phase 06) ---
+
+    def _repo_batch(self):
+        repo = self.make_repo("oos-repo")
+        batch = repo / ".claude" / "cfq" / "impl" / "001-2026-01-01-x"
+        batch.mkdir(parents=True)
+        return repo, str(batch)
+
+    def _plan_files(self, repo):
+        d = repo / ".claude" / "cfq" / "plan"
+        return sorted(d.glob("*.md")) if d.is_dir() else []
+
+    def _oos(self, *titles):
+        return [{"title": t, "body": f"## Finding\n\n{t} body\n\n## Why Not Here\n\nA decision is still open."}
+                for t in titles]
+
+    def test_out_of_scope_entries_are_parked_by_the_verdict(self):
+        repo, batch = self._repo_batch()
+        proc = self._verdict({
+            "phase": "02-x", "status": "green",
+            "outOfScope": self._oos("Stale lock helper", "Wrong default in settings"),
+        }, batch_dir=batch)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = json.loads(proc.stdout)
+        self.assertEqual(body["verdict"], "CONTINUE")
+        files = self._plan_files(repo)
+        self.assertEqual(len(files), 2)
+        self.assertEqual(sorted(body["parkedPlanEntries"]), sorted(str(f) for f in files))
+        text = "\n".join(f.read_text() for f in files)
+        self.assertIn("# Stale lock helper", text)
+        self.assertIn("Wrong default in settings body", text)
+
+    def test_strict_off_parks_nothing(self):
+        repo, batch = self._repo_batch()
+        self.run_cfq("settings", "set", "--repo", str(repo), "strictWorkerReport", "false", check=True)
+        for oos in (self._oos("A finding"), "not a list"):
+            proc = self._verdict({"phase": "02-x", "status": "green", "outOfScope": oos}, batch_dir=batch)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            body = json.loads(proc.stdout)
+            self.assertEqual(body["verdict"], "CONTINUE")
+            self.assertEqual(body["parkedPlanEntries"], [])
+        self.assertEqual(self._plan_files(repo), [])
+
+    def test_malformed_out_of_scope_is_rejected_when_strict(self):
+        repo, batch = self._repo_batch()
+        for bad in ("text", [{"title": "t"}], [{"title": "t", "body": 3}], ["t"],
+                    [{"title": "", "body": "b"}]):
+            proc = self._verdict({"phase": "02-x", "status": "green", "outOfScope": bad}, batch_dir=batch)
+            self.assertNotEqual(proc.returncode, 0, bad)
+            self.assertEqual(json.loads(proc.stderr)["status"], "MALFORMED_REPORT")
+        self.assertEqual(self._plan_files(repo), [])
+
+    def test_commit_object_is_normalized_to_the_sha(self):
+        for commit, want in (({"sha": "abc", "pushed": True, "branch": "b"}, "abc"),
+                             ("def", "def"), (None, None), ({"pushed": True}, None)):
+            body = json.loads(self._verdict({"phase": "02-x", "status": "green", "commit": commit}).stdout)
+            self.assertEqual(body["commit"], want, commit)
+            self.assertEqual(body["parkedPlanEntries"], [])
+
+    def test_same_title_gets_distinct_slugs(self):
+        repo, batch = self._repo_batch()
+        proc = self._verdict({
+            "phase": "02-x", "status": "green", "outOfScope": self._oos("Same title", "Same title"),
+        }, batch_dir=batch)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = json.loads(proc.stdout)
+        self.assertEqual(len(set(body["parkedPlanEntries"])), 2)
+        self.assertEqual(len(self._plan_files(repo)), 2)
+
     def test_malformed_json_fails_loudly_never_silent_continue(self):
         run_env = self._base_env()
         run_env["HOME"] = str(self.home)
