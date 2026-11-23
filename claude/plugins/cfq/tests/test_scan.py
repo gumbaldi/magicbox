@@ -140,6 +140,7 @@ class ScanTest(CfqTestCase):
                     "inProgress": True,
                     "planning": False,
                     "review": False,
+                    "audit": False,
                     "consistency": "ok",
                 }
             ],
@@ -165,6 +166,7 @@ class ScanTest(CfqTestCase):
                     "inProgress": False,
                     "planning": False,
                     "review": False,
+                    "audit": False,
                 }
             ],
             msg=f"repo-b batches (unflagged -> empty priority) = {b_batches}",
@@ -463,6 +465,25 @@ class ScanNextTest(CfqTestCase):
         self.assertIsNone(r["next"], msg=r)
         self.assertEqual(r["planning"], ["2026-02-01-held"], msg=r)
         self.assertEqual(r["review"], ["2026-02-01-held"], msg=r)
+
+    def test_audit_marker_holds_batch_without_staleness(self):
+        impl = self.tmp / "repo-audit" / ".claude" / "cfq" / "impl"
+        (impl / "2026-02-01-audited").mkdir(parents=True)
+        (impl / "2026-02-01-audited" / "01-a.md").touch()
+        old_time = time.time() - 3600
+        for name in (".planning", ".audit"):
+            marker = impl / "2026-02-01-audited" / name
+            marker.write_text("{}\n")
+            os.utime(marker, (old_time, old_time))
+
+        r = self._repo(self._scan_next(), "repo-audit")
+        self.assertIsNone(r["next"], msg=r)
+        self.assertEqual(r["planning"], ["2026-02-01-audited"], msg=r)
+        full = json.loads(self.run_cfq("scan", env={"CFQ_SCAN_ROOTS": str(self.tmp)}).stdout)
+        batch = self._repo(full, "repo-audit")["batches"][0]
+        self.assertTrue(batch["planning"], msg=batch)
+        self.assertTrue(batch["audit"], msg=batch)
+        self.assertFalse(batch["review"], msg=batch)
 
     def test_archived_only_yields_no_next(self):
         archived = self.tmp / "repo-archived-only" / ".claude" / "cfq" / "impl" / "done" / "2026-02-01-old"

@@ -1186,7 +1186,7 @@ class SettingsTest(CfqTestCase):
                 "planExploreModel", "planExploreModelComplex", "implExploreModel",
                 "implExploreModelComplex", "planSessionEffort", "implSessionEffort",
             },
-            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins"},
+            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins", "auditBarrier"},
             "implementation": {
                 "orchestratorMode", "strictWorkerReport", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
                 "implBlockedPlugins",

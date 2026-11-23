@@ -130,6 +130,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `grillMode` | `CFQ_GRILL_MODE` | `stepwise` | global, repo | `stepwise` = batched rounds of up to 4 questions; `classic` = delegates to `mattpocock-skills:grilling`'s own round format |
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
 | `planBlockedPlugins` | `CFQ_PLAN_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
+| `auditBarrier` | `CFQ_AUDIT_BARRIER` | `true` | global, repo | while the post-write audit runs, `batch review` and `batch ready` refuse and `/ifq` never offers the batch; `false` writes no marker and ignores an existing one |
 
 ### Implementation
 

@@ -628,5 +628,79 @@ class BatchIdTest(CfqTestCase):
         self.assertIn("already ready", proc.stdout)
 
 
+class AuditBarrierTest(CfqTestCase):
+    """`batch audit start|done` -- the `.audit` marker that holds the review gate while the
+    post-write audit runs, and `auditBarrier`, the setting that switches it off."""
+
+    def _batch(self, name):
+        repo = self._repos_dir / name
+        batch_dir = repo / ".claude" / "cfq" / "impl" / "example-batch"
+        batch_dir.mkdir(parents=True)
+        (batch_dir / ".planning").write_text("2026-08-19T10:00:00+02:00\n")
+        (batch_dir / "01-a.md").write_text("# A\n")
+        (batch_dir / ".batch-context.md").write_text("## Goal\n\nG\n")
+        return batch_dir
+
+    def test_start_writes_marker_and_counts_runs(self):
+        batch_dir = self._batch("repo-au1")
+        proc = self.run_cfq("batch", "audit", str(batch_dir), "start", check=True)
+        self.assertIn("audit started", proc.stdout)
+        first = json.loads((batch_dir / ".audit").read_text())
+        self.assertEqual(first["runs"], 1)
+        self.assertIn("started", first)
+        self.run_cfq("batch", "audit", str(batch_dir), "start", check=True)
+        second = json.loads((batch_dir / ".audit").read_text())
+        self.assertEqual(second["runs"], 2)
+        self.assertEqual(second["started"], first["started"])
+
+    def test_review_refuses_while_audit_runs(self):
+        batch_dir = self._batch("repo-au2")
+        self.run_cfq("batch", "audit", str(batch_dir), "start", check=True)
+        proc = self.run_cfq("batch", "review", str(batch_dir))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse((batch_dir / ".review").exists())
+        self.assertIn("batch audit", proc.stderr)
+        self.assertIn("done", proc.stderr)
+
+    def test_ready_refuses_while_audit_runs(self):
+        batch_dir = self._batch("repo-au3")
+        self.run_cfq("batch", "audit", str(batch_dir), "start", check=True)
+        proc = self.run_cfq("batch", "ready", str(batch_dir))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue((batch_dir / ".planning").exists())
+        self.assertTrue((batch_dir / ".audit").exists())
+
+    def test_done_removes_marker_records_the_run_and_unblocks_review(self):
+        batch_dir = self._batch("repo-au4")
+        self.run_cfq("batch", "audit", str(batch_dir), "start", check=True)
+        started = json.loads((batch_dir / ".audit").read_text())["started"]
+        proc = self.run_cfq("batch", "audit", str(batch_dir), "done", "--findings", "2", check=True)
+        self.assertIn("audit done 2 findings", proc.stdout)
+        self.assertFalse((batch_dir / ".audit").exists())
+        report = json.loads((batch_dir / "report.json").read_text())
+        self.assertEqual(len(report["audit"]), 1)
+        entry = report["audit"][0]
+        self.assertEqual(set(entry), {"started", "finished", "findings"})
+        self.assertEqual(entry["started"], started)
+        self.assertEqual(entry["findings"], 2)
+        self.run_cfq("batch", "review", str(batch_dir), check=True)
+        self.assertTrue((batch_dir / ".review").exists())
+
+    def test_done_without_marker_is_idempotent(self):
+        batch_dir = self._batch("repo-au5")
+        proc = self.run_cfq("batch", "audit", str(batch_dir), "done", check=True)
+        self.assertIn("no audit running", proc.stdout)
+        self.assertFalse((batch_dir / "report.json").exists())
+
+    def test_switch_off_writes_no_marker_and_ignores_an_existing_one(self):
+        batch_dir = self._batch("repo-au6")
+        off = {"CFQ_AUDIT_BARRIER": "0"}
+        self.run_cfq("batch", "audit", str(batch_dir), "start", env=off, check=True)
+        self.assertFalse((batch_dir / ".audit").exists())
+        (batch_dir / ".audit").write_text('{"started": "x", "runs": 1}\n')
+        self.run_cfq("batch", "review", str(batch_dir), env=off, check=True)
+        self.assertTrue((batch_dir / ".review").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

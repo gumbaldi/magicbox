@@ -90,8 +90,8 @@ def cmd_preflight(args):
                     "name": b["name"], "priority": b["priority"], "open": b["open"],
                     "dependsOn": b["dependsOn"],
                 })
-            if not b.get("archived") and b.get("review"):
-                awaiting.append({"name": b["name"], "open": b["open"]})
+            if not b.get("archived") and (b.get("review") or b.get("audit")):
+                awaiting.append({"name": b["name"], "open": b["open"], "audit": bool(b.get("audit"))})
 
     maint_raw = cfq_run("maintenance", "due", repo).stdout.split()
     maint_status = maint_raw[0] if maint_raw else ""
