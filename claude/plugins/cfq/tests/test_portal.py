@@ -789,6 +789,31 @@ class PortalTest(CfqTestCase):
         self.assertEqual(sum(r["flags"]["info"] for r in queue["batches"]), totals["flags"]["info"])
         self.assertEqual(queue["repo"], str(repo.resolve()))
 
+    def test_phase_payloads_carry_the_size_baseline(self):
+        repo = self._world()
+        queue = self._load(repo, "queue")
+        base = queue["baselines"]
+        batch = self._load(repo, f"batch/{DONE_BATCH}")
+        by_slug = {p["slug"]: p for p in batch["phases"]}
+        self.assertEqual(by_slug["02-build"]["baseline"], {
+            "size": "L", "outputMedian": base["L"]["outputMedian"], "turnsMedian": base["L"]["turnsMedian"],
+        })
+        self.assertEqual(by_slug["02-build"]["baseline"]["outputMedian"], 1200)
+        self.assertEqual(by_slug["01-setup"]["baseline"]["size"], "S")
+        seen_missing = False
+        for row in queue["batches"]:
+            for ph in self._load(repo, f"batch/{row['name']}")["phases"]:
+                self.assertIn("baseline", ph)
+                if ph["size"] in base:
+                    self.assertEqual(ph["baseline"]["size"], ph["size"])
+                else:
+                    seen_missing = True
+                    self.assertIsNone(ph["baseline"], f"{row['name']} {ph['slug']}")
+        self.assertTrue(seen_missing, "the world has a phase whose size has no baseline")
+        self.assertIsNone(cfq_portal.phase_baseline("", base))
+        self.assertIsNone(cfq_portal.phase_baseline(None, base))
+        self.assertIsNone(cfq_portal.phase_baseline("XL", base))
+
     def test_queue_carries_now_attention_and_counts(self):
         repo = self._world()
         queue = self._load(repo, "queue")

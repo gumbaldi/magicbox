@@ -1177,6 +1177,15 @@ def batch_newer_than(batch_dir, data_file):
     return False
 
 
+def phase_baseline(size, base):
+    """The size's rolling medians for a phase payload (`None` for an unsized phase or a size
+    without a baseline) -- the batch page's cost tab compares a phase's output against it."""
+    entry = (base or {}).get(size) if size else None
+    if not entry:
+        return None
+    return {"size": size, "outputMedian": entry["outputMedian"], "turnsMedian": entry["turnsMedian"]}
+
+
 def sync(repo_root, batch_names=None):
     repo_root = str(pathlib.Path(repo_root).resolve())
     scan = cfq_scan.scan_repo(repo_root)
@@ -1242,6 +1251,7 @@ def sync(repo_root, batch_names=None):
     base = cfq_flags.baselines(points)
     for name, payload in payloads.items():
         for ph in payload["phases"]:
+            ph["baseline"] = phase_baseline(ph.get("size"), base)
             ph["flags"] = cfq_flags.phase_flags(ph, base, repo_root)
         payload["flags"] = cfq_flags.batch_flags(payload, base, repo_root)
         rows[name]["flags"] = {

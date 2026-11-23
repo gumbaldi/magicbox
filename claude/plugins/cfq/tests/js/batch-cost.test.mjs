@@ -16,12 +16,10 @@ const LAYERS = ["main", "main_explore", "worker", "worker_explore"];
 
 const add = (a, b) => Object.fromEntries(FIELDS.map((k) => [k, ((a && a[k]) || 0) + ((b && b[k]) || 0)]));
 
-// The shared fixture gives every attempt the same cost and the batch a single one; a consistent
-// batch has `cost` equal to the sum of planning and all attempts.
-function consistentBatch(kind = "done") {
-  const batch = fixtureBatch(kind);
-  const costs = [batch.planning && batch.planning.cost]
-    .concat(batch.phases.flatMap((p) => p.attempts.map((a) => a.cost))).filter(Boolean);
+const ZERO = Object.fromEntries(FIELDS.map((f) => [f, 0]));
+
+// The sum of cost objects: total, per model, per layer (with agent counts) and agents.
+function sumCostObjs(costs) {
   const total = costs.reduce((n, c) => add(n, c.total), {});
   const byModel = {};
   costs.forEach((c) => Object.keys(c.byModel).forEach((m) => { byModel[m] = add(byModel[m], c.byModel[m]); }));
@@ -35,7 +33,38 @@ function consistentBatch(kind = "done") {
       Object.keys(layer.byModel).forEach((m) => { layers[l].byModel[m] = add(layers[l].byModel[m], layer.byModel[m]); });
     });
   });
-  batch.cost = { total, byModel, layers, agents: costs.flatMap((c) => c.agents) };
+  return { total, byModel, layers, agents: costs.flatMap((c) => c.agents) };
+}
+
+// The shared fixture gives every attempt the same cost and the batch a single one; a consistent
+// batch has `implementation.cost` equal to the sum of all attempts and `cost` equal to the sum of
+// planning and implementation.
+function consistentBatch(kind = "done") {
+  const batch = fixtureBatch(kind);
+  const attempts = batch.phases.flatMap((p) => p.attempts.map((a) => a.cost)).filter(Boolean);
+  if (batch.implementation && attempts.length) batch.implementation.cost = sumCostObjs(attempts);
+  batch.cost = sumCostObjs([batch.planning && batch.planning.cost].concat(attempts).filter(Boolean));
+  return batch;
+}
+
+// A batch whose planning cost is what planning really records: the session and one explorer, no
+// workers. Every part's output then adds up to the batch's output.
+function realisticBatch() {
+  const batch = consistentBatch();
+  const sonnet = { ...ZERO, turns: 20, input: 300, output: 1000, cache_read: 10000, cache_creation: 800 };
+  const haiku = { ...ZERO, turns: 5, input: 100, output: 500, cache_read: 2000, cache_creation: 100 };
+  const empty = { total: { ...ZERO }, byModel: {}, count: 0 };
+  batch.planning.cost = {
+    total: add(sonnet, haiku),
+    byModel: { "claude-sonnet-5-5": sonnet, "claude-haiku-5": haiku },
+    layers: {
+      main: { total: sonnet, byModel: { "claude-sonnet-5-5": sonnet }, count: 1 },
+      main_explore: { total: haiku, byModel: { "claude-haiku-5": haiku }, count: 1 },
+      worker: empty, worker_explore: empty,
+    },
+    agents: [{ id: "p1", type: "Explore", description: "Planning search", layer: "main_explore", parent: null, total: haiku, byModel: { "claude-haiku-5": haiku } }],
+  };
+  batch.cost = sumCostObjs([batch.planning.cost, batch.implementation.cost]);
   return batch;
 }
 
@@ -141,34 +170,107 @@ test("toTsv: a header and one tab-separated line per row, no thousands separator
   assert.equal(K.toTsv([]), lines[0]);
 });
 
-test("Cost tab: tiles, By model, By layer, By phase with legend, Agents and the exact numbers", () => {
-  const batch = consistentBatch();
-  const { root, body } = renderTab(batch, "cost");
-  assert.ok(body.className.split(" ").includes("tab-cost"));
-  const tiles = byClass(body, "tile");
-  assert.deepEqual(tiles.map((t) => byClass(t, "tile-label")[0].textContent), ["Turns", "In", "Out", "Cache read"]);
-  assert.equal(byClass(tiles[0], "tile-value")[0].textContent, "300");
+test("Cost tab: the output bar's parts and their sum equal the batch output, zero parts omitted", () => {
+  const batch = realisticBatch();
+  const { body } = renderTab(batch, "cost");
+  assert.equal(byClass(body, "tile").length, 0);
+  assert.equal(byClass(body, "by-model").length, 0);
+  assert.equal(byClass(body, "by-layer").length, 0);
+  assert.match(collectText(body), /Where the output went/);
+  const items = byClass(body, "out-legend-item");
+  assert.deepEqual(items.map((i) => collectText(byClass(i, "label")[0])),
+    ["Planning session", "Planning explorers", "Orchestrator", "Phase workers", "Worker explorers"]);
+  const values = items.map((i) => Number(byClass(i, "v")[0].attrs.title));
+  assert.deepEqual(values, [1000, 500, 3000, 12000, 3600]);
+  assert.equal(values.reduce((n, v) => n + v, 0), batch.cost.total.output);
+  assert.equal(byClass(body, "out-seg").length, 5);
+  assert.match(collectText(byClass(body, "out-section")[0]), /250 turns/);
 
-  const text = collectText(body);
-  ["By model", "By layer", "By phase", "Agents", "Exact numbers"].forEach((h) => assert.match(text, new RegExp(h)));
-  const byModel = byClass(body, "by-model")[0];
-  assert.equal(byTag(byModel, "tr").length, 1 + 2 + 1); // head, two models, total
-  assert.equal(byClass(byModel, "tokbar").length, 2);
-  assert.equal(byClass(body, "by-layer").length, 1);
-  assert.equal(byClass(byClass(body, "by-layer")[0], "layer-row").length, 4);
-  assert.match(collectText(byClass(body, "empty-layer")[0]), /Session explorers/);
-  assert.match(collectText(byClass(body, "empty-layer")[0]), /–/);
+  const parts = K.outputParts(batch);
+  assert.deepEqual(parts.map((p) => p.tone), ["p1", "p2", "i1", "i2", "i3"]);
+  batch.planning.cost.layers.main_explore.total = { ...ZERO };
+  assert.deepEqual(K.outputParts(batch).map((p) => p.label), ["Planning session", "Orchestrator", "Phase workers", "Worker explorers"]);
+  batch.phases.forEach((p) => p.attempts.forEach((a) => { a.mode = "classic"; }));
+  assert.equal(K.outputParts(batch)[1].label, "Session");
+});
 
-  assert.equal(byTag(body, "svg").length, 1);
-  assert.ok(byClass(body, "legend").length >= 2); // by model and by phase
+test("Cost tab: the planning and implementation tables list the non-empty layers and their totals match", () => {
+  const batch = realisticBatch();
+  const { body } = renderTab(batch, "cost");
+  const plan = byClass(body, "part-plan")[0];
+  const impl = byClass(body, "part-impl")[0];
+  const labels = (sec) => byClass(sec, "layer-row").map((r) => collectText(byTag(r, "td")[0]).replace(/[▸\s]+/g, " ").trim());
+  assert.deepEqual(labels(plan), ["Planning session", "Planning explorers"]);
+  assert.deepEqual(labels(impl), ["Orchestrator", "Phase workers ×3", "Worker explorers ×3"]);
+  const totals = (sec) => byTag(byClass(sec, "total")[0], "td").map((c) => c.attrs.title);
+  const planTotal = totals(plan), implTotal = totals(impl);
+  assert.equal(planTotal[4], String(batch.planning.cost.total.output));
+  assert.equal(implTotal[4], String(batch.implementation.cost.total.output));
+  assert.equal(planTotal[2], String(batch.planning.cost.total.turns));
+  assert.equal(implTotal[2], String(batch.implementation.cost.total.turns));
+  assert.equal(Number(planTotal[4]) + Number(implTotal[4]), batch.cost.total.output);
+  assert.match(collectText(plan), /active · .* calendar/);
+  assert.match(collectText(byClass(impl, "layer-row")[0]), /sonnet/);
+  assert.match(collectText(byClass(impl, "layer-row")[2]), /haiku/);
+  const headers = byTag(byTag(plan, "thead")[0], "th").map((h) => h.textContent);
+  assert.deepEqual(headers, ["Part", "Model", "Turns", "In new", "Out", "Cache read"]);
+});
+
+test("Cost tab: implementation by phase has no Planning row and compares each phase with its baseline", () => {
+  const { body } = renderTab(consistentBatch(), "cost");
+  const table = byClass(body, "by-phase")[0];
+  assert.equal(byTag(table, "tr").length, 1 + 2);
+  assert.doesNotMatch(collectText(table), /Planning/);
+  const heads = byTag(byTag(table, "thead")[0], "th").map((h) => h.textContent);
+  assert.deepEqual(heads.slice(0, 8), ["#", "Phase", "Size", "Active", "Turns", "Out", "Output by model", "vs. baseline"]);
+  const ratios = byClass(table, "ratio");
+  assert.deepEqual(ratios.map((c) => collectText(c)), ["1.0×", "2.5×"]);
+  assert.equal(byClass(ratios[0], "pill").length, 0);
+  assert.equal(byClass(ratios[1], "pill").length, 1);
   assert.ok(links(body).includes("#/batch/047-2026-10-01-demo/phase/02-second"));
+  assert.ok(byClass(table, "stackbar").length === 2);
 
+  const bare = consistentBatch();
+  bare.phases.forEach((p) => { p.baseline = null; });
+  const none = byClass(byClass(renderTab(bare, "cost").body, "by-phase")[0], "ratio");
+  assert.deepEqual(none.map((c) => collectText(c)), ["–", "–"]);
+});
+
+test("implPhaseRows: ratio, summed active time and the per-model output", () => {
+  const rows = K.implPhaseRows(consistentBatch());
+  assert.deepEqual(rows.map((r) => r.slug), ["01-first", "02-second"]);
+  assert.deepEqual(rows.map((r) => r.ratio), [1, 2.5]);
+  assert.equal(rows[0].active, 1500);
+  assert.equal(rows[1].active, null, "one attempt has no active_s");
+  assert.equal(rows[1].wallclock, 3600);
+  assert.equal(rows[1].byModel["claude-sonnet-5-5"], 10000);
+  assert.deepEqual(K.implPhaseRows(fixtureBatch("plan_only")), []);
+});
+
+test("Cost tab: agents are grouped under Planning and Implementation, workers before their explorers", () => {
+  const { body } = renderTab(realisticBatch(), "cost");
   const agents = byClass(body, "agents")[0];
-  assert.equal(byTag(agents, "tr").length, 1 + 8);
+  assert.deepEqual(byClass(agents, "group-row").map((r) => collectText(r)), ["Planning", "Implementation"]);
+  assert.equal(byTag(agents, "tr").length, 1 + 2 + 1 + 6);
+  assert.deepEqual(byClass(agents, "mono").map((c) => collectText(c)), [
+    "Explore", "cfq:cfq-phase-worker", "Explore", "cfq:cfq-phase-worker", "Explore", "cfq:cfq-phase-worker", "Explore",
+  ]);
   assert.match(collectText(agents), /Implement phase/);
-  assert.match(collectText(agents), /Worker explorers/);
-  assert.match(collectText(agents), /claude-haiku-5/);
-  assert.equal(root.children.length > 0, true);
+  assert.match(collectText(agents), /Planning search/);
+});
+
+test("Cost tab: a batch with planning telemetry only shows the planning table and says so", () => {
+  const batch = realisticBatch();
+  batch.implementation = null;
+  batch.phases = [];
+  batch.cost = batch.planning.cost;
+  const { body } = renderTab(batch, "cost");
+  assert.equal(byClass(byClass(body, "part-plan")[0], "part-table").length, 1);
+  assert.equal(byClass(byClass(body, "part-impl")[0], "part-table").length, 0);
+  assert.match(collectText(byClass(body, "part-impl")[0]), /No implementation telemetry yet\./);
+  assert.equal(byClass(body, "by-phase").length, 0);
+  assert.deepEqual(byClass(byClass(body, "agents")[0], "group-row").map((r) => collectText(r)), ["Planning"]);
+  assert.deepEqual(byClass(body, "out-legend-item").map((i) => collectText(byClass(i, "label")[0])), ["Planning session", "Planning explorers"]);
 });
 
 test("Cost tab: layer rows expand into their per-model rows with a real button", () => {
@@ -178,10 +280,10 @@ test("Cost tab: layer rows expand into their per-model rows with a real button",
   rows.forEach((r) => assert.equal(r.attrs.hidden, ""));
   const toggle = byTag(byClass(body, "layer-row")[0], "button")[0];
   assert.equal(toggle.attrs["aria-expanded"], "false");
-  assert.equal(byTag(byClass(body, "empty-layer")[0], "button").length, 0);
+  assert.equal(byClass(body, "empty-layer").length, 0, "empty layers are not listed");
   fire(toggle, "click");
   assert.equal(toggle.attrs["aria-expanded"], "true");
-  assert.equal(rows.filter((r) => r.attrs.hidden === undefined).length, 1); // only the session's own model row
+  assert.equal(rows.filter((r) => r.attrs.hidden === undefined).length, 1); // only the planning session's model row
   fire(toggle, "click");
   assert.ok(rows.every((r) => r.attrs.hidden === ""));
 });
@@ -218,7 +320,7 @@ test("Cost tab: an unsettled attempt marks its phase row and adds one explanator
   assert.match(collectText(byClass(body, "provisional-note")[0]), /provisional/);
   const marks = byClass(byClass(body, "by-phase")[0], "provisional");
   assert.equal(marks.length, 1);
-  const row = findAll(byClass(body, "by-phase")[0], (n) => n.tagName === "tr" && collectText(n).includes("02-second"))[0];
+  const row = findAll(byClass(body, "by-phase")[0], (n) => n.tagName === "tr" && collectText(n).includes("Second"))[0];
   assert.match(collectText(row), /provisional/);
 
   const settled = consistentBatch();

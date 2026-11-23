@@ -420,7 +420,7 @@ export function fixtureBatch(kind = "done") {
   };
   const phase = (num, slug, title, state, attempts, flags) => ({
     slug, num, title, size: "S", state, planHtml: `<p>Plan of ${title}.</p>`,
-    affectedFiles: ["scripts/a.py"], attempts, flags: flags || [],
+    affectedFiles: ["scripts/a.py"], attempts, flags: flags || [], baseline: null,
   });
   const openPhase = (num, slug, title) => ({
     ...phase(num, slug, title, "open", []), edit: fileEdit(`${BATCH_DIR}/${slug}.md`),
@@ -446,7 +446,7 @@ export function fixtureBatch(kind = "done") {
       cost: doneCost(),
     };
   }
-  return {
+  const done = {
     ...base,
     planning: {
       from: "2026-10-01T06:00:00Z", until: "2026-10-01T07:00:00Z", wallclock_s: 3600, active_s: 1800, settled: true,
@@ -484,6 +484,10 @@ export function fixtureBatch(kind = "done") {
     security: { available: true, counts: { high: 1 }, findings: [{ severity: "high", title: "Unchecked input" }], hint: "" },
     flags: [{ level: "info", code: "unsettled", text: "One attempt is not settled yet", phase: null }],
   };
+  // Output per phase is 6200 and 12400 (all attempts): 1.0x and 2.5x their size-S baseline.
+  done.phases[0].baseline = { size: "S", outputMedian: 6200, turnsMedian: 75 };
+  done.phases[1].baseline = { size: "S", outputMedian: 4960, turnsMedian: 75 };
+  return done;
 }
 
 export function fixtureEntry(kind = "todo_open") {

@@ -346,10 +346,6 @@ dl.result dd{margin:0;max-width:72ch}
 table.data.files td.path code{background:none;padding:0;word-break:break-all}
 
 /* ---- batch cost, timeline, notes and closing ------------------------------------------------ */
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.75rem;margin:.25rem 0 1.25rem}
-.tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.6rem .85rem}
-.tile-label{color:var(--fg-faint);text-transform:uppercase;font-size:.7rem;letter-spacing:.04em}
-.tile-value{font-size:1.45rem;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
 .cost-section{margin:0 0 1.5rem}
 .cost-section h3{margin:.25rem 0 .5rem}
 .cost-section .caption{margin:0 0 .4rem;font-size:.8rem}
@@ -360,6 +356,36 @@ table.data.cost-table .model-name{display:inline-flex;align-items:center;gap:.4r
   background:var(--c,var(--m-other))}
 table.data.cost-table tr.total td{font-weight:650;border-top:1px solid var(--border-strong)}
 table.data.cost-table tr.empty-layer td{color:var(--fg-faint)}
+
+/* cost tab: where the output went, the two part tables, the phase table */
+.out-bar{display:flex;height:.9rem;border-radius:999px;overflow:hidden;background:var(--surface-2);margin:.4rem 0 .6rem}
+.out-seg{display:block;height:100%}
+.out-seg.p1,.out-legend .swatch.p1{background:var(--plan)}
+.out-seg.p2,.out-legend .swatch.p2{background:var(--plan);opacity:.55}
+.out-seg.i1,.out-legend .swatch.i1{background:var(--impl);opacity:.45}
+.out-seg.i4,.out-legend .swatch.i4{background:var(--impl);opacity:.6}
+.out-seg.i2,.out-legend .swatch.i2{background:var(--impl)}
+.out-seg.i3,.out-legend .swatch.i3{background:var(--impl);opacity:.7}
+.out-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.3rem 1rem;font-size:.82rem}
+.out-legend-item{display:flex;align-items:center;gap:.4rem}
+.out-legend .swatch{display:inline-block;width:.7rem;height:.7rem;border-radius:2px}
+.out-legend .v{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.cost-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}
+@media (max-width:52rem){.cost-two{grid-template-columns:minmax(0,1fr)}}
+.cost-section .sec-head h3{margin:.25rem 0 .5rem}
+.cost-section .sec-head .swatch{width:.7rem;height:.7rem;border-radius:2px;align-self:center}
+.cost-section .sec-head .sw-plan{background:var(--plan)}
+.cost-section .sec-head .sw-impl{background:var(--impl)}
+table.data.cost-table .mdot{margin-right:.3rem}
+table.data.cost-table td.model .model-name+.model-name{margin-left:.6rem}
+table.data.cost-table tr.nested td.model{padding-left:1.6rem}
+table.data.cost-table tr.group-row th{text-align:left;background:var(--surface-2);font-size:.75rem;
+  text-transform:uppercase;letter-spacing:.05em}
+table.data.cost-table tr.group-plan th{color:var(--plan)}
+table.data.cost-table tr.group-impl th{color:var(--impl)}
+.stackbar{display:flex;height:.5rem;min-width:8rem;border-radius:999px;overflow:hidden;background:var(--surface-2)}
+.stackbar i{display:block;height:100%;background:var(--c,var(--m-other))}
+.pill.neutral{color:var(--fg-2);background:var(--surface-2)}
 table.data.cost-table tr.nested td{background:var(--surface);font-size:.8rem}
 table.data.cost-table tr.nested td.model{padding-left:2rem}
 table.data.cost-table tr.nested[hidden]{display:none}
