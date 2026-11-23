@@ -39,7 +39,6 @@ button{font:inherit;color:inherit}
 .muted{color:var(--fg-2)}
 .faint{color:var(--fg-3)}
 .mono{font-family:var(--mono)}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 
 /* ---- top bar: brand, repository switcher, breadcrumbs, search --------------------------------- */
 .topbar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
@@ -282,8 +281,6 @@ svg.chart .median{stroke:var(--fg);stroke-width:2;stroke-dasharray:5 3}
 dl.facts{display:flex;flex-wrap:wrap;gap:.35rem 1.25rem;margin:.5rem 0;padding:.55rem .85rem;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:.82rem}
 .fact{display:inline-flex;gap:.4rem;align-items:baseline;white-space:nowrap}
-.fact-label{color:var(--fg-faint);text-transform:uppercase;font-size:.68rem;letter-spacing:.04em}
-.fact-value{font-variant-numeric:tabular-nums}
 .result{display:flex;gap:.3rem 1.1rem;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--fg-2);margin:.4rem 0 .6rem}
 .result-main{color:var(--fg);font-weight:600}
 .batch-head .split{margin:.5rem 0 .75rem}

@@ -407,7 +407,7 @@
     label.appendChild(C.el(doc, "span", infoSummary(infos), "muted"));
     var box = C.disclosure(doc, label, function (d, body) {
       var list = C.el(d, "ul", null, "batch-flags");
-      infos.forEach(function (flag) { list.appendChild(flagLine(d, ctx, batch, flag, "ⓘ", "info")); });
+      infos.forEach(function (flag) { list.appendChild(flagLine(d, ctx, batch, flag, "ℹ", "info")); });
       body.appendChild(list);
     });
     box.className += " notices";

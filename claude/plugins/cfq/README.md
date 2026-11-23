@@ -286,7 +286,9 @@ half-written batch in the queue:
 
 - `<repo>/.claude/cfq/**` — the three queues, and the only path every `pfq` session writes.
   `bin/cfq layout` (implemented in `scripts/`) is the source of truth for this list; read it there
-  rather than copying the entries into the hook by hand.
+  rather than copying the entries into the hook by hand. The batch markers `.planning`, `.review`
+  and `.audit` (held while the post-write audit runs) live inside this tree, so the same allowance
+  covers them.
 - `<repo>/CONTEXT.md` and `<repo>/docs/adr/**` — written only on the "Grilling with docs" interview
   path, and easy to miss because no other interview depth touches them.
 
@@ -399,22 +401,37 @@ Open `<repo>/.claude/cfq/reports/index.html` for the list of batches and their r
 single-page viewer over every batch the queue has planned or implemented, plus its todo cards and
 plan-inbox entries, open and closed. It is rendered client-side from plain data files
 `bin/cfq portal sync` writes alongside the fixed viewer shell. Every number is turns and tokens
-(input, output, cache read, cache creation) split by model — never a currency, there is no price
-table. Dates and numbers follow the browser's locale.
+("Input new", "Cache read", output) split by model — never a currency, there is no price table;
+output is the primary measure. Planning and implementation have one colour each on every page, and
+each model family (Fable, Opus, Sonnet, Haiku) keeps one colour on every page. A slim top bar
+carries the repo switcher, breadcrumbs and a search field. Dates and numbers follow the browser's
+locale.
 
-- **Overview** — a KPI strip (batches in progress, planned and done, open todos, plan inbox,
-  flags, deviations, tokens), tabs for batches, todos, plan inbox and archive, a sortable batch table with status,
-  progress, dates, cost, deviations and flags, and two charts: cost per batch and a size
-  calibration (turns and output per phase against its planned `S`/`M`/`L`).
+- **Overview** — what is running comes first: **Now** lists the running batches and the phase each
+  is on, **Needs attention** lists the warnings of open batches and of the last ten finished ones
+  (red phases, open questions, missing telemetry, undeclared files, language or security warnings)
+  plus batches waiting on a plan review, an unknown dependency or the running audit, and **Last 10
+  batches** shows planning and implementation side by side. Below sit the tabs Batches (sortable
+  table with status, progress, dates, cost, deviations and flags), Trends (cost per batch, grouped
+  by planning and implementation or by model, and a size calibration of turns and output per phase
+  against its planned `S`/`M`/`L`), Todos, Plan inbox and Archive.
 - **Batch page** — a header with status, branch, merge state (read from Git: whether the batch's
-  branch, or its last recorded commit, is reachable from the default branch) and flags, then the tabs Phases,
-  Cost, Plan context, Notes and Closing. Phases holds a timeline and the phase table; opening a
-  phase shows its result (summary, verification, deviations, observations, errors), its plan, its
-  cost per model and layer, and its files with the diffstat. Cost splits a batch into planning and
-  phases, by model, and by agent. Notes lists the `plan/` and `todo/` entries written during the
-  work; Closing shows the `finish` snapshot.
+  branch, or its last recorded commit, is reachable from the default branch), flags, a result band
+  and cards for the planning and implementation parts, then the tabs Phases, Cost, Plan context,
+  Notes and Closing. Phases holds a timeline and the phase table; opening a phase shows its result
+  (summary, verification, deviations, observations, errors), its plan, its cost per model and
+  layer, and its files with the diffstat. Cost splits a batch into planning and implementation,
+  each by model, by agent and by layer, with the by-phase table against the rolling size baseline.
+  Notes lists the `plan/` and `todo/` entries written during the work; Closing shows the `finish`
+  snapshot.
 - **Entry page** — the full text of one todo card or plan entry, with the batch and phase it
   came from and, for a plan entry, the batch it was parked into.
+- **Cross-repo index** (with `reportDir`) — one row per mirrored repo with its running batches and
+  attention count, sorted by last activity.
+
+Active time is shown next to calendar time wherever a batch, phase or part has it: the sum of the
+gaps of at most five minutes between the responses of the session and its sub-agents, so waiting
+for the user does not count. Records from before it was measured show calendar time only.
 
 The portal is kept current as a side effect of the mutating verbs that already run during
 `pfq`/`ifq` (park, phase commit, `finish`, …) — at zero model-token cost, since nothing is

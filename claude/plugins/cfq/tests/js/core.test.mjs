@@ -199,7 +199,7 @@ test("flagBadges: counts from {warn, info} or a flag array, texts in the title",
   const [warn, info] = byTag(list, "span").filter((s) => s.className.includes("flag-"));
   assert.equal(warn.textContent, "⚠ 2");
   assert.equal(warn.attrs.title, "first\nsecond");
-  assert.equal(info.textContent, "ⓘ 1");
+  assert.equal(info.textContent, "ℹ 1");
   assert.equal(C.flagBadges(doc, { warn: 0, info: 0 }).textContent, "–");
 });
 

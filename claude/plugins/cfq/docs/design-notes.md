@@ -224,7 +224,8 @@ used again. The cost is that a record stays provisional until then, which the po
 Prices change, differ per plan and per cache tier, and a stale table makes a confident wrong
 number. Turns and tokens per model are facts read off the transcript, comparable across batches, and
 enough to see where a batch spent its effort. A currency figure would add a claim cfq cannot keep
-correct.
+correct. The user confirmed tokens over currency again in batch 063, when the portal's cost views
+were rebuilt around output tokens.
 
 ## cfq: why flags are computed in Python with constant thresholds
 
@@ -757,3 +758,64 @@ out: the parked findings and the skipped checks already show the behaviour that 
 Windows users. The patterns now also accept `C:\dir` and `C:/dir`. UNC paths (`\\host\share`) stay
 rejected: they depend on network state and credentials at the time of the call, and no one has asked for
 them. The cost is that a UNC user mounts the share to a drive letter first.
+
+## cfq: why the review gate waits for the post-write audit
+
+`/pfq` runs its audit of the written plan files in background subagents, so its turn used to end
+with the batch looking finished while the audit was still producing findings; the release question
+could then be answered, and `/ifq` could pick the batch up, before the findings landed. A `.audit`
+marker closes the gap: `batch audit start` writes it, `batch review` and `batch ready` refuse while
+it exists, scan and the preflights treat the batch like one held by `.review`, and the skill ends its
+turn with a `⏳ Phase Audit` line until `batch audit done` removes it. Because a held batch is a
+behaviour change that could misfire, the `auditBarrier` setting (default `true`) is the rollback:
+`false` writes no marker and ignores an existing one. The comparison metric is the `audit` list in
+`report.json`, one `{started, finished, findings}` entry per run, which shows what the wait costs and
+what it catches.
+
+## cfq: why size baselines are rolling
+
+The portal compared a phase with the median of every finished phase of its size, ordered by batch
+name. Two things made that wrong. Orchestrator mode changed what a phase costs (a worker plus its
+explorers instead of one long session), so the all-time median described a workflow that no longer
+runs. And the name sort put batches in lexical order, so `99-…` sorted after `100-…` and the
+"recent" phases were not the recent ones. The baseline now takes the last `BASELINE_WINDOW` (50)
+finished phases of a size, ordered by finish time, and keeps the all-time median beside it for
+comparison. 50 is large enough for a stable median and small enough that a workflow change shows
+within a few batches; like the other thresholds it is a constant, not a setting.
+
+## cfq: why cost outliers are notes
+
+A phase that costs more than twice its size's median is a fact worth seeing, not a defect: a phase
+may be larger than its label, may include a long browser check, or may have retried. Raised as a
+`warn`, the flag filled the needs-attention list with phases that were fine. It is an `info` note on
+the phase and the cost tab now, which keeps the signal and keeps the attention list for what needs a
+decision. The flag needs `BASELINE_MIN_SAMPLES` finished phases of the size, so a new size does not
+flag every phase.
+
+## cfq: how active time is measured
+
+Calendar time from a batch's first to last response includes every hour the user was away, so it
+says little about how long the work took. `active_s` sums the gaps between neighbouring responses of
+the session and of every attributed sub-agent, counting only gaps of at most five minutes
+(`ACTIVE_GAP_S`); a longer gap is a wait, not work. Sub-agents are included because they run while
+the main session waits for them. The number comes from transcript timestamps alone, so it costs no
+model tokens, which was the user's condition for adding it. Older records have no `active_s`, and
+the portal shows their calendar time only rather than a zero.
+
+## cfq: what the S/M/L anchors are based on
+
+The size rule counted nothing ("one file and one test"), and practice contradicted it: the median `S`
+phase touched three files, and two thirds of all phases ended up `M`. The anchors come from 142
+green phases of the atlas repository (batch 100 and later), read from its portal data:
+
+| | phases | output median | turns median | affected files median |
+|---|---|---|---|---|
+| S | 14 | 10.2k | 23 | 3 |
+| M | 95 | 24.8k | 33 | 8 |
+| L | 33 | 39.5k | 53 | 10 |
+
+By affected-file count the output median is 7.2k for 0–2 files, 11.8k for 3–4, 22.5k for 5–7 and
+27.9k for 8 or more. Phases whose plan names a browser or Playwright check have a median of 27.9k
+against 22.3k without. The rule therefore reads `S` up to 3 files, `M` for 4–8, `L` for 9 or more, and
+a step up when the phase adds a real-browser check. The portal's size calibration view on the Trends
+tab shows whether the anchors still hold.

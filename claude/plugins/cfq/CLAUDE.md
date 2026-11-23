@@ -148,7 +148,12 @@ this marker still present is still being written and `implement-for-queue`
 never offers it, mirroring `.lock`'s staleness window). `.review` replaces `.planning` when
 `plan-for-queue` enters its review gate (`cfq batch review`), stores a per-file hash snapshot,
 has no staleness window, and is removed only by `cfq batch ready`; `implement-for-queue` never
-offers a batch that carries it. A batch has a `done/` for finished phases
+offers a batch that carries it. `.audit` (written by `cfq batch audit start` while `plan-for-queue`'s
+post-write audit runs in the background, removed by `cfq batch audit done`) is held like `.review`:
+scan and both preflights report the batch as planning, `batch review` and `batch ready` refuse while
+it exists, and `implement-for-queue` never offers it; the `auditBarrier` setting (default `true`)
+switches the marker off, and the `audit` entries in `report.json` (duration, findings) are the
+comparison metric. A batch has a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`
@@ -253,6 +258,12 @@ A record's sub-agent turns are further split by the `WORKER_AGENT` attribution n
 a phase-worker sub-agent's activity is never counted as an Explore agent's, or vice versa, by any
 downstream aggregate that reads it — including `bin/cfq report summary`'s orchestrator/worker
 split, and `bin/cfq telemetry show --session`'s `layers` object.
+
+A record also carries `active_s`, the active working time: the responses of the session and of
+every attributed sub-agent are sorted by timestamp and the gaps of at most `ACTIVE_GAP_S` (300)
+seconds are summed, so time spent waiting for the user does not count. It is computed from
+timestamps alone, at no model-token cost, and sits next to `wallclock_s` at the record's top level;
+a record written before the field existed has none, and the portal then shows calendar time only.
 
 **Schema 3 counts per API response and records every sub-agent as its own node, grouped into four
 cost layers.** Claude Code writes one transcript line per content block of a response, each
@@ -376,6 +387,24 @@ recomputes its `flags`, unless a file in its batch directory is newer than that 
 (`batch_newer_than()`, stat only) — then it is rebuilt, so hand edits show up. Every batch,
 written or not, is part of the `reportDir` mirror.
 
+The payloads split planning from implementation. A batch payload carries `planning` (`from`,
+`until`, `wallclock_s`, `active_s`, `settled`, `cost`, `interviewDepth`, `phaseCount`, `audit`, the
+`report.json` audit runs) and `implementation` (the same time fields plus `activeComplete`, and the
+`cost` summed over the phase attempts); `time` holds `wallclock_s` and `active_s`, which is `null`
+for a record written before it was measured, never `0`. Each phase carries `baseline`
+(`{size, outputMedian, turnsMedian}` or `null`), attached in `sync()` once the baselines exist. The
+queue payload carries `now` (running, waiting and next batches with their current phase),
+`attention` (warnings and waiting batches of open and recently finished batches, capped, with
+`attentionCounts` counted before the cap), `recent` (the last `RECENT_BATCHES` finished batches with
+planning and implementation totals side by side) and, per batch row, `cost.planning`,
+`cost.implementation` and `time`; the merged `cost`/`cost.total` stays. `baselines` takes the last
+`BASELINE_WINDOW` (50) finished, green, costed phases of a size ordered by finish time (not by batch
+name) and keeps the all-time medians next to them; a phase over `OUTLIER_FACTOR` times its size's
+median raises `cost-outlier` at level `info`, once the window holds `BASELINE_MIN_SAMPLES` points.
+The viewer's top bar (repo switcher, breadcrumbs, search) and Trends tab read these keys, and the
+charts colour a model by its family (Fable, Opus, Sonnet, Haiku), planning and implementation by one
+colour each.
+
 The viewer shell is every file in the plugin's `portal/` directory: `install_shell()` globs the
 directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new
 script needs no registration, and runs whenever `reports/.portal-version` differs from the running
@@ -492,7 +521,7 @@ of:
 - `MULTIPLE_IN_PROGRESS` — more than one batch has an active lock/in-progress marker (invariant
   violation, must be surfaced, never silently picked around).
 - `BLOCKED` — batch exists but `.dependsOn` is unsatisfied.
-- `PLANNING` — batch still has its `.planning` marker, or is held by `.review`; not
+- `PLANNING` — batch still has its `.planning` marker, or is held by `.review` or `.audit`; not
   implementation-ready. The `review` field carries the distinction, no new status string.
 - `LOCKED` — another session holds the repo lock.
 - `DIRTY` — repo has uncommitted changes where a clean tree was required.

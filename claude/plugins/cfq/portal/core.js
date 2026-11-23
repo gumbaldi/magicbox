@@ -294,7 +294,7 @@
       counts.info = flags.info || 0;
     }
     var wrap = el(doc, "span", null, "flags");
-    [["warn", "⚠"], ["info", "ⓘ"]].forEach(function (pair) {
+    [["warn", "⚠"], ["info", "ℹ"]].forEach(function (pair) {
       var level = pair[0];
       if (!counts[level]) return;
       var badge = el(doc, "span", pair[1] + " " + counts[level], "flag flag-" + level);
