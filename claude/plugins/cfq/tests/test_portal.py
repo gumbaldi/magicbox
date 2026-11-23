@@ -63,8 +63,10 @@ ZERO = T(0, 0, 0, 0, 0)
 
 
 def schema3(layers, *, since, until, wallclock, agents=(), tools=None, by_skill=None,
-            settled=True, mode="orchestrator", kind="phase"):
+            settled=True, mode="orchestrator", kind="phase", active=None):
+    extra = {} if active is None else {"active_s": active}
     return {
+        **extra,
         "schema": 3, "kind": kind, "mode": mode, "from": since, "until": until,
         "wallclock_s": wallclock, "since": since, "settled": settled, "rev": 2 if settled else 1,
         "layers": {
@@ -824,7 +826,7 @@ class PortalTest(CfqTestCase):
         b = self._load(repo, f"batch/{DONE_BATCH}")
         self.assertEqual(set(b), {
             "name", "status", "priority", "dependsOn", "branch", "base", "merged", "started", "finished",
-            "outcome", "context", "planning", "phases", "cost", "notes", "fromPlan", "closing",
+            "outcome", "context", "planning", "implementation", "phases", "cost", "notes", "fromPlan", "closing",
             "security", "flags",
         })
         self.assertEqual((b["name"], b["status"], b["outcome"]), (DONE_BATCH, "done", "MIXED"))
@@ -882,7 +884,7 @@ class PortalTest(CfqTestCase):
         self.assertEqual(green["filesTouched"], ["/repo/claude/x.py"])
         self.assertEqual(green["parkedPlanEntries"], [])
         self.assertEqual(setup["attempts"][0]["parkedPlanEntries"], ["plan/2026-09-16-from-phase.md"])
-        self.assertEqual(green["time"], {"from": "2026-09-01T12:00:00Z", "until": "2026-09-01T12:02:00Z", "wallclock_s": 120})
+        self.assertEqual(green["time"], {"from": "2026-09-01T12:00:00Z", "until": "2026-09-01T12:02:00Z", "wallclock_s": 120, "active_s": None})
         self.assertTrue(green["settled"])
         self.assertEqual(green["mode"], "orchestrator")
         self.assertEqual(green["tools"], {"Agent": 1, "Bash": 3})
@@ -939,7 +941,7 @@ class PortalTest(CfqTestCase):
         self.assertEqual([(p["slug"], p["state"]) for p in b["phases"]], [("01-a", "done"), ("02-b", "open"), ("03-c", "open")])
         attempt = b["phases"][0]["attempts"][0]
         self.assertIsNone(attempt["cost"])
-        self.assertEqual(attempt["time"], {"from": "", "until": "", "wallclock_s": 0})
+        self.assertEqual(attempt["time"], {"from": "", "until": "", "wallclock_s": 0, "active_s": None})
         self.assertEqual(attempt["tools"], {})
         self.assertEqual(b["phases"][1]["attempts"], [])
 
@@ -1462,6 +1464,227 @@ class PortalTest(CfqTestCase):
         # the repo-local sync itself is unaffected by the mirror failure
         self.assertTrue((self._data_dir(repo) / "queue.js").is_file())
         self.assertTrue((self._data_dir(repo) / "batch/2026-09-23-demo.js").is_file())
+
+    # ---- planning and implementation, split (batch 063 phase 05) -------------------------------------
+
+    SPLIT_BATCH = "020-2026-10-01-split"
+
+    def _split_batch(self, repo, name, planning, attempts, done=False):
+        """A batch with the given planning record and phase attempts (`[(slug, telemetry), ...]`)."""
+        root = self._cfq(repo) / "impl" / ("done" if done else "") / name
+        self._write(root / ".batch-context.md", "# Batch Context\n\n## Goal\nSplit.\n")
+        slugs = []
+        for slug, _tel in attempts:
+            if slug not in slugs:
+                slugs.append(slug)
+        for slug in slugs:
+            self._write(root / "done" / f"{slug}.md", f"# {slug}\n\n## Size\n\nS\n")
+        data = {
+            "repo": str(repo), "batch": name, "started": "2026-10-01T09:00:00+00:00",
+            "phases": [ledger_phase(slug, "green", tel) for slug, tel in attempts],
+        }
+        if planning is not None:
+            data["planning"] = planning
+        self._write(root / "report.json", json.dumps(data))
+        return root
+
+    def _split_world(self):
+        repo = self.make_repo()
+        planning = {
+            **schema3(
+                {"main": layer(T(10, 20, 1000, 5000, 300), OPUS)},
+                since="2026-10-01T08:00:00Z", until="2026-10-01T09:00:00Z", wallclock=3600,
+                kind="planning", mode="", active=600,
+            ),
+            "interview_depth": "thorough", "phase_count": 3,
+        }
+        first = schema3(
+            {"worker": layer(T(5, 10, 500, 3000, 60), SONNET)},
+            since="2026-10-01T10:00:00Z", until="2026-10-01T10:30:00Z", wallclock=1800, active=900,
+        )
+        second = schema3(  # no active_s: an older record
+            {"worker": layer(T(4, 8, 200, 1000, 40), SONNET)},
+            since="2026-10-02T10:00:00Z", until="2026-10-02T10:10:00Z", wallclock=600,
+        )
+        self._split_batch(repo, self.SPLIT_BATCH, planning, [("01-a", first), ("02-b", second)])
+        self._sync(repo)
+        return repo
+
+    def test_batch_payload_splits_planning_and_implementation(self):
+        repo = self._split_world()
+        batch = self._load(repo, f"batch/{self.SPLIT_BATCH}")
+        planning, impl = batch["planning"], batch["implementation"]
+        self.assertEqual(planning["interviewDepth"], "thorough")
+        self.assertEqual(planning["phaseCount"], 3)
+        self.assertEqual(planning["active_s"], 600)
+        self.assertEqual(planning["audit"], [])
+        self.assertEqual(impl["from"], "2026-10-01T10:00:00Z")
+        self.assertEqual(impl["until"], "2026-10-02T10:10:00Z")
+        self.assertEqual(impl["wallclock_s"], 24 * 3600 + 600)  # calendar time, the pause included
+        self.assertEqual(impl["active_s"], 900, "the one known value")
+        self.assertIs(impl["activeComplete"], False)
+        self.assertEqual(impl["cost"]["total"]["output"], 700)
+        self.assertEqual(set(impl["cost"]), {"total", "byModel", "layers", "agents"})
+
+    def test_planning_plus_implementation_equals_the_merged_cost(self):
+        repo = self._split_world()
+        batch = self._load(repo, f"batch/{self.SPLIT_BATCH}")
+        p, i, total = batch["planning"]["cost"], batch["implementation"]["cost"], batch["cost"]
+        self.assertEqual(cfq_portal.add_t5(p["total"], i["total"]), total["total"])
+        models = {}
+        cfq_portal.merge_models(models, p["byModel"])
+        cfq_portal.merge_models(models, i["byModel"])
+        self.assertEqual(models, total["byModel"])
+        # the same holds for the original world's done batch
+        world = self._world("world-split")
+        done = self._load(world, f"batch/{DONE_BATCH}")
+        self.assertEqual(
+            cfq_portal.add_t5(done["planning"]["cost"]["total"], done["implementation"]["cost"]["total"]),
+            done["cost"]["total"],
+        )
+
+    def test_queue_row_carries_the_split(self):
+        repo = self._split_world()
+        row = self._row(repo, self.SPLIT_BATCH)
+        batch = self._load(repo, f"batch/{self.SPLIT_BATCH}")
+        self.assertEqual(row["cost"]["total"], batch["cost"]["total"])
+        self.assertEqual(row["cost"]["planning"]["total"], batch["planning"]["cost"]["total"])
+        self.assertEqual(row["cost"]["implementation"]["total"], batch["implementation"]["cost"]["total"])
+        self.assertEqual(row["cost"]["implementation"]["byModel"], batch["implementation"]["cost"]["byModel"])
+        self.assertEqual(row["time"], {
+            "planning": {"wallclock_s": 3600, "active_s": 600},
+            "implementation": {"wallclock_s": batch["implementation"]["wallclock_s"], "active_s": 900},
+        })
+
+    def test_planning_only_batch_has_no_implementation(self):
+        repo = self.make_repo()
+        planning = schema3(
+            {"main": layer(T(10, 20, 1000, 5000, 300), OPUS)},
+            since="2026-10-01T08:00:00Z", until="2026-10-01T09:00:00Z", wallclock=3600,
+            kind="planning", mode="",
+        )
+        impl = self._build_batch(repo, "2026-10-01-plan-only", with_report=False)
+        self._write(impl / "report.json", json.dumps({
+            "repo": str(repo), "batch": "2026-10-01-plan-only", "started": "2026-10-01T08:00:00+00:00",
+            "planning": planning, "phases": [],
+        }))
+        self._sync(repo)
+        batch = self._load(repo, "batch/2026-10-01-plan-only")
+        self.assertIsNone(batch["implementation"])
+        self.assertEqual(batch["planning"]["interviewDepth"], "")
+        self.assertIsNone(batch["planning"]["phaseCount"])
+        self.assertIsNone(batch["planning"]["active_s"])
+        row = self._row(repo, "2026-10-01-plan-only")
+        self.assertIsNone(row["cost"]["implementation"])
+        self.assertEqual(row["cost"]["planning"]["total"], batch["planning"]["cost"]["total"])
+        self.assertEqual(row["time"]["planning"], {"wallclock_s": 3600, "active_s": None})
+        self.assertIsNone(row["time"]["implementation"])
+
+    def test_row_without_telemetry_has_no_split(self):
+        repo = self._world("world-bare")
+        row = self._row(repo, BARE_BATCH)
+        self.assertIsNone(row["cost"])
+        self.assertIsNone(row["time"]["planning"])
+        self.assertIsNone(row["time"]["implementation"])
+        self.assertIsNone(self._load(repo, f"batch/{BARE_BATCH}")["implementation"])
+
+    def test_time_of_reports_active_s_or_none(self):
+        self.assertIsNone(cfq_portal.time_of({"from": "a", "until": "b", "wallclock_s": 5})["active_s"])
+        self.assertIsNone(cfq_portal.time_of(None)["active_s"])
+        self.assertEqual(cfq_portal.time_of({"wallclock_s": 5, "active_s": 0})["active_s"], 0)
+        self.assertEqual(cfq_portal.time_of({"active_s": 42.5})["active_s"], 42.5)
+
+    def test_audit_entries_reach_the_planning_part(self):
+        repo = self.make_repo()
+        audit = [{"started": "2026-10-01T09:00:00+00:00", "finished": "2026-10-01T09:05:00+00:00", "findings": 2}]
+        root = self._split_batch(repo, "021-2026-10-01-audited", dict(PLANNING_TEL), [("01-a", dict(GREEN_TEL))])
+        data = json.loads((root / "report.json").read_text())
+        data["audit"] = audit
+        (root / "report.json").write_text(json.dumps(data))
+        self._sync(repo)
+        self.assertEqual(self._load(repo, "batch/021-2026-10-01-audited")["planning"]["audit"], audit)
+
+    # ---- queue.js: the last ten finished batches -----------------------------------------------------
+
+    def _recent_world(self, count=12):
+        """`count` finished batches 101..; batch i finishes on day 13 - i, so the newest batches
+        are the lowest numbers and the name order is the opposite of the finish order."""
+        repo = self.make_repo()
+        for i in range(1, count + 1):
+            day = 13 - i
+            planning = {
+                **schema3(
+                    {"main": layer(T(2, 1, 100 * i, 10, 1), OPUS)},
+                    since=f"2026-10-{day:02d}T08:00:00Z", until=f"2026-10-{day:02d}T09:00:00Z",
+                    wallclock=3600, kind="planning", mode="", active=600,
+                ),
+                "interview_depth": "normal", "phase_count": 2,
+            }
+            first = schema3(
+                {"worker": layer(T(3, 1, 10 * i, 10, 1), SONNET)},
+                since=f"2026-10-{day:02d}T10:00:00Z", until=f"2026-10-{day:02d}T10:30:00Z",
+                wallclock=1800, active=100,
+            )
+            second = schema3(
+                {"worker": layer(T(3, 1, 20 * i, 10, 1), SONNET)},
+                since=f"2026-10-{day:02d}T11:00:00Z", until=f"2026-10-{day:02d}T11:30:00Z",
+                wallclock=1800, active=200,
+            )
+            self._split_batch(
+                repo, f"{100 + i}-2026-10-{day:02d}-recent", planning, [("01-a", first), ("02-b", second)], done=True,
+            )
+        self._sync(repo)
+        return repo
+
+    def test_recent_lists_the_ten_newest_finished_batches(self):
+        repo = self._recent_world()
+        recent = self._load(repo, "queue")["recent"]
+        newest = [f"{100 + i}-2026-10-{13 - i:02d}-recent" for i in range(1, 11)]
+        self.assertEqual(recent["batches"], newest)
+
+        planning, impl = recent["planning"], recent["implementation"]
+        outputs = [100 * i for i in range(1, 11)]
+        self.assertEqual(planning["total"]["output"], sum(outputs))
+        self.assertEqual(planning["total"]["output"], 5500)
+        self.assertEqual(planning["medianOutput"], 550)
+        self.assertEqual(planning["wallclock_s"], 10 * 3600)
+        self.assertEqual(planning["active_s"], 10 * 600)
+        self.assertEqual(planning["byModel"][OPUS]["output"], 5500)
+
+        per_phase = sorted([10 * i for i in range(1, 11)] + [20 * i for i in range(1, 11)])
+        self.assertEqual(impl["phases"], 20)
+        self.assertEqual(impl["outputPerPhase"], 75, "hand computation: (70 + 80) / 2")
+        self.assertEqual(impl["total"]["output"], sum(per_phase))
+        self.assertEqual(impl["byModel"][SONNET]["output"], 1650)
+        self.assertEqual(impl["wallclock_s"], 10 * 5400, "10:00 to 11:30 per batch")
+        self.assertEqual(impl["active_s"], 10 * 300)
+
+    def test_recent_with_fewer_than_ten_and_without_any(self):
+        repo = self._recent_world(count=3)
+        recent = self._load(repo, "queue")["recent"]
+        self.assertEqual(len(recent["batches"]), 3)
+        self.assertEqual(recent["implementation"]["phases"], 6)
+        empty = cfq_portal.recent_summary([], {})
+        self.assertEqual(empty["batches"], [])
+        self.assertEqual(empty["planning"]["total"], cfq_portal.zero_t5())
+        self.assertIsNone(empty["planning"]["active_s"])
+        self.assertIsNone(empty["planning"]["medianOutput"])
+        self.assertIsNone(empty["implementation"]["active_s"])
+        self.assertIsNone(empty["implementation"]["outputPerPhase"])
+        self.assertEqual(empty["implementation"]["phases"], 0)
+
+    def test_recent_ignores_unfinished_batches(self):
+        repo = self._world("world-recent")
+        recent = self._load(repo, "queue")["recent"]
+        self.assertEqual(recent["batches"], [DONE_BATCH])
+
+    def test_recent_ties_break_by_name(self):
+        rows = [
+            {"name": "b", "status": "done", "finished": "2026-10-01T00:00:00Z", "cost": {"total": {}, "byModel": {}}},
+            {"name": "a", "status": "done", "finished": "2026-10-01T00:00:00Z", "cost": {"total": {}, "byModel": {}}},
+            {"name": "c", "status": "done", "finished": "2026-10-02T00:00:00Z", "cost": {"total": {}, "byModel": {}}},
+        ]
+        self.assertEqual(cfq_portal.recent_summary(rows, {})["batches"], ["c", "a", "b"])
 
 
 if __name__ == "__main__":
