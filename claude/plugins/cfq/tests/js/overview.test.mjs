@@ -206,7 +206,8 @@ test("panels: registered overviewPanel items render above the toolbar, in order"
   assert.equal(byClass(tab, "panels").length, 0, "panels belong to the Batches tab only");
 });
 
-test("toolbar: search, chips and sorting redraw the table; / focuses the search field", () => {
+test("toolbar: search, chips and sorting redraw the table", () => {
+  CFQ.state.query = "";
   const doc = fakeDoc();
   const root = fakeRoot(doc);
   O.render(doc, root, ctxFor());
@@ -242,16 +243,34 @@ test("toolbar: search, chips and sorting redraw the table; / focuses the search 
   search.value = "zzz";
   fire(search, "input");
   assert.match(collectText(root), /No batch matches the filter/);
+  assert.equal(CFQ.state.query, "zzz", "the overview's own field writes the shared query");
+  CFQ.state.query = "";
+});
 
-  const ev = fire(doc, "keydown", { key: "/", target: root });
-  assert.equal(search.focused, true);
-  assert.equal(ev.prevented, true);
-  search.focused = false;
-  fire(doc, "keydown", { key: "/", target: search });
-  assert.equal(search.focused, false, "typing / inside a field is left alone");
+test("the shared query pre-fills the overview and the top bar's field redraws it", () => {
+  const doc = fakeDoc();
+  const top = doc.createElement("input");
+  doc.byId.search = top;
+  CFQ.state.query = "alpha";
+  const root = fakeRoot(doc);
+  O.render(doc, root, ctxFor());
+  const search = byTag(root, "input")[0];
+  const rowNames = () => byTag(root, "tr").filter((tr) => byClass(tr, "rowlink").length).map((tr) => byClass(tr, "rowlink")[0].attrs.href);
+  assert.equal(search.value, "alpha");
+  assert.deepEqual(rowNames(), ["#/batch/045-2026-09-20-alpha-done"], "the initial filter applies");
 
-  O.render(doc, fakeRoot(doc), ctxFor());
-  assert.equal(doc.listeners.keydown.length, 1, "one slash handler per document");
+  CFQ.state.query = "beta";
+  CFQ.state.onQuery();
+  assert.equal(search.value, "beta");
+  assert.deepEqual(rowNames(), ["#/batch/046-2026-09-25-beta-done"]);
+
+  search.value = "gamma";
+  fire(search, "input");
+  assert.equal(CFQ.state.query, "gamma");
+  assert.equal(top.value, "gamma", "typing here updates the top bar's field");
+  assert.equal(doc.listeners.keydown, undefined, "the / handler lives in app.js now");
+  CFQ.state.query = "";
+  CFQ.state.onQuery = null;
 });
 
 test("rows follow their link on click except on inner links", () => {

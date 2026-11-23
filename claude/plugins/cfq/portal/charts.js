@@ -1,7 +1,7 @@
 // Hand-written inline SVG charts of the portal viewer: stacked bars, horizontal stacked bars and a
 // strip chart per size, plus the legend and the plain numbers table every chart ships with. No
-// library, no CDN, no inline colours: segments carry the CSS classes `m0`..`m5` / `m-other` that
-// style.css colours for both themes. SVG nodes are built with `createElementNS`, and every text
+// library, no CDN, no inline colours: segments carry the CSS classes `m-fable`, `m-opus`,
+// `m-sonnet`, `m-haiku` / `m-other` that style.css colours for both themes. SVG nodes are built with `createElementNS`, and every text
 // reaches the DOM through `textContent` -- nothing here parses markup.
 //
 // `keys` / `slots` arguments are the map `modelSlots()` returns: `{<model name>: <slot class>}`.
@@ -15,7 +15,7 @@
   var CFQ = g.CFQ = g.CFQ || {};
 
   var SVG_NS = "http://www.w3.org/2000/svg";
-  var MAX_SLOTS = 6;
+  var FAMILIES = ["fable", "opus", "sonnet", "haiku"];
   var OTHER = "m-other";
   var BASELINE_MIN = 5;
 
@@ -25,15 +25,22 @@
 
   // ---- scales -----------------------------------------------------------------------------------
 
-  // Sorted model names -> `m0`..`m5`; the seventh and later share `m-other`. Deterministic.
+  // Model name -> the colour class of its family (`m-fable`, `m-opus`, `m-sonnet`, `m-haiku`; every
+  // other name, `<synthetic>` included, gets `m-other`). The class depends on the name alone, so a
+  // model has the same colour on every page.
+  function familyClass(name) {
+    var lower = String(name).toLowerCase();
+    for (var i = 0; i < FAMILIES.length; i++) {
+      if (lower.indexOf(FAMILIES[i]) !== -1) return "m-" + FAMILIES[i];
+    }
+    return OTHER;
+  }
+
   function modelSlots(models) {
-    var names = [];
-    (models || []).forEach(function (m) {
-      if (typeof m === "string" && names.indexOf(m) === -1) names.push(m);
-    });
-    names.sort();
     var out = {};
-    names.forEach(function (m, i) { out[m] = i < MAX_SLOTS ? "m" + i : OTHER; });
+    (models || []).forEach(function (m) {
+      if (typeof m === "string") out[m] = familyClass(m);
+    });
     return out;
   }
 
@@ -48,9 +55,10 @@
     return nice * base;
   }
 
+  // Stack order, bottom first: fable, opus, sonnet, haiku, other.
   function slotRank(slot) {
-    var m = /^m(\d)$/.exec(slot || "");
-    return m ? Number(m[1]) : 99;
+    var i = FAMILIES.indexOf(String(slot || "").replace(/^m-/, ""));
+    return i === -1 ? FAMILIES.length : i;
   }
 
   // The names of `values` with a non-zero number, in slot order (bottom of the stack first).

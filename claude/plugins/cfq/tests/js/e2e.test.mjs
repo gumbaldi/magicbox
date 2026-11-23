@@ -39,7 +39,8 @@ function loaderFor(dir, failures) {
 async function walk(hash, load, failures, expectText) {
   const doc = fakeDoc();
   doc.byId.crumbs = doc.createElement("nav");
-  doc.byId["site-title"] = doc.createElement("span");
+  doc.byId["repo-switch"] = doc.createElement("span");
+  doc.byId.search = doc.createElement("input");
   const root = fakeRoot(doc);
   try {
     await CFQ.app.render(doc, root, hash, load);

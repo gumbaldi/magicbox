@@ -132,6 +132,20 @@ test("fmtDuration: m:ss and h:mm:ss", () => {
   assert.equal(C.fmtDuration(null), "–");
 });
 
+test("fmtSpan: short spans in s, m, h and d", () => {
+  const cases = [[0, "0s"], [45, "45s"], [59.6, "1m"], [660, "11m"], [3900, "1h 05m"], [7200, "2h 00m"],
+    [273600, "3d 4h"], [277200, "3d 5h"], [null, "–"], [undefined, "–"], [NaN, "–"], [-5, "–"]];
+  for (const [input, want] of cases) assert.equal(C.fmtSpan(input), want, String(input));
+});
+
+test("fmtActive: active time with the calendar time as title, or the calendar time alone", () => {
+  assert.deepEqual(C.fmtActive(660, 2220), { text: "≈ 11m", title: "37m" });
+  assert.deepEqual(C.fmtActive(0, 2220), { text: "≈ 0s", title: "37m" });
+  assert.deepEqual(C.fmtActive(null, 2220), { text: "37m", title: null });
+  assert.deepEqual(C.fmtActive(undefined, null), { text: "–", title: null });
+  assert.deepEqual(C.fmtActive(660, null), { text: "≈ 11m", title: null });
+});
+
 test("fmtDateTime and fmtDate use the injected formatter", () => {
   const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" });
   assert.equal(C.fmtDateTime("2026-10-01T08:05:00Z", fmt), fmt.format(new Date("2026-10-01T08:05:00Z")));
@@ -311,7 +325,8 @@ test("app.render in global mode loads from the mirror and ctx carries the mirror
     const payload = [hash];
     const { load, loaded } = recorder(site, { [path]: payload });
     await cfq.app.render(doc, fakeRoot(doc), hash, load);
-    assert.deepEqual(loaded, ["data/site", path], hash);
+    // Every page of a mirror also loads the repo list for the top bar's switcher.
+    assert.deepEqual(loaded, view === "repos" ? ["data/site", path] : ["data/site", path, "data/repos"], hash);
     const ctx = calls[view];
     assert.ok(ctx, `${hash} dispatches to ${view}`);
     assert.equal(ctx.mode, "global");
@@ -350,7 +365,6 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
   const cfq = loadPortal();
   const doc = fakeDoc();
   doc.byId.crumbs = doc.createElement("nav");
-  doc.byId["site-title"] = doc.createElement("span");
   const root = fakeRoot(doc);
   root.appendChild(cfq.core.el(doc, "p", "stale"));
   cfq.overview = {
@@ -363,7 +377,6 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
   assert.equal(collectText(root), "fresh");
   assert.equal(byTag(doc.byId.crumbs, "a")[0].attrs.href, "#/");
   assert.match(collectText(doc.byId.crumbs), /Here/);
-  assert.equal(doc.byId["site-title"].textContent, "cfq – demo");
   assert.equal(doc.title, "cfq – demo");
 
   cfq.overview = { render() { throw new Error("kaboom"); } };
@@ -376,6 +389,110 @@ test("app.render clears the root, fills the breadcrumb slot and survives a throw
     console.error = origError;
   }
   assert.match(collectText(root2), /kaboom/);
+});
+
+// ---- top bar ------------------------------------------------------------------------------
+
+function topbarDoc() {
+  const doc = fakeDoc();
+  for (const id of ["crumbs", "repo-switch"]) doc.byId[id] = doc.createElement(id === "crumbs" ? "nav" : "span");
+  doc.byId.search = doc.createElement("input");
+  return doc;
+}
+
+test("top bar: repo mode shows the repo name as plain text", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  await cfq.app.render(doc, fakeRoot(doc), "#/", recorder(fixtureSite(), { "data/queue": fixtureQueue() }).load);
+  const slot = doc.byId["repo-switch"];
+  assert.equal(byTag(slot, "select").length, 0);
+  assert.equal(collectText(slot), "demo");
+});
+
+test("top bar: global mode has a switcher over the repo list that opens the chosen overview", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const data = { "data/repos": fixtureRepos(), "alpha/data/queue": fixtureQueue() };
+  await cfq.app.render(doc, fakeRoot(doc), "#/alpha/", recorder(fixtureSite("global"), data).load);
+  const select = byTag(doc.byId["repo-switch"], "select")[0];
+  assert.ok(select, "a <select> in global mode");
+  const options = byTag(select, "option");
+  assert.deepEqual(options.map((o) => [o.attrs.value, o.textContent]), [["alpha", "alpha"], ["beta-1a2b3c", "beta"]]);
+  assert.equal(select.value, "alpha", "the current repo is selected");
+
+  const savedLocation = globalThis.location;
+  globalThis.location = { hash: "#/alpha/" };
+  try {
+    select.value = "beta-1a2b3c";
+    fire(select, "change");
+    assert.equal(globalThis.location.hash, "#/beta-1a2b3c/");
+  } finally {
+    if (savedLocation === undefined) delete globalThis.location;
+    else globalThis.location = savedLocation;
+  }
+
+  // the repo index itself offers "All repos" in front
+  const doc2 = topbarDoc();
+  await cfq.app.render(doc2, fakeRoot(doc2), "#/", recorder(fixtureSite("global"), data).load);
+  const first = byTag(byTag(doc2.byId["repo-switch"], "select")[0], "option")[0];
+  assert.equal(first.textContent, "All repos");
+});
+
+test("top bar: / focuses the search field, one handler per document", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const load = recorder(fixtureSite(), { "data/queue": fixtureQueue() }).load;
+  await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+  await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+  const search = doc.byId.search;
+  const ev = fire(doc, "keydown", { key: "/", target: fakeRoot(doc) });
+  assert.equal(search.focused, true);
+  assert.equal(ev.prevented, true);
+  search.focused = false;
+  fire(doc, "keydown", { key: "/", target: search });
+  assert.equal(search.focused, false, "typing / inside a field is left alone");
+  assert.equal(doc.listeners.keydown.length, 1, "one slash handler per document");
+});
+
+test("top bar: search filters the overview, and Enter elsewhere opens the overview with the query", async () => {
+  const cfq = loadPortal();
+  stubViews(cfq);
+  const doc = topbarDoc();
+  const search = doc.byId.search;
+  const load = recorder(fixtureSite(), { "data/queue": fixtureQueue(), "data/batch/x": { name: "x" } }).load;
+  const savedLocation = globalThis.location;
+  globalThis.location = { hash: "#/batch/x" };
+  try {
+    await cfq.app.render(doc, fakeRoot(doc), "#/batch/x", load);
+    search.value = "alpha";
+    fire(search, "input");
+    assert.equal(cfq.state.query, "alpha");
+    fire(search, "keydown", { key: "Enter" });
+    assert.equal(globalThis.location.hash, "#/", "Enter on a batch page navigates to the overview");
+
+    // On the overview, typing redraws through the hook the overview registered; Enter stays put.
+    let redraws = 0;
+    cfq.overview = { render() { cfq.state.onQuery = () => { redraws++; }; } };
+    await cfq.app.render(doc, fakeRoot(doc), "#/", load);
+    assert.equal(search.value, "alpha", "the field shows the shared query");
+    search.value = "beta";
+    fire(search, "input");
+    assert.equal(redraws, 1);
+    globalThis.location.hash = "#/";
+    fire(search, "keydown", { key: "Enter" });
+    assert.equal(globalThis.location.hash, "#/");
+
+    // Another page drops the overview's hook.
+    await cfq.app.render(doc, fakeRoot(doc), "#/batch/x", load);
+    assert.equal(cfq.state.onQuery, null);
+    assert.equal(search.value, "beta");
+  } finally {
+    if (savedLocation === undefined) delete globalThis.location;
+    else globalThis.location = savedLocation;
+  }
 });
 
 test("fixtures stay in the contract shape", () => {

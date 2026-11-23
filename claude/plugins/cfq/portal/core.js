@@ -179,6 +179,25 @@
     return h ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec);
   }
 
+  // Short spans for the summary views: "45s", "11m", "1h 05m", "3d 4h"; "–" for a missing value.
+  function fmtSpan(s) {
+    if (!isNum(s) || s < 0) return "–";
+    var total = Math.round(s);
+    if (total < 60) return total + "s";
+    var mins = Math.floor(total / 60);
+    if (mins < 60) return mins + "m";
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + "h " + (mins % 60 < 10 ? "0" : "") + (mins % 60) + "m";
+    return Math.floor(hours / 24) + "d " + (hours % 24) + "h";
+  }
+
+  // Active working time with the calendar time beside it: {text: "≈ 11m", title: "37m"}. A record
+  // without `active_s` (older telemetry) shows the calendar time alone and no title.
+  function fmtActive(activeS, wallclockS) {
+    if (!isNum(activeS)) return { text: fmtSpan(wallclockS), title: null };
+    return { text: "≈ " + fmtSpan(activeS), title: isNum(wallclockS) ? fmtSpan(wallclockS) : null };
+  }
+
   function defaultFormatter(options) {
     try { return new Intl.DateTimeFormat(undefined, options); } catch (e) { return null; }
   }
@@ -420,6 +439,10 @@
     ]);
   }
 
+  // State the top bar and the overview share: the search text, and the overview's redraw hook
+  // (`onQuery`, set while the overview is on screen, cleared by the router for every other view).
+  CFQ.state = CFQ.state || { query: "", onQuery: null };
+
   CFQ.core = {
     parseRoute: parseRoute,
     dataPath: dataPath,
@@ -436,6 +459,8 @@
     fmtInt: fmtInt,
     fmtTokens: fmtTokens,
     fmtDuration: fmtDuration,
+    fmtSpan: fmtSpan,
+    fmtActive: fmtActive,
     fmtDateTime: fmtDateTime,
     fmtDate: fmtDate,
     billableIn: billableIn,

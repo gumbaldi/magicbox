@@ -99,7 +99,7 @@ test("cost panel: bars link through core.href; the metric switch redraws", () =>
   const buttons = byTag(byClass(root, "metric-switch")[0], "button");
   assert.deepEqual(buttons.map((b) => b.textContent), ["Turns", "In", "Out"]);
   assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["false", "false", "true"]);
-  const heightOf = () => findAll(root, (n) => n.tagName === "rect" && svgClass(n).includes("m1")).map((r) => Number(r.attrs.height));
+  const heightOf = () => findAll(root, (n) => n.tagName === "rect" && svgClass(n).includes("m-sonnet")).map((r) => Number(r.attrs.height));
   const outH = heightOf();
   fire(buttons[0], "click");
   assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["true", "false", "false"]);

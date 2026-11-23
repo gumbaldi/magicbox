@@ -277,7 +277,9 @@
       return;
     }
 
-    var state = { query: "", group: "all", key: null, dir: "asc" };
+    // The search text lives in CFQ.state.query, shared with the top bar's search field.
+    var shared = CFQ.state || (CFQ.state = { query: "", onQuery: null });
+    var state = { query: shared.query || "", group: "all", key: null, dir: "asc" };
     var tableHost = C.el(doc, "div", null, "tscroll");
 
     var toolbar = C.el(doc, "div", null, "toolbar");
@@ -285,6 +287,7 @@
     search.setAttribute("type", "search");
     search.setAttribute("placeholder", "Filter by number, title or goal   ( / )");
     search.setAttribute("aria-label", "Filter batches");
+    search.value = state.query;
     toolbar.appendChild(search);
 
     var chips = [];
@@ -301,21 +304,21 @@
       chips.push({ id: c[0], node: chip });
       toolbar.appendChild(chip);
     });
-    search.addEventListener("input", function () { state.query = search.value || ""; draw(); });
+    var topSearch = function () { return doc.getElementById ? doc.getElementById("search") : null; };
+    search.addEventListener("input", function () {
+      state.query = shared.query = search.value || "";
+      var top = topSearch();
+      if (top) top.value = state.query;
+      draw();
+    });
+    // Typing in the top bar's field filters this table.
+    shared.onQuery = function () {
+      state.query = shared.query || "";
+      search.value = state.query;
+      draw();
+    };
     root.appendChild(toolbar);
     root.appendChild(tableHost);
-
-    // `/` focuses the search field; one handler per document, replaced on every render.
-    if (doc.addEventListener) {
-      if (doc.__cfqSlash && doc.removeEventListener) doc.removeEventListener("keydown", doc.__cfqSlash);
-      doc.__cfqSlash = function (ev) {
-        var t = ev && ev.target, tag = t && t.tagName ? String(t.tagName).toLowerCase() : "";
-        if (!ev || ev.key !== "/" || tag === "input" || tag === "textarea" || tag === "select") return;
-        if (ev.preventDefault) ev.preventDefault();
-        search.focus();
-      };
-      doc.addEventListener("keydown", doc.__cfqSlash);
-    }
 
     function draw() {
       C.clear(tableHost);
