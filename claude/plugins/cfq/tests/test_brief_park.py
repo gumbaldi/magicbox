@@ -1009,20 +1009,6 @@ class ParkTest(CfqTestCase):
             ".priority must still be rewritten from the second call's arguments",
         )
 
-    def test_park_on_review_batch_leaves_review_and_creates_no_planning(self):
-        batch = "2026-01-13-inreview"
-        batchdir = self.parkrepo / ".claude/cfq/impl" / batch
-        batchdir.mkdir(parents=True)
-        (batchdir / ".review").write_text('{"since": "x"}\n')
-
-        proc = self.run_cfq(
-            "park", str(self.parkrepo), batch, "normal", home=self.park_home,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual((batchdir / ".review").read_text(), '{"since": "x"}\n')
-        self.assertFalse((batchdir / ".planning").exists())
-        self.assertEqual(proc.stderr, "")
-
     # ---- status.json follows the phase files (batch 051 phase 02) -----------------------------
 
     def _phase_status(self, batchdir):

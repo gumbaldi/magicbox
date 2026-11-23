@@ -6,22 +6,17 @@
 #        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
 #        cfq_batch_id.py audit         <batch-dir> start|done [--findings N]
-#        cfq_batch_id.py review        <batch-dir>
 #        cfq_batch_id.py ready         <batch-dir>
 #
-# `audit` holds the review gate while the post-write audit runs: `start` writes `.audit`
+# `audit` holds `ready` while the post-write audit runs: `start` writes `.audit`
 # (`started`, `runs`), `done` removes it and appends the run to report.json's `audit` list. While
-# `.audit` exists `review` and `ready` refuse, unless the `auditBarrier` setting is false.
+# `.audit` exists `ready` refuses, unless the `auditBarrier` setting is false.
 #
 # `.planning` is written here, by `allocate`, the moment the batch directory is created --
 # `park` only refreshes it (heartbeat) while it exists, and never re-creates it once `ready`
 # removes it. `ready` removes the `.planning` heartbeat marker a batch directory carries while
 # `plan-for-queue` is still writing it -- hard delete, no trash, since the marker carries no
 # content. Idempotent.
-# `review` is the plan-for-queue review gate: it replaces `.planning` with `.review`, a marker with
-# no staleness window (a batch whose review was never answered stays held until `ready`) that
-# doubles as a snapshot -- `since`, `shown` and a sha256 per plan file -- so `brief --review
-# --changed` can show only what changed since. `ready` removes whichever of the two markers exist.
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
@@ -566,7 +561,7 @@ def cmd_reconcile(args):
     sys.exit(0 if ok else 1)
 
 
-# ---- review / ready ----------------------------------------------------------------------------------
+# ---- ready ----------------------------------------------------------------------------------
 
 def audit_barrier_on(batch_dir):
     """The `auditBarrier` setting for the repository `batch_dir` lives in (env > repo > global >
@@ -621,25 +616,6 @@ def cmd_audit(args):
     print(f"audit done {findings} findings")
 
 
-def cmd_review(args):
-    batch_dir = pathlib.Path(args.batch_dir)
-    refuse_while_auditing(batch_dir, "review")
-    if any(p.is_file() for p in (batch_dir / "done").glob("[0-9][0-9]-*.md")):
-        errors.die(f"{PROG} review: {batch_dir.name} already has finished phases -- "
-                   "a started batch never goes back into review")
-    marker = batch_dir / ".review"
-    previous = cfq_queue.read_review(batch_dir)
-    since = previous.get("since") if previous and previous.get("since") else render.now_iso()
-    render.write_json(str(marker), {
-        "since": since,
-        "shown": render.now_iso(),
-        "files": cfq_queue.review_snapshot(batch_dir),
-    })
-    (batch_dir / ".planning").unlink(missing_ok=True)
-    portal_hook.sync(portal_hook.repo_root_from_batch_dir(batch_dir), batches=[batch_dir.name])
-    print(f"review {marker}")
-
-
 def cmd_ready(args):
     batch_dir = pathlib.Path(args.batch_dir)
     refuse_while_auditing(batch_dir, "ready")
@@ -651,7 +627,7 @@ def cmd_ready(args):
     except phase_state.PhaseStateError as e:
         errors.fail(e.code, e.message)
     removed = []
-    for name in (".planning", ".review"):
+    for name in (".planning", ".review"):  # `.review`: legacy marker written by earlier versions
         marker = batch_dir / name
         if marker.exists():
             marker.unlink()
@@ -752,10 +728,6 @@ def build_parser():
     p.add_argument("--findings", type=int, default=0)
     p.set_defaults(func=cmd_audit)
 
-    p = sub.add_parser("review")
-    p.add_argument("batch_dir")
-    p.set_defaults(func=cmd_review)
-
     p = sub.add_parser("ready")
     p.add_argument("batch_dir")
     p.set_defaults(func=cmd_ready)
@@ -774,7 +746,7 @@ def main(argv):
             "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
             "verify <repo-root> [--batch <name>] [--json] | "
             "recover <repo-root> --batch <name> [--dry-run] | "
-            "audit <batch-dir> start|done [--findings N] | review <batch-dir> | ready <batch-dir>"
+            "audit <batch-dir> start|done [--findings N] | ready <batch-dir>"
         )
     func(args)
 
