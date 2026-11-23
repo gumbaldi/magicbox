@@ -477,3 +477,12 @@ table.data.repos tbody tr{cursor:pointer}
 .edit-open:hover,.edit-copy:hover{background:var(--accent-bg)}
 .edit-path{overflow-wrap:anywhere;user-select:all}
 .edit-hint{font-size:.76rem}
+
+/* ---- cross-repo index: one row per repo ------------------------------------------------------- */
+.repo-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1.6fr) auto minmax(8rem,auto)}
+.repo-row .repo .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-now{display:flex;align-items:center;gap:.6rem;min-width:0}
+.repo-now .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-pills{display:flex;gap:.4rem;justify-content:flex-end;min-width:0}
+.repo-meta{display:grid;gap:.1rem;justify-items:end;font-size:.8rem;text-align:right}
+@media (max-width:45rem){.repo-row{grid-template-columns:minmax(0,1fr)}.repo-pills,.repo-meta{justify-content:flex-start;justify-items:start;text-align:left}}

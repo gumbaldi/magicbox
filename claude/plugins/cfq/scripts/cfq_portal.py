@@ -295,15 +295,40 @@ def resolve_mirror_name(existing_repos, repo_root):
     return f"{base}-{digest}"
 
 
+def last_activity(queue_payload):
+    """The newest `finished`/`started` of every batch row and `started` of every `now` entry's
+    batch, as the ISO string it was recorded with, or `""` when none parses."""
+    rows = queue_payload.get("batches") or []
+    started = {r.get("name"): r.get("started") for r in rows}
+    candidates = []
+    for r in rows:
+        candidates += [r.get("finished"), r.get("started")]
+    for item in queue_payload.get("now") or []:
+        candidates.append(started.get(item.get("batch")))
+    best, best_ts = "", None
+    for value in candidates:
+        ts = _parse_ts(value) if value else None
+        if ts is not None and (best_ts is None or ts > best_ts):
+            best, best_ts = value, ts
+    return best
+
+
 def repo_counts(queue_payload):
-    """`{"batches": {"inProgress", "planned", "done"}, "todos", "planEntries"}` -- read straight off
-    the queue payload's `totals`, so the cross-repo index can render a repo's card without loading
-    and grouping that repo's full `queue.js` itself."""
+    """`{"batches": {"inProgress", "planned", "done"}, "todos", "planEntries", "now",
+    "attention": {"warn", "plan"}, "lastActivity"}` -- read straight off the queue payload, so the
+    cross-repo index can render a repo's row without loading and grouping that repo's full
+    `queue.js` itself. `now` is the first `queue.now` entry (or `None`), `attention` the uncapped
+    `attentionCounts`, `lastActivity` an ISO string (or `""`)."""
     totals = queue_payload.get("totals", {})
+    now = (queue_payload.get("now") or [None])[0]
+    counts = queue_payload.get("attentionCounts") or {}
     return {
         "batches": totals.get("batches", {"inProgress": 0, "planned": 0, "done": 0}),
         "todos": totals.get("todos", 0),
         "planEntries": totals.get("planEntries", 0),
+        "now": {k: now.get(k) for k in ("batch", "number", "title", "status", "phases")} if now else None,
+        "attention": {"warn": counts.get("warn", 0), "plan": counts.get("plan", 0)},
+        "lastActivity": last_activity(queue_payload),
     }
 
 

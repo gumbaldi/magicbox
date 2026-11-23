@@ -1425,6 +1425,11 @@ class PortalTest(CfqTestCase):
         self.assertEqual(row_a["name"], "alpha")
         self.assertEqual(row_a["mirror"], "alpha")
         self.assertIn("batches", row_a["counts"])
+        for key in ("now", "attention", "lastActivity"):
+            self.assertIn(key, row_a["counts"])
+        self.assertEqual(set(row_a["counts"]["attention"]), {"warn", "plan"})
+        _k, queue_a = self._payload(self._data_dir(repo_a) / "queue.js")
+        self.assertEqual(row_a["counts"], cfq_portal.repo_counts(queue_a))
 
         for repo, mirror_name, batch_name in (
             (repo_a, "alpha", "2026-09-23-a"), (repo_b, "beta", "2026-09-23-b"),
@@ -1440,6 +1445,39 @@ class PortalTest(CfqTestCase):
         second = self._sync(repo_a, env=env)
         self.assertEqual(second["mirror"]["status"], "OK")
         self.assertEqual(second["mirror"]["written"], [])
+
+    def test_repo_counts_carries_now_attention_and_last_activity(self):
+        queue = {
+            "totals": {"batches": {"inProgress": 1, "planned": 0, "done": 1}, "todos": 2, "planEntries": 1},
+            "now": [
+                {"batch": "002-b", "number": "002", "title": "Second", "status": "in_progress",
+                 "phases": {"done": 1, "total": 3}, "current": {"num": 2, "title": "x"}, "waitsOn": []},
+                {"batch": "003-c", "number": "003", "title": "Third", "status": "planned",
+                 "phases": {"done": 0, "total": 1}, "current": None, "waitsOn": []},
+            ],
+            "attention": [{"level": "warn"}],
+            "attentionCounts": {"warn": 4, "plan": 1},
+            "batches": [
+                {"name": "001-a", "started": "2026-11-01T08:00:00Z", "finished": "2026-11-02T09:30:00Z"},
+                {"name": "002-b", "started": "2026-11-20T10:00:00+00:00", "finished": ""},
+                {"name": "003-c", "started": "", "finished": ""},
+            ],
+        }
+        counts = cfq_portal.repo_counts(queue)
+        self.assertEqual(counts["now"], {
+            "batch": "002-b", "number": "002", "title": "Second", "status": "in_progress",
+            "phases": {"done": 1, "total": 3},
+        })
+        self.assertEqual(counts["attention"], {"warn": 4, "plan": 1})
+        self.assertEqual(counts["lastActivity"], "2026-11-20T10:00:00+00:00")
+        self.assertEqual(counts["todos"], 2)
+        self.assertEqual(counts["planEntries"], 1)
+
+    def test_repo_counts_without_any_batch(self):
+        counts = cfq_portal.repo_counts({"totals": {}, "now": [], "batches": [], "attentionCounts": {"warn": 0, "plan": 0}})
+        self.assertIsNone(counts["now"])
+        self.assertEqual(counts["lastActivity"], "")
+        self.assertEqual(counts["attention"], {"warn": 0, "plan": 0})
 
     def test_filtered_sync_keeps_every_batch_in_mirror(self):
         repo = self.make_repo("alpha")

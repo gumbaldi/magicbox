@@ -509,7 +509,21 @@ export function fixtureEntry(kind = "todo_open") {
 
 export function fixtureRepos() {
   return [
-    { name: "alpha", mirror: "alpha", source: "/home/code/git/alpha", counts: { batches: { inProgress: 1, planned: 2, done: 3 }, todos: 2, planEntries: 1 } },
-    { name: "beta", mirror: "beta-1a2b3c", source: "/home/code/git/beta", counts: { batches: { inProgress: 0, planned: 0, done: 5 }, todos: 0, planEntries: 0 } },
+    {
+      name: "alpha", mirror: "alpha", source: "/home/code/git/alpha",
+      counts: {
+        batches: { inProgress: 1, planned: 2, done: 3 }, todos: 2, planEntries: 1,
+        now: { batch: "012-2026-11-20-alpha-work", number: "012", title: "Alpha work", status: "in_progress", phases: { done: 2, total: 5 } },
+        attention: { warn: 2, plan: 1 },
+        lastActivity: "2026-11-22T10:00:00Z",
+      },
+    },
+    {
+      name: "beta", mirror: "beta-1a2b3c", source: "/home/code/git/beta",
+      counts: {
+        batches: { inProgress: 0, planned: 0, done: 5 }, todos: 0, planEntries: 0,
+        now: null, attention: { warn: 0, plan: 0 }, lastActivity: "",
+      },
+    },
   ];
 }
