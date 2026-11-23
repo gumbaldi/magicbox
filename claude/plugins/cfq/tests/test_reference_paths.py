@@ -470,6 +470,37 @@ def check_pfq_single_first_step(root):
     return []
 
 
+# 9. Added by batch 061 phase 01: the context of a decision question lives inside the
+#    `AskUserQuestion` payload, because text written before the dialog is not readable while it is
+#    open. The three references that state the rule must not say it is written "right before the"
+#    call, and `interaction-policy.md`'s **Decision Question Context** must say "inside the dialog".
+def check_question_context_in_dialog(root):
+    fails = []
+    for name in ("interaction-policy.md", "grilling.md", "orchestrator.md"):
+        f = root / "references" / name
+        if not f.is_file():
+            continue
+        for line in f.read_text().splitlines():
+            if "right before the" in line and "AskUserQuestion" in line:
+                fails.append(
+                    f"FAIL: {f}: places question context 'right before the' AskUserQuestion call"
+                    " instead of inside the dialog"
+                )
+                break
+    policy = root / "references" / "interaction-policy.md"
+    if policy.is_file():
+        text = policy.read_text()
+        marker = "## Decision Question Context"
+        if marker in text:
+            section = text.split(marker, 1)[1].split("\n## ", 1)[0]
+            if "inside the dialog" not in section:
+                fails.append(
+                    f"FAIL: {policy}: Decision Question Context does not say the context goes"
+                    " 'inside the dialog'"
+                )
+    return fails
+
+
 def run_all(root):
     fails = []
     fails += check_links_resolve(root)
@@ -479,6 +510,7 @@ def run_all(root):
     fails += check_no_shell_mutations(root)
     fails += check_settings_documented(root)
     fails += check_skill_size_budget(root)
+    fails += check_question_context_in_dialog(root)
     fails += check_dashboard_todo_delegates(root)
     fails += check_start_gate_and_overview_mentioned(root)
     fails += check_references_linked_from_entrypoint(root)
@@ -650,6 +682,30 @@ class ReferencePathsTest(CfqTestCase):
         self.assertEqual(
             2, len(out), msg=f"check 7 self-test should only flag the two over-budget files: {out}"
         )
+
+    def test_question_context_in_dialog(self):
+        bad = self._repos_dir / "qctx"
+        (bad / "references").mkdir(parents=True)
+        (bad / "references" / "interaction-policy.md").write_text(
+            "## Decision Question Context\n\nWrite a block right before the `AskUserQuestion` call.\n"
+        )
+        (bad / "references" / "grilling.md").write_text(
+            "Prose block right before the `AskUserQuestion` call.\n"
+        )
+        (bad / "references" / "orchestrator.md").write_text("Clean.\n")
+        joined = "\n".join(check_question_context_in_dialog(bad))
+        self.assertIn("interaction-policy.md", joined, msg="check 9 missed the old policy wording")
+        self.assertIn("grilling.md", joined, msg="check 9 missed the old grilling wording")
+        self.assertNotIn("orchestrator.md", joined, msg="check 9 false-flagged a clean file")
+
+        good = self._repos_dir / "qctx-ok"
+        (good / "references").mkdir(parents=True)
+        (good / "references" / "interaction-policy.md").write_text(
+            "## Decision Question Context\n\nFacts go inside the dialog.\n\n## Next\n"
+        )
+        (good / "references" / "grilling.md").write_text("Clean.\n")
+        (good / "references" / "orchestrator.md").write_text("Clean.\n")
+        self.assertEqual([], check_question_context_in_dialog(good))
 
     def test_dashboard_todo_delegates(self):
         tmp = self._repos_dir / "f8"

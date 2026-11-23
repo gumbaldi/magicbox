@@ -38,7 +38,8 @@ This one call carries both verdicts, and capacity always wins when both fire:
   question below.
 - `WARN` (a rate-limit reason) carries the same three-option question as classic mode's
   `<plugin-root>/references/ifq-phase.md`'s **Phase Announcement** — identical wording, identical
-  options, no second variant.
+  options, no second variant. The question's text states the phase number, its title and the
+  rate-limit reason itself.
 
 The Size Gate itself does not run for the worker, and `onePhasePerSession` has no effect on this
 loop at all: every worker starts on an empty context window, so neither applies to it. Both are
@@ -49,7 +50,9 @@ about the *worker's* session specifically — the `bin/cfq ctx` call above is ab
 
 `bin/cfq worker brief "<batch-dir>" --phase <NN>` for the resolved phase. The call writes the
 briefing to `<batch-dir>/.worker-brief.json` and prints `announcement`, `prompt`, `briefFile`, the
-worker's `model` and `escalation`. Print `announcement` verbatim, no rewording — the same rendering
+worker's `model` and `escalation`. Print `announcement` verbatim, no rewording — the text is copied
+into the assistant's own reply, never only extracted by a script inside a Bash call, because tool
+output is not reliably shown to the user. It is the same rendering
 classic mode's own phase announcement uses (`<plugin-root>/references/ifq-phase.md`'s **Phase
 Announcement**), just carried in this JSON instead of printed by `bin/cfq brief` directly, since
 that call refuses while `orchestratorMode` is on. Then spawn one `cfq-phase-worker` sub-agent with

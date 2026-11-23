@@ -68,7 +68,8 @@ The steps are the opening sentence of each numbered `## Changes` step, at most 1
 two lines (`… +N more steps` closes a longer list); a phase file without numbered steps prints no
 `Steps` label.
 
-Then one `AskUserQuestion`, three options: **Go** — "proceed, implement this phase now", its
+Then one `AskUserQuestion`, whose question text repeats the phase number and title and the budget
+note, so the question does not depend on the announcement block above it. Three options: **Go** — "proceed, implement this phase now", its
 description naming the budget state so the user sees what they are accepting — and **must not**
 claim the attempt will fail. **Handoff** — "end the session cleanly instead of implementing",
 reusing `<plugin-root>/references/ifq-classic.md`'s **Context Check After Every Phase** `STOP` sequence (telemetry sync, lock release, the `HANDOFF ·
@@ -186,7 +187,8 @@ open phase in the same session. Exactly three triggers, nothing else:
 - (c) a new dependency or a new script was introduced that the plan does not name
 
 Any of the three firing → do not auto-advance; state which trigger fired and ask once
-(`AskUserQuestion`) whether to continue anyway. None firing → continue, no question.
+(`AskUserQuestion`) whether to continue anyway; the question text names the trigger that fired.
+None firing → continue, no question.
 Everything that is not one of the three is a note in the report, never a stop — do not add a fourth
 trigger by interpretation.
 

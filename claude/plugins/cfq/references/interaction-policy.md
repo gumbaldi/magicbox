@@ -63,7 +63,8 @@ every decision made autonomously
 during the session that involved a real trade-off — not a forced choice, but one where a
 different, reasonable reading would produce materially different files or behavior (e.g.
 hardcoding a value vs. adding a configurable setting, choosing a data shape, picking a default).
-Surface at least those in one batched `AskUserQuestion` before writing anything. Silently deciding
+Surface at least those in one batched `AskUserQuestion` before writing anything; the list of
+autonomous decisions goes into that question's text. Silently deciding
 them and only asking "anything else?" afterward does not satisfy **Closing Question** — this section exists
 specifically to prevent that.
 
@@ -74,16 +75,20 @@ planner's own option lists, re-examined before any phase file is written.
 
 ## Decision Question Context
 
-Before any `AskUserQuestion` that asks the user to *decide* (not merely confirm), write a short
-block in the user's language, in user-visible terms (what the user sees or does), not code
-identifiers:
+Text written before an `AskUserQuestion` call cannot be read while the dialog is open, so every
+fact the user needs to *decide* (not merely confirm) goes inside the dialog itself, in the user's
+language, in user-visible terms (what the user sees or does), not code identifiers:
 
-- **What it is about** — the feature or step, and what happens today.
-- **The problem** — what goes wrong, or why a decision is needed.
-- **Options** — each with its concrete effect for the user and its downside.
+- **What it is about and the problem** — the feature or step, what happens today, what goes wrong
+  or why a decision is needed: in the `question` text.
+- **Options** — each option's concrete effect for the user and its downside: in that option's
+  `description`. A list that is to be confirmed goes in the `question` text or a `preview`.
+- **Recommendation** — marked in the first option's `label` (`(Recommended)`) and named with `➡️`
+  in the `question` text.
 
-Then give the recommendation, marked `➡️`, before asking. Code names may appear in parentheses
-after the plain description, never instead of it.
+Text before the call is allowed as a courtesy for readers of the scrollback, but is never the only
+place a fact lives. Code names may appear in parentheses after the plain description, never
+instead of it.
 
 **Exempt:** `pfq`'s start block questions (**Start Block**), and pure confirmations whose options
 are proceed/cancel (e.g. "delete this batch?").

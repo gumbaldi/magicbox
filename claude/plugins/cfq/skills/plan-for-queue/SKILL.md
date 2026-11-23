@@ -126,7 +126,8 @@ to check).
 
 Once nothing is left open, ask once more before writing any plans: "Before I write the plans: is
 there anything else we should discuss? Something I misunderstood, an edge case, a constraint?"
-(one `AskUserQuestion`). Proceed once nothing else is open; if something comes up, ask again.
+(one `AskUserQuestion`; when autonomous decisions are listed (`interaction-policy.md`'s **Active
+Interview Duty**), the list is in the question text). Proceed once nothing else is open; if something comes up, ask again.
 
 ## Step 8 — Language and Cut Phases
 
