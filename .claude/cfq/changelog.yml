@@ -9,7 +9,36 @@
   branch: cfq/061-2026-11-22-question-visibility-review-gate-chain-tip-base-hooks-and-worker-contract
   base: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
   started: 2026-11-23
-  status: in-progress
+  status: done
+  finished: 2026-11-23
+  phases:
+    - phase: "01-show-question-context-inside-the-dialog"
+      status: "green"
+      summary: "Decision question context moved into the AskUserQuestion payload across the policy, grilling, orchestrator, ifq-phase and plan-for-queue prose, guarded by a new structural check"
+    - phase: "02-print-a-compact-review-gate"
+      status: "green"
+      summary: "Added brief --review --gate [--changed] (render_review_gate), six tests, and rewrote plan-review.md, plan-park.md and plan-for-queue SKILL.md Step 15 to put the compact gate into the release question text"
+    - phase: "03-recommend-the-chain-tip-as-base-branch"
+      status: "green"
+      summary: "chainTip base-branch recommendation by ancestry, diverged flag, baseBranchStrategy setting (chainTip|newest) with docs, tests and ifq-branch.md update"
+    - phase: "04-accept-drive-letter-paths-in-path-settings"
+      status: "green"
+      summary: "One shared ABS_PATH_PATTERN accepting empty, /abs, C:\\ and C:/ paths for reportDir, telemetrySyncRepo and frameworkRepo, with descriptions, docs and a table-driven test"
+    - phase: "05-run-a-repo-command-before-every-phase-commit"
+      status: "green"
+      summary: "phaseCommitCommand setting (repo-only) and its execution in phase commit before git commit, HOOK_FAILED status, docs and worker/reference prose"
+    - phase: "06-park-out-of-scope-findings-in-the-worker-verdict"
+      status: "green"
+      summary: "The worker verdict parks structured outOfScope findings as plan entries, normalizes commit to a sha string, and the strictWorkerReport setting (default true) switches it off; flags count the parked findings"
+    - phase: "07-ask-when-a-planned-check-was-not-run"
+      status: "green"
+      summary: "Worker report gains a checks list; verdict derives the skippedCheck trigger and skippedChecks, flags warn on skipped checks, docs for worker, orchestrator and stop rule"
+    - phase: "08-prove-pre-existing-failures-at-the-batch-base"
+      status: "green"
+      summary: "The briefing carries baseCommit (parent of the oldest CFQ-Batch phase commit, HEAD without one, null on failure); the worker agent gets a Verification baseline section and a background-process rule; phase-quality.md gets rule 10"
+    - phase: "09-document-the-batch-and-bump-the-plugin-version"
+      status: "green"
+      summary: "Seven design-note sections, configuration/usage/CLAUDE.md updates for the compact gate, phase commit hook, verdict parking and baseCommit, and plugin version 0.42.0"
 - batchNumber: 60
   batch: 060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
   branch: cfq/060-2026-10-27-portal-editor-links-host-paths-and-sync-freshness
