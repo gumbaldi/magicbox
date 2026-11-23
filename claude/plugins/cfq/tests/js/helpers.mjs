@@ -350,10 +350,24 @@ export function fixtureQueue() {
       },
       cost,
     },
-    baselines: { S: { n: 5, turnsMedian: 20, outputMedian: 9000 }, M: { n: 6, turnsMedian: 40, outputMedian: 20000 } },
+    baselines: {
+      S: { n: 5, nAll: 5, turnsMedian: 20, outputMedian: 9000, allTimeTurnsMedian: 20, allTimeOutputMedian: 9000 },
+      M: { n: 6, nAll: 6, turnsMedian: 40, outputMedian: 20000, allTimeTurnsMedian: 40, allTimeOutputMedian: 20000 },
+    },
     sizes: [
-      { batch: "045-2026-09-20-alpha-done", phase: "01-first", size: "S", turns: 18, output: 8000 },
-      { batch: "045-2026-09-20-alpha-done", phase: "02-second", size: "M", turns: 44, output: 21000 },
+      { batch: "045-2026-09-20-alpha-done", phase: "01-first", size: "S", turns: 18, output: 8000, finished: "2026-09-21T10:00:00Z" },
+      { batch: "045-2026-09-20-alpha-done", phase: "02-second", size: "M", turns: 44, output: 21000, finished: "2026-09-21T12:00:00Z" },
+    ],
+    attention: [
+      { level: "warn", code: "red-attempt", batch: "047-2026-10-01-gamma-progress", phase: "01-a", text: "phase is red" },
+      { level: "plan", code: "review", batch: "049-2026-10-05-delta-review", phase: null, text: "plan review open" },
+    ],
+    attentionCounts: { warn: 1, plan: 1 },
+    now: [
+      {
+        batch: "047-2026-10-01-gamma-progress", number: 47, title: "gamma progress", status: "in_progress",
+        phases: { done: 1, total: 3, skipped: 0, error: 0 }, current: { num: 2, title: "Second step" }, waitsOn: [],
+      },
     ],
     recent,
     batches,

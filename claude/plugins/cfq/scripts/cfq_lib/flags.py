@@ -5,7 +5,8 @@ in `.batch-context.md`, Portal data files) -- no I/O, stdlib only, zero model to
 constants, not settings.
 
 A flag is `{"level": "warn"|"info", "code", "text", "phase"}`; `phase` is a phase slug or `None`
-for a batch-level flag.
+for a batch-level flag. A cost outlier is an `info` note, compared with the rolling baseline of the
+last `BASELINE_WINDOW` finished phases of its size.
 """
 
 import os
@@ -13,7 +14,9 @@ import statistics
 
 OUTLIER_FACTOR = 2.0
 BASELINE_MIN_SAMPLES = 5
+BASELINE_WINDOW = 50
 UNDECLARED_SHOWN = 5
+ATTENTION_CAP = 20
 
 
 def _latest(phase):
@@ -34,8 +37,14 @@ def _phase_usage(phase):
     return (sum(_total(a, "turns") for a in attempts), sum(_total(a, "output") for a in attempts))
 
 
+def _point_key(pt):
+    return (pt.get("finished") or "", pt["batch"], pt["phase"])
+
+
 def size_points(batches):
-    """One point per finished, costed, sized phase: `{batch, phase, size, turns, output}`."""
+    """One point per finished, costed, sized phase: `{batch, phase, size, turns, output, finished}`,
+    oldest finish first (`finished` is the latest attempt's `time.until`, `""` when missing), so a
+    legacy-named batch never sorts after a newer numbered one."""
     points = []
     for b in batches:
         for p in b.get("phases") or []:
@@ -46,26 +55,34 @@ def size_points(batches):
             ):
                 continue
             turns, output = _phase_usage(p)
+            time = latest.get("time")
             points.append({
                 "batch": b.get("name", ""), "phase": p.get("slug", ""), "size": p["size"],
                 "turns": turns, "output": output,
+                "finished": (time.get("until") if isinstance(time, dict) else "") or "",
             })
-    return sorted(points, key=lambda pt: (pt["batch"], pt["phase"]))
+    return sorted(points, key=_point_key)
 
 
 def baselines(points):
-    """`{size: {n, turnsMedian, outputMedian}}` for every size that has points."""
+    """`{size: {n, nAll, turnsMedian, outputMedian, allTimeTurnsMedian, allTimeOutputMedian}}` for
+    every size that has points. `n` and the plain medians cover the last `BASELINE_WINDOW` points of
+    the size by finish time; the `allTime...` fields cover all of them."""
     by_size = {}
-    for pt in points:
+    for pt in sorted(points, key=_point_key):
         by_size.setdefault(pt["size"], []).append(pt)
-    return {
-        size: {
-            "n": len(pts),
-            "turnsMedian": statistics.median(pt["turns"] for pt in pts),
-            "outputMedian": statistics.median(pt["output"] for pt in pts),
+    result = {}
+    for size, pts in sorted(by_size.items()):
+        recent = pts[-BASELINE_WINDOW:]
+        result[size] = {
+            "n": len(recent),
+            "nAll": len(pts),
+            "turnsMedian": statistics.median(pt["turns"] for pt in recent),
+            "outputMedian": statistics.median(pt["output"] for pt in recent),
+            "allTimeTurnsMedian": statistics.median(pt["turns"] for pt in pts),
+            "allTimeOutputMedian": statistics.median(pt["output"] for pt in pts),
         }
-        for size, pts in sorted(by_size.items())
-    }
+    return result
 
 
 def _flag(level, code, text, phase):
@@ -107,7 +124,7 @@ def _outlier_text(phase, base):
             parts.append(f"{label} {value / median:.1f}x")
     if not parts:
         return None
-    return f"{', '.join(parts)} the median of {phase['size']} phases"
+    return f"{', '.join(parts)} the {phase['size']} baseline"
 
 
 def phase_flags(phase, base, repo_root):
@@ -148,7 +165,7 @@ def phase_flags(phase, base, repo_root):
     ):
         text = _outlier_text(phase, size_base)
         if text:
-            flags.append(_flag("warn", "cost-outlier", text, slug))
+            flags.append(_flag("info", "cost-outlier", text, slug))
 
     skipped = sum(
         1 for c in (latest.get("checks") if isinstance(latest.get("checks"), list) else [])
@@ -206,3 +223,36 @@ def batch_flags(batch, base, repo_root):
         flags.append(_flag("info", "provisional", "planning telemetry not settled yet", None))
 
     return sort_flags(flags)
+
+
+def attention_items(batches, recent_names, cap=ATTENTION_CAP):
+    """What needs attention on the start page: every `warn` flag of a batch that is not done or is
+    in `recent_names`, plus one item per waiting batch (plan review open, unknown dependency,
+    post-write audit running). A batch is `{name, status, flags, unknownDeps, audit}`. Items are
+    `{level, code, batch, phase, text}`, `warn` before `plan`, then batch name descending, then
+    phase. A `cap` cuts the list and appends one `{code: "more", text}` item; `None` keeps all."""
+    recent = set(recent_names or [])
+    items = []
+    for b in batches:
+        name = b.get("name", "")
+        if b.get("status") != "done" or name in recent:
+            for f in b.get("flags") or []:
+                if f.get("level") == "warn":
+                    items.append({"level": "warn", "code": f["code"], "batch": name,
+                                  "phase": f.get("phase"), "text": f["text"]})
+        if b.get("status") == "awaiting_review":
+            items.append({"level": "plan", "code": "review", "batch": name, "phase": None,
+                          "text": "plan review open"})
+        if b.get("unknownDeps"):
+            items.append({"level": "warn", "code": "unknown-dependency", "batch": name, "phase": None,
+                          "text": "unknown dependency: " + ", ".join(b["unknownDeps"])})
+        if b.get("audit"):
+            items.append({"level": "plan", "code": "audit-running", "batch": name, "phase": None,
+                          "text": "post-write audit still running"})
+    items.sort(key=lambda i: (i["phase"] or "", i["code"]))
+    items.sort(key=lambda i: i["batch"], reverse=True)
+    items.sort(key=lambda i: i["level"] != "warn")
+    if cap is not None and len(items) > cap:
+        more = len(items) - cap
+        items = items[:cap] + [{"code": "more", "text": f"{more} more"}]
+    return items

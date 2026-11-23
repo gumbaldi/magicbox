@@ -775,14 +775,62 @@ class PortalTest(CfqTestCase):
         self.assertEqual(totals["cost"], T5(24, 48, 2300, 11500, 530))
         queue = self._load(repo, "queue")
         self.assertEqual(queue["sizes"], [
-            {"batch": DONE_BATCH, "phase": "01-setup", "size": "S", "turns": 2, "output": 100},
-            {"batch": DONE_BATCH, "phase": "02-build", "size": "L", "turns": 12, "output": 1200},
+            {"batch": DONE_BATCH, "phase": "01-setup", "size": "S", "turns": 2, "output": 100,
+             "finished": "2026-09-01T10:30:00Z"},
+            {"batch": DONE_BATCH, "phase": "02-build", "size": "L", "turns": 12, "output": 1200,
+             "finished": "2026-09-01T12:02:00Z"},
         ])
         self.assertEqual(queue["baselines"], cfq_flags.baselines(queue["sizes"]))
-        self.assertEqual(queue["baselines"]["L"], {"n": 1, "turnsMedian": 12, "outputMedian": 1200})
+        self.assertEqual(queue["baselines"]["L"], {
+            "n": 1, "nAll": 1, "turnsMedian": 12, "outputMedian": 1200,
+            "allTimeTurnsMedian": 12, "allTimeOutputMedian": 1200,
+        })
         self.assertEqual(sum(r["flags"]["warn"] for r in queue["batches"]), totals["flags"]["warn"])
         self.assertEqual(sum(r["flags"]["info"] for r in queue["batches"]), totals["flags"]["info"])
         self.assertEqual(queue["repo"], str(repo.resolve()))
+
+    def test_queue_carries_now_attention_and_counts(self):
+        repo = self._world()
+        queue = self._load(repo, "queue")
+        self.assertLessEqual(len(queue["now"]), 5)
+        self.assertTrue(queue["now"])
+        self.assertTrue(all(i["status"] != "done" for i in queue["now"]))
+        shown = [i for i in queue["attention"] if i["code"] != "more"]
+        self.assertEqual(queue["attentionCounts"], {
+            level: sum(1 for i in shown if i["level"] == level) for level in ("warn", "plan")
+        })
+        self.assertIn(("review", REVIEW_BATCH), [(i["code"], i["batch"]) for i in queue["attention"]])
+        self.assertIn(("no-telemetry", OPEN_BATCH), [(i["code"], i["batch"]) for i in queue["attention"]])
+
+    def test_now_items_order_current_waits_on_and_cap(self):
+        def row(name, status, priority="", deps=()):
+            return {"name": name, "number": 1, "title": name, "status": status, "priority": priority,
+                    "dependsOn": list(deps), "phases": {"done": 0, "total": 2, "skipped": 0, "error": 0}}
+
+        rows = [
+            row("010-planned-a", "planned"), row("011-planned-b", "planned", "high"),
+            row("005-blocked", "blocked", deps=["004-x"]), row("003-plan", "planning"),
+            row("002-review", "awaiting_review"), row("001-run", "in_progress"), row("000-done", "done"),
+        ]
+        payloads = {"001-run": {"phases": [
+            {"num": 1, "title": "One", "state": "done"}, {"num": 2, "title": "Two", "state": "open"},
+        ]}}
+        got = cfq_portal.now_items(rows, payloads)
+        self.assertEqual([i["batch"] for i in got], ["001-run", "002-review", "003-plan", "005-blocked", "011-planned-b"])
+        self.assertEqual(got[0]["current"], {"num": 2, "title": "Two"})
+        self.assertIsNone(got[1]["current"])
+        self.assertEqual(got[3]["waitsOn"], ["004-x"])
+        self.assertEqual(got[0]["waitsOn"], [])
+        self.assertEqual(set(got[0]), {"batch", "number", "title", "status", "phases", "current", "waitsOn"})
+        more = rows + [row(f"02{i}-run", "in_progress") for i in range(3)]
+        self.assertEqual(len(cfq_portal.now_items(more, payloads)), 5)
+
+    def test_now_items_picks_the_first_planned_batch_by_name_without_priority(self):
+        rows = [
+            {"name": n, "number": 1, "title": n, "status": "planned", "priority": "",
+             "dependsOn": [], "phases": {}} for n in ("012-b", "011-a")
+        ]
+        self.assertEqual([i["batch"] for i in cfq_portal.now_items(rows, {})], ["011-a"])
 
     def test_entry_rows(self):
         repo = self._world()

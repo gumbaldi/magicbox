@@ -941,7 +941,40 @@ def recent_summary(rows, batch_payloads):
     }
 
 
-def build_queue_payload(repo_root, rows, entries, base=None, points=None, payloads=None):
+NOW_CAP = 5
+NOW_ORDER = ("in_progress", "awaiting_review", "planning", "blocked")
+
+
+def now_items(rows, batch_payloads):
+    """What is happening now, at most `NOW_CAP` items: batches in progress, awaiting review, in
+    planning and blocked (in that order, by name), then the first planned batch in `/ifq` order
+    (priority `high` first, then name). `current` is the first open phase of an in-progress batch,
+    `waitsOn` the `dependsOn` of a blocked one."""
+    picked = []
+    for status in NOW_ORDER:
+        picked += sorted((r for r in rows if r["status"] == status), key=lambda r: r["name"])
+    planned = sorted(
+        (r for r in rows if r["status"] == "planned"),
+        key=lambda r: (0 if r.get("priority") == "high" else 1, r["name"]),
+    )
+    picked += planned[:1]
+    items = []
+    for r in picked[:NOW_CAP]:
+        current = None
+        if r["status"] == "in_progress":
+            for ph in (batch_payloads.get(r["name"]) or {}).get("phases") or []:
+                if ph.get("state") not in ("done", "skipped"):
+                    current = {"num": ph.get("num"), "title": ph.get("title", "")}
+                    break
+        items.append({
+            "batch": r["name"], "number": r["number"], "title": r["title"], "status": r["status"],
+            "phases": r["phases"], "current": current,
+            "waitsOn": r["dependsOn"] if r["status"] == "blocked" else [],
+        })
+    return items
+
+
+def build_queue_payload(repo_root, rows, entries, base=None, points=None, payloads=None, audits=None):
     groups = {"inProgress": 0, "planned": 0, "done": 0}
     for r in rows:
         if r["status"] == "in_progress":
@@ -955,6 +988,15 @@ def build_queue_payload(repo_root, rows, entries, base=None, points=None, payloa
         if r["cost"]:
             cost = add_t5(cost, r["cost"]["total"])
     open_entries = [e for e in entries if e["state"] == "open"]
+    payloads = payloads or {}
+    recent = recent_summary(rows, payloads)
+    waiting = [
+        {"name": r["name"], "status": r["status"], "unknownDeps": r["unknownDeps"],
+         "audit": (audits or {}).get(r["name"], False),
+         "flags": (payloads.get(r["name"]) or {}).get("flags") or []}
+        for r in rows
+    ]
+    everything = cfq_flags.attention_items(waiting, recent["batches"], cap=None)
     return {
         "repo": repo_root,
         "totals": {
@@ -970,7 +1012,12 @@ def build_queue_payload(repo_root, rows, entries, base=None, points=None, payloa
         },
         "baselines": base or {},
         "sizes": points or [],
-        "recent": recent_summary(rows, payloads or {}),
+        "recent": recent,
+        "attention": cfq_flags.attention_items(waiting, recent["batches"]),
+        "attentionCounts": {
+            level: sum(1 for i in everything if i.get("level") == level) for level in ("warn", "plan")
+        },
+        "now": now_items(rows, payloads),
         "batches": sorted(rows, key=lambda r: r["name"]),
         "entries": sorted(entries, key=lambda e: e["id"]),
     }
@@ -1201,7 +1248,10 @@ def sync(repo_root, batch_names=None):
             level: sum(1 for f in payload["flags"] if f["level"] == level) for level in ("warn", "info")
         }
 
-    queue_payload = build_queue_payload(repo_root, list(rows.values()), entries, base, points, payloads)
+    audits = {b["name"]: bool(b.get("audit")) for b in scan["batches"]}
+    queue_payload = build_queue_payload(
+        repo_root, list(rows.values()), entries, base, points, payloads, audits,
+    )
     write("queue", queue_payload)
 
     for name in sorted(payloads):
