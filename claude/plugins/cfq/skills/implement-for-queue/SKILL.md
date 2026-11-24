@@ -53,6 +53,8 @@ is then ignored), `INJECTION_OFF`, `PREFLIGHT_ERROR`, `INVALID_ARGS` or no objec
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
+Classic mode writes the remembered path (`injected` or `fallback`) into every phase object of this
+session as `preflight`.
 `status: "NO_REPO"` → abort, report, end. Otherwise, print `inbox.overview` verbatim right here —
 always, before Model Gate, the start gate or any lock, read-only, no import, no question, even when
 no batch ends up selectable. This one call already resolved the model gate, plugin boundaries and

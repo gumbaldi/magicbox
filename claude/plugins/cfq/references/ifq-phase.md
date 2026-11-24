@@ -151,6 +151,10 @@ deviation nor an error and needs no action — a flaky test, a plan assumption t
 without changing the work. Nothing stood out → leave the field out; never pad it. A finding to act
 on later, such as a pre-existing defect left untouched, is not an observation: it goes into
 `outOfScope` (`{"title", "body"}` entries) and `bin/cfq worker verdict` parks it as a plan entry.
+`preflight` (optional): `injected` when the session used the preflight object the command loaded,
+`fallback` when it made its own preflight call; the field is absent in orchestrator mode, where the
+worker composes the object and does not know the path. Any other value is refused by `phase record`
+and `phase commit` before anything changes.
 
 ## File-Scope Deviation
 

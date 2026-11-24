@@ -591,6 +591,71 @@ class TestPhase(CfqTestCase):
         self.assertEqual(self._report_json(batch)["phases"], [], "no ledger entry should be written")
         self.assertEqual(self._head_sha(repo), before_sha, "no commit should have been made")
 
+    # ---- the optional `preflight` field of the phase object (injected | fallback) ----------
+
+    def _record_preflight(self, name, extra):
+        batch = self._batch(name)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        obj = {"phase": "01-a", "status": "green", "deviations": [], "errors": []}
+        obj.update(extra)
+        pf = self._phase_file(batch, obj)
+        return batch, self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry")
+
+    def test_record_stores_preflight_value(self):
+        for value in ("injected", "fallback"):
+            batch, proc = self._record_preflight(f"2026-04-01-pf-{value}", {"preflight": value})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self._report_json(batch)["phases"][0]["preflight"], value)
+
+    def test_record_without_preflight_has_no_key(self):
+        batch, proc = self._record_preflight("2026-04-02-pf-absent", {})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("preflight", self._report_json(batch)["phases"][0])
+
+    def test_record_refuses_invalid_preflight_before_touching_anything(self):
+        for n, bad in enumerate(("maybe", True, 1)):
+            batch = self._batch(f"2026-04-03-pf-bad-{n}")
+            self._write_phase_md(batch, "01-a")
+            self._write_report(batch, [])
+            pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "preflight": bad})
+            before = (batch / "report.json").read_text()
+            proc = self.run_cfq("phase", "record", str(batch), str(pf), "--no-telemetry")
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("injected", proc.stderr)
+            self.assertIn("fallback", proc.stderr)
+            self.assertTrue((batch / "01-a.md").is_file(), "the phase file must not move")
+            self.assertEqual((batch / "report.json").read_text(), before)
+
+    def test_commit_stores_preflight_value(self):
+        repo, batch = self._git_batch("commit-pf", "2026-04-04-pftopic")
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._stage_change(repo)
+        pf = self._phase_file(batch, {
+            "phase": "01-a", "status": "green", "deviations": [], "errors": [], "preflight": "fallback",
+        })
+        proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual(self._head_sha(repo), body["sha"])
+        self.assertEqual(self._report_json(batch)["phases"][0]["preflight"], "fallback")
+
+    def test_commit_refuses_invalid_preflight_before_the_git_commit(self):
+        for n, bad in enumerate(("maybe", True, 1)):
+            repo, batch = self._git_batch(f"commit-pf-bad-{n}", "2026-04-05-pfbad", with_remote=False)
+            self._write_phase_md(batch, "01-a")
+            self._write_report(batch, [])
+            self._stage_change(repo)
+            pf = self._phase_file(batch, {"phase": "01-a", "status": "green", "preflight": bad})
+            head = self._head_sha(repo)
+            proc = self.run_cfq("phase", "commit", str(batch), str(pf), str(self._message_file(batch)))
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("injected", proc.stderr)
+            self.assertIn("fallback", proc.stderr)
+            self.assertEqual(self._head_sha(repo), head, "no commit may be made")
+            self.assertTrue((batch / "01-a.md").is_file(), "the phase stays open")
+
     def test_commit_rejects_red_status(self):
         repo, batch = self._git_batch("commit-red", "2026-03-04-redtopic", with_remote=False)
         self._write_phase_md(batch, "01-a")

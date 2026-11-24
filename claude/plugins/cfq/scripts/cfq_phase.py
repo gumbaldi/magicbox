@@ -89,6 +89,20 @@ def _ledger_entry_index(phases, slug, pred=lambda p: True):
     return matches[-1] if matches else None
 
 
+PREFLIGHT_PATHS = ("injected", "fallback")
+
+
+def _check_preflight(phase_obj, verb):
+    """The optional `preflight` field must be exactly `injected` or `fallback` -- refused here,
+    in the early validation block, so nothing (and for `commit`, no Git commit) happens first."""
+    if "preflight" in phase_obj:
+        value = phase_obj["preflight"]
+        if not isinstance(value, str) or value not in PREFLIGHT_PATHS:
+            errors.die(
+                f"{PROG} {verb}: preflight must be 'injected' or 'fallback', got {value!r}"
+            )
+
+
 def cmd_record(args):
     dir_ = args.dir
     if not pathlib.Path(dir_).is_dir():
@@ -115,6 +129,7 @@ def cmd_record(args):
     status = phase_obj.get("status") if isinstance(phase_obj, dict) else None
     if status not in ("green", "red"):
         errors.die(f"{PROG} record: status must be 'green' or 'red', got '{status}'")
+    _check_preflight(phase_obj, "record")
 
     batch_dir = pathlib.Path(dir_)
     current = _statuses(batch_dir).get(phase_id)
@@ -251,6 +266,7 @@ def cmd_commit(args):
         errors.die(
             f"{PROG} commit: status must be 'green' (red phases use 'phase record'), got '{status}'"
         )
+    _check_preflight(phase_obj, "commit")
 
     batch_dir = pathlib.Path(dir_)
     current = _statuses(batch_dir).get(phase_id)
