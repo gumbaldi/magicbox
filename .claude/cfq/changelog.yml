@@ -3,7 +3,30 @@
   branch: cfq/065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
   base: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
   started: 2026-11-24
-  status: in-progress
+  status: done
+  finished: 2026-11-24
+  phases:
+    - phase: "01-hook-trust-store"
+      status: "green"
+      summary: "hook_trust.py trust store (store_path, command_hash, status, is_trusted, trust, revoke) and the settings trust-hook verb with terminal-only approval"
+    - phase: "02-gate-phase-commit-hook"
+      status: "green"
+      summary: "phase commit refuses an unapproved phaseCommitCommand with HOOK_UNTRUSTED before running it or committing; tests and worker/orchestrator prose updated"
+    - phase: "03-warn-untrusted-hook-at-ifq-start"
+      status: "green"
+      summary: "Commit Hook status line in the ifq preflight (done/warn, none when unset), SKILL.md paragraph and output-format entry"
+    - phase: "04-pfq-injected-preflight"
+      status: "green"
+      summary: "preflight-plan --injected (read-only, switch preflightInjection, INJECTION_OFF/PREFLIGHT_ERROR fallbacks), the injected block in commands/pfq.md, and the skill's injected/fallback and pendingImport handling"
+    - phase: "05-record-preflight-path-in-telemetry"
+      status: "green"
+      summary: "optional --preflight injected|fallback on planning close and telemetry record planning, stored as preflight on the planning record and report.json planning; Step 13 of the skill passes it"
+    - phase: "06-close-covered-inbox-entries-at-park"
+      status: "green"
+      summary: "The closing question lists covered and possibly covered inbox entries, and Park passes every covered, non-struck entry as one --from-plan argument"
+    - phase: "07-document-and-release-0-46-0"
+      status: "green"
+      summary: "Documented the commit hook approval, the load-time /pfq preflight, the preflight telemetry field and the inbox cleanup in configuration, usage, README, CLAUDE.md and design notes; bumped the plugin to 0.46.0"
 - batchNumber: 64
   batch: 064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
   branch: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
