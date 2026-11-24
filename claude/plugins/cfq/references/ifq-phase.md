@@ -234,7 +234,10 @@ treat as a red phase, don't move on — a `RECORD_FAILED` result still carries t
 `bin/cfq batch verify` to reconcile later, since the commit itself succeeded and is never undone.
 `status: "HOOK_FAILED"` → treat as a red phase too: the repository's `phaseCommitCommand` exited
 non-zero before the commit, so no commit exists and the phase stays open; its `detail` (the last
-20 output lines) names the cause.
+20 output lines) names the cause. `status: "HOOK_UNTRUSTED"` → also a red phase: the person has not
+approved the current `phaseCommitCommand`, so it never ran, no commit exists and the phase stays
+open; the report names the approval command from `detail` (`settings trust-hook`, which needs a
+terminal). The session never approves the hook itself and looks for no workaround.
 
 ## Phase Commit Trailers
 

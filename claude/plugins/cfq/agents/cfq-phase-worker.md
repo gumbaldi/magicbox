@@ -183,6 +183,10 @@ On `green`, mandatory, not optional — the orchestrator's next step pipes this 
    `bin/cfq batch verify` can reconcile it later; the commit itself is never undone.
    `HOOK_FAILED` means the repository's `phaseCommitCommand` exited non-zero before the commit:
    report `red` with the result's `detail` in `errors` — no commit exists and the phase stays open.
+   `HOOK_UNTRUSTED` means the person has not approved the current `phaseCommitCommand`, so it never
+   ran: report `red` with the result's `detail` (it names the approval command) in `errors`. Never
+   run `settings trust-hook` yourself and look for no workaround — only the person approves it, in a
+   terminal.
 
 On `red`, call `commands.phaseRecordRed` with the report (status `red`, `errors` populated) — this
 appends the ledger entry without moving the file — and stop; no commit, no push.

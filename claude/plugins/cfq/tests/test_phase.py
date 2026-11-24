@@ -16,6 +16,7 @@ from unittest import mock
 from cfq_testlib import CfqTestCase, write_status
 
 import cfq_phase  # noqa: E402
+from cfq_lib import hook_trust  # noqa: E402
 
 
 class CommitStatusLineTest(unittest.TestCase):
@@ -651,8 +652,15 @@ class TestPhase(CfqTestCase):
 
     HOOK_WRITE = "printf '%s %s %s' \"$CFQ_BATCH_NUMBER\" \"$CFQ_PHASE_NUMBER\" \"$CFQ_FIRST_PHASE\" > hook.out && git add hook.out"
 
-    def _set_hook(self, repo, command):
+    def _set_hook(self, repo, command, approve=True):
         self.run_cfq("settings", "set", "--repo", str(repo), "phaseCommitCommand", command, check=True)
+        if approve:
+            self._approve_hook(repo, command)
+
+    def _approve_hook(self, repo, command):
+        # the approval lives under the same home directory `run_cfq` hands the subprocess
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            hook_trust.trust(repo, command)
 
     def _commit_slug(self, repo, batch, slug):
         pf = self._phase_file(batch, {"phase": slug, "status": "green", "summary": "ok"})
@@ -730,6 +738,61 @@ class TestPhase(CfqTestCase):
         proc = self._commit_slug(repo, batch, "01-a")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertEqual(self.json_out(proc)["status"], "OK")
+
+    def _assert_hook_untrusted(self, repo, batch, before_sha):
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        body = self.json_out(proc)
+        self.assertEqual(body["status"], "HOOK_UNTRUSTED")
+        self.assertIn("settings trust-hook --repo", body["detail"])
+        self.assertIn(str(repo), body["detail"])
+        self.assert_status_lines_shape(body["statusLines"])
+        self.assertEqual(body["statusLines"][0]["icon"], "fail")
+        self.assertEqual(body["statusLines"][0]["detail"], body["detail"])
+        self.assertEqual(self._head_sha(repo), before_sha, "no commit should have been made")
+        self.assertEqual(self._phases_status(batch)["01-a"]["status"], "open")
+        self.assertTrue((batch / "01-a.md").is_file())
+        return body
+
+    def test_commit_hook_not_approved_is_refused_without_running(self):
+        repo, batch = self._git_batch("hook-untrusted", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, "touch marker.out", approve=False)
+        self._stage_change(repo)
+        before_sha = self._head_sha(repo)
+        body = self._assert_hook_untrusted(repo, batch, before_sha)
+        self.assertIn("sha256 " + hook_trust.command_hash("touch marker.out")[:12], body["detail"])
+        self.assertFalse((repo / "marker.out").exists(), "the hook must not run")
+
+    def test_commit_hook_changed_after_approval_is_refused_again(self):
+        repo, batch = self._git_batch("hook-changed", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, "touch marker.out")
+        self._set_hook(repo, "touch other.out", approve=False)
+        self._stage_change(repo)
+        before_sha = self._head_sha(repo)
+        self._assert_hook_untrusted(repo, batch, before_sha)
+        self.assertFalse((repo / "marker.out").exists())
+        self.assertFalse((repo / "other.out").exists())
+
+    def test_commit_hook_approved_after_refusal_runs(self):
+        repo, batch = self._git_batch("hook-approved", "061-2026-03-10-hooktopic", with_remote=False)
+        self._write_phase_md(batch, "01-a")
+        self._write_report(batch, [])
+        self._set_hook(repo, self.HOOK_WRITE, approve=False)
+        self._stage_change(repo)
+        self._assert_hook_untrusted(repo, batch, self._head_sha(repo))
+        self._approve_hook(repo, self.HOOK_WRITE)
+        proc = self._commit_slug(repo, batch, "01-a")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(self._committed_hook_out(repo), "61 01 1")
+
+    def test_commit_status_line_renders_hook_untrusted_as_a_failure(self):
+        line = cfq_phase.commit_status_line({"status": "HOOK_UNTRUSTED", "detail": "approve me"})
+        self.assertEqual(line["icon"], "fail")
+        self.assertEqual(line["detail"], "approve me")
 
     def test_commit_status_line_renders_hook_failed_as_a_failure(self):
         line = cfq_phase.commit_status_line({"status": "HOOK_FAILED", "detail": "boom"})

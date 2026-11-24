@@ -39,7 +39,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cfq_changelog  # noqa: E402
 import cfq_registry  # noqa: E402
 import cfq_report  # noqa: E402
-from cfq_lib import errors, phase_state, portal_hook, render, text  # noqa: E402
+from cfq_lib import errors, hook_trust, phase_state, portal_hook, render, text  # noqa: E402
 from cfq_lib.proc import git as proc_git, settings_get  # noqa: E402
 
 PROG = "cfq_phase.py"
@@ -47,7 +47,7 @@ PROG = "cfq_phase.py"
 
 def commit_status_line(result):
     """`references/ifq-phase.md`'s **Commit Result Rendering** branch table (`OK`/`NOTHING_STAGED`/
-    `COMMIT_FAILED`/`RECORD_FAILED`/`HOOK_FAILED`), rendered here instead of re-derived by the skill every
+    `COMMIT_FAILED`/`RECORD_FAILED`/`HOOK_FAILED`/`HOOK_UNTRUSTED`), rendered here instead of re-derived by the skill every
     session -- the branch condition (`result["status"]`) already lives right where the result
     itself is built."""
     status = result.get("status")
@@ -58,7 +58,7 @@ def commit_status_line(result):
         return text.status_entry("Commit", icon, detail, sub=sub)
     if status == "NOTHING_STAGED":
         return text.status_entry("Commit", "warn", "nothing staged")
-    if status in ("COMMIT_FAILED", "RECORD_FAILED", "HOOK_FAILED"):
+    if status in ("COMMIT_FAILED", "RECORD_FAILED", "HOOK_FAILED", "HOOK_UNTRUSTED"):
         return text.status_entry("Commit", "fail", result.get("detail") or status)
     return text.status_entry("Commit", "fail", status or "unknown")
 
@@ -189,11 +189,21 @@ def _run_commit_hook(repo_root, batch_dir, phase_id):
     """Runs the repository's `phaseCommitCommand` (repo-scoped setting, empty = off) in the
     repository root. `shell=True` is deliberate: the setting is a shell command line the user
     wrote into the repo-scoped settings file; batch, phase and first-phase values travel only in
-    the environment, never inside the command string. Returns None on success or when no hook is
-    set, else the last 20 lines of the combined output of the failed command."""
+    the environment, never inside the command string. The command is only run once the person has
+    approved that exact command text (`hook_trust`, approved in a terminal with `settings
+    trust-hook`); an unapproved command is never executed. Returns None on success or when no hook
+    is set, else a `(kind, detail)` tuple: `("untrusted", <approval instructions>)` when the command
+    is not approved, `("failed", <last 20 lines of the combined output>)` when it exited non-zero."""
     command = settings_get(repo_root, "phaseCommitCommand")
     if not command or command == "null":
         return None
+    if hook_trust.status(repo_root, command) == "untrusted":
+        cfq_bin = pathlib.Path(__file__).resolve().parent.parent / "bin" / "cfq"
+        digest = hook_trust.command_hash(command)[:12]
+        return ("untrusted", (
+            f"phaseCommitCommand is not trusted for {repo_root}. Approve it in a terminal: "
+            f"{cfq_bin} settings trust-hook --repo {repo_root}  (sha256 {digest})"
+        ))
     number = cfq_changelog.parse_batch_number(batch_dir.name)
     first = not any(
         st == "done" for slug, st in _statuses(batch_dir).items() if slug != phase_id
@@ -209,7 +219,7 @@ def _run_commit_hook(repo_root, batch_dir, phase_id):
     if done.returncode == 0:
         return None
     lines = (done.stdout or "").rstrip("\n").splitlines()[-20:]
-    return "\n".join(lines) or f"phaseCommitCommand exited with {done.returncode}"
+    return ("failed", "\n".join(lines) or f"phaseCommitCommand exited with {done.returncode}")
 
 
 def cmd_commit(args):
@@ -264,9 +274,13 @@ def cmd_commit(args):
         print(render.dump_json(result))
         sys.exit(1)
 
-    hook_output = _run_commit_hook(repo_root, batch_dir, phase_id)
-    if hook_output is not None:
-        result = {"status": "HOOK_FAILED", "detail": hook_output}
+    hook_result = _run_commit_hook(repo_root, batch_dir, phase_id)
+    if hook_result is not None:
+        kind, detail = hook_result
+        result = {
+            "status": "HOOK_UNTRUSTED" if kind == "untrusted" else "HOOK_FAILED",
+            "detail": detail,
+        }
         result["statusLines"] = [commit_status_line(result)]
         print(render.dump_json(result))
         sys.exit(1)
