@@ -1,3 +1,9 @@
+- batchNumber: 65
+  batch: 065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
+  branch: cfq/065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
+  base: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
+  started: 2026-11-24
+  status: in-progress
 - batchNumber: 64
   batch: 064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
   branch: cfq/064-2026-11-23-planning-cost-turn-cuts-and-gate-removal
