@@ -61,7 +61,8 @@ during the session that involved a real trade-off — not a forced choice, but o
 different, reasonable reading would produce materially different files or behavior (e.g.
 hardcoding a value vs. adding a configurable setting, choosing a data shape, picking a default).
 Surface at least those in one batched `AskUserQuestion` before writing anything; the list of
-autonomous decisions goes into that question's text. Silently deciding
+autonomous decisions and the list of inbox entries the plan covers ("covered" and "possibly
+covered", `plan-inbox.md`'s **Entries Covered by the Plan**) go into that question's text. Silently deciding
 them and only asking "anything else?" afterward does not satisfy **Closing Question** — this section exists
 specifically to prevent that.
 

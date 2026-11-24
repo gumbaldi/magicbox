@@ -27,8 +27,9 @@ file, re-run `bin/cfq park` so a `status:` lint finding clears.
 
 `bin/cfq park` writes `.priority`/`.dependsOn` (**Queue Check**'s dependencies, if any; `.priority`
 only when **Start Block**'s flag answer was high), ensures the git-exclude entry, registers the
-repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry — a batch planned from
-several entries (**Inbox**) passes every one of them in the same `park` call.
+repo — idempotent. `--from-plan` may repeat, once per chosen inbox entry (**Inbox**) and once per entry the
+plan covers and the user did not strike (**Closing Question**) — every one of them goes in the same
+`park` call.
 
 `.planning` is born at `batch allocate`, not at `park` — the marker exists from the moment the
 batch directory does. `park` only refreshes it (a heartbeat, safe to re-run any number of times
@@ -37,7 +38,7 @@ marker. Once it has, a later `park` call — a correction after that point — l
 prints an `already ready` warning on stderr instead of resurrecting it: call `planning close`
 (idempotent) again afterwards.
 
-Print four status lines: `Park` (file count and batch dir, also covers the security
+Print four status lines: `Park` (file count and batch dir, the number of inbox entries consumed, also covers the security
 snapshot of `planning open`), `Batch Context` (sections written, or `➖ Goal only`), `Git Exclude`, `Registry`.
 
 ## Final Report Fields

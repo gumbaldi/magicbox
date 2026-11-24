@@ -58,8 +58,9 @@ for `--from-plan`).
 
 Print `Inbox` as returned, then `inbox.overview` verbatim right after it — always, with or without
 arguments, zero entries included (`INBOX  empty`). Arguments were passed with the invocation → don't open the inbox question regardless of
-entry count; plan the arguments, leave every inbox entry untouched, but when those arguments refer
-to or ask about inbox entries, print `inbox.detail` right after `inbox.overview` first. No
+entry count; plan the arguments; entries the finished plan covers are closed at **Park** (**Closing
+Question**). When those arguments refer to or ask about inbox entries, print `inbox.detail` right
+after `inbox.overview` first. No
 arguments and `inbox.count == 0` → nothing further here. No arguments and `inbox.count > 0` → read
 `${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md` and follow it. `queue.awaitingAudit` non-empty and
 no arguments → print one line naming the batch, read `${CLAUDE_PLUGIN_ROOT}/references/plan-self-critique.md` first and resume
@@ -135,7 +136,11 @@ without a question; print `Queue Check` there.
 Once nothing is left open, ask once more before writing any plans: "Before I write the plans: is
 there anything else we should discuss? Something I misunderstood, an edge case, a constraint?"
 (one `AskUserQuestion`; when autonomous decisions are listed (`interaction-policy.md`'s **Active
-Interview Duty**), the list is in the question text). Proceed once nothing else is open; if something comes up, ask again.
+Interview Duty**), the list is in the question text). The question text also lists, with title and
+date, the inbox entries the plan covers ("covered — moved to `plan/done/` when parked") and, apart,
+the ones it may cover ("possibly covered", consumed only when the user confirms); rules in
+`${CLAUDE_PLUGIN_ROOT}/references/plan-inbox.md`'s **Entries Covered by the Plan**. The user strikes
+or adds entries in the answer. Proceed once nothing else is open; if something comes up, ask again.
 
 ## Step 8 — Language and Cut Phases
 
@@ -190,9 +195,9 @@ Write `NN-<slug>.md` per phase into `batchDir` — all phase files in one respon
 `Write` tool; everything else here goes through `bin/cfq`. Write `<batch-dir>/.batch-context.md` —
 follow `batch-context.md` (read in Group B). Then `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" park
 "<repo-root>" "<batch-dir-name>" "<high|normal>" [<dependsOn-entry>...] [--from-plan
-<chosen-entry-path>]` — argument detail in the same section; `--from-plan` is passed only when
-this session's topic came from a chosen inbox entry (**Inbox**), naming that entry's path so it
-moves into `plan/done/`. Print four status lines (wording in **Park Mechanics**): `Park`,
+<entry-path>]...` — argument detail in the same section; `--from-plan` is passed once per chosen
+(**Inbox**) or covered, non-struck (**Closing Question**) entry, naming its path so it moves into
+`plan/done/`. Print four status lines (wording in **Park Mechanics**): `Park`,
 `Batch Context`, `Git Exclude`, `Registry`.
 
 ## Step 11 — Post-Write Audit
