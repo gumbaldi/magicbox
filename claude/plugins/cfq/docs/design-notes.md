@@ -402,14 +402,22 @@ changed, and it needs no new file, dependency or setting. A judgment call would 
 and a fix the reviewer calls small on one run and large on the next is not something a setting can
 promise.
 
-## pfq/ifq: why the preflight is not injected at load time
+## pfq: why the preflight is injected at load time in `/pfq` only
 
-Injecting the preflight with the `` !`<command>` `` syntax would save one model turn per session.
-It is not done: a load-time command that fails aborts the whole skill, and whether such commands run
-at all under Plan Mode could not be verified from a planning session. Both skills carry a Plan-Mode
-Gate that calls `ExitPlanMode` themselves, so a failure there would stop both from loading. The
-manual check is parked in the planning inbox as a `plan/` entry, and the decision stays open until
-it is done.
+Injecting the preflight with the `` !`<command>` `` syntax saves one model turn per planning session.
+The risk was that a load-time command which fails aborts the whole load, and that such commands might
+not run under Plan Mode. The user checked the mechanism under Plan Mode with `/cfq`, which already
+injects a command. That check covered a command file, not a skill file, so the injection sits in
+`commands/pfq.md` and not in the skill: the skill carries the Plan-Mode Gate and stays unchanged on
+load, and it runs its own preflight call whenever no injected object is present. A failure cannot
+abort the load, because `preflight-plan --injected` catches everything, prints `PREFLIGHT_ERROR` and
+always exits 0; there is no shell `||` fallback, because the `allowed-tools` pattern matches the cfq
+call only. The injected run is read-only: it defers `note import`, and the skill imports when
+`inbox.pendingImport` is above 0. The `preflightInjection` setting (default on) switches it off,
+and the `preflight` field on planning records (`injected` or `fallback`, `planning close
+--preflight`) is the comparison metric. `/ifq` is not part of it: its argument text would have to be
+parsed safely inside the command line before the call can run, so that part is parked separately.
+The manual check, which an agent cannot run, is in [usage.md](usage.md).
 
 ## cfq: why skill texts keep the full dispatcher path
 
@@ -735,7 +743,8 @@ on to remember it. `phaseCommitCommand` runs one shell command in the repository
 `phase commit`, after the nothing-staged check. The command stages its own changes and cfq stages
 nothing for it, so the hook stays a plain command with no cfq-specific contract. A non-zero exit stops
 the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output
-lines; the phase turns red. `CFQ_FIRST_PHASE` lets a bump that belongs to the batch start tell the
+lines; the phase turns red. The command only runs once the user approved that exact text (see the
+next entry); an unapproved command stops the commit with `HOOK_UNTRUSTED` instead of running. `CFQ_FIRST_PHASE` lets a bump that belongs to the batch start tell the
 first phase from the others. The setting is repo scope only and has no environment override, because a
 command from a global file or an environment variable would run in every repository. Rejected: a
 separate batch-start hook, since `CFQ_FIRST_PHASE` covers it, and cfq staging the hook's changes, since
@@ -829,3 +838,34 @@ By affected-file count the output median is 7.2k for 0–2 files, 11.8k for 3–
 against 22.3k without. The rule therefore reads `S` up to 3 files, `M` for 4–8, `L` for 9 or more, and
 a step up when the phase adds a real-browser check. The portal's size calibration view on the Trends
 tab shows whether the anchors still hold.
+
+## ifq: why the commit hook needs a one-time approval stored in the user's home
+
+`phaseCommitCommand` is a shell command in `<repo>/.claude/cfq/settings.json`, so a cloned repository
+can carry it, and the agent that runs `phase commit` has Bash anyway. Running it unconditionally
+meant that opening a repository and working off one phase executed whatever the clone brought along.
+`bin/cfq settings trust-hook` stores the sha256 of the exact command string, keyed by the repository's
+realpath, in `~/.claude/cfq/trusted-hooks.json`, and `phase commit` runs the command only when the
+stored hash matches. The store is in the user's home because every place the repository or the agent
+controls fails: the repository can ship an approval with the command, an environment variable can be
+set by the agent that runs the command, and the plugin directory is replaced by every update, which
+would reset the approval. The key is never the plugin version for the same reason; only a changed
+command asks again. Approving needs a terminal on stdin and stdout and has no bypass flag or
+variable, because an approval an agent can give is no approval; `--revoke` and `--status` only
+reduce or report trust and run anywhere. An unapproved command stops the commit with `HOOK_UNTRUSTED`
+and leaves the phase open, handled like `HOOK_FAILED`, and `/ifq` shows a non-blocking `Commit Hook`
+line at start so the user can approve before the first phase is done. An approved command keeps the
+full environment, as a Git hook does. Rejected: a minimal environment for approved hooks (build
+version bumps need the user's tools and paths), and moving the setting out of the versioned
+repository settings (the user chose the approval over moving it).
+
+## pfq: why covered inbox entries are closed when the plan is parked
+
+An inbox entry whose fix a new plan contains was offered again by the next `/pfq` session, because
+only the entry the user picked from the choice list went through `park --from-plan`. The planner now
+lists every entry the plan's phases fix or build in the closing question, the user can strike entries,
+and every remaining one goes into the same `park --from-plan` call; an entry the planner is unsure
+about is listed as "possibly covered" and is consumed only after confirmation, so nothing is closed
+silently. Rejected: a finish-time list of possibly fixed entries, and an age check of the entries
+against `git log`. Both guess at coverage after the fact, where the planner knows it while writing the
+plan.

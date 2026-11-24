@@ -45,9 +45,28 @@ line. The planner sets it, and only with a name from `implModels`: a model that 
 may not be planned. A phase without the heading runs on the default model, the first entry of
 `implModels`. `bin/cfq lint` checks the name.
 
+### The preflight and the inbox
+
+`/pfq` fetches its read-only preflight when the command loads (`preflightInjection`, default on), so
+the session starts without a separate preflight call. Entries of the planning inbox (`plan/`) that the
+plan's phases cover are listed in the closing question as "covered", can be struck there, and are moved
+to `plan/done/` when the plan is parked; entries the planner is unsure about are listed as "possibly
+covered" and are only closed after you confirm them.
+
+To check the load-time preflight yourself (an agent cannot): in a fresh interactive session run
+`/pfq` once with `preflightInjection` on, then turn it off and run `/pfq` in another fresh session.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set preflightInjection false   # and back: ... true
+```
+
+With it on the session starts without a separate preflight call; with it off it behaves as before. The
+planning record in `telemetry.jsonl` carries `preflight` (`injected` or `fallback`), the comparison
+metric between the two.
+
 Configurable (see [configuration.md](configuration.md#settings-reference)): `planModels`,
 `planExploreModel`, `planExploreModelComplex`, `allowAnyModel`, `grillMode`,
-`useMattpocockGrilling`, `usePonytailAudit`, `planBlockedPlugins`.
+`useMattpocockGrilling`, `usePonytailAudit`, `planBlockedPlugins`, `preflightInjection`.
 
 Handoff: `/clear` → `/model <an implModels entry>` → `/ifq`.
 
@@ -68,7 +87,12 @@ early.
 
 A repository that must change a file with every commit, such as a build version, sets
 `phaseCommitCommand`: `phase commit` runs that command before every phase commit, and a non-zero
-exit turns the phase red (see [configuration.md](configuration.md#settings-reference)).
+exit turns the phase red (see [configuration.md](configuration.md#settings-reference)). The command
+runs only after you approved that exact text once, in a terminal:
+`bin/cfq settings trust-hook --repo <path>` (see
+[configuration.md](configuration.md#approve-the-commit-hook)). Until then `phase commit` stops with
+`HOOK_UNTRUSTED` and the phase stays open, and `/ifq` shows a `Commit Hook` line at start telling you
+what to run. Changing the command asks again; a plugin update does not.
 
 ```bash
 /ifq                 # ask which batch, then the start gate before touching anything

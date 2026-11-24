@@ -87,6 +87,24 @@ below) fails with `UNKNOWN_GROUP`.
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings unset --repo "$(git rev-parse --show-toplevel)" docLevel
 ```
 
+### Approve the commit hook
+
+A repository's `phaseCommitCommand` can come from a clone, so it runs only after you approved the
+exact command text:
+
+```bash
+bin/cfq settings trust-hook [--repo <path>]            # show repo, command and hash, ask y/N
+bin/cfq settings trust-hook [--repo <path>] --status   # {repo, status, hash}; status is unset, trusted or untrusted
+bin/cfq settings trust-hook [--repo <path>] --revoke   # withdraw the approval
+```
+
+Approving needs a terminal on stdin and stdout and refuses with `NOT_A_TERMINAL` otherwise; neither a
+flag nor an environment variable bypasses that, so an agent cannot approve a hook. `--status` and
+`--revoke` run anywhere. The approval is stored as `{"<repo realpath>": "<sha256 of the command>"}` in
+`~/.claude/cfq/trusted-hooks.json`, outside the repository and the plugin directory: a changed command
+asks for a new approval, and a plugin update never resets an existing one. An approved command runs
+with the full environment, like a Git hook.
+
 ### The repo tier only stores deviations
 
 Nothing writes a repo override just to mirror the current global value — `set --repo` only ever
@@ -131,7 +149,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
 | `planBlockedPlugins` | `CFQ_PLAN_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `auditBarrier` | `CFQ_AUDIT_BARRIER` | `true` | global, repo | while the post-write audit runs, `batch ready` refuses and `/ifq` never offers the batch; `false` writes no marker and ignores an existing one |
-| `preflightInjection` | `CFQ_PREFLIGHT_INJECTION` | `true` | global, repo | `/pfq` fetches its read-only preflight when the command loads; `false` makes the skill run the preflight itself |
+| `preflightInjection` | `CFQ_PREFLIGHT_INJECTION` | `true` | global, repo | `/pfq` fetches its read-only preflight when the command loads (`preflight-plan --injected`), so the session starts without a separate preflight call; `false` makes the skill run the preflight itself. A failed injected run reports `PREFLIGHT_ERROR` and the skill falls back to its own call. `/ifq` is not covered. Check it by running `/pfq` in a fresh session once with the setting on and once off — see [usage](usage.md) |
 
 ### Implementation
 
@@ -142,7 +160,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `baseBranchStrategy` | `CFQ_BASE_BRANCH_STRATEGY` | `chainTip` | global, repo | which branch `ifq` recommends as the base of a new batch branch: `chainTip` = the batch branch that contains all other batch branches (never `main` or another non-batch branch while a batch branch exists), `newest` = the newest branch by commit date |
-| `phaseCommitCommand` | none | empty | repo | shell command `phase commit` runs in the repository root right before every phase commit and after the nothing-staged check, for example `npm run bump-buildversion`; empty turns the hook off. Environment: `CFQ_BATCH_NUMBER` (empty for a legacy batch name), `CFQ_PHASE_NUMBER` (`NN`), `CFQ_FIRST_PHASE` (`1` while no other phase of the batch is `done`, else `0`; a bump that belongs to the batch start checks it). The command stages its own changes (`git add BUILDVERSION`); cfq stages nothing for it. A non-zero exit stops the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output lines. No timeout; commits made outside `phase commit` are not covered. Repo scope only: a global write is refused and no environment variable overrides it |
+| `phaseCommitCommand` | none | empty | repo | shell command `phase commit` runs in the repository root right before every phase commit and after the nothing-staged check, for example `npm run bump-buildversion`; empty turns the hook off. Environment: `CFQ_BATCH_NUMBER` (empty for a legacy batch name), `CFQ_PHASE_NUMBER` (`NN`), `CFQ_FIRST_PHASE` (`1` while no other phase of the batch is `done`, else `0`; a bump that belongs to the batch start checks it). The command stages its own changes (`git add BUILDVERSION`); cfq stages nothing for it. A non-zero exit stops the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output lines. No timeout; commits made outside `phase commit` are not covered. Repo scope only: a global write is refused and no environment variable overrides it. The command only runs once you approved that exact text in a terminal with `bin/cfq settings trust-hook` (see [Approve the commit hook](#approve-the-commit-hook)); until then `phase commit` stops with `HOOK_UNTRUSTED`, the phase stays open and `/ifq` shows a `Commit Hook` line at start. A changed command needs a new approval |
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
@@ -271,12 +289,18 @@ The canonical JSON shape for every read-only aggregator a skill calls, so no `SK
 restate a field list inline — read the field here, then read it back from the call's own output.
 `status` values follow CLAUDE.md's Status Vocabulary.
 
-- **`bin/cfq preflight-plan <repo-root>`** — `{status, repo: {root, known}, planningPolicy:
+- **`bin/cfq preflight-plan <repo-root> [--injected]`** — `{status, repo: {root, known}, planningPolicy:
   {planModels, allowAnyModel, planExploreModel, planExploreModelComplex, planBlockedPlugins,
   grillMode, useMattpocockGrilling, usePonytailAudit}, language: {codeLanguage, docLanguages,
   docLevel}, queue: {openBatches: [{name, priority, open, dependsOn}]}, maintenance: {status, n},
   security: {available}, reporting: {reportDir, htmlReport}}`. `status`: `OK` or `NO_REPO` (only
-  `repo.root`/`.known` set then).
+  `repo.root`/`.known` set then). With `--injected` (the call `commands/pfq.md` runs when the command
+  loads) the call is read-only: it skips `note import`, adds `injected: true` and `inbox.pendingImport`
+  (framework-inbox entries still waiting; the skill imports them when it is above 0), always exits 0
+  and has two more statuses: `INJECTION_OFF` (the `preflightInjection` setting is `false`; only
+  `status` and `injected` are set) and `PREFLIGHT_ERROR` (any failure; `injected` and a one-line
+  `detail`). The skill runs its own call, without `--injected`, whenever the injected object is
+  missing, `INJECTION_OFF` or `PREFLIGHT_ERROR`.
 - **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
   implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
@@ -303,7 +327,10 @@ restate a field list inline — read the field here, then read it back from the 
   `CFQ-*` trailers are added internally, the same way `changelog commit-message` adds them. Result:
   `{status: "OK", sha, pushed, branch, pushError?}` on success — a push failure is reported, not
   fatal — or `{status: "NOTHING_STAGED"}` / `{status: "COMMIT_FAILED", detail}` /
-  `{status: "RECORD_FAILED", sha, detail}` on the ways it can stop, each with a non-zero exit. The
+  `{status: "RECORD_FAILED", sha, detail}` on the ways it can stop, each with a non-zero exit — as do
+  `{status: "HOOK_FAILED", detail}` (the `phaseCommitCommand` exited non-zero) and
+  `{status: "HOOK_UNTRUSTED", detail}` (that command is not approved; `detail` names the
+  `settings trust-hook` call), both before any commit exists. The
   general ledger-append primitive itself lives on as `cfq_report.append_phase()`, no longer exposed
   as its own `report append` CLI verb.
 - **`bin/cfq report set-commit <batch-dir> <phase-slug> <sha>`** — backfills the `commit` field of

@@ -120,7 +120,9 @@ with the file's move into `done/` and the phase's own Git commit by the single t
 `cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
 whatever is already staged (never runs `git add` itself), first runs the optional repo-only
 `phaseCommitCommand` hook after the nothing-staged check (a non-zero exit stops the commit with
-`HOOK_FAILED`), moves the `.md` file, appends the ledger
+`HOOK_FAILED`; a command the user has not approved in a terminal through `cfq settings trust-hook`
+is never run and stops it with `HOOK_UNTRUSTED` — the approval is a hash in
+`~/.claude/cfq/trusted-hooks.json`, `cfq_lib/hook_trust.py`), moves the `.md` file, appends the ledger
 entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
 phase record <batch-dir> <phase-json-file>` is the red-phase path (append the ledger entry only,
@@ -155,7 +157,8 @@ comparison metric. A batch has a `done/` for finished phases
 and a sibling `impl/done/` for finished batches); `plan/` is the inbox of planning requests
 (`<YYYY-MM-DD>-<slug>.md`, format in `claude/plugins/cfq/references/queue-entries.md`) that `implement-for-queue` drops for
 follow-up work out of scope for the current phase, and `plan-for-queue` reads and parks into `done/`
-(an entry whose fix landed incidentally, rather than through `park --from-plan`, is closed instead
+(every entry the plan covers, not only the one the user chose, goes through `park --from-plan` at
+Park; an entry whose fix landed incidentally, outside any plan, is closed instead
 via `cfq note close`, which appends a `## Closed` section and moves it into `plan/done/`);
 `todo/` holds one-off follow-ups (`<YYYY-MM-DD>-<slug>.md`, optional `check: <shell-command>` line)
 that `implement-for-queue` writes, `code-for-queue` works off through `cfq note sweep` (**Management**,
