@@ -37,7 +37,10 @@ Status lines, not prose — read `${CLAUDE_PLUGIN_ROOT}/references/output-format
 Runs before anything else. A "Plan mode is active" reminder is present in context → call
 `ExitPlanMode` now, naming what this session is about to write ("interview and park plan files for
 `<repo>`") — this skill writes batch and phase files in **Park**, so it cannot run under Plan Mode.
-Then run the preflight once for the whole session:
+The context carries a JSON object with `"injected": true` and `status` `OK` or `NO_REPO` (the
+`/pfq` command ran the preflight while loading) → that object is the preflight result, never
+repeat the call, and remember the path as `injected`. `INJECTION_OFF`, `PREFLIGHT_ERROR` or no
+object → remember `fallback` and run the preflight once for the whole session:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-plan "$(pwd)"
 ```
@@ -47,6 +50,11 @@ already carries — its own `note import`/`note list --overview`/`note list --de
 produced `inbox.count`/`.imported`/`.overview`/`.detail`.
 
 ## Step 2 — Inbox
+
+`inbox.pendingImport` above `0` → run `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" note import "<repo-root>"`,
+then `note list "<repo-root>" --overview` and `--detail` again, and print those instead of the
+injected `inbox.overview`/`inbox.detail` (the entries must live in `plan/` before one can be chosen
+for `--from-plan`).
 
 Print `Inbox` as returned, then `inbox.overview` verbatim right after it — always, with or without
 arguments, zero entries included (`INBOX  empty`). Arguments were passed with the invocation → don't open the inbox question regardless of

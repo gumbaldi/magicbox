@@ -322,6 +322,28 @@ class SettingsTest(CfqTestCase):
         proc = self.run_cfq("settings", "set", "orchestratorMode", "yes", home=self.home)
         self.assertNotEqual(proc.returncode, 0, msg="set orchestratorMode yes should fail")
 
+    def test_05g1_preflight_injection(self):
+        listed = json.loads(self.run_cfq("settings", "list", home=self.home, check=True).stdout)
+        self.assertIn("preflightInjection", listed, msg="settings list lacks preflightInjection")
+        got = self.run_cfq("settings", "get", "preflightInjection", home=self.home).stdout.strip()
+        self.assertEqual(got, "true", msg=f"default preflightInjection = '{got}', want true")
+
+        with tempfile.TemporaryDirectory() as fixture_s:
+            self.run_cfq(
+                "settings", "set", "--repo", fixture_s, "preflightInjection", "false",
+                home=self.home, check=True,
+            )
+            got = self.run_cfq(
+                "settings", "get", "--repo", fixture_s, "preflightInjection", home=self.home
+            ).stdout.strip()
+            self.assertEqual(got, "false", msg=f"repo set preflightInjection -> got '{got}'")
+
+        got = self.run_cfq(
+            "settings", "get", "preflightInjection", home=self.home,
+            env={"CFQ_PREFLIGHT_INJECTION": "0"},
+        ).stdout.strip()
+        self.assertEqual(got, "false", msg=f"CFQ_PREFLIGHT_INJECTION=0 -> got '{got}', want false")
+
     # 5g2. strictWorkerReport: default true, round-trip through global and repo, env
     def test_05g2_strict_worker_report(self):
         got = self.run_clean(str(CFQ_BIN), "settings", "get", "strictWorkerReport").stdout.strip()
@@ -1186,7 +1208,7 @@ class SettingsTest(CfqTestCase):
                 "planExploreModel", "planExploreModelComplex", "implExploreModel",
                 "implExploreModelComplex", "planSessionEffort", "implSessionEffort",
             },
-            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins", "auditBarrier"},
+            "planning": {"grillMode", "useMattpocockGrilling", "planBlockedPlugins", "auditBarrier", "preflightInjection"},
             "implementation": {
                 "orchestratorMode", "strictWorkerReport", "onePhasePerSession", "branchPerBatch", "baseBranchStrategy",
                 "implBlockedPlugins",

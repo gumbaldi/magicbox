@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_pfq_preflight.py <repo-root>
+# Usage: cfq_pfq_preflight.py <repo-root> [--injected]
 """Single read-only preflight aggregator for plan-for-queue's **Preflight**: batches every
 cfq_settings.py/cfq_scan.py/cfq_registry.py/cfq_maintenance.py call the skill used to issue
 separately into one JSON object, one process invocation of
@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import sys
 
@@ -50,16 +51,28 @@ def inbox_line(count, imported):
     return text.status_entry("Inbox", icon, detail)
 
 
-def cmd_preflight(args):
-    repo = args.repo_root
+def pending_import(overview):
+    """Framework-inbox entries still waiting, read from the overview header
+    (`INBOX  <n> entries · <k> framework not imported`); 0 when the header has no such part."""
+    m = re.search(r"(\d+) framework not imported", overview.split("\n", 1)[0])
+    return int(m.group(1)) if m else 0
 
+
+def build_result(repo, injected=False):
+    """The preflight result as a dict. `injected` is the read-only load-time variant used by
+    `commands/pfq.md`: no `note import`, `inbox.pendingImport` instead, `injected: true`, and
+    `INJECTION_OFF` when the `preflightInjection` setting is false."""
     resolved = git(repo, "rev-parse", "--show-toplevel")
     if resolved.returncode != 0:
-        print(render.dump_json({"status": "NO_REPO", "repo": {"root": repo, "known": False}}))
-        return
+        result = {"status": "NO_REPO", "repo": {"root": repo, "known": False}}
+        if injected:
+            result["injected"] = True
+        return result
     repo = resolved.stdout.strip()
 
     settings = json.loads(cfq_run("settings", "list", "--repo", repo).stdout)
+    if injected and settings.get("preflightInjection") in (False, "false"):
+        return {"status": "INJECTION_OFF", "injected": True}
     setup_done = cfq_run("settings", "state", "get", "setupDone").stdout.strip() == "true"
 
     known = False
@@ -88,8 +101,11 @@ def cmd_preflight(args):
 
     sec_available = bool(shutil.which("gh") or shutil.which("tea"))
 
-    import_result = json.loads(cfq_run("note", "import", repo).stdout)
-    imported_n = len(import_result.get("imported", []))
+    if injected:
+        imported_n = 0
+    else:
+        import_result = json.loads(cfq_run("note", "import", repo).stdout)
+        imported_n = len(import_result.get("imported", []))
     inbox_overview = cfq_run("note", "list", repo, "--overview").stdout.rstrip("\n")
     inbox_n = text.inbox_count_from_overview(inbox_overview)
     inbox_detail = cfq_run("note", "list", repo, "--detail").stdout.rstrip("\n")
@@ -100,7 +116,7 @@ def cmd_preflight(args):
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=False)
 
-    print(render.dump_json({
+    result = {
         "status": "OK",
         "repo": {"root": repo, "known": known},
         "setup": {"globalDone": setup_done},
@@ -136,12 +152,30 @@ def cmd_preflight(args):
             text.plugin_boundaries_line(settings["planBlockedPlugins"]),
             *([tools_line] if tools_line else []),
         ],
-    }))
+    }
+    if injected:
+        result["injected"] = True
+        result["inbox"]["pendingImport"] = pending_import(inbox_overview)
+    return result
+
+
+def cmd_preflight(args):
+    if not args.injected:
+        print(render.dump_json(build_result(args.repo_root)))
+        return
+    try:
+        result = build_result(args.repo_root, injected=True)
+    except Exception as exc:  # the command must always finish loading
+        lines = str(exc).strip().splitlines()
+        detail = lines[-1] if lines else type(exc).__name__
+        result = {"status": "PREFLIGHT_ERROR", "injected": True, "detail": detail}
+    print(render.dump_json(result))
 
 
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     parser.add_argument("repo_root")
+    parser.add_argument("--injected", action="store_true")
     parser.set_defaults(func=cmd_preflight)
     return parser
 

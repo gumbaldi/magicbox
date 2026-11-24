@@ -490,6 +490,92 @@ sys.exit(subprocess.run([sys.executable, str(d / "cfq_settings_real.py"), *sys.a
         self.assertEqual(out["status"], "NO_REPO", msg=f"status = {out}")
         self.assertNotIn("setup", out, msg=f"NO_REPO result should carry no setup key: {out}")
 
+    # --injected: the read-only load-time variant `commands/pfq.md` injects.
+
+    def _git_repo(self, name):
+        repo = self._repos_dir / name
+        repo.mkdir()
+        self.run_clean("git", "init", "-q", cwd=repo)
+        return repo
+
+    def test_injected_matches_plain_fields_and_marks_result(self):
+        reg = self._git_repo("inj-fields")
+        plan = reg / ".claude" / "cfq" / "plan"
+        plan.mkdir(parents=True)
+        (plan / "2026-01-01-something.md").write_text("# Something\n\n## Finding\nx\n")
+
+        plain = self.json_out(self._run_pf(str(reg)))
+        injected = self.json_out(self._run_pf(str(reg), "--injected"))
+
+        self.assertNotIn("injected", plain, msg=f"plain result must carry no marker: {plain}")
+        self.assertIs(injected["injected"], True, msg=f"injected = {injected}")
+        self.assertEqual(injected["status"], "OK")
+        for key in ("repo", "planningPolicy", "queue"):
+            self.assertEqual(injected[key], plain[key], msg=f"{key} differs")
+        self.assertEqual(injected["inbox"]["count"], plain["inbox"]["count"])
+        self.assertEqual(injected["inbox"]["overview"], plain["inbox"]["overview"])
+        self.assertEqual(injected["inbox"]["imported"], 0)
+        self.assertEqual(injected["inbox"]["pendingImport"], 0)
+
+    def test_injected_does_not_import_framework_inbox(self):
+        fw = self._git_repo("inj-framework")
+        cli = str(self._repos_dir / "bin" / "cfq")
+        body = self._repos_dir / "body.md"
+        body.write_text("## Finding\nwaiting\n\n## Location\nx\n\n## Why Not Here\ny\n")
+        self.run_clean(cli, "note", "plan", "--framework", str(fw), "waiting", str(body),
+                       env={"HOME": str(self.home)})
+        inbox_dir = self.home / ".claude" / "cfq" / "framework-inbox"
+        self.assertEqual(len(list(inbox_dir.glob("*.md"))), 1, msg="fixture entry missing")
+        self.run_clean(cli, "settings", "set", "frameworkRepo", str(fw), env={"HOME": str(self.home)})
+
+        out = self.json_out(self._run_pf(str(fw), "--injected"))
+        self.assertEqual(out["status"], "OK", msg=f"out = {out}")
+        self.assertEqual(out["inbox"]["pendingImport"], 1, msg=f"inbox = {out['inbox']}")
+        self.assertEqual(out["inbox"]["imported"], 0)
+        self.assertEqual(len(list(inbox_dir.glob("*.md"))), 1, msg="injected run moved the entry")
+
+        plain = self.json_out(self._run_pf(str(fw)))
+        self.assertNotIn("pendingImport", plain["inbox"])
+        self.assertEqual(plain["inbox"]["imported"], 1, msg=f"plain run must import: {plain['inbox']}")
+        self.assertEqual(len(list(inbox_dir.glob("*.md"))), 0)
+
+    def test_injected_switch_off_reports_injection_off(self):
+        reg = self._git_repo("inj-off")
+        self.run_clean(
+            str(self._repos_dir / "bin" / "cfq"), "settings", "set", "--repo", str(reg),
+            "preflightInjection", "false", env={"HOME": str(self.home)},
+        )
+        proc = self._run_pf(str(reg), "--injected")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(self.json_out(proc), {"status": "INJECTION_OFF", "injected": True})
+
+        proc = self._run_pf(str(reg), "--injected", env={"CFQ_PREFLIGHT_INJECTION": "0"})
+        self.assertEqual(self.json_out(proc)["status"], "INJECTION_OFF")
+
+    def test_injected_internal_failure_reports_preflight_error(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        import cfq_pfq_preflight
+
+        reg = self._git_repo("inj-fail")
+        buf = io.StringIO()
+        with mock.patch.object(cfq_pfq_preflight, "cfq_run", side_effect=RuntimeError("boom\nlast line")):
+            with contextlib.redirect_stdout(buf):
+                cfq_pfq_preflight.main([str(reg), "--injected"])
+        self.assertEqual(
+            json.loads(buf.getvalue()),
+            {"status": "PREFLIGHT_ERROR", "injected": True, "detail": "last line"},
+        )
+
+    def test_injected_outside_git_repo_reports_no_repo(self):
+        proc = self._run_pf(str(self._repos_dir / "does-not-exist"), "--injected")
+        self.assertEqual(proc.returncode, 0)
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_REPO")
+        self.assertIs(out["injected"], True)
+
     def _make_bindir_without(self, excluded):
         # Symlink farm of the real PATH minus the given commands, so the rest of the toolchain
         # (bash, jq, git, coreutils, ...) stays reachable while the excluded commands' presence
