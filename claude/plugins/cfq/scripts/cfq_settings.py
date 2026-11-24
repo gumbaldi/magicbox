@@ -7,6 +7,7 @@
 #        cfq_settings.py unknown [--repo <path> | --global]
 #        cfq_settings.py menu [--repo <path>] [--group <id>] [--format text|json]
 #        cfq_settings.py migrate <repo-root>
+#        cfq_settings.py trust-hook [--repo <path>] [--revoke] [--status]
 #        cfq_settings.py state get <key> | state set <key> <value>
 """Manages cfq settings: $HOME/.claude/cfq/settings.json (global) and, per repo,
 <repo>/.claude/cfq/settings.json (repo-scoped overrides).
@@ -649,6 +650,60 @@ def cmd_state_set(args):
     render.write_json(STATE_FILE, data)
 
 
+def _trust_repo(args):
+    """The repository `trust-hook` acts on: `--repo`, else the git toplevel of the working
+    directory (independent of the CFQ_SETTINGS_AUTO_REPO test switch)."""
+    if args.repo:
+        return os.path.realpath(args.repo)
+    result = proc.git(os.getcwd(), "rev-parse", "--show-toplevel")
+    if result.returncode != 0 or not result.stdout.strip():
+        errors.die(f"{PROG}: trust-hook needs a repository: run it inside one or pass --repo <path>")
+    return os.path.realpath(result.stdout.strip())
+
+
+def cmd_trust_hook(args):
+    """Approves, withdraws or reports the trust of a repository's `phaseCommitCommand`. Only the
+    approval needs a terminal on stdin and stdout, and nothing bypasses that check: revoking and
+    reading only reduce or report trust."""
+    from cfq_lib import hook_trust
+
+    if args.revoke and args.status:
+        errors.die(f"{PROG}: --revoke and --status are mutually exclusive")
+    approving = not (args.revoke or args.status)
+    if approving and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        errors.fail(
+            "NOT_A_TERMINAL",
+            "approving a commit hook needs a terminal on stdin and stdout",
+            "run `bin/cfq settings trust-hook` yourself in a terminal",
+        )
+    repo = _trust_repo(args)
+    ensure()
+    command = with_overrides(merged_tiers(repo)).get("phaseCommitCommand") or ""
+    state = hook_trust.status(repo, command)
+    digest = hook_trust.command_hash(command)[:12] if command else ""
+    if args.status:
+        print(render.dump_json({"repo": repo, "status": state, "hash": digest}))
+        return
+    if args.revoke:
+        removed = hook_trust.revoke(repo)
+        print(f"trust withdrawn for {repo}" if removed else f"nothing was trusted for {repo}")
+        return
+    if not command:
+        errors.die(f"no phase commit hook is set for {repo}")
+    print(f"repo:    {repo}")
+    print(f"command: {command}")
+    print(f"hash:    {digest}")
+    try:
+        answer = input("Trust this command? [y/N] ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        print("not trusted")
+        return
+    hook_trust.trust(repo, command)
+    print(f"trusted {digest} for {repo}")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     sub = parser.add_subparsers(dest="cmd")
@@ -700,6 +755,12 @@ def build_parser():
     migrate_p.add_argument("repo_root")
     migrate_p.set_defaults(func=cmd_migrate)
 
+    trust_p = sub.add_parser("trust-hook")
+    trust_p.add_argument("--repo")
+    trust_p.add_argument("--revoke", action="store_true")
+    trust_p.add_argument("--status", action="store_true")
+    trust_p.set_defaults(func=cmd_trust_hook)
+
     state_p = sub.add_parser("state")
     state_sub = state_p.add_subparsers(dest="state_cmd")
     state_get_p = state_sub.add_parser("get")
@@ -727,7 +788,8 @@ def main(argv):
             f"set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | "
             f"unknown [--repo <path> | --global] | "
             f"menu [--repo <path>] [--group <id>] [--format text|json] | "
-            f"migrate <repo-root> | state get <key> | state set <key> <value>"
+            f"migrate <repo-root> | trust-hook [--repo <path>] [--revoke] [--status] | "
+            f"state get <key> | state set <key> <value>"
         )
     func(args)
 
