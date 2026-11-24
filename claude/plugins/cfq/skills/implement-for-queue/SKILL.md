@@ -64,6 +64,8 @@ ignored. Print `Plugin Boundaries` as returned (the preflight's own line).
 
 **Required Tools.** Print the `Required Tools` line as returned when present; `requiredTools.missing` non-empty → stop immediately, touching nothing.
 
+**Commit Hook.** Print the `Commit Hook` line as returned when present. It never blocks, and the session never approves the hook itself — approval happens only in the user's own terminal.
+
 **Batch Selection.** `status` already reflects the filtered outcome — `NO_BATCH` → report "No open plans for this repo in the queue.", end. `status` is `OK` → print `Batch`, the preflight's own `statusLines` entry exactly as returned. Any other `status` → read `${CLAUDE_PLUGIN_ROOT}/references/ifq-batch-start.md`'s **Batch Selection Rules**, which words every such outcome.
 
 ## Step 4 — Batch Briefing and Start

@@ -28,7 +28,7 @@ through `cfq_lib/text.py`'s `status_line`/`sub_line` (the single definition of t
 padding). Printing one of these means printing its `text` verbatim, entry by entry, in array
 order — no re-padding, no re-wording, no re-ordering, and never merging two entries into one.
 
-Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Batch` (`cfq_ifq_preflight.py`),
+Which lines this covers: `Model Gate`/`Plugin Boundaries`/`Commit Hook`/`Batch` (`cfq_ifq_preflight.py`),
 `Model Gate`/`Inbox`/`Plugin Boundaries` (`cfq_pfq_preflight.py`), `Security` (`planning open`), `Lint`/`Release`/`Telemetry`/`Portal` (`planning close`), `Language`/`Maintenance`/
 `Security Diff`/`Changelog`/`Branch`/`Telemetry`/`Lock` (`cfq_finish.py`), `Commit`/`Cost` (`cfq_phase.py commit`), `Cost` (`cfq_worker.py verdict`), `Skip`/`Unskip` (`cfq_phase.py`), `Skipped` (`cfq_finish.py`).
 `Model Gate` renders only the deterministic half — which list applies, or that

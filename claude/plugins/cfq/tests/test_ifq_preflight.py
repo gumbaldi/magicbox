@@ -6,16 +6,18 @@ Python in batch `017` phase 09 (see batch `014` phase 02 for the shadowing patte
 """
 
 import json
+import os
 import shutil
 import sys
 import time
 import unittest
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, SCRIPTS_DIR, write_status
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cfq_lib import text  # noqa: E402
+from cfq_lib import hook_trust, text  # noqa: E402
 
 
 class IfqPreflightTest(CfqTestCase):
@@ -184,6 +186,60 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         empty = self.json_out(self._run_pf(str(self._setup_repo("tools-unset-empty"))))
         self.assertEqual(empty["status"], "NO_BATCH")
         self.assertEqual(empty["requiredTools"], {"entries": [], "missing": []})
+
+    HOOK = "echo checked"
+
+    def _hook_repo(self, name, with_batch=True):
+        repo = self._tools_repo(name) if with_batch else self._setup_repo(name)
+        self.run_cfq("settings", "set", "--repo", str(repo), "phaseCommitCommand", self.HOOK,
+                     check=True)
+        return repo
+
+    @staticmethod
+    def _hook_entries(out):
+        return [e for e in out["statusLines"] if e["label"] == "Commit Hook"]
+
+    def test_commit_hook_unset_gives_no_line(self):
+        out = self.json_out(self._run_pf(str(self._tools_repo("hook-unset"))))
+        self.assertEqual(self._hook_entries(out), [])
+
+    def test_commit_hook_not_approved_gives_warn_line_with_trust_command(self):
+        repo = self._hook_repo("hook-untrusted")
+        out = self.json_out(self._run_pf(str(repo)))
+        entries = self._hook_entries(out)
+        self.assertEqual(len(entries), 1, msg=f"statusLines = {out['statusLines']}")
+        self.assertEqual(entries[0]["icon"], "warn")
+        self.assertIn("phaseCommitCommand not approved", entries[0]["detail"])
+        self.assertIn(f"{self._repos_dir / 'bin' / 'cfq'} settings trust-hook --repo {repo}",
+                      entries[0]["detail"])
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.index("Commit Hook"), labels.index("Plugin Boundaries") + 1)
+
+    def test_commit_hook_approved_gives_done_line(self):
+        repo = self._hook_repo("hook-trusted")
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            hook_trust.trust(repo, self.HOOK)
+        out = self.json_out(self._run_pf(str(repo)))
+        entries = self._hook_entries(out)
+        self.assertEqual(len(entries), 1, msg=f"statusLines = {out['statusLines']}")
+        self.assertEqual((entries[0]["icon"], entries[0]["detail"]),
+                         ("done", "phaseCommitCommand approved"))
+
+    def test_commit_hook_line_is_on_the_empty_result_with_required_tools(self):
+        repo = self._hook_repo("hook-empty", with_batch=False)
+        env = {"CFQ_REQUIRED_TOOLS": "py:json"}
+        out = self.json_out(self._run_pf(str(repo), env=env))
+        self.assertEqual(out["status"], "NO_BATCH")
+        labels = [e["label"] for e in out["statusLines"]]
+        self.assertEqual(labels.count("Commit Hook"), 1, msg=f"labels = {labels}")
+        self.assertIn("Required Tools", labels)
+
+    def test_commit_hook_line_does_not_change_status_or_exit_code(self):
+        plain = self._tools_repo("hook-plain")
+        hooked = self._hook_repo("hook-hooked")
+        a, b = self._run_pf(str(plain)), self._run_pf(str(hooked))
+        self.assertEqual(a.returncode, b.returncode)
+        self.assertEqual(self.json_out(a)["status"], self.json_out(b)["status"])
 
     def test_required_tools_present_gives_done_line_after_plugin_boundaries(self):
         repo = self._tools_repo("tools-present")

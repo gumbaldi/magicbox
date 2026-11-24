@@ -24,8 +24,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from cfq_lib import effort, queue as cfq_queue, render, text, tools  # noqa: E402
-from cfq_lib.proc import cfq_run, git  # noqa: E402
+from cfq_lib import effort, hook_trust, queue as cfq_queue, render, text, tools  # noqa: E402
+from cfq_lib.proc import CFQ_BIN, cfq_run, git  # noqa: E402
 
 PROG = "cfq_ifq_preflight.py"
 
@@ -202,6 +202,20 @@ def batch_line(*, select_batch, inprogress_name, selectable, chosen, cand, resum
     return text.status_entry("Batch", "done", detail)
 
 
+def commit_hook_line(repo_root, command):
+    """The `Commit Hook` entry, or `None` when no `phaseCommitCommand` is set. Never blocks."""
+    state = hook_trust.status(repo_root, command)
+    if state == "unset":
+        return None
+    if state == "trusted":
+        return text.status_entry("Commit Hook", "done", "phaseCommitCommand approved")
+    return text.status_entry(
+        "Commit Hook", "warn",
+        f"phaseCommitCommand not approved · run in a terminal: "
+        f"{CFQ_BIN} settings trust-hook --repo {repo_root}",
+    )
+
+
 def cmd_preflight(args):
     repo = args.repo_root
     select_batch = args.select or ""
@@ -232,6 +246,7 @@ def cmd_preflight(args):
     reporting = project(settings, ["reportDir", "htmlReport"])
     required_tools = tools.check(settings["requiredTools"])
     tools_line = tools.status_entry(required_tools, blocking=True)
+    hook_line = commit_hook_line(repo, settings.get("phaseCommitCommand") or "")
     current_effort = os.environ.get("CLAUDE_EFFORT")
     required_effort = settings["implSessionEffort"]
     effort_warning = effort.check(current_effort, required_effort, "implSessionEffort")
@@ -301,6 +316,7 @@ def cmd_preflight(args):
                 model_gate_line(policy, effort_warning),
                 text.plugin_boundaries_line(policy["implBlockedPlugins"]),
                 *([tools_line] if tools_line else []),
+                *([hook_line] if hook_line else []),
             ],
             **EMPTY_SELECTION_TEMPLATE,
         })
@@ -382,6 +398,7 @@ def cmd_preflight(args):
         model_gate_line(policy, effort_warning),
         text.plugin_boundaries_line(policy["implBlockedPlugins"]),
         *([tools_line] if tools_line else []),
+        *([hook_line] if hook_line else []),
         batch_line(
             select_batch=select_batch, inprogress_name=inprogress_name, selectable=selectable,
             chosen=chosen, cand=cand, resume_only=resume_only,
