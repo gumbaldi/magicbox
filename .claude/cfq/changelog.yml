@@ -3,7 +3,21 @@
   branch: cfq/066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
   base: cfq/065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
   started: 2026-11-24
-  status: in-progress
+  status: done
+  finished: 2026-11-24
+  phases:
+    - phase: "01-harden-commit-hook-gate-and-trust-prompt"
+      status: "green"
+      summary: "fail-closed commit hook gate (runs only on trusted), hook_trust.control_characters helper, trust-hook refuses control characters and prints the command with repr"
+    - phase: "02-inject-the-ifq-preflight-at-load-time"
+      status: "green"
+      summary: "--injected mode for cfq_ifq_preflight.py, load-time preflight line in commands/ifq.md, injected/fallback rule in the skill's Step 3, updated preflightInjection description, seven test_injected_* tests"
+    - phase: "03-record-the-preflight-path-per-phase"
+      status: "green"
+      summary: "Optional preflight field (injected|fallback) validated in phase record and phase commit before any change, documented in ifq-phase.md and the skill's Step 3"
+    - phase: "04-document-and-release-0-47-0"
+      status: "green"
+      summary: "Documented the hardened trust prompt, the fail-closed gate, the /ifq load-time preflight and the preflight ledger metric in six files; released plugin 0.47.0"
 - batchNumber: 65
   batch: 065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
   branch: cfq/065-2026-11-24-trusted-commit-hook-load-time-preflight-and-inbox-cleanup
