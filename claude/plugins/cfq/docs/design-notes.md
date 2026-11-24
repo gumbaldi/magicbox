@@ -402,7 +402,7 @@ changed, and it needs no new file, dependency or setting. A judgment call would 
 and a fix the reviewer calls small on one run and large on the next is not something a setting can
 promise.
 
-## pfq: why the preflight is injected at load time in `/pfq` only
+## pfq, ifq: why the preflight is injected at load time in both commands
 
 Injecting the preflight with the `` !`<command>` `` syntax saves one model turn per planning session.
 The risk was that a load-time command which fails aborts the whole load, and that such commands might
@@ -415,9 +415,18 @@ always exits 0; there is no shell `||` fallback, because the `allowed-tools` pat
 call only. The injected run is read-only: it defers `note import`, and the skill imports when
 `inbox.pendingImport` is above 0. The `preflightInjection` setting (default on) switches it off,
 and the `preflight` field on planning records (`injected` or `fallback`, `planning close
---preflight`) is the comparison metric. `/ifq` is not part of it: its argument text would have to be
-parsed safely inside the command line before the call can run, so that part is parked separately.
-The manual check, which an agent cannot run, is in [usage.md](usage.md).
+--preflight`) is the comparison metric.
+
+`/ifq` injects an argument-free `preflight-impl --injected` the same way, and the one setting governs
+both commands. It does not inject when the user typed text after `/ifq`: the argument text
+(apostrophes, semicolons) would have to be parsed inside the shell line, so with arguments the skill
+runs the preflight itself and no argument text ever reaches a shell line in `commands/ifq.md`.
+Rejected: a `--raw-args` mode, because the text still has to reach the process, by environment or
+standard input, which is exactly the unclear path; and no injection for `/ifq`, which would leave the
+saved turn unused on the common start without text. The comparison metric is the optional `preflight`
+field (`injected` or `fallback`) on the phase object of the `report.json` ledger entry; orchestrator
+mode leaves it out, because the worker's phase does not run the preflight. The manual check, which an
+agent cannot run, is in [usage.md](usage.md).
 
 ## cfq: why skill texts keep the full dispatcher path
 
@@ -846,13 +855,19 @@ can carry it, and the agent that runs `phase commit` has Bash anyway. Running it
 meant that opening a repository and working off one phase executed whatever the clone brought along.
 `bin/cfq settings trust-hook` stores the sha256 of the exact command string, keyed by the repository's
 realpath, in `~/.claude/cfq/trusted-hooks.json`, and `phase commit` runs the command only when the
-stored hash matches. The store is in the user's home because every place the repository or the agent
+stored hash matches, that is, only when the state is exactly `trusted`. The gate checks for `trusted`
+instead of for `untrusted` so that a state the code does not know, or one added later, stops the
+commit instead of running the command. The store is in the user's home because every place the repository or the agent
 controls fails: the repository can ship an approval with the command, an environment variable can be
 set by the agent that runs the command, and the plugin directory is replaced by every update, which
 would reset the approval. The key is never the plugin version for the same reason; only a changed
 command asks again. Approving needs a terminal on stdin and stdout and has no bypass flag or
 variable, because an approval an agent can give is no approval; `--revoke` and `--status` only
-reduce or report trust and run anywhere. An unapproved command stops the commit with `HOOK_UNTRUSTED`
+reduce or report trust and run anywhere. The prompt is the only barrier between a clone's command
+and the approval, and a command can rewrite what the terminal shows (an escape sequence, a carriage
+return, a hidden Unicode character), so the prompt refuses control characters and prints the command
+in `repr` form; a newline is refused too, because a second line would otherwise hide behind the
+first, and a multi-line hook calls a script instead. An unapproved command stops the commit with `HOOK_UNTRUSTED`
 and leaves the phase open, handled like `HOOK_FAILED`, and `/ifq` shows a non-blocking `Commit Hook`
 line at start so the user can approve before the first phase is done. An approved command keeps the
 full environment, as a Git hook does. Rejected: a minimal environment for approved hooks (build

@@ -105,6 +105,12 @@ flag nor an environment variable bypasses that, so an agent cannot approve a hoo
 asks for a new approval, and a plugin update never resets an existing one. An approved command runs
 with the full environment, like a Git hook.
 
+The prompt refuses a command that contains control characters (below 0x20 except tab, 0x7f and 0x80
+to 0x9f, so also a newline) with an error naming the code points, and it shows the command in `repr`
+form, so a hidden Unicode character appears as an escape. A multi-line hook calls a script instead.
+`--status` and `--revoke` work for any command. `phase commit` runs the command only when the state is
+exactly `trusted`; every other state stops it with `HOOK_UNTRUSTED`.
+
 ### The repo tier only stores deviations
 
 Nothing writes a repo override just to mirror the current global value — `set --repo` only ever
@@ -149,7 +155,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `useMattpocockGrilling` | `CFQ_USE_MATTPOCOCK` | `true` | global, repo | allows `grillMode: classic` |
 | `planBlockedPlugins` | `CFQ_PLAN_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition: never used while planning, not even indirectly |
 | `auditBarrier` | `CFQ_AUDIT_BARRIER` | `true` | global, repo | while the post-write audit runs, `batch ready` refuses and `/ifq` never offers the batch; `false` writes no marker and ignores an existing one |
-| `preflightInjection` | `CFQ_PREFLIGHT_INJECTION` | `true` | global, repo | `/pfq` fetches its read-only preflight when the command loads (`preflight-plan --injected`), so the session starts without a separate preflight call; `false` makes the skill run the preflight itself. A failed injected run reports `PREFLIGHT_ERROR` and the skill falls back to its own call. `/ifq` is not covered. Check it by running `/pfq` in a fresh session once with the setting on and once off — see [usage](usage.md) |
+| `preflightInjection` | `CFQ_PREFLIGHT_INJECTION` | `true` | global, repo | `/pfq` fetches its read-only preflight when the command loads (`preflight-plan --injected`), so the session starts without a separate preflight call; `false` makes the skill run the preflight itself. A failed injected run reports `PREFLIGHT_ERROR` and the skill falls back to its own call. `/ifq` does the same with `preflight-impl --injected`, but only when started without text; with arguments the skill runs the preflight itself. Check it by running `/pfq` or `/ifq` in a fresh session once with the setting on and once off — see [usage](usage.md) |
 
 ### Implementation
 
@@ -160,7 +166,7 @@ Grouped exactly as `settings menu` groups them — same eight ids, same fixed or
 | `onePhasePerSession` | `CFQ_ONE_PHASE_PER_SESSION` | `true` | global, repo | `ifq` always hands off after one phase instead of continuing automatically while the context gate allows it; no effect in orchestrator mode |
 | `branchPerBatch` | `CFQ_BRANCH_PER_BATCH` | `true` | global, repo | `ifq` creates one branch per batch right after the go-ahead |
 | `baseBranchStrategy` | `CFQ_BASE_BRANCH_STRATEGY` | `chainTip` | global, repo | which branch `ifq` recommends as the base of a new batch branch: `chainTip` = the batch branch that contains all other batch branches (never `main` or another non-batch branch while a batch branch exists), `newest` = the newest branch by commit date |
-| `phaseCommitCommand` | none | empty | repo | shell command `phase commit` runs in the repository root right before every phase commit and after the nothing-staged check, for example `npm run bump-buildversion`; empty turns the hook off. Environment: `CFQ_BATCH_NUMBER` (empty for a legacy batch name), `CFQ_PHASE_NUMBER` (`NN`), `CFQ_FIRST_PHASE` (`1` while no other phase of the batch is `done`, else `0`; a bump that belongs to the batch start checks it). The command stages its own changes (`git add BUILDVERSION`); cfq stages nothing for it. A non-zero exit stops the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output lines. No timeout; commits made outside `phase commit` are not covered. Repo scope only: a global write is refused and no environment variable overrides it. The command only runs once you approved that exact text in a terminal with `bin/cfq settings trust-hook` (see [Approve the commit hook](#approve-the-commit-hook)); until then `phase commit` stops with `HOOK_UNTRUSTED`, the phase stays open and `/ifq` shows a `Commit Hook` line at start. A changed command needs a new approval |
+| `phaseCommitCommand` | none | empty | repo | shell command `phase commit` runs in the repository root right before every phase commit and after the nothing-staged check, for example `npm run bump-buildversion`; empty turns the hook off. Environment: `CFQ_BATCH_NUMBER` (empty for a legacy batch name), `CFQ_PHASE_NUMBER` (`NN`), `CFQ_FIRST_PHASE` (`1` while no other phase of the batch is `done`, else `0`; a bump that belongs to the batch start checks it). The command stages its own changes (`git add BUILDVERSION`); cfq stages nothing for it. A non-zero exit stops the commit, the phase stays open and `phase commit` reports `HOOK_FAILED` with the last 20 output lines. No timeout; commits made outside `phase commit` are not covered. Repo scope only: a global write is refused and no environment variable overrides it. The command only runs once you approved that exact text in a terminal with `bin/cfq settings trust-hook` (see [Approve the commit hook](#approve-the-commit-hook)); only a state of exactly `trusted` runs it, so until then `phase commit` stops with `HOOK_UNTRUSTED`, the phase stays open and `/ifq` shows a `Commit Hook` line at start. A changed command needs a new approval |
 | `batchReview` | `CFQ_BATCH_REVIEW` | `off` | global, repo | `off`, or the effort level (`low`, `medium`, `high`) of a `/code-review` over the whole batch when its last phase is green |
 | `batchReviewFindings` | `CFQ_BATCH_REVIEW_FINDINGS` | `auto` | global, repo | what the batch review does with findings: `park` all as a plan entry, `fix` all in the session, or `auto` = fix small ones, park the rest |
 | `implBlockedPlugins` | `CFQ_IMPL_BLOCKED_PLUGINS` | `superpowers` | global, repo | prohibition for implementation |
@@ -301,7 +307,7 @@ restate a field list inline — read the field here, then read it back from the 
   `status` and `injected` are set) and `PREFLIGHT_ERROR` (any failure; `injected` and a one-line
   `detail`). The skill runs its own call, without `--injected`, whenever the injected object is
   missing, `INJECTION_OFF` or `PREFLIGHT_ERROR`.
-- **`bin/cfq preflight-impl <repo-root> [--select <batch>]`** — `{status, repo: {root}, policy:
+- **`bin/cfq preflight-impl <repo-root> [--select <batch>] [--injected]`** — `{status, repo: {root}, policy:
   {implModels, allowAnyModel, implBlockedPlugins, onePhasePerSession, implExploreModel,
   implExploreModelComplex, orchestratorMode, orchestratorModels, batchReview,
   batchReviewFindings}, reporting: {reportDir, htmlReport}, selection: {selectable: [{name,
@@ -310,7 +316,11 @@ restate a field list inline — read the field here, then read it back from the 
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
   | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
-  `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`.
+  `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`. With `--injected` (the call `commands/ifq.md`
+  runs when the command loads, without argument text) the call is read-only, adds `injected: true`,
+  always exits 0 and has the statuses `INJECTION_OFF` and `PREFLIGHT_ERROR`; `--injected` together with
+  `--select` or `--intent` is `INVALID_ARGS`. The skill runs its own call whenever argument text exists
+  or the injected object is missing or one of those statuses.
 - **`bin/cfq scan [--format=json|next]`** — `json` (default): `{repos: [{path, plan,
   todo, batches: [{name, priority, open, done, archived, report, dependsOn, blocked, unknownDeps,
   inProgress, planning}]}]}`. `next`: one object per repo — `{path, next, reason,

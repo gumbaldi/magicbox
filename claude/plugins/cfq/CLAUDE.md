@@ -120,8 +120,9 @@ with the file's move into `done/` and the phase's own Git commit by the single t
 `cfq phase commit <batch-dir> <phase-json-file> <message-file>` for green phases — commits
 whatever is already staged (never runs `git add` itself), first runs the optional repo-only
 `phaseCommitCommand` hook after the nothing-staged check (a non-zero exit stops the commit with
-`HOOK_FAILED`; a command the user has not approved in a terminal through `cfq settings trust-hook`
-is never run and stops it with `HOOK_UNTRUSTED` — the approval is a hash in
+`HOOK_FAILED`; the command runs only when its trust state is exactly `trusted`, so one the user has
+not approved in a terminal through `cfq settings trust-hook` is never run and stops it with
+`HOOK_UNTRUSTED` — the approval is a hash in
 `~/.claude/cfq/trusted-hooks.json`, `cfq_lib/hook_trust.py`), moves the `.md` file, appends the ledger
 entry, backfills the commit SHA and pushes (a push failure stays non-fatal; a failure to record
 after a successful commit is reported with the SHA instead, never reverting the commit); `cfq
@@ -513,7 +514,8 @@ under `reportDir` when set) whose name matches a batch's own shape, never touchi
 
 Every read-only aggregator (`cfq_pfq_preflight.py`, `cfq_ifq_preflight.py`, `cfq_scan.py
 --format=`, `cfq_runtime.py plugins`, and any future one) reports a
-`status` field skills react to structurally, never by parsing prose. `status` is always exactly one
+`status` field skills react to structurally, never by parsing prose (`cfq_ifq_preflight.py` has the
+same read-only `--injected` mode as `cfq_pfq_preflight.py`). `status` is always exactly one
 of:
 
 - `OK` — normal result, no caller action needed beyond reading `data`.
