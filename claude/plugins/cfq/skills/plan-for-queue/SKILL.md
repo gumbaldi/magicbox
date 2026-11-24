@@ -210,9 +210,9 @@ call, because that call records the session's telemetry.
 
 Entering this step closes `POSTCHECKS`.
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/cfq" planning close "<batch-dir>" --depth <quick|thorough|docs>
+"${CLAUDE_PLUGIN_ROOT}/bin/cfq" planning close "<batch-dir>" --depth <quick|thorough|docs> --preflight <injected|fallback>
 ```
-(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs") runs lint,
+(the interview depth chosen at **Start Block**; `docs` for "Grilling with docs"; `--preflight` is `injected` when the load-time object was used, `fallback` otherwise, `INJECTION_OFF` included) runs lint,
 releases the batch, records and syncs the planning telemetry and builds the portal link. Print its
 `statusLines` entries verbatim, in order. `LINT_FAILED` → fix every finding in one turn (all
 corrections of one run in one response; several `Edit` calls on one file are applied in the order sent) and call it again; `warn:` lines are fixed when they are

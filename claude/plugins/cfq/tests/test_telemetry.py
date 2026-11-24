@@ -919,6 +919,32 @@ class TelemetryTest(CfqTestCase):
             self.assertIn("--depth quick|thorough|docs", proc.stderr)
         self.assertFalse(self.jsonl.exists())
 
+    def test_planning_record_carries_preflight(self):
+        for value in ("injected", "fallback"):
+            self._record(str(self.batch), "planning", "--depth", "quick", "--preflight", value)
+            self.assertEqual(self._last_record()["preflight"], value)
+            planning = json.loads((self.batch / "report.json").read_text())["planning"]
+            self.assertEqual(planning["preflight"], value)
+
+    def test_planning_record_without_preflight_has_no_key(self):
+        self._record(str(self.batch), "planning", "--depth", "quick")
+        self.assertNotIn("preflight", self._last_record())
+        planning = json.loads((self.batch / "report.json").read_text())["planning"]
+        self.assertNotIn("preflight", planning)
+
+    def test_planning_record_rejects_unknown_preflight(self):
+        for args in (["planning", "--preflight", "maybe"], ["planning", "--preflight"]):
+            proc = self.run_cfq("telemetry", "record", str(self.batch), *args,
+                                cwd=self.repo, env={"CLAUDE_CODE_SESSION_ID": "testsid"})
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn("usage:", proc.stderr)
+            self.assertIn("--preflight injected|fallback", proc.stderr)
+        self.assertFalse(self.jsonl.exists())
+
+    def test_phase_record_ignores_preflight(self):
+        self._record(str(self.batch), "phase", "01-foo", "--preflight", "injected")
+        self.assertNotIn("preflight", self._last_record())
+
     def test_phase_record_has_no_depth_keys(self):
         self._record(str(self.batch), "phase", "01-foo")
         rec = self._last_record()

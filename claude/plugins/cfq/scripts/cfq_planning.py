@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_planning.py open <repo-root> <YYYY-MM-DD> <slug>
-#        cfq_planning.py close <batch-dir> --depth quick|thorough|docs
+#        cfq_planning.py close <batch-dir> --depth quick|thorough|docs [--preflight injected|fallback]
 """The two bundle commands of a `plan-for-queue` session: `open` runs the security check, the batch
 allocation and the security snapshot, `close` runs lint, release, the planning telemetry and the
 portal link -- each in a fixed order, each printing one JSON object with a `statusLines` array.
@@ -142,8 +142,11 @@ def cmd_close(args):
 
     tel_errs = []
     sync_text = ""
+    record_call = ("telemetry", "record", str(batch_dir), "planning", "--depth", args.depth)
+    if args.preflight:
+        record_call += ("--preflight", args.preflight)
     for step, call in (
-        ("telemetry record", ("telemetry", "record", str(batch_dir), "planning", "--depth", args.depth)),
+        ("telemetry record", record_call),
         ("telemetry sync", ("telemetry", "sync", str(repo))),
     ):
         proc = cfq_run(*call)
@@ -189,6 +192,7 @@ def build_parser():
     p_close = sub.add_parser("close", help="lint, release, planning telemetry, portal link")
     p_close.add_argument("batch_dir")
     p_close.add_argument("--depth", required=True, choices=("quick", "thorough", "docs"))
+    p_close.add_argument("--preflight", choices=("injected", "fallback"))
     p_close.set_defaults(func=cmd_close)
     return parser
 

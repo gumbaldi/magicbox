@@ -72,8 +72,8 @@ x
         write_status(batch_dir)
         return batch_dir
 
-    def _close(self, batch_dir, depth="quick", env=None):
-        return self.run_cfq("planning", "close", str(batch_dir), "--depth", depth,
+    def _close(self, batch_dir, depth="quick", env=None, extra=()):
+        return self.run_cfq("planning", "close", str(batch_dir), "--depth", depth, *extra,
                             cwd=self.repo, env=self._env(**(env or {})))
 
 
@@ -208,6 +208,28 @@ class TestPlanningClose(PlanningTestBase):
         proc = self._close(batch_dir)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.json_out(proc)["status"], "OK")
+
+    def _planning_record(self, batch_dir):
+        return json.loads((batch_dir / "report.json").read_text())["planning"]
+
+    def test_preflight_is_passed_to_telemetry(self):
+        for value in ("injected", "fallback"):
+            batch_dir = self._linted_batch()
+            proc = self._close(batch_dir, extra=("--preflight", value))
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(self._planning_record(batch_dir)["preflight"], value)
+
+    def test_preflight_invalid_value_is_rejected(self):
+        batch_dir = self._linted_batch()
+        proc = self._close(batch_dir, extra=("--preflight", "maybe"))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue((batch_dir / ".planning").exists(), "nothing ran after a usage error")
+
+    def test_preflight_omitted_leaves_record_unchanged(self):
+        batch_dir = self._linted_batch()
+        self.assertEqual(self._close(batch_dir).returncode, 0)
+        self.assertNotIn("preflight", self._planning_record(batch_dir))
 
     def test_usage_error(self):
         proc = self.run_cfq("planning", "close")

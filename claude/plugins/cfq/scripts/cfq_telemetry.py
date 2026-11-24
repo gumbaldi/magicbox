@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Usage: cfq_telemetry.py record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug>
+# Usage: cfq_telemetry.py record <batch-dir> planning [--depth quick|thorough|docs] [--preflight injected|fallback] | phase <phase-slug>
 #        cfq_telemetry.py record <batch-dir> bootstrap <skill-name> <callCount> <durationMs>
 #        cfq_telemetry.py sync [<repo-root>]
 #        cfq_telemetry.py show <repo-root> [--session]
@@ -40,7 +40,8 @@ from cfq_lib.proc import git as proc_git  # noqa: E402
 PROG = "cfq_telemetry.py"
 
 USAGE = (
-    f"usage: {PROG} record <batch-dir> planning [--depth quick|thorough|docs] | phase <phase-slug> | "
+    f"usage: {PROG} record <batch-dir> planning [--depth quick|thorough|docs] "
+    "[--preflight injected|fallback] | phase <phase-slug> | "
     "sync [<repo-root>] | "
     "show <repo-root> [--session] | settle <repo-root>"
 )
@@ -515,7 +516,7 @@ def _phase_count(dir_):
         return 0
 
 
-def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
+def cmd_record_phase_or_planning(dir_, kind, phase, depth="", preflight=""):
     tf, sid = session_identity()
     if not tf or not os.path.isfile(tf):
         print(f"{PROG}: no transcript found — skipped", file=sys.stderr)
@@ -533,6 +534,8 @@ def cmd_record_phase_or_planning(dir_, kind, phase, depth=""):
     if kind == "planning":
         rec["interview_depth"] = depth
         rec["phase_count"] = _phase_count(dir_)
+        if preflight:
+            rec["preflight"] = preflight
     if rec["totals"]["turns"] == 0:
         print(f"{PROG}: record for '{phase or 'planning'}' has 0 turns — transcript {tf} holds nothing in this window",
               file=sys.stderr)
@@ -594,8 +597,15 @@ def cmd_record(rest):
             errors.die(USAGE)
         depth = args[i + 1]
         del args[i:i + 2]
+    preflight = ""
+    if "--preflight" in args:
+        i = args.index("--preflight")
+        if i + 1 >= len(args) or args[i + 1] not in ("injected", "fallback"):
+            errors.die(USAGE)
+        preflight = args[i + 1]
+        del args[i:i + 2]
     phase = args[0] if args else ""
-    cmd_record_phase_or_planning(dir_, kind, phase, depth)
+    cmd_record_phase_or_planning(dir_, kind, phase, depth, preflight)
 
 
 def _record_objects(data):
