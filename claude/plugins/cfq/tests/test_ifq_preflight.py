@@ -76,6 +76,96 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         self.assertEqual(out["status"], "NO_REPO", msg=f"non-git status = {out}")
         self.assertNotIn("inbox", out, msg=f"NO_REPO result should carry no inbox key: {out}")
 
+    # ---- --injected (load-time variant of commands/ifq.md) -----------------------------------
+
+    def _cfq_set(self, *args):
+        self.run_clean(str(self._repos_dir / "bin" / "cfq"), "settings", "set", *args,
+                       env={"HOME": str(self.home)})
+
+    def _tree_snapshot(self, root):
+        return sorted((str(p.relative_to(root)), p.stat().st_mtime_ns) for p in root.rglob("*"))
+
+    def test_injected_matches_plain_result_and_marks_it(self):
+        repo = self._setup_repo("inj-fields")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        self.run_clean("git", "-C", str(repo), "branch", "cfq/2026-01-01-solo")
+
+        plain = self.json_out(self._run_pf(str(repo)))
+        injected = self.json_out(self._run_pf(str(repo), "--injected"))
+        self.assertNotIn("injected", plain)
+        self.assertIs(injected["injected"], True)
+        self.assertEqual(plain["status"], "OK")
+        for key, value in plain.items():
+            self.assertEqual(injected[key], value, msg=f"{key} differs")
+
+    def test_injected_with_no_batch_keeps_the_ordinary_status(self):
+        repo = self._setup_repo("inj-empty")
+        proc = self._run_pf(str(repo), "--injected")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_BATCH")
+        self.assertIs(out["injected"], True)
+
+    def test_injected_switch_off_reports_injection_off(self):
+        repo = self._setup_repo("inj-off")
+        self._cfq_set("--repo", str(repo), "preflightInjection", "false")
+        proc = self._run_pf(str(repo), "--injected")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(self.json_out(proc), {"status": "INJECTION_OFF", "injected": True})
+
+        other = self._setup_repo("inj-off-env")
+        proc = self._run_pf(str(other), "--injected", env={"CFQ_PREFLIGHT_INJECTION": "0"})
+        self.assertEqual(self.json_out(proc), {"status": "INJECTION_OFF", "injected": True})
+
+    def test_injected_internal_failure_reports_preflight_error(self):
+        import contextlib
+        import io
+
+        import cfq_ifq_preflight
+
+        repo = self._setup_repo("inj-fail")
+        for effect, detail in (
+            (RuntimeError("boom\nlast line"), "last line"),
+            (SystemExit(1), "preflight exited early"),
+        ):
+            buf = io.StringIO()
+            with mock.patch.object(cfq_ifq_preflight, "cmd_preflight", side_effect=effect):
+                with contextlib.redirect_stdout(buf):
+                    cfq_ifq_preflight.main([str(repo), "--injected"])
+            self.assertEqual(
+                json.loads(buf.getvalue()),
+                {"status": "PREFLIGHT_ERROR", "injected": True, "detail": detail},
+            )
+
+    def test_injected_outside_git_repo_reports_no_repo(self):
+        proc = self._run_pf(str(self._repos_dir / "does-not-exist"), "--injected")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        out = self.json_out(proc)
+        self.assertEqual(out["status"], "NO_REPO")
+        self.assertIs(out["injected"], True)
+
+    def test_injected_rejects_select_and_intent(self):
+        repo = self._setup_repo("inj-args")
+        for extra in (("--select", "x"), ("--intent", "resume")):
+            proc = self._run_pf(str(repo), "--injected", *extra)
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            out = self.json_out(proc)
+            self.assertEqual(out["status"], "INVALID_ARGS", msg=f"{extra}: {out}")
+            self.assertIs(out["injected"], True)
+
+    def test_injected_is_read_only(self):
+        repo = self._setup_repo("inj-readonly")
+        batch = repo / ".claude" / "cfq" / "impl" / "2026-01-01-solo"
+        batch.mkdir(parents=True)
+        (batch / "01-a.md").write_text("# T\n\n## Size\n\nS\n")
+        write_status(batch)
+        root = repo / ".claude" / "cfq"
+        before = self._tree_snapshot(root)
+        self.assertEqual(self.json_out(self._run_pf(str(repo), "--injected"))["status"], "OK")
+        self.assertEqual(self._tree_snapshot(root), before)
+
     # ---- inbox.overview (batch 037 phase 03) --------------------------------------------------
 
     def test_inbox_overview_matches_real_note_list_call(self):

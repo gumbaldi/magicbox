@@ -103,7 +103,7 @@ SCHEMA = {
     "planSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_PLAN_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /pfq session should run at; a lower level prints a warning and never blocks. off disables the check."},
     "implSessionEffort": {"type": "enum", "default": "high", "values": ["off", "low", "medium", "high", "xhigh", "max"], "scope": ["global", "repo"], "env": "CFQ_IMPL_SESSION_EFFORT", "group": "models", "description": "Minimum reasoning effort a /ifq session should run at; a lower level prints a warning and never blocks. off disables the check."},
     "auditBarrier": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_AUDIT_BARRIER", "group": "planning", "description": "While the post-write audit of a batch runs, `batch ready` refuses and /ifq never offers the batch; false restores the earlier behaviour (no marker, no refusal)."},
-    "preflightInjection": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_PREFLIGHT_INJECTION", "group": "planning", "description": "/pfq fetches its read-only preflight when the command loads; false makes the skill run the preflight itself, as before."},
+    "preflightInjection": {"type": "bool", "default": True, "scope": ["global", "repo"], "env": "CFQ_PREFLIGHT_INJECTION", "group": "planning", "description": "/pfq and /ifq fetch their read-only preflight when the command loads (/ifq only when no argument text is passed); false makes the skill run the preflight itself."},
 }
 
 # Only feeds the hint text of `unknown_keys()`: a key that was replaced by another one. A key

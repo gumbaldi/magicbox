@@ -44,7 +44,12 @@ Before **Batch Selection**: a "Plan mode is active" reminder is present in conte
 
 ## Step 3 — Preflight: Policy, Batch Selection
 
-Print the `PRECHECKS` header, then one call:
+Print the `PRECHECKS` header. No argument text was passed and the context carries a JSON object
+with `"injected": true` whose `status` is not `INJECTION_OFF`, `PREFLIGHT_ERROR` or `INVALID_ARGS`
+(the `/ifq` command ran the preflight while loading) → that object is the preflight result, never
+repeat the call, and remember the path as `injected`. Argument text was passed (an injected object
+is then ignored), `INJECTION_OFF`, `PREFLIGHT_ERROR`, `INVALID_ARGS` or no object → remember
+`fallback` and make one call, with the flags **Arguments** maps (`--intent`, `--select`):
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```

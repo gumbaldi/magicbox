@@ -1,7 +1,12 @@
 ---
+allowed-tools: Bash(*/bin/cfq:*)
 description: Work off one batch from this repository's phase queue, one phase at a time
 argument-hint: <batch or phase>
 ---
+
+Preflight result, already run and read-only:
+
+!`"${CLAUDE_PLUGIN_ROOT}/bin/cfq" preflight-impl "$(pwd)" --injected`
 
 Use the implement-for-queue skill and follow its steps from the beginning.
 

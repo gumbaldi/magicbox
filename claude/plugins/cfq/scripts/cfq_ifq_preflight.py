@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_ifq_preflight.py <repo-root> [--select <batch>] [--intent {resume,start}]
+#        cfq_ifq_preflight.py <repo-root> --injected   (load-time variant of commands/ifq.md)
 """Single read-only preflight aggregator for implement-for-queue's Steps 1-2 (model/plugin policy),
 3a (batch selection), 3b's read-only half (resume and lint state) and 4a/4b (failed-attempt lookup, context
 gate) -- batches every cfq_settings.py/cfq_scan.py/cfq_resume.py/cfq_report.py
@@ -15,6 +16,8 @@ rename would be.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -439,12 +442,60 @@ def cmd_preflight(args):
     }))
 
 
+def _last_line(text_):
+    lines = str(text_).strip().splitlines()
+    return lines[-1] if lines else ""
+
+
+def cmd_injected(args):
+    """The read-only load-time variant `commands/ifq.md` runs: the plain preflight with its
+    output captured and marked `injected: true`. Always exits 0 -- the command must finish
+    loading; any failure becomes `PREFLIGHT_ERROR`, a switched-off setting `INJECTION_OFF`."""
+    def emit(result):
+        result["injected"] = True
+        print(render.dump_json(result))
+
+    if args.select or args.intent:
+        emit({"status": "INVALID_ARGS",
+              "detail": "--injected cannot be combined with --select or --intent; argument "
+                        "text never reaches the load-time preflight"})
+        return
+    try:
+        resolved = git(args.repo_root, "rev-parse", "--show-toplevel")
+        if resolved.returncode != 0:
+            emit({"status": "NO_REPO", "repo": {"root": args.repo_root}})
+            return
+        settings = json.loads(cfq_run("settings", "list", "--repo", resolved.stdout.strip()).stdout)
+        if settings.get("preflightInjection") in (False, "false"):
+            emit({"status": "INJECTION_OFF"})
+            return
+        out, err = io.StringIO(), io.StringIO()
+        detail = ""
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                cmd_preflight(argparse.Namespace(repo_root=args.repo_root, select=None, intent=None))
+        except SystemExit as exc:
+            detail = _last_line(err.getvalue()) or _last_line(exc.code if isinstance(exc.code, str) else "")
+            raise RuntimeError(detail or "preflight exited early") from None
+        result = json.loads(out.getvalue())
+    except Exception as exc:  # the command must always finish loading
+        emit({"status": "PREFLIGHT_ERROR",
+              "detail": _last_line(exc) or type(exc).__name__})
+        return
+    emit(result)
+
+
+def run(args):
+    (cmd_injected if args.injected else cmd_preflight)(args)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, add_help=True)
     parser.add_argument("repo_root")
     parser.add_argument("--select")
     parser.add_argument("--intent", choices=["resume", "start"])
-    parser.set_defaults(func=cmd_preflight)
+    parser.add_argument("--injected", action="store_true")
+    parser.set_defaults(func=run)
     return parser
 
 
