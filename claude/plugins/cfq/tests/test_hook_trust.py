@@ -4,9 +4,9 @@
 import json
 import os
 import pathlib
-import select
 import subprocess
 import sys
+import threading
 import unittest
 from unittest import mock
 
@@ -138,17 +138,26 @@ class TrustHookCliTest(CfqTestCase):
             )
             os.close(slave)
             slave = None
+            chunks = []
+
+            def drain():
+                # macOS drops what is still buffered on the master once the slave
+                # closes, so the output has to be read while the process runs.
+                while True:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:
+                        return
+                    if not chunk:
+                        return
+                    chunks.append(chunk)
+
+            reader = threading.Thread(target=drain, daemon=True)
+            reader.start()
             os.write(master, answer.encode())
             _, err = proc.communicate(timeout=30)
-            printed = b""
-            while select.select([master], [], [], 0)[0]:
-                try:
-                    chunk = os.read(master, 4096)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                printed += chunk
+            reader.join(timeout=5)
+            printed = b"".join(chunks)
         finally:
             if slave is not None:
                 os.close(slave)
