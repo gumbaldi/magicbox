@@ -765,6 +765,28 @@ class TestPhase(CfqTestCase):
         self.assertIn("sha256 " + hook_trust.command_hash("touch marker.out")[:12], body["detail"])
         self.assertFalse((repo / "marker.out").exists(), "the hook must not run")
 
+    def test_commit_hook_gate_fails_closed_on_any_state_but_trusted(self):
+        repo = self.make_repo("gate")
+        batch = repo / "batch"
+        batch.mkdir()
+        for state in ("bogus", "", None, "TRUSTED", "unset"):
+            with self.subTest(state=state):
+                with mock.patch.object(cfq_phase, "settings_get", return_value="touch marker.out"), \
+                        mock.patch.object(hook_trust, "status", return_value=state):
+                    result = cfq_phase._run_commit_hook(repo, batch, "01-a")
+                self.assertEqual(result[0], "untrusted")
+                self.assertFalse((repo / "marker.out").exists(), "the hook must not run")
+
+    def test_commit_hook_gate_runs_a_trusted_command(self):
+        repo = self.make_repo("gate-ok")
+        batch = repo / "061-2026-03-10-gate"
+        batch.mkdir()
+        self._write_phase_md(batch, "01-a")
+        write_status(batch)
+        with mock.patch.object(cfq_phase, "settings_get", return_value="true"), \
+                mock.patch.object(hook_trust, "status", return_value="trusted"):
+            self.assertIsNone(cfq_phase._run_commit_hook(repo, batch, "01-a"))
+
     def test_commit_hook_changed_after_approval_is_refused_again(self):
         repo, batch = self._git_batch("hook-changed", "061-2026-03-10-hooktopic", with_remote=False)
         self._write_phase_md(batch, "01-a")

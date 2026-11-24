@@ -197,7 +197,7 @@ def _run_commit_hook(repo_root, batch_dir, phase_id):
     command = settings_get(repo_root, "phaseCommitCommand")
     if not command or command == "null":
         return None
-    if hook_trust.status(repo_root, command) == "untrusted":
+    if hook_trust.status(repo_root, command) != "trusted":
         cfq_bin = pathlib.Path(__file__).resolve().parent.parent / "bin" / "cfq"
         digest = hook_trust.command_hash(command)[:12]
         return ("untrusted", (

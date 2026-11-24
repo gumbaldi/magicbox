@@ -691,8 +691,14 @@ def cmd_trust_hook(args):
         return
     if not command:
         errors.die(f"no phase commit hook is set for {repo}")
+    offending = hook_trust.control_characters(command)
+    if offending:
+        errors.die(
+            f"{PROG}: the phase commit hook contains control characters ({', '.join(offending)}) "
+            f"and was not approved; use a single-line command or call a script"
+        )
     print(f"repo:    {repo}")
-    print(f"command: {command}")
+    print(f"command: {command!r}")
     print(f"hash:    {digest}")
     try:
         answer = input("Trust this command? [y/N] ")

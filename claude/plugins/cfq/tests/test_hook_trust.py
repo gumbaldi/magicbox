@@ -4,6 +4,7 @@
 import json
 import os
 import pathlib
+import select
 import subprocess
 import sys
 import unittest
@@ -75,6 +76,28 @@ class HookTrustModuleTest(CfqTestCase):
         self.assertEqual(hook_trust.store_path().stat().st_mode & 0o777, 0o600)
 
 
+class ControlCharactersTest(unittest.TestCase):
+    def test_plain_command_is_clean(self):
+        self.assertEqual(hook_trust.control_characters("echo checked && ls -la"), [])
+
+    def test_tab_is_allowed(self):
+        self.assertEqual(hook_trust.control_characters("echo\tchecked"), [])
+
+    def test_each_control_character_is_listed(self):
+        for char, label in (("\n", "U+000A"), ("\x1b", "U+001B"), ("\x7f", "U+007F"),
+                            ("\x85", "U+0085"), ("\x9b", "U+009B")):
+            with self.subTest(label=label):
+                self.assertEqual(hook_trust.control_characters(f"echo a{char}b"), [label])
+
+    def test_accented_letters_are_clean(self):
+        self.assertEqual(hook_trust.control_characters("echo é ü"), [])
+
+    def test_duplicates_are_listed_once_in_order_of_first_appearance(self):
+        self.assertEqual(
+            hook_trust.control_characters("a\x1bb\nc\x1b"), ["U+001B", "U+000A"],
+        )
+
+
 class TrustHookCliTest(CfqTestCase):
     def setUp(self):
         super().setUp()
@@ -117,15 +140,61 @@ class TrustHookCliTest(CfqTestCase):
             slave = None
             os.write(master, answer.encode())
             _, err = proc.communicate(timeout=30)
+            printed = b""
+            while select.select([master], [], [], 0)[0]:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                printed += chunk
         finally:
             if slave is not None:
                 os.close(slave)
             os.close(master)
-        return proc.returncode, err.decode()
+        return proc.returncode, err.decode(), printed.decode("utf-8", "replace")
+
+    def _set_command(self, command):
+        self.run_cfq("settings", "set", "--repo", str(self.repo), "phaseCommitCommand", command, check=True)
+
+    @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
+    def test_control_characters_are_refused(self):
+        self._set_command("echo ok\x1b[2J")
+        code, err, _ = self._run_in_pty("y\n")
+        self.assertNotEqual(code, 0)
+        self.assertIn("U+001B", err)
+        self.assertIn("control character", err)
+        self.assertFalse(self.store.exists())
+
+    @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
+    def test_newline_is_refused(self):
+        self._set_command("echo one\necho two")
+        code, err, _ = self._run_in_pty("y\n")
+        self.assertNotEqual(code, 0)
+        self.assertIn("U+000A", err)
+        self.assertIn("control character", err)
+        self.assertFalse(self.store.exists())
+
+    @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
+    def test_prompt_shows_the_command_as_repr(self):
+        self._set_command("echo ‮\tdone")
+        code, err, printed = self._run_in_pty("n\n")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\\u202e", printed)
+        self.assertIn("\\t", printed)
+        self.assertNotIn("‮", printed)
+        self.assertFalse(self.store.exists())
+
+    def test_status_and_revoke_still_work_with_control_characters(self):
+        self._set_command("echo ok\x1b[2J")
+        for flag in ("--status", "--revoke"):
+            proc = self.run_cfq("settings", "trust-hook", "--repo", str(self.repo), flag)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
 
     @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
     def test_terminal_yes_stores_hash(self):
-        code, err = self._run_in_pty("y\n")
+        code, err, _ = self._run_in_pty("y\n")
         self.assertEqual(code, 0, err)
         self.assertEqual(
             json.loads(self.store.read_text()),
@@ -135,14 +204,14 @@ class TrustHookCliTest(CfqTestCase):
     @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
     def test_terminal_no_or_empty_stores_nothing(self):
         for answer in ("n\n", "\n"):
-            code, err = self._run_in_pty(answer)
+            code, err, _ = self._run_in_pty(answer)
             self.assertEqual(code, 0, err)
             self.assertFalse(self.store.exists())
 
     @unittest.skipIf(sys.platform == "win32", "needs a pseudo-terminal")
     def test_terminal_with_empty_command_exits_1(self):
         self.run_cfq("settings", "unset", "--repo", str(self.repo), "phaseCommitCommand", check=True)
-        code, _ = self._run_in_pty("y\n")
+        code, _, _ = self._run_in_pty("y\n")
         self.assertEqual(code, 1)
         self.assertFalse(self.store.exists())
 

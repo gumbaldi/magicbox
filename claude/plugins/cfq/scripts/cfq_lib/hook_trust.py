@@ -65,6 +65,19 @@ def status(repo_root, command):
     return "untrusted"
 
 
+def control_characters(command):
+    """The control characters in `command` as `U+XXXX` strings, in order of first appearance and
+    without duplicates: code points below 0x20 except tab, 0x7f and 0x80-0x9f. Empty = clean."""
+    found = []
+    for char in command:
+        code = ord(char)
+        if (code < 0x20 and char != "\t") or 0x7F <= code <= 0x9F:
+            label = f"U+{code:04X}"
+            if label not in found:
+                found.append(label)
+    return found
+
+
 def is_trusted(repo_root, command):
     return status(repo_root, command) == "trusted"
 
