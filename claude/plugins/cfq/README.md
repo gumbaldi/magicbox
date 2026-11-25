@@ -263,7 +263,7 @@ useful to run directly. `bin/cfq <noun> --help` prints a noun's own usage.
 | `preflight-plan` | `/pfq`'s one aggregator call: policy, language, security capability, queue state; `--injected` is the read-only variant `/pfq` runs when the command loads (`preflightInjection`, default on), which never exits non-zero. |
 | `registry` | The cross-repo repo list in `~/.claude/cfq/repos.json`. |
 | `planning` | `/pfq`'s two bundled protocol steps: `open` (security snapshot, batch allocation, queue snapshot) and `close` (lint, `batch ready`, telemetry record/sync/show, portal link; `--preflight injected|fallback` records which preflight path the session used), each one JSON result. |
-| `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild [--migrate]` rewrites everything. |
+| `portal` | The report portal's data layer — `sync` writes the data files and the viewer shell, `rebuild` rewrites everything. |
 | `report` | The batch ledger (`report.json`) — `set-commit`, `skills`, `summary`, `last-failure`, `security`. |
 | `resume` | Done/open phases, last commit, deviations, red-phase history for a batch. |
 | `runtime` | Session id, transcript path, model name, context usage — the one Claude-Code-specific adapter. |
@@ -507,12 +507,7 @@ stays a warning line.
 
 Precedence: **env var > repo `.claude/cfq/settings.json` > global `settings.json` > default**.
 Change via `/cfq`, or `"${CLAUDE_PLUGIN_ROOT}/bin/cfq" settings set [--repo <path>] <key>
-<value>`. The legacy per-repo mechanism — an `env` block in `<repo>/.claude/settings.json` — still
-works and still sits at the top tier:
-
-```json
-{ "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
-```
+<value>`.
 
 See [`docs/configuration.md`](docs/configuration.md) for the full settings reference, including
 the language and documentation-level settings.

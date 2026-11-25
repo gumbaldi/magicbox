@@ -199,9 +199,7 @@ env vars on top on read only — a `set` on an env-overridden key writes the fil
 until the variable is gone. Adding a setting means adding **one schema entry** — type, default,
 scope (`global` and/or `repo`), optional `env` mapping, description — every subcommand
 (`list`/`get`/`set`/`unset`/`describe`) and every precedence tier reads that one entry generically,
-there is no second hand-written case arm or table to keep in sync. `migrate <repo-root>` copies
-whatever the legacy per-repo `env` block (`<repo>/.claude/settings.json`) currently overrides into
-the new repo-scoped file, so that mechanism doesn't have to live forever. `stopUsed`
+there is no second hand-written case arm or table to keep in sync. `stopUsed`
 is resolved by `ctx_usage.py` through `bin/cfq settings get stopUsed`, same precedence chain as
 any other setting — anyone reworking that script breaks the precedence chain at exactly that
 point. `preflight-impl` passes its repository with `--repo`; a bare `bin/cfq ctx` relies on the
@@ -356,7 +354,7 @@ first, not take this paragraph on faith.
 
 **`cfq_portal.py` is the data layer behind `<repo>/.claude/cfq/reports/index.html`**, and, since
 batch `040` phase 05, the *only* HTML `report` produces — a `portal sync <repo-root> [--batch
-<name>]...` / `portal rebuild <repo-root> [--migrate]` pair that writes into
+<name>]...` / `portal rebuild <repo-root>` pair that writes into
 `<repo>/.claude/cfq/reports/data/`: `site.js` (repo, commit URL, plugin version), `queue.js` (the
 repo overview — totals, per-size baselines, calibration points, one row per batch and per entry),
 `batch/<name>.js` (context, phases with their attempts, cost, notes, closing result, flags, and an
@@ -411,8 +409,7 @@ The viewer shell is every file in the plugin's `portal/` directory: `install_she
 directory (`shell_files()` — `index.html` goes to the root, everything else to `assets/`), so a new
 script needs no registration, and runs whenever `reports/.portal-version` differs from the running
 plugin's own version. The same version change deletes what the new version no longer ships — files in
-`assets/` that `portal/` lacks and the flat `<batch>.html` files the retired per-batch renderer left
-under `reports/` (`remove_legacy_html()`) — and reports both in `removed`; an unchanged version
+`assets/` that `portal/` lacks — and reports them in `removed`; an unchanged version
 copies and removes nothing. The viewer is several plain scripts on one shared `CFQ` namespace
 (`core.js` first, `app.js` last — router, route table and data-path rules; `overview.js` — the Now,
 Needs attention and Last 10 sections, the sortable batch table and the Trends tab; later views register through `CFQ.core.register(slot, item)` instead
@@ -445,11 +442,7 @@ acquire`, `finish`, `batch ready`, `trash put`/`restore`, `note`'s mutating verb
 fires `cfq_lib/portal_hook.py`'s `sync()` as a side effect after its own mutation succeeds — first
 `telemetry settle`, then the portal sync, the latter gated on `htmlReport` and neither touching
 the triggering verb's own exit code or stdout. The portal is the only HTML cfq produces; on demand,
-`bin/cfq portal sync <repo-root>` refreshes it. `portal rebuild <repo-root> --migrate` is the
-one-time cleanup for a repo that still carries the old per-batch HTML
-files — it deletes every stale `reports/*.html` (repo-local, and this repo's own mirror directory
-under `reportDir` when set) whose name matches a batch's own shape, never touching `assets/`,
-`data/`, or the portal's own `index.html`.
+`bin/cfq portal sync <repo-root>` refreshes it.
 
 ## Conventions
 

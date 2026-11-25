@@ -14,8 +14,7 @@ nuance that doesn't reduce to schema data.
   phase, with the warning attached to the go-ahead question, and the user decides. `-1` disables
   either check on its own; capacity keeps working even with both disabled.
 - `codeLanguage` / `docLanguages` / `docLevel` — global defaults, but a repo's own language can
-  differ: override them per repo via `bin/cfq settings set --repo` or the legacy `env` block in
-  `<repo>/.claude/settings.json` (`CFQ_CODE_LANGUAGE` etc.), so the override travels with the repo
-  rather than living in global settings.
+  differ: override them per repo via `bin/cfq settings set --repo`, so the override travels with
+  the repo rather than living in global settings.
 - `gitStatePolicy` — controls only cfq's own managed block in Git's local `info/exclude`; it never
   touches a repo's versioned `.gitignore` and never overrides normal repository tracking decisions.

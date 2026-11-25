@@ -884,3 +884,13 @@ about is listed as "possibly covered" and is consumed only after confirmation, s
 silently. Rejected: a finish-time list of possibly fixed entries, and an age check of the entries
 against `git log`. Both guess at coverage after the fact, where the planner knows it while writing the
 plan.
+
+## cfq: why the one-time migrations were removed
+
+The detection of the legacy per-repo `env` block (label `env:repo-legacy`), `settings migrate`,
+`portal rebuild --migrate`, the cleanup of flat per-batch HTML files, `batch migrate-width`, the
+size argument of the context gate and `hook_trust.is_trusted` were deleted in batch 067: each was a
+finished one-time step or had no caller. Claude Code still exports the `env` block as process
+environment, so a `CFQ_*` variable set there keeps working and is reported as `env:process`.
+`migrate_width()` stays because `batch allocate` needs it; only the CLI verb is gone.
+`tools/once_migrate_status.py` stays until both machines are confirmed migrated.

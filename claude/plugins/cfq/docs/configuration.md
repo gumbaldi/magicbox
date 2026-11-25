@@ -21,17 +21,6 @@ goes to the global file.
 A key not writable per repo (`scope` is `["global"]` in the schema — currently `scanRoots`,
 `frameworkRepo`, `securityTimeoutSeconds`, `securityFindingsCap`) rejects a `set --repo` attempt outright.
 
-The legacy `env` block in `<repo>/.claude/settings.json` still works and still sits at the top
-tier — it's not the only per-repo mechanism anymore, just the oldest one:
-
-```json
-{ "env": { "CFQ_CODE_LANGUAGE": "en", "CFQ_DOC_LANGUAGES": "de", "CFQ_DOC_LEVEL": "standard" } }
-```
-
-`migrate <repo-root>` copies every key that legacy block currently overrides into the repo
-settings file (tier 2), so the same override keeps working without depending on that `env` block
-forever; the original file is left untouched.
-
 ## View settings
 
 ```
@@ -43,8 +32,7 @@ Without a flag, the list shows the value in effect for the repository the shell 
 repository the repo tier is absent. `--repo <path>` shows the value in effect for exactly that
 repo. `--global` leaves the repo tier out. `--default` shows the built-in defaults only, ignoring
 every file and env var. `settings get` takes the same flags. `--sources` adds, per key, which tier actually supplied
-the value: `env:process`, `env:repo-legacy` (the legacy `env` block, not a `CFQ_*` var set in the
-shell), `repo`, `global`, or `default`. Or run `/cfq` and pick the settings step — same data,
+the value: `env:process`, `repo`, `global`, or `default`. Or run `/cfq` and pick the settings step — same data,
 presented as a table.
 
 ```
@@ -66,8 +54,7 @@ A grouped overview of the settings above — the eight group headings below, in 
 Without `--group`, each group prints its title plus up to two keys (non-default ones first) and a
 `… +N` count for the rest; with `--group <id>`, every key of that one group, one line each: marker,
 value, type, and its allowed values or range. Every line carries a one-letter marker for which tier
-actually supplied the value — `[D]` default, `[G]` global, `[R]` repo, `[E]` env (env-shadowed, or
-the legacy `env:repo-legacy` block, which additionally gets a trailing `(legacy env)` note).
+actually supplied the value — `[D]` default, `[G]` global, `[R]` repo, `[E]` env (env-shadowed).
 Without `--repo`, the header reads `SETTINGS · global` and no key ever shows `[R]`; with `--repo`,
 it shows that repo's effective values instead. `--format json` prints the same grouped data as
 `{groups:[{id,title,keys:[{key,value,source,marker,type,values,min,scopes,default,description}]}]}`
@@ -358,7 +345,7 @@ restate a field list inline — read the field here, then read it back from the 
 messages, `README`, `CLAUDE.md`, `SKILL.md`. `docs/` is the only multilingual area: each additional
 language in `docLanguages` gets its own tree at `docs/<lang>/…`, mirroring the same files.
 `docLevel` controls how much documentation a repo keeps at all (table above). Override any of the
-three per repo via `set --repo` or the legacy `env` block shown above.
+three per repo via `set --repo`.
 
 The documentation standard itself lives in `claude/plugins/cfq/references/doc-style.md` (page structure, formatting,
 translation rules); a repo overrides it by adding its own `docs/STYLE.md`, which wins whenever it
