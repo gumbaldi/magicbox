@@ -1,3 +1,9 @@
+- batchNumber: 67
+  batch: 067-2026-11-24-remove-dead-code-and-one-time-migrations
+  branch: cfq/067-2026-11-24-remove-dead-code-and-one-time-migrations
+  base: cfq/066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
+  started: 2026-11-25
+  status: in-progress
 - batchNumber: 66
   batch: 066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
   branch: cfq/066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
