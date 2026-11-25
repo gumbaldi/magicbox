@@ -26,43 +26,42 @@ class HookTrustModuleTest(CfqTestCase):
         self.repo = self.make_repo()
 
     def test_nothing_trusted_by_default(self):
-        self.assertFalse(hook_trust.is_trusted(self.repo, HOOK))
+        self.assertNotEqual(hook_trust.status(self.repo, HOOK), "trusted")
         self.assertEqual(hook_trust.status(self.repo, HOOK), "untrusted")
 
     def test_store_lives_under_home_claude_cfq(self):
         self.assertEqual(hook_trust.store_path(), self.home / ".claude" / "cfq" / "trusted-hooks.json")
 
-    def test_trust_then_is_trusted(self):
+    def test_trust_then_status_reads_trusted(self):
         hook_trust.trust(self.repo, HOOK)
-        self.assertTrue(hook_trust.is_trusted(self.repo, HOOK))
         self.assertEqual(hook_trust.status(self.repo, HOOK), "trusted")
 
     def test_changed_command_is_untrusted(self):
         hook_trust.trust(self.repo, HOOK)
-        self.assertFalse(hook_trust.is_trusted(self.repo, HOOK + " --more"))
+        self.assertNotEqual(hook_trust.status(self.repo, HOOK + " --more"), "trusted")
 
     def test_other_repo_is_untrusted(self):
         hook_trust.trust(self.repo, HOOK)
         other = self.make_repo("other")
-        self.assertFalse(hook_trust.is_trusted(other, HOOK))
+        self.assertNotEqual(hook_trust.status(other, HOOK), "trusted")
 
     def test_revoke_removes_entry(self):
         hook_trust.trust(self.repo, HOOK)
         self.assertTrue(hook_trust.revoke(self.repo))
-        self.assertFalse(hook_trust.is_trusted(self.repo, HOOK))
+        self.assertNotEqual(hook_trust.status(self.repo, HOOK), "trusted")
         self.assertFalse(hook_trust.revoke(self.repo))
 
     def test_empty_command_is_unset(self):
         self.assertEqual(hook_trust.status(self.repo, ""), "unset")
-        self.assertFalse(hook_trust.is_trusted(self.repo, ""))
+        self.assertNotEqual(hook_trust.status(self.repo, ""), "trusted")
 
     def test_corrupt_file_reads_as_nothing_trusted(self):
         path = hook_trust.store_path()
         path.parent.mkdir(parents=True)
         path.write_text("{not json")
-        self.assertFalse(hook_trust.is_trusted(self.repo, HOOK))
+        self.assertNotEqual(hook_trust.status(self.repo, HOOK), "trusted")
         path.write_text("[1, 2]")
-        self.assertFalse(hook_trust.is_trusted(self.repo, HOOK))
+        self.assertNotEqual(hook_trust.status(self.repo, HOOK), "trusted")
 
     def test_stored_shape_is_realpath_to_sha256_only(self):
         hook_trust.trust(self.repo, HOOK)

@@ -78,10 +78,6 @@ def control_characters(command):
     return found
 
 
-def is_trusted(repo_root, command):
-    return status(repo_root, command) == "trusted"
-
-
 def trust(repo_root, command):
     data = _read()
     data[_key(repo_root)] = command_hash(command)
