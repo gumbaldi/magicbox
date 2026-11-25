@@ -3,7 +3,27 @@
   branch: cfq/067-2026-11-24-remove-dead-code-and-one-time-migrations
   base: cfq/066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
   started: 2026-11-25
-  status: in-progress
+  status: done
+  finished: 2026-11-25
+  phases:
+    - phase: "01-remove-batch-migrate-width-verb"
+      status: "green"
+      summary: "Removed the batch migrate-width CLI verb (cmd_migrate_width, subparser, usage text, comment) and moved its three tests onto batch allocate / an in-process migrate_width call"
+    - phase: "02-drop-size-argument-from-the-context-gate"
+      status: "green"
+      summary: "Dropped the unused SIZE argument and SIZE= output from ctx_usage.py gate, the preflight's gate call/regex/contextGate.size, tests and docs"
+    - phase: "03-delete-unused-hook-trust-is-trusted"
+      status: "green"
+      summary: "Deleted hook_trust.is_trusted() and rewrote its eight test call sites to hook_trust.status(...) comparisons; renamed test_trust_then_is_trusted to test_trust_then_status_reads_trusted."
+    - phase: "04-remove-legacy-env-block-support"
+      status: "green"
+      summary: "Removed the env:repo-legacy source, settings migrate verb, (legacy env) note and the reminder notes in dashboard.md, setup-wizard.md and the code-for-queue SKILL.md; legacy env block values now report env:process"
+    - phase: "05-remove-legacy-portal-html-cleanup"
+      status: "green"
+      summary: "removed portal rebuild --migrate, migrate(), remove_legacy_html(), LEGACY_BATCH_HTML_RE and the automatic legacy-HTML cleanup in install_shell(); tests replaced by two new ones"
+    - phase: "06-document-the-removals-and-release-0-48-0"
+      status: "green"
+      summary: "Removed legacy env block, migrate and --migrate docs from README, CLAUDE.md and configuration.md, added the design-notes section and bumped cfq to 0.48.0"
 - batchNumber: 66
   batch: 066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
   branch: cfq/066-2026-11-24-hook-gate-fail-closed-trust-prompt-escaping-and-ifq-load-time-preflight
