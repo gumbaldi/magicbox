@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_batch_id.py next          <repo-root> <YYYY-MM-DD> <slug>
 #        cfq_batch_id.py allocate      <repo-root> <YYYY-MM-DD> <slug>
-#        cfq_batch_id.py migrate-width <repo-root>
 #        cfq_batch_id.py reconcile     <repo-root> [--fix]
 #        cfq_batch_id.py verify        <repo-root> [--batch <name>] [--json]
 #        cfq_batch_id.py recover       <repo-root> --batch <name> [--dry-run]
@@ -20,8 +19,7 @@
 #
 # `allocate` performs an automatic width migration itself when the next number needs an extra
 # digit and the active queue is empty (BATCH_WIDTH_MIGRATION_BLOCKED otherwise) -- the normal PFQ
-# path never needs a separate manual step. `migrate-width` is the same operation exposed directly,
-# useful for recovery/testing; it is a no-op (`status: OK`) when no migration is currently needed.
+# path never needs a separate manual step.
 # `reconcile` compares queue directories against the ledger's numbered entries and reports/repairs
 # the gap BATCH_LEDGER_MISMATCH refuses to allocate through -- see reconcile() below.
 # `verify`/`recover` compare a batch's completion state across the filesystem, report.json,
@@ -538,23 +536,6 @@ def cmd_allocate(args):
         release_alloc_lock(repo)
 
 
-def cmd_migrate_width(args):
-    repo = args.repo
-    if not acquire_alloc_lock(repo):
-        print(render.dump_json(errors.error_object(
-            "INTERNAL_ERROR",
-            "could not acquire the allocation lock",
-            "retry once the concurrent allocation finishes",
-        )))
-        sys.exit(1)
-    try:
-        result, ok = migrate_width(repo)
-        print(render.dump_json(result))
-        sys.exit(0 if ok else 1)
-    finally:
-        release_alloc_lock(repo)
-
-
 def cmd_reconcile(args):
     result, ok = reconcile(args.repo, args.fix_flag == "--fix")
     print(render.dump_json(result))
@@ -701,10 +682,6 @@ def build_parser():
     p.add_argument("slug")
     p.set_defaults(func=cmd_allocate)
 
-    p = sub.add_parser("migrate-width")
-    p.add_argument("repo")
-    p.set_defaults(func=cmd_migrate_width)
-
     p = sub.add_parser("reconcile")
     p.add_argument("repo")
     p.add_argument("--fix", dest="fix_flag", action="store_const", const="--fix", default="")
@@ -743,7 +720,7 @@ def main(argv):
         errors.die(
             f"usage: {PROG} next <repo-root> <YYYY-MM-DD> <slug> | "
             "allocate <repo-root> <YYYY-MM-DD> <slug> | "
-            "migrate-width <repo-root> | reconcile <repo-root> [--fix] | "
+            "reconcile <repo-root> [--fix] | "
             "verify <repo-root> [--batch <name>] [--json] | "
             "recover <repo-root> --batch <name> [--dry-run] | "
             "audit <batch-dir> start|done [--findings N] | ready <batch-dir>"

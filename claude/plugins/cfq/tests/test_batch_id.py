@@ -5,12 +5,16 @@ numbered-batch-identity ledger.
 """
 
 import json
+import os
 import re
 import subprocess
 import unittest
 from datetime import datetime
+from unittest import mock
 
 from cfq_testlib import CfqTestCase, PLUGIN_ROOT, CFQ_BIN
+
+import cfq_batch_id
 
 SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 
@@ -325,24 +329,27 @@ class BatchIdTest(CfqTestCase):
             "alphabetical order after migration != numeric order",
         )
 
-        # second migration invocation is idempotent: nothing left to rename, no double-padding
-        out2 = self.json_out(self.run_cfq("batch", "migrate-width", str(repo19)))
-        self.assertEqual(out2["status"], "OK", "idempotent migrate-width status")
-        self.assertEqual(out2["migrated"], 0, "idempotent migrate-width migrated entries, want 0")
+        # a second allocate is idempotent: nothing left to rename, no double-padding
+        out2 = self.json_out(self._allocate(repo19, "2026-08-19", "another-batch"))
+        self.assertEqual(out2["status"], "OK", "second allocate status")
+        self.assertEqual(out2["batch"], "1001-2026-08-19-another-batch", "second allocate batch")
         self.assertTrue(
-            (done / "0001-2026-08-01-a").is_dir(), "idempotent migrate-width lost batch 1",
+            (done / "0001-2026-08-01-a").is_dir(), "second allocate lost batch 1",
         )
         self.assertFalse(
-            (done / "00001-2026-08-01-a").exists(), "idempotent migrate-width double-padded batch 1",
+            (done / "00001-2026-08-01-a").exists(), "second allocate double-padded batch 1",
         )
 
     def test_generic_width_migration_4_to_5(self):
         repo20 = self._plain_repo("repo20")
         self._reserve(repo20, 9999, "9999-2026-08-01-a")
         (repo20 / ".claude/cfq/impl/done/9999-2026-08-01-a").mkdir(parents=True)
-        out = self.json_out(self.run_cfq("batch", "migrate-width", str(repo20)))
-        self.assertEqual(out["status"], "OK", "4->5 migrate-width status")
-        self.assertEqual(out["width"], 5, "4->5 migrate-width width")
+        out = self.json_out(self._allocate(repo20, "2026-08-19", "next-after-5"))
+        self.assertEqual(out["status"], "OK", "4->5 allocate status")
+        self.assertEqual(out["width"], 5, "4->5 allocate width")
+        self.assertEqual(
+            out["batch"], "10000-2026-08-19-next-after-5", "4->5 allocate after migration",
+        )
         target20 = (repo20 / ".claude/cfq/changelog.yml").read_text()
         self.assertIn(
             "  batch: 09999-2026-08-01-a\n", target20, "4->5 changelog batch was not repadded",
@@ -350,10 +357,6 @@ class BatchIdTest(CfqTestCase):
         self.assertTrue(
             (repo20 / ".claude/cfq/impl/done/09999-2026-08-01-a").is_dir(),
             "4->5 done dir was not renamed",
-        )
-        out2 = self.json_out(self._allocate(repo20, "2026-08-19", "next-after-5"))
-        self.assertEqual(
-            out2["batch"], "10000-2026-08-19-next-after-5", "4->5 allocate after migration",
         )
 
     def test_migration_collision_before_rename(self):
@@ -382,8 +385,11 @@ class BatchIdTest(CfqTestCase):
         done = repo22 / ".claude/cfq/impl/done"
         (done / "0001-2026-08-01-a").mkdir(parents=True)
         (done / "002-2026-08-02-b").mkdir(parents=True)
-        out = self.json_out(self.run_cfq("batch", "migrate-width", str(repo22)))
-        self.assertEqual(out["status"], "OK", "interrupted-recovery migrate-width status")
+        # allocate refuses a mixed-width ledger (BATCH_LEDGER_MISMATCH) before it migrates, so the
+        # recovery path is driven through migrate_width() itself, in-process
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            _result, ok = cfq_batch_id.migrate_width(str(repo22))
+        self.assertTrue(ok, "interrupted-recovery migrate_width failed")
         target22 = (repo22 / ".claude/cfq/changelog.yml").read_text()
         self.assertIn(
             "  batch: 0002-2026-08-02-b\n", target22,
