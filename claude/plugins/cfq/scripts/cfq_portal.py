@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage: cfq_portal.py sync <repo-root> [--batch <name>]...
-#        cfq_portal.py rebuild <repo-root> [--migrate]
+#        cfq_portal.py rebuild <repo-root>
 """Writes both halves of `<repo>/.claude/cfq/reports/index.html`: the fixed viewer shell
 (`index.html` plus `assets/*`, copied in from the plugin's own `portal/` source by
 `install_shell()` whenever `reports/.portal-version` differs from the running plugin's own
@@ -25,13 +25,12 @@ cache creation) split by model, never a price.
 Deterministic, at zero model-token cost: no timestamp is ever written beyond one already present
 in the source data (`report.json`, a queue-entry filename), and every payload's object keys are
 sorted, so a re-sync that changes nothing writes nothing. `sync <repo-root> [--batch <name>]...`
-recomputes the shell (when its version stamp moved on -- which also deletes the legacy flat
-`reports/<batch>.html` files), `queue.js`, `site.js`, the named batches' own files (every batch
+recomputes the shell (when its version stamp moved on -- which also deletes the files in
+`assets/` that `portal/` no longer ships), `queue.js`, `site.js`, the named batches' own files (every batch
 when `--batch` is omitted) and every entry file; it also deletes a `batch/*.js`/`entry/*.js` file
 whose source batch or entry no longer exists (this is what retires the old
 `batch/<name>.plan.js`/`.impl.js` pair). `rebuild <repo-root>` is `sync` with no `--batch`
-filter, kept as its own verb for manual repair and, with `--migrate`, the one-time removal of the
-legacy HTML in this repo's own `reportDir` mirror too. Flags (`cfq_lib/flags.py`) and the per-size
+filter, kept as its own verb for a full manual rewrite. Flags (`cfq_lib/flags.py`) and the per-size
 baselines/calibration points in `queue.js` are derived from every batch's payload: a batch outside
 the `--batch` filter is read back from its existing data file, its `flags` recomputed against the
 current baselines and the file rewritten only if they changed. Both print one JSON object: `{"status",
@@ -200,8 +199,7 @@ def install_shell(out_dir, removed=None):
     `reportDir` root for the global mirror) whenever the installed stamp
     (`<out_dir>/.portal-version`) differs from the running plugin's own version -- an unchanged
     version copies nothing and removes nothing, so a sync never rewrites the tree on every call.
-    A version change also deletes the files in `assets/` that `portal/` no longer has and the
-    legacy flat `<batch>.html` files directly under `out_dir` (`remove_legacy_html`); their paths
+    A version change also deletes the files in `assets/` that `portal/` no longer has; their paths
     are appended to the `removed` list when one is passed.
     Returns the list of paths (relative to `out_dir`) actually written."""
     stamp_path = out_dir / ".portal-version"
@@ -232,10 +230,8 @@ def install_shell(out_dir, removed=None):
                 f.unlink()
                 stale.append(str(f))
     write_if_changed(stamp_path, version)
-    legacy = remove_legacy_html(out_dir)
     if removed is not None:
         removed.extend(stale)
-        removed.extend(legacy)
     return written
 
 
@@ -1318,57 +1314,6 @@ def sync(repo_root, batch_names=None):
     return result
 
 
-# ---- migrate: removing the old per-batch HTML report (batch 040 phase 05) ----------------------
-
-# Matches a legacy per-batch HTML file's name (older cfq versions wrote it), whichever
-# batch-naming era it's from: a numbered batch (`038-2026-09-23-topic.html`) or the
-# pre-numbering shape (`2026-09-23-topic.html`) -- never `index.html` itself (neither pattern matches a bare
-# `index.html`), and this is only ever glob-matched against a directory's own top level, so it
-# never reaches into `assets/`/`data/` either.
-LEGACY_BATCH_HTML_RE = re.compile(r"^(\d{3}-.*|\d{4}-\d{2}-\d{2}-.*)\.html$")
-
-
-def remove_legacy_html(base_dir):
-    """Deletes every file directly under `base_dir` (a `reports/` directory, repo-local or a
-    `reportDir` mirror) whose name matches `LEGACY_BATCH_HTML_RE` -- the flat `<batch>.html` files
-    older cfq versions wrote there. Non-recursive on purpose: `assets/` and `data/`
-    are subdirectories, never touched. Returns the removed paths, sorted; `[]` for a directory that
-    doesn't exist."""
-    if not base_dir.is_dir():
-        return []
-    removed = []
-    for f in sorted(base_dir.glob("*.html")):
-        if LEGACY_BATCH_HTML_RE.match(f.name):
-            f.unlink()
-            removed.append(str(f))
-    return removed
-
-
-def migrate(repo_root, result):
-    """The `--migrate` half of `rebuild`: `result` is a just-completed full `sync()`'s own JSON --
-    mutated in place, folding every legacy file this removes into that same `removed` list, so the
-    caller prints one JSON object either way. Removes this repo's own stale `reports/*.html`, and,
-    when `reportDir` is set, the same repo's own mirror directory's stale `*.html` -- resolved via
-    `repos.js`, the one place a repo's mirror directory name is recorded, rather than assumed to be
-    its basename (a collision suffixes it -- `resolve_mirror_name()`)."""
-    removed = set(result["removed"])
-    removed.update(remove_legacy_html(reports_dir(repo_root)))
-
-    report_dir = report_dir_setting(repo_root)
-    if report_dir:
-        existing_repos = read_data_payload(repos_js_path(report_dir))
-        mirror_name = None
-        if isinstance(existing_repos, list):
-            for r in existing_repos:
-                if isinstance(r, dict) and r.get("source") == repo_root:
-                    mirror_name = r.get("mirror")
-                    break
-        if mirror_name:
-            removed.update(remove_legacy_html(pathlib.Path(report_dir) / mirror_name))
-
-    result["removed"] = sorted(removed)
-
-
 def cmd_sync(args):
     print(render.dump_json(sync(args.repo_root, args.batch or None)))
 
@@ -1376,8 +1321,6 @@ def cmd_sync(args):
 def cmd_rebuild(args):
     repo_root = str(pathlib.Path(args.repo_root).resolve())
     result = sync(repo_root, None)
-    if args.migrate and result["status"] == "OK":
-        migrate(repo_root, result)
     print(render.dump_json(result))
 
 
@@ -1392,7 +1335,6 @@ def build_parser():
 
     p = sub.add_parser("rebuild")
     p.add_argument("repo_root")
-    p.add_argument("--migrate", action="store_true")
     p.set_defaults(func=cmd_rebuild)
 
     return parser
@@ -1404,7 +1346,7 @@ def main(argv):
     func = getattr(args, "func", None)
     if func is None:
         print(
-            f"usage: {PROG} sync <repo-root> [--batch <name>]... | rebuild <repo-root> [--migrate]",
+            f"usage: {PROG} sync <repo-root> [--batch <name>]... | rebuild <repo-root>",
             file=sys.stderr,
         )
         sys.exit(1)

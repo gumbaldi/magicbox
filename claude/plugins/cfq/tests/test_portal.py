@@ -1221,85 +1221,29 @@ class PortalTest(CfqTestCase):
         self.assertIn("batch/2026-09-23-alpha.js", result["written"])
         self.assertIn("batch/2026-09-23-beta.js", result["written"])
 
-    # ---- rebuild --migrate: retiring the old per-batch HTML report (batch 040 phase 05) --------
+    # ---- the retired old-report cleanup stays gone ---------------------------------------------
 
-    def test_migrate_removes_legacy_batch_html_but_keeps_the_shell(self):
+    def test_rebuild_rejects_the_retired_migrate_option(self):
         repo = self.make_repo()
         self._build_batch(repo, "2026-09-23-demo")
-        reports_dir = self._data_dir(repo).parent
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        legacy_dated = reports_dir / "2026-09-23-demo.html"
-        legacy_numbered = reports_dir / "038-2026-09-23-other.html"
-        legacy_dated.write_text("<html>old per-batch report</html>")
-        legacy_numbered.write_text("<html>old per-batch report</html>")
-        (reports_dir / "index.html").write_text("<html>old collected index</html>")
+        proc = self.run_cfq("portal", "rebuild", str(repo), "--migrate")
+        self.assertNotEqual(proc.returncode, 0)
 
-        result = self.json_out(self.run_cfq("portal", "rebuild", str(repo), "--migrate"))
-        self.assertEqual(result["status"], "OK")
-        self.assertIn(str(legacy_dated), result["removed"])
-        self.assertIn(str(legacy_numbered), result["removed"])
-        self.assertFalse(legacy_dated.exists())
-        self.assertFalse(legacy_numbered.exists())
-        # The shell's own `index.html` survives migration -- it was already overwritten with the
-        # real viewer shell by this same rebuild's ordinary sync step, not deleted by --migrate.
-        self.assertEqual(
-            (reports_dir / "index.html").read_text(), (PLUGIN_ROOT / "portal" / "index.html").read_text(),
-        )
-
-    def test_migrate_never_touches_assets_or_data(self):
-        repo = self.make_repo()
-        self._build_batch(repo, "2026-09-23-demo")
-        result = self.json_out(self.run_cfq("portal", "rebuild", str(repo), "--migrate"))
-        self.assertEqual(result["status"], "OK")
-        self.assertTrue((self._data_dir(repo) / "batch" / "2026-09-23-demo.js").is_file())
-        reports_dir = self._data_dir(repo).parent
-        self.assertTrue((reports_dir / "assets" / "core.js").is_file())
-
-    def test_rebuild_without_migrate_leaves_legacy_html_untouched(self):
-        repo = self.make_repo()
-        self._build_batch(repo, "2026-09-23-demo")
-        self._sync(repo)  # installs the shell and stamps the version
-        reports_dir = self._data_dir(repo).parent
-        legacy = reports_dir / "2026-09-23-demo.html"
-        legacy.write_text("<html>old</html>")
-
-        result = self.json_out(self.run_cfq("portal", "rebuild", str(repo)))
-        self.assertEqual(result["removed"], [])
-        self.assertTrue(legacy.is_file(), "an unchanged version stamp must not touch legacy html")
-
-    def test_shell_install_on_a_version_change_removes_legacy_html(self):
+    def test_version_change_leaves_old_per_batch_html_untouched_but_removes_stale_assets(self):
         repo = self.make_repo()
         self._build_batch(repo, "2026-09-23-demo")
         self._sync(repo)
         reports_dir = self._data_dir(repo).parent
-        legacy_dated = reports_dir / "2026-09-23-demo.html"
-        legacy_numbered = reports_dir / "038-2026-09-23-other.html"
-        for f in (legacy_dated, legacy_numbered):
-            f.write_text("<html>old per-batch report</html>")
+        old_report = reports_dir / "2026-09-23-demo.html"
+        old_report.write_text("<html>old per-batch report</html>")
+        stale_asset = reports_dir / "assets" / "viewer.js"
+        stale_asset.write_text("// the retired single-file viewer")
         (reports_dir / ".portal-version").write_text("0.0.0-stale")
 
         result = self._sync(repo)
-        self.assertEqual(set(result["removed"]), {str(legacy_dated), str(legacy_numbered)})
-        self.assertFalse(legacy_dated.exists())
-        self.assertFalse(legacy_numbered.exists())
-        self.assertTrue((reports_dir / "index.html").is_file(), "the shell itself survives")
-        self.assertTrue((self._data_dir(repo) / "queue.js").is_file())
-
-    def test_migrate_removes_reportdir_mirror_legacy_html(self):
-        repo = self.make_repo("alpha")
-        self._build_batch(repo, "2026-09-23-a")
-        report_dir = self._repos_dir / "shared-reports"
-        mirror_dir = report_dir / "alpha"
-        mirror_dir.mkdir(parents=True)
-        legacy = mirror_dir / "2026-09-23-a.html"
-        legacy.write_text("<html>old</html>")
-
-        result = self.json_out(self.run_cfq(
-            "portal", "rebuild", str(repo), "--migrate", env={"CFQ_REPORT_DIR": str(report_dir)},
-        ))
-        self.assertEqual(result["status"], "OK")
-        self.assertIn(str(legacy), result["removed"])
-        self.assertFalse(legacy.exists())
+        self.assertTrue(old_report.is_file(), "old per-batch html is no longer cleaned up")
+        self.assertFalse(stale_asset.exists())
+        self.assertEqual(result["removed"], [str(stale_asset)])
 
     # ---- install: the fixed viewer shell -------------------------------------------------------
 
