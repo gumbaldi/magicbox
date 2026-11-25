@@ -35,7 +35,7 @@ PROG = "cfq_ifq_preflight.py"
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
 GATE_LINE_RE = re.compile(
-    r"^USED=(?P<used>[^ ]+) SIZE=(?P<size>[A-Z]) LIMIT=(?P<limit>-?[0-9]+) "
+    r"^USED=(?P<used>[^ ]+) LIMIT=(?P<limit>-?[0-9]+) "
     r"(?P<verdict>START|WARN|HANDOFF) REASON=(?P<reason>[a-zA-Z]+) \((?P<note>.*)\)$"
 )
 
@@ -366,12 +366,11 @@ def cmd_preflight(args):
     next_phase = phases_open[0] if phases_open else None
     if next_phase is not None:
         next_slug = next_phase["slug"]
-        next_size = next_phase["size"]
         failed = json.loads(cfq_run("report", "last-failure", str(batch_dir), next_slug).stdout)
         next_phase_json = {**next_phase, "failedAttempt": failed}
 
         gate_proc = subprocess.run(
-            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate", next_size,
+            [sys.executable, str(SCRIPT_DIR / "ctx_usage.py"), "gate",
              "--repo", repo],
             capture_output=True, text=True,
         )
@@ -381,13 +380,13 @@ def cmd_preflight(args):
             print(render.dump_json({
                 "status": "GATE_PARSE_FAILED", "detail": gate_line,
                 "action": "ctx_usage.py emitted a gate line that does not match the expected "
-                          "USED/SIZE/LIMIT/verdict/REASON grammar; check ctx_usage.py and "
+                          "USED/LIMIT/verdict/REASON grammar; check ctx_usage.py and "
                           "cfq_ifq_preflight.py for drift",
             }))
             sys.exit(1)
         used = None if m.group("used") == "?" else int(m.group("used"))
         gate_json = {
-            "used": used, "size": m.group("size"), "limit": int(m.group("limit")),
+            "used": used, "limit": int(m.group("limit")),
             "verdict": m.group("verdict"), "reason": m.group("reason"), "note": m.group("note"),
         }
     else:

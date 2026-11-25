@@ -832,9 +832,10 @@ sys.exit(subprocess.run([sys.executable, {str(real)!r}] + sys.argv[1:]).returnco
         batch.mkdir(parents=True)
         (batch / "01-a.md").write_text("# T\n")
         out = self.json_out(self._run_pf(str(repo9)))
-        self.assertEqual(out["contextGate"]["size"], "M", msg=f"missing ## Size should default to M: {out}")
+        self.assertEqual(out["nextPhase"]["size"], "M", msg=f"missing ## Size should default to M: {out}")
+        self.assertNotIn("size", out["contextGate"], msg=f"contextGate carries no size: {out}")
         direct_gate = self.run_clean(
-            "python3", str(self.scripts_copy / "ctx_usage.py"), "gate", "M", "--repo", str(repo9),
+            "python3", str(self.scripts_copy / "ctx_usage.py"), "gate", "--repo", str(repo9),
             env={"HOME": str(self.home)},
         ).stdout
         # The original Bash test only ever looked for START/HANDOFF here, silently missing WARN

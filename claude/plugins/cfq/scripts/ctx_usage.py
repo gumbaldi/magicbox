@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # Usage: ctx_usage.py [--repo <path>]              # post-phase check
-#        ctx_usage.py [gate <SIZE>] [--repo <path>]  # pre-phase gate; SIZE kept for call-site
-#                                   # compatibility with an existing consumer, no longer affects
-#                                   # the decision
+#        ctx_usage.py [gate] [--repo <path>]         # pre-phase gate
 """Gate policy: three verdicts, five reasons, three independent off switches.
   - START (gate) / OK (post-phase), reason=none: nothing fired, continue normally.
   - WARN, reason=fiveHour|sevenDay|unknown: advisory only -- the caller decides whether to
@@ -79,14 +77,11 @@ def main(argv):
     stop_7d = resolved_setting(repo, "stopSevenDayPct", 95)
 
     gate = bool(argv) and argv[0] == "gate"
-    size = ""
-    if gate:
-        size = argv[1] if len(argv) > 1 and argv[1] in ("S", "M", "L") else "M"
 
     # All three switches off: no reason can ever fire, nothing to resolve.
     if stop_used == -1 and stop_5h == -1 and stop_7d == -1:
         if gate:
-            print(f"USED=? SIZE={size} LIMIT=-1 START REASON=none (all stop reasons disabled)")
+            print("USED=? LIMIT=-1 START REASON=none (all stop reasons disabled)")
         else:
             print("USED=? OK REASON=none (all stop reasons disabled)")
         return
@@ -136,7 +131,7 @@ def main(argv):
             note = f"{note}, {rate_note}"
         if gate:
             verdict = "START" if reason == "none" else "WARN"
-            print(f"USED=? SIZE={size} LIMIT={stop_used} {verdict} REASON={reason} ({note})")
+            print(f"USED=? LIMIT={stop_used} {verdict} REASON={reason} ({note})")
         else:
             verdict = "OK" if reason == "none" else "WARN"
             print(f"USED=? {verdict} REASON={reason} ({note})")
@@ -156,7 +151,7 @@ def main(argv):
 
     if gate:
         verdict = {"none": "START", "capacity": "HANDOFF"}.get(reason, "WARN")
-        print(f"USED={used} SIZE={size} LIMIT={stop_used} {verdict} REASON={reason} ({note})")
+        print(f"USED={used} LIMIT={stop_used} {verdict} REASON={reason} ({note})")
     else:
         verdict = {"none": "OK", "capacity": "STOP"}.get(reason, "WARN")
         print(f"USED={used} {verdict} REASON={reason} ({note})")

@@ -15,7 +15,7 @@ from cfq_testlib import CfqTestCase
 SID = "sid1"
 
 GATE_LINE_RE = re.compile(
-    r"^USED=(?P<used>[^ ]+) SIZE=(?P<size>[A-Z]) LIMIT=(?P<limit>-?[0-9]+) "
+    r"^USED=(?P<used>[^ ]+) LIMIT=(?P<limit>-?[0-9]+) "
     r"(?P<verdict>START|WARN|HANDOFF) REASON=(?P<reason>[a-zA-Z]+) \((?P<note>.*)\)$"
 )
 
@@ -35,9 +35,9 @@ class TestCtxUsage(CfqTestCase):
     def test_capacity_boundaries(self):
         cases = [
             dict(
-                name="under limit gate", mode="gate", size="S",
+                name="under limit gate", mode="gate",
                 env={"CFQ_CTX_TEST_USED": "50000", "CFQ_STOP_USED": "100000"},
-                want_all=["USED=50000", "SIZE=S", "LIMIT=100000", "START REASON=none"],
+                want_all=["USED=50000", "LIMIT=100000", "START REASON=none"],
             ),
             dict(
                 name="under limit no-arg", mode="noarg",
@@ -45,7 +45,7 @@ class TestCtxUsage(CfqTestCase):
                 want_eq="USED=50000 OK REASON=none (test override)",
             ),
             dict(
-                name="boundary gate (>=, not >)", mode="gate", size="M",
+                name="boundary gate (>=, not >)", mode="gate",
                 env={"CFQ_CTX_TEST_USED": "100000", "CFQ_STOP_USED": "100000"},
                 want_all=["USED=100000", "HANDOFF REASON=capacity"],
             ),
@@ -60,12 +60,12 @@ class TestCtxUsage(CfqTestCase):
                 want_eq="USED=100001 STOP REASON=capacity (test override, used 100001 >= 100000)",
             ),
             dict(
-                name="custom stopUsed", mode="gate", size="L",
+                name="custom stopUsed", mode="gate",
                 env={"CFQ_CTX_TEST_USED": "19999", "CFQ_STOP_USED": "20000"},
                 want_all=["USED=19999", "LIMIT=20000", "START REASON=none"],
             ),
             dict(
-                name="stopUsed=0 gate bypass (capacity only)", mode="gate", size="S",
+                name="stopUsed=0 gate bypass (capacity only)", mode="gate",
                 env={"CFQ_CTX_TEST_USED": "99999999", "CFQ_STOP_USED": "0"},
                 want_all=["LIMIT=0", "START REASON=none"],
             ),
@@ -75,7 +75,7 @@ class TestCtxUsage(CfqTestCase):
                 want_eq="USED=1 STOP REASON=capacity (test override, used 1 >= 0)",
             ),
             dict(
-                name="stopUsed=-1 gate never capacity", mode="gate", size="L",
+                name="stopUsed=-1 gate never capacity", mode="gate",
                 env={"CFQ_CTX_TEST_USED": "99999999", "CFQ_STOP_USED": "-1"},
                 want_all=["LIMIT=-1", "START REASON=none"],
             ),
@@ -87,7 +87,7 @@ class TestCtxUsage(CfqTestCase):
         ]
         for case in cases:
             with self.subTest(case=case["name"]):
-                args = ("gate", case["size"]) if case["mode"] == "gate" else ()
+                args = ("gate",) if case["mode"] == "gate" else ()
                 out = self._run(*args, env=case["env"]).stdout.strip()
                 if "want_eq" in case:
                     self.assertEqual(out, case["want_eq"], f"{case['name']} -> {out}")
@@ -98,24 +98,26 @@ class TestCtxUsage(CfqTestCase):
     def test_default_stop_used_is_125000_with_no_override(self):
         # No CFQ_STOP_USED at all, and a throwaway HOME with no global settings file: the
         # schema default is what actually governs, not a test override.
-        out = self._run("gate", "M", env={"CFQ_CTX_TEST_USED": "50000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_CTX_TEST_USED": "50000"}).stdout.strip()
         self.assertIn("LIMIT=125000", out, out)
         self.assertIn("START REASON=none", out, out)
 
     def test_stopused_zero_bypass_does_not_suppress_unknown_reason(self):
         # A throwaway HOME with no override, no payload, no transcript: an unresolved context
         # reading still surfaces as an advisory WARN even while the capacity bypass is active.
-        out = self._run("gate", "S", env={"CFQ_STOP_USED": "0"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "0"}).stdout.strip()
         self.assertIn("LIMIT=0", out, out)
         self.assertIn("WARN REASON=unknown", out, out)
 
-    def test_malformed_or_missing_size_defaults_to_m(self):
+    def test_a_stray_size_argument_changes_nothing_and_no_size_is_printed(self):
         env = {"CFQ_CTX_TEST_USED": "1", "CFQ_STOP_USED": "100000"}
-        self.assertIn("SIZE=M", self._run("gate", "XL", env=env).stdout.strip())
-        self.assertIn("SIZE=M", self._run("gate", env=env).stdout.strip())
+        with_arg = self._run("gate", "XL", env=env).stdout.strip()
+        without_arg = self._run("gate", env=env).stdout.strip()
+        self.assertEqual(with_arg, without_arg)
+        self.assertNotIn("SIZE=", without_arg)
 
     def test_unknown_used_warns_not_blocks(self):
-        for args in [("gate", "M"), ()]:
+        for args in [("gate",), ()]:
             with self.subTest(mode="gate" if args else "no-arg"):
                 out = self._run(*args, env={"CFQ_STOP_USED": "100000"}).stdout.strip()
                 self.assertIn("USED=?", out, out)
@@ -132,7 +134,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":80},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("WARN REASON=fiveHour", out, out)
         self.assertIn("5h 80% >= 70", out, out)
         out = self._run(env={"CFQ_STOP_USED": "100000"}).stdout.strip()
@@ -145,7 +147,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":97}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("WARN REASON=sevenDay", out, out)
         self.assertIn("7d 97% >= 95", out, out)
         out = self._run(env={"CFQ_STOP_USED": "100000"}).stdout.strip()
@@ -164,17 +166,17 @@ class TestCtxUsage(CfqTestCase):
         repo = self._repo_limits()
         r2 = self._repos_dir / "r2"
         cases = [
-            dict(name="routine gate", args=("gate", "M", "--repo", str(repo)), used="70000",
+            dict(name="routine gate", args=("gate", "--repo", str(repo)), used="70000",
                  want=["LIMIT=60000", "HANDOFF REASON=capacity"]),
             dict(name="routine post-phase", args=("--repo", str(repo)), used="70000",
                  want=["STOP REASON=capacity", "used 70000 >= 60000"]),
-            dict(name="below the repo limit", args=("gate", "M", "--repo", str(repo)),
+            dict(name="below the repo limit", args=("gate", "--repo", str(repo)),
                  used="50000", want=["LIMIT=60000", "START REASON=none"]),
-            dict(name="flag before the verb", args=("--repo", str(repo), "gate", "M"),
+            dict(name="flag before the verb", args=("--repo", str(repo), "gate"),
                  used="70000", want=["LIMIT=60000", "HANDOFF REASON=capacity"]),
-            dict(name="repo without a settings file", args=("gate", "M", "--repo", str(r2)),
+            dict(name="repo without a settings file", args=("gate", "--repo", str(r2)),
                  used="70000", want=["LIMIT=100000", "START REASON=none"]),
-            dict(name="env still wins", args=("gate", "M", "--repo", str(repo)), used="70000",
+            dict(name="env still wins", args=("gate", "--repo", str(repo)), used="70000",
                  env={"CFQ_STOP_USED": "200000"}, want=["LIMIT=200000", "START"]),
         ]
         for case in cases:
@@ -187,17 +189,17 @@ class TestCtxUsage(CfqTestCase):
     def test_no_repo_flag_uses_working_directory_only_when_lookup_is_on(self):
         repo = self._repo_limits()
         env = {"CFQ_CTX_TEST_USED": "70000"}
-        out = self.run_cfq("ctx", "gate", "M", env={"CLAUDE_CODE_SESSION_ID": SID, **env},
+        out = self.run_cfq("ctx", "gate", env={"CLAUDE_CODE_SESSION_ID": SID, **env},
                            cwd=repo).stdout.strip()
         self.assertIn("LIMIT=100000", out, out)
-        out = self.run_cfq("ctx", "gate", "M", cwd=repo, env={
+        out = self.run_cfq("ctx", "gate", cwd=repo, env={
             "CLAUDE_CODE_SESSION_ID": SID, "CFQ_SETTINGS_AUTO_REPO": "1", **env,
         }).stdout.strip()
         self.assertIn("LIMIT=60000", out, out)
 
     def test_dangling_repo_flag_never_crashes_the_gate(self):
         self._repo_limits()
-        proc = self._run("gate", "M", "--repo", env={"CFQ_CTX_TEST_USED": "50000"})
+        proc = self._run("gate", "--repo", env={"CFQ_CTX_TEST_USED": "50000"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertRegex(proc.stdout.strip(), GATE_LINE_RE)
 
@@ -210,9 +212,9 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":97}}}'
         )
-        out = self._run("gate", "M", "--repo", str(repo)).stdout.strip()
+        out = self._run("gate", "--repo", str(repo)).stdout.strip()
         self.assertNotIn("REASON=sevenDay", out, out)
-        out = self._run("gate", "M").stdout.strip()
+        out = self._run("gate").stdout.strip()
         self.assertIn("REASON=sevenDay", out, out)
 
     def test_rate_limits_below_threshold_capacity_over_stopused_handoffs(self):
@@ -222,7 +224,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":20000}},'
             '"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("HANDOFF REASON=capacity", out, out)
         self.assertIn("used 110000 >= 100000", out, out)
 
@@ -235,7 +237,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":20000}},'
             '"rate_limits":{"five_hour":{"used_percentage":80},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("HANDOFF REASON=capacity", out, out)
         self.assertIn("5h 80% >= 70", out, out)
         self.assertIn("used 110000 >= 100000", out, out)
@@ -251,7 +253,7 @@ class TestCtxUsage(CfqTestCase):
             '"current_usage":{"input_tokens":10000,"cache_creation_input_tokens":10000,'
             '"cache_read_input_tokens":10000}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("START REASON=none", out, out)
         self.assertNotIn("5h", out, out)
         self.assertNotIn("7d", out, out)
@@ -264,7 +266,7 @@ class TestCtxUsage(CfqTestCase):
             '"rate_limits":{"five_hour":{"used_percentage":99},"seven_day":{"used_percentage":10}}}'
         )
         out = self._run(
-            "gate", "M", env={"CFQ_STOP_USED": "100000", "CFQ_STOP_FIVE_HOUR_PCT": "-1"},
+            "gate", env={"CFQ_STOP_USED": "100000", "CFQ_STOP_FIVE_HOUR_PCT": "-1"},
         ).stdout.strip()
         self.assertIn("START REASON=none", out, out)
 
@@ -275,7 +277,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "-1"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "-1"}).stdout.strip()
         self.assertIn("LIMIT=-1", out, out)
         self.assertIn("START REASON=none", out, out)
 
@@ -289,7 +291,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":80},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "-1"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "-1"}).stdout.strip()
         self.assertIn("LIMIT=-1", out, out)
         self.assertIn("WARN REASON=fiveHour", out, out)
         self.assertIn("5h 80% >= 70", out, out)
@@ -298,7 +300,7 @@ class TestCtxUsage(CfqTestCase):
         disabled = {
             "CFQ_STOP_USED": "-1", "CFQ_STOP_FIVE_HOUR_PCT": "-1", "CFQ_STOP_SEVEN_DAY_PCT": "-1",
         }
-        out = self._run("gate", "M", env=disabled).stdout.strip()
+        out = self._run("gate", env=disabled).stdout.strip()
         self.assertIn("LIMIT=-1", out, out)
         self.assertIn("START REASON=none", out, out)
         out = self._run(env=disabled).stdout.strip()
@@ -311,7 +313,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":1000}},'
             '"rate_limits":{"five_hour":{"used_percentage":80},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "0"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "0"}).stdout.strip()
         self.assertIn("WARN REASON=fiveHour", out, out)
         self.assertIn("5h 80% >= 70", out, out)
 
@@ -322,7 +324,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":9700}},'
             '"rate_limits":{"five_hour":{"used_percentage":28},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertIn("START REASON=none", out, out)
         self.assertIn("cache 97%", out, out)
         self.assertIn("5h 28%", out, out)
@@ -337,7 +339,7 @@ class TestCtxUsage(CfqTestCase):
             '"cache_read_input_tokens":180000}},'
             '"rate_limits":{"five_hour":{"used_percentage":28},"seven_day":{"used_percentage":10}}}'
         )
-        out = self._run("gate", "M", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
+        out = self._run("gate", env={"CFQ_STOP_USED": "100000"}).stdout.strip()
         self.assertRegex(out, GATE_LINE_RE, f"gate line failed preflight capture regex -> {out}")
 
 

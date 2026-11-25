@@ -31,7 +31,7 @@ way.
 ## Size Gate
 
 `contextGate` — deterministic projection, already computed by the
-preflight from the phase's `## Size` heading, never prose arithmetic. `contextGate.verdict`, three
+preflight from the context reading and the stop settings, never prose arithmetic. `contextGate.verdict`, three
 branches:
 
 - `START` → **Phase Announcement**, then **Implementation**.

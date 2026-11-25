@@ -100,7 +100,7 @@ one-phase-per-session on, the session ends after a phase either way, and the bud
 nothing. `onePhasePerSession` has no effect on the orchestrator loop, in either `stopUsed` state —
 see `<plugin-root>/references/orchestrator.md` step 1.
 
-Print the `Size Gate` status line as `USED=<contextGate.used|?> SIZE=<contextGate.size>
+Print the `Size Gate` status line as `USED=<contextGate.used|?>
 LIMIT=<contextGate.limit> <contextGate.verdict> <contextGate.reason> (<contextGate.note>)`, icon
 `✅` for `START`, `⚠️` for `WARN`, `❌` for `HANDOFF` — `contextGate.reason` names which threshold
 fired structurally, the report repeats that token rather than a paraphrase of the note.

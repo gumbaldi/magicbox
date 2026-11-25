@@ -314,7 +314,7 @@ restate a field list inline — read the field here, then read it back from the 
   priority, open, done}], blocked: [{name, dependsOn, unknownDeps}], planning: [name, …],
   inProgress, multipleInProgress}, batch: {name, priority, phaseCount, dependsOn} |
   null, nextPhase: {num, slug, size, failedAttempt} | null, branch: {…`bin/cfq branch plan`'s shape}
-  | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used, size,
+  | null, resume: {…`bin/cfq resume`'s shape minus `branch`} | null, contextGate: {used,
   limit, verdict, reason, note} | null}`. `status`: `OK`, `NO_REPO`,
   `MULTIPLE_IN_PROGRESS`, `BLOCKED`, or `NO_BATCH`. With `--injected` (the call `commands/ifq.md`
   runs when the command loads, without argument text) the call is read-only, adds `injected: true`,
