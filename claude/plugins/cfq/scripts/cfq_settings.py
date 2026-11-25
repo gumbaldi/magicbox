@@ -6,7 +6,6 @@
 #        cfq_settings.py describe [<key>]
 #        cfq_settings.py unknown [--repo <path> | --global]
 #        cfq_settings.py menu [--repo <path>] [--group <id>] [--format text|json]
-#        cfq_settings.py migrate <repo-root>
 #        cfq_settings.py trust-hook [--repo <path>] [--revoke] [--status]
 #        cfq_settings.py state get <key> | state set <key> <value>
 """Manages cfq settings: $HOME/.claude/cfq/settings.json (global) and, per repo,
@@ -228,8 +227,8 @@ def with_overrides(data):
 
 
 def key_source(key, repo_path, base_json, final_json):
-    """Determines which tier actually supplied `key`'s final value: env:process /
-    env:repo-legacy / repo / global / default. "global"/"repo" mean the key is actually present
+    """Determines which tier actually supplied `key`'s final value: env:process / repo /
+    global / default. "global"/"repo" mean the key is actually present
     in that tier's file on disk — ensure() only ever materializes an empty {} for a fresh global
     file, so a key no one ever `set` stays "default" no matter how many other calls touched it."""
     entry = SCHEMA.get(key, {})
@@ -237,14 +236,6 @@ def key_source(key, repo_path, base_json, final_json):
     if env_name:
         same = base_json.get(key) == final_json.get(key)
         if not same:
-            if repo_path:
-                legacy_settings = os.path.join(repo_path, ".claude", "settings.json")
-                if os.path.isfile(legacy_settings):
-                    legacy = _read_json(legacy_settings, default={})
-                    legacy_env = legacy.get("env", {}) if isinstance(legacy, dict) else {}
-                    legacy_val = legacy_env.get(env_name, "") if isinstance(legacy_env, dict) else ""
-                    if legacy_val and legacy_val == os.environ.get(env_name, ""):
-                        return "env:repo-legacy"
             return "env:process"
     if repo_path:
         repo_file = paths.repo_settings_file(repo_path)
@@ -431,10 +422,8 @@ def cmd_describe(args):
 
 def _marker(source):
     """Maps a `key_source()` result onto the four-letter legend `settings menu` prints:
-    [D] default [G] global [R] repo [E] env — both env flavours (`env:process` and the legacy
-    `env:repo-legacy`) share the E marker, distinguished in text output by a trailing note
-    instead of a fifth letter."""
-    if source in ("env:process", "env:repo-legacy"):
+    [D] default [G] global [R] repo [E] env."""
+    if source == "env:process":
         return "E"
     if source == "repo":
         return "R"
@@ -568,8 +557,6 @@ def _render_menu_group(group_out, repo_path):
             notes.append("global only")
         if "global" not in entry["scope"]:
             notes.append("repo only")
-        if k["source"] == "env:repo-legacy":
-            notes.append("(legacy env)")
         rows.append([
             f"[{k['marker']}]",
             k["key"],
@@ -604,30 +591,6 @@ def cmd_menu(args):
 def cmd_unknown(args):
     repo_path, _ = _read_scope(args)
     print(render.dump_json(unknown_keys(repo_path)))
-
-
-def cmd_migrate(args):
-    repo_root = args.repo_root
-    legacy = os.path.join(repo_root, ".claude", "settings.json")
-    if not os.path.isfile(legacy):
-        print(f"{PROG}: no {legacy} found, nothing to migrate")
-        return
-    legacy_data = _read_json(legacy, default={})
-    env_block = legacy_data.get("env", {}) if isinstance(legacy_data, dict) else {}
-    if not isinstance(env_block, dict):
-        env_block = {}
-    migrated = 0
-    for key, entry in SCHEMA.items():
-        env_name = entry.get("env")
-        if not env_name:
-            continue
-        val = env_block.get(env_name)
-        if not val:
-            continue
-        _apply_set(key, str(val), repo_root)
-        print(f"migrated {key} = {val}")
-        migrated += 1
-    print(f"done — {migrated} key(s) migrated into {repo_root}/.claude/cfq/settings.json; original {legacy} left untouched")
 
 
 def cmd_state_get(args):
@@ -758,10 +721,6 @@ def build_parser():
     menu_p.add_argument("--format", choices=["text", "json"], default="text")
     menu_p.set_defaults(func=cmd_menu)
 
-    migrate_p = sub.add_parser("migrate")
-    migrate_p.add_argument("repo_root")
-    migrate_p.set_defaults(func=cmd_migrate)
-
     trust_p = sub.add_parser("trust-hook")
     trust_p.add_argument("--repo")
     trust_p.add_argument("--revoke", action="store_true")
@@ -795,7 +754,7 @@ def main(argv):
             f"set [--repo <path>] <key> <value> | unset [--repo <path>] <key> | describe [<key>] | "
             f"unknown [--repo <path> | --global] | "
             f"menu [--repo <path>] [--group <id>] [--format text|json] | "
-            f"migrate <repo-root> | trust-hook [--repo <path>] [--revoke] [--status] | "
+            f"trust-hook [--repo <path>] [--revoke] [--status] | "
             f"state get <key> | state set <key> <value>"
         )
     func(args)

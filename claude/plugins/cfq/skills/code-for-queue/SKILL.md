@@ -98,8 +98,8 @@ Explaining a setting pairs its `bin/cfq settings describe [<key>]` text with
 reduce to schema data.
 
 Change requests go through `bin/cfq settings set [--repo <path>] <key> <value>` (or `unset`) — read
-each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference,
-the global-only rejection, and the `env:repo-legacy` migration note are in
+each key's value/source straight from `.settings` (**Aggregate**'s call), never re-list. Scope inference
+and the global-only rejection are in
 `${CLAUDE_PLUGIN_ROOT}/references/dashboard.md`. After a change, print one status line:
 `✅ Setting  maintenanceEvery: 50 → 40 (global)`, or `⚠️ Setting  stopUsed set, but
 CFQ_STOP_USED overrides` when an env var shadows the key.

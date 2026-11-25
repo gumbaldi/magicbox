@@ -84,7 +84,7 @@ ACTION
 
 The guided `/cfq settings` picker (`<plugin-root>/references/settings-menu.md`) navigates the same
 schema this section describes and reuses everything below — scope inference, the global-only
-rejection, the `env:repo-legacy` migration note — rather than duplicating it; a free-text change
+rejection — rather than duplicating it; a free-text change
 request ("set stopUsed to 100000") keeps landing here directly. `ACTIONS`' two permanent rows,
 `settings menu` (`/cfq settings`) and `setup wizard` (`/cfq setup`), point at the picker and at the
 onboarding wizard respectively; both stay listed on every render, in a repo or outside one, rather
@@ -106,11 +106,6 @@ these is a misconfiguration, don't flag any of them.
 Infer `--global` vs. `--repo` from the user's own phrasing where it's unambiguous ("for this repo",
 "just here" → `--repo`; "everywhere", "by default" → global) — only ask via `AskUserQuestion` when
 genuinely ambiguous, not on every request.
-
-If any `.settings` entry has `source: "env:repo-legacy"` (the value comes from the old per-repo
-`env` block in `<repo>/.claude/settings.json`, not a `CFQ_*` shell variable), print one note
-pointing at `bin/cfq settings migrate <repo-root>` to carry that override into the repo settings
-file — once per session, not once per key.
 
 A rejected out-of-scope `--repo` attempt prints `❌ Setting  scanRoots is global-only, use set
 scanRoots <value> without --repo`.

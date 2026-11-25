@@ -673,9 +673,9 @@ class SettingsTest(CfqTestCase):
                 msg=f"untouched key after unrelated get -> got '{got}', want source default",
             )
 
-    # 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, legacy
-    # detection, migrate. Fresh HOME and a throwaway fixture repo -- never the real repo.
-    def test_10_repo_scoped_settings_precedence_and_migrate(self):
+    # 10. Repo-scoped settings: precedence chain, scope rejection, unset fall-through, the
+    # plain env block. Fresh HOME and a throwaway fixture repo -- never the real repo.
+    def test_10_repo_scoped_settings_precedence(self):
         with tempfile.TemporaryDirectory() as repo_home, tempfile.TemporaryDirectory() as fixture_s:
             fixture = pathlib.Path(fixture_s)
 
@@ -755,8 +755,8 @@ class SettingsTest(CfqTestCase):
                 got, '{"value":20,"source":"global"}', msg=f"unset --repo fall-through -> got '{got}'"
             )
 
-            # Legacy detection: a repo's own .claude/settings.json "env" block is
-            # read-only/informational
+            # A repo's own .claude/settings.json "env" block is no longer special: a value
+            # that differs from the tiered result is plain process env.
             (fixture / ".claude").mkdir(parents=True, exist_ok=True)
             (fixture / ".claude" / "settings.json").write_text(
                 '{"env":{"CFQ_DOC_LEVEL":"standard"}}'
@@ -775,24 +775,13 @@ class SettingsTest(CfqTestCase):
             got_source = out["docLevel"]
             self.assertEqual(
                 got_source,
-                {"value": "standard", "source": "env:repo-legacy"},
-                msg=f"legacy detection -> got '{got_source}'",
+                {"value": "standard", "source": "env:process"},
+                msg=f"env block no longer detected -> got '{got_source}'",
             )
 
-            # migrate writes the equivalent key into <fixture>/.claude/cfq/settings.json via
-            # `set --repo` and never touches the original .claude/settings.json
-            legacy_before = (fixture / ".claude" / "settings.json").read_text()
-            self.run_cfq("settings", "migrate", str(fixture), home=repo_home, check=True)
-            got = json.loads(
-                (fixture / ".claude" / "cfq" / "settings.json").read_text()
-            )["docLevel"]
-            self.assertEqual(got, "standard", msg=f"migrate docLevel -> got '{got}'")
-            legacy_after = (fixture / ".claude" / "settings.json").read_text()
-            self.assertEqual(
-                legacy_before,
-                legacy_after,
-                msg="migrate modified the original .claude/settings.json",
-            )
+            # The one-time conversion verb is gone: the settings script rejects it.
+            proc = self.run_cfq("settings", "migrate", str(fixture), home=repo_home)
+            self.assertNotEqual(proc.returncode, 0, msg="the removed verb must fail")
 
     # 11. describe: well-formed JSON with type/default/scope/env/description, single key and all keys
     def test_11_describe(self):
@@ -1349,23 +1338,6 @@ class SettingsTest(CfqTestCase):
         self.assertTrue(
             maint_line.strip().startswith("[E]"), msg=f"env-shadowed key not marked E: {maint_line!r}"
         )
-
-    # 22c. settings menu --group: the legacy `env` block source gets marker E plus a trailing
-    # "(legacy env)" note.
-    def test_22c_menu_group_legacy_env_note(self):
-        with tempfile.TemporaryDirectory() as fixture_s:
-            fixture = pathlib.Path(fixture_s)
-            (fixture / ".claude").mkdir(parents=True, exist_ok=True)
-            (fixture / ".claude" / "settings.json").write_text(
-                '{"env":{"CFQ_DOC_LEVEL":"standard"}}'
-            )
-            out = self.run_cfq(
-                "settings", "menu", "--repo", str(fixture), "--group", "language",
-                home=self.home, env={"CFQ_DOC_LEVEL": "standard"},
-            ).stdout
-            doc_level_line = next(l for l in out.splitlines() if "docLevel" in l)
-            self.assertTrue(doc_level_line.strip().startswith("[E]"))
-            self.assertIn("(legacy env)", doc_level_line)
 
     # 23. settings menu --group nope: UNKNOWN_GROUP, non-zero exit.
     def test_23_menu_unknown_group(self):

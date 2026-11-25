@@ -172,10 +172,7 @@ Read `codeLanguage`/`docLanguages`/`docLevel` (group `language`), `branchPerBatc
 `implementation`), `gitStatePolicy` (group `repo`), `maintenanceEvery` (group `maintenance`), and
 `htmlReport`/`reportDir` (group `reports`) from the returned groups — each entry's own
 `value`/`source`/`marker` is "current" throughout this section, never a fresh `bin/cfq settings get`
-per question. Any of those eight keys reporting `source: "env:repo-legacy"` (an override still
-living in `<repo-root>/.claude/settings.json`'s `env` block rather than the repo settings file) →
-note it once, before the **Opening Question**, naming the affected key(s) and pointing at `bin/cfq
-settings migrate <repo-root>`.
+per question.
 
 ### Opening Question
 

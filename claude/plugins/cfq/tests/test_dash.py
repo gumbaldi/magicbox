@@ -207,8 +207,7 @@ class TestDash(CfqTestCase):
 
     def test_settings_marker_mapping(self):
         # 5. Marker mapping, one case per --sources value (default/global/repo/env:process), plus
-        # the env:process must-fall-back to the masked file value (not just the env value), plus
-        # env:repo-legacy.
+        # the env:process must-fall-back to the masked file value (not just the env value).
         mroot = self._repos_dir / "mroot"
         mfixture = mroot / "mfixture"
         (mfixture / ".claude" / "cfq").mkdir(parents=True)
@@ -245,11 +244,6 @@ class TestDash(CfqTestCase):
             f"docLevel maskedValue must be the repo file value, not just the env value, got {envd}",
         )
         self.assertEqual(envd["maskedSource"], "repo", f"docLevel maskedSource = {envd}")
-
-        (mfixture / ".claude" / "settings.json").write_text('{"env":{"CFQ_DOC_LEVEL":"minimal"}}')
-        envl = key_row("docLevel", run_dash(env={"CFQ_DOC_LEVEL": "minimal"}))
-        self.assertEqual(envl["marker"], "E", f"env:repo-legacy marker = {envl}")
-        self.assertEqual(envl["source"], "env:repo-legacy", f"env:repo-legacy source = {envl}")
 
     def test_this_repo_open_only_and_next_expanded(self):
         # routine: one open batch among three archived ones -> exactly one table row, a "N
